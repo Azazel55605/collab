@@ -967,7 +967,44 @@ pub fn validate_document(value: &Value, limits: DeckLimits) -> Result<(), DeckVa
                 }
                 if !matches!(
                     animation.get("effect").and_then(Value::as_str),
-                    Some("appear" | "fade" | "fly" | "zoom")
+                    Some(
+                        "appear"
+                            | "fade"
+                            | "fly"
+                            | "float"
+                            | "split"
+                            | "wipe"
+                            | "zoom"
+                            | "swivel"
+                            | "bounce"
+                            | "blinds"
+                            | "box"
+                            | "checkerboard"
+                            | "circle"
+                            | "crawl"
+                            | "diamond"
+                            | "dissolve"
+                            | "growAndTurn"
+                            | "peek"
+                            | "randomBars"
+                            | "shape"
+                            | "spiral"
+                            | "stretch"
+                            | "strips"
+                            | "wheel"
+                            | "pulse"
+                            | "spin"
+                            | "growShrink"
+                            | "teeter"
+                            | "transparency"
+                            | "blink"
+                            | "colorPulse"
+                            | "darken"
+                            | "desaturate"
+                            | "flicker"
+                            | "lighten"
+                            | "wave"
+                    )
                 ) || !matches!(
                     animation.get("phase").and_then(Value::as_str),
                     Some("entrance" | "emphasis" | "exit")
@@ -1244,6 +1281,9 @@ mod tests {
             "durationMs": 500,
             "delayMs": 100
         }]);
+        assert_eq!(check(&deck), Ok(()));
+
+        deck["slides"]["slide-1"]["animations"][0]["effect"] = json!("wheel");
         assert_eq!(check(&deck), Ok(()));
 
         deck["slides"]["slide-1"]["animations"][0]["delayMs"] = json!(-1);

@@ -18,6 +18,7 @@ import {
   Group,
   ImageIcon,
   LayoutTemplate,
+  ListTree,
   Loader2,
   Lock,
   Minus,
@@ -44,6 +45,7 @@ import {
 import { toast } from 'sonner';
 
 import LivePeers from '../components/collaboration/LivePeers';
+import { DeckAnimationPane } from '../components/deck/DeckAnimationPane';
 import { DeckChartDialog } from '../components/deck/DeckChartDialog';
 import type { ChartEdit } from '../components/deck/DeckChartDialog';
 import { DeckDesignRail } from '../components/deck/DeckDesignRail';
@@ -287,6 +289,7 @@ const DEFAULT_VIEW_STATE: DeckViewState = {
   snapToObjects: true,
   showGrid: false,
   inspectorOpen: false,
+  animationPaneOpen: false,
 };
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
@@ -3194,13 +3197,33 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               </DocumentTopBarIconButton>
               <DocumentTopBarIconButton
                 onClick={() =>
-                  setViewState((current) => ({ ...current, inspectorOpen: !current.inspectorOpen }))
+                  setViewState((current) => ({
+                    ...current,
+                    inspectorOpen: !current.inspectorOpen,
+                    animationPaneOpen: false,
+                  }))
                 }
                 aria-label={viewState.inspectorOpen ? 'Hide design panel' : 'Show design panel'}
                 aria-pressed={viewState.inspectorOpen ?? false}
                 disabled={!supported}
               >
                 <PanelRight size={14} />
+              </DocumentTopBarIconButton>
+              <DocumentTopBarIconButton
+                onClick={() =>
+                  setViewState((current) => ({
+                    ...current,
+                    animationPaneOpen: !current.animationPaneOpen,
+                    inspectorOpen: false,
+                  }))
+                }
+                aria-label={
+                  viewState.animationPaneOpen ? 'Hide animation pane' : 'Show animation pane'
+                }
+                aria-pressed={viewState.animationPaneOpen ?? false}
+                disabled={!supported || Boolean(designTarget)}
+              >
+                <ListTree size={14} />
               </DocumentTopBarIconButton>
             </div>
             <div className={documentTopBarGroupClass}>
@@ -3518,8 +3541,6 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onSlideBackground={onSlideBackground}
             onTransitionChange={onTransitionChange}
             onTransitionPreview={previewTransition}
-            onAnimationAdd={onAnimationAdd}
-            onAnimationsChange={onAnimationsChange}
             onReadingOrderChange={onReadingOrderChange}
             onApplyTemplate={onApplyTemplate}
             onThemeColor={onThemeColor}
@@ -3533,6 +3554,22 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onObjectText={onObjectText}
           />
         )}
+        {(viewState.animationPaneOpen ?? false) &&
+          document &&
+          supported &&
+          activeSlideId &&
+          !designTarget && (
+            <DeckAnimationPane
+              deck={document}
+              slideId={activeSlideId}
+              selectedElementId={selectedIds.length === 1 ? selectedIds[0] : undefined}
+              readOnly={!editable}
+              onClose={() => setViewState((current) => ({ ...current, animationPaneOpen: false }))}
+              onSelectElement={(elementId) => setSelectedIds([elementId])}
+              onAnimationAdd={onAnimationAdd}
+              onAnimationsChange={onAnimationsChange}
+            />
+          )}
       </div>
 
       <DeckVaultPicker

@@ -150,9 +150,15 @@ Open tracker entries:
   [Presentation Release Validation](../build/presentation-release-validation.md).
 - General-release hardening Phase 1, **Complete**: the formatting row no longer
   moves the canvas when selection changes, blank-canvas arrow navigation is
-  focusable, resolved fonts gain bundled/platform fallbacks, and the main and
-  audience fullscreen surfaces reassert physical monitor bounds. The high-DPI
-  fixes still require confirmation in the physical multi-monitor matrix.
+  focusable, resolved fonts gain bundled/platform fallbacks, and native
+  fullscreen presentation fits the generated playback SVG through its animation
+  wrapper. Multi-monitor behavior remains in the physical release matrix.
+- General-release hardening Phase 2, **Complete**: a first click edits text
+  boxes with keyboard focus retained by the in-place editor, object builds have
+  a dedicated automatic/click-step animation tree, and playback accepts 36
+  PowerPoint-aligned entrance, emphasis, and exit effects. PPTX export continues
+  to report object animations as omitted until that interchange subset is
+  implemented and validated.
 - Phase 11, **Deferred**: bounded PPTX import into a new `.deck`; import is not
   required for the first production release.
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { DECK_ANIMATION_EFFECTS } from '../../types/deck';
 import type { DeckAnimation } from '../../types/deck';
 
-import { animationCss, animationTimeline } from './animation';
+import { animationCss, animationTimeline, EMPHASIS_EFFECTS } from './animation';
 
 const animation = (
   id: string,
@@ -50,5 +51,16 @@ describe('deck animation timeline', () => {
     expect(animationCss(animations, 2, true)).toContain(
       '[data-element="element-out"]{opacity:0;visibility:hidden;}',
     );
+  });
+
+  it('maps the expanded PowerPoint-style effect vocabulary to playback keyframes', () => {
+    const emphasis = new Set(EMPHASIS_EFFECTS.map(({ value }) => value));
+    expect(DECK_ANIMATION_EFFECTS).toHaveLength(36);
+    for (const effect of DECK_ANIMATION_EFFECTS) {
+      const phase = emphasis.has(effect) ? 'emphasis' : 'entrance';
+      expect(animationCss([{ ...animation('effect', 'click'), effect, phase }], 1)).toContain(
+        'deck-anim-',
+      );
+    }
   });
 });

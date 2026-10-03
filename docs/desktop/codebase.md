@@ -386,7 +386,10 @@ first-party writer; Phase 8 added the Android viewer/presenter and phone
 remote; Phase 9 added authored transitions and bounded object-animation
 timelines. Phase 10 added an independent accessibility reading order, semantic
 slide companion, authoring audit, heterogeneous workload/recovery/CRDT soak
-gates, and the presentation release-validation matrix.
+gates, and the presentation release-validation matrix. General-release
+hardening Phase 2 made text boxes content-first on click and moved object builds
+into a dedicated click-step animation tree with a larger PowerPoint-aligned
+effect vocabulary.
 Desktop presenter mode opens each audience surface under a unique Tauri label
 and event namespace. It creates the hidden WebView at the selected monitor's
 logical viewport size, maps it, then targets that output with Tauri's native
@@ -409,7 +412,8 @@ session's writes into a single undo step.
 | `components/deck/DeckTextEditor.tsx`                         | First-party `contenteditable` adapter: intercepts `beforeinput`/clipboard/IME, applies `richText.ts`, redraws       |
 | `components/deck/textDom.ts`                                 | Draws a resolved body into the editor (text nodes only) and maps DOM selection points to text offsets               |
 | `components/deck/DeckTextToolbar.tsx`                        | Font, size, styles, colour, alignment, lists and levels, spacing, links, autofit, reset to layout                   |
-| `components/deck/DeckInspector.tsx`                          | Design panel: slide/design settings plus transition and ordered object-animation timeline authoring                 |
+| `components/deck/DeckInspector.tsx`                          | Design panel: object, slide, transition, accessibility, theme, master, and layout settings                          |
+| `components/deck/DeckAnimationPane.tsx`                      | Independent object-animation tree grouped by automatic entry and click step, with effect and timing controls        |
 | `components/deck/DeckDesignRail.tsx`                         | Master view rail: masters and their layouts with usage counts; duplicate and delete layouts                         |
 | `components/deck/DeckLinkDialog.tsx`                         | Link to a web address or a slide; only `http(s)` and `mailto` addresses (`lib/deck/links.ts`)                       |
 | `components/deck/DeckObjectToolbar.tsx`                      | Fill, outline, arrowheads, shape, opacity, flip/rotate; image, table, chart, and linked-document actions            |

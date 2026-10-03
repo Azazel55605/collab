@@ -505,10 +505,56 @@ export interface DeckTransition {
   durationMs: number;
 }
 
+/**
+ * PowerPoint-aligned effect names. The stored vocabulary is intentionally
+ * semantic rather than CSS-specific so PPTX import/export can map it without
+ * first translating presentation concepts out of renderer names.
+ */
+export const DECK_ANIMATION_EFFECTS = [
+  'appear',
+  'fade',
+  'fly',
+  'float',
+  'split',
+  'wipe',
+  'zoom',
+  'swivel',
+  'bounce',
+  'blinds',
+  'box',
+  'checkerboard',
+  'circle',
+  'crawl',
+  'diamond',
+  'dissolve',
+  'growAndTurn',
+  'peek',
+  'randomBars',
+  'shape',
+  'spiral',
+  'stretch',
+  'strips',
+  'wheel',
+  'pulse',
+  'spin',
+  'growShrink',
+  'teeter',
+  'transparency',
+  'blink',
+  'colorPulse',
+  'darken',
+  'desaturate',
+  'flicker',
+  'lighten',
+  'wave',
+] as const;
+
+export type DeckAnimationEffect = (typeof DECK_ANIMATION_EFFECTS)[number];
+
 export interface DeckAnimation {
   id: string;
   elementId: string;
-  effect: 'appear' | 'fade' | 'fly' | 'zoom';
+  effect: DeckAnimationEffect;
   phase: 'entrance' | 'emphasis' | 'exit';
   trigger: 'click' | 'withPrevious' | 'afterPrevious';
   durationMs: number;

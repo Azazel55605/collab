@@ -2216,6 +2216,307 @@
   }
 }
 
+@keyframes deck-anim-float-in {
+  from {
+    opacity: 0;
+    translate: 0 8%;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes deck-anim-float-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    translate: 0 -8%;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-split-in {
+  from {
+    opacity: 0;
+    scale: 0 1;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-split-out {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0 1;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-wipe-in {
+  from {
+    opacity: 0;
+    scale: 0.02 1;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-wipe-out {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.02 1;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-swivel-in {
+  from {
+    opacity: 0;
+    rotate: y 90deg;
+  }
+  to {
+    opacity: 1;
+    rotate: y 0deg;
+  }
+}
+
+@keyframes deck-anim-swivel-out {
+  from {
+    opacity: 1;
+    rotate: y 0deg;
+  }
+  to {
+    opacity: 0;
+    rotate: y 90deg;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-bounce-in {
+  0% {
+    opacity: 0;
+    translate: 0 -18%;
+  }
+  60% {
+    opacity: 1;
+    translate: 0 5%;
+  }
+  80% {
+    translate: 0 -2%;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+
+@keyframes deck-anim-bounce-out {
+  0% {
+    opacity: 1;
+    translate: 0 0;
+  }
+  30% {
+    translate: 0 5%;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 -18%;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-blinds-in {
+  from {
+    opacity: 0;
+    scale: 0 1;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-box-in {
+  from {
+    opacity: 0;
+    scale: 0.05;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-checkerboard-in {
+  0%,
+  35% {
+    opacity: 0;
+    scale: 0.15 1;
+  }
+  36%,
+  70% {
+    opacity: 0.55;
+    scale: 0.6 1;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-circle-in {
+  from {
+    opacity: 0;
+    clip-path: circle(0% at 50% 50%);
+  }
+  to {
+    opacity: 1;
+    clip-path: circle(75% at 50% 50%);
+  }
+}
+
+@keyframes deck-anim-crawl-in {
+  from {
+    opacity: 0;
+    translate: 0 30%;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes deck-anim-diamond-in {
+  from {
+    opacity: 0;
+    clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%);
+  }
+  to {
+    opacity: 1;
+    clip-path: polygon(50% -50%, 150% 50%, 50% 150%, -50% 50%);
+  }
+}
+
+@keyframes deck-anim-dissolve-in {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes deck-anim-grow-turn-in {
+  from {
+    opacity: 0;
+    rotate: -180deg;
+    scale: 0.15;
+  }
+  to {
+    opacity: 1;
+    rotate: 0deg;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-peek-in {
+  from {
+    opacity: 0;
+    translate: -12% 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    clip-path: inset(0);
+  }
+}
+
+@keyframes deck-anim-random-bars-in {
+  0%,
+  20% {
+    opacity: 0;
+    scale: 1 0.1;
+  }
+  40% {
+    opacity: 0.35;
+    scale: 1 0.35;
+  }
+  65% {
+    opacity: 0.7;
+    scale: 1 0.7;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-spiral-in {
+  from {
+    opacity: 0;
+    rotate: -360deg;
+    scale: 0.1;
+  }
+  to {
+    opacity: 1;
+    rotate: 0deg;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-stretch-in {
+  from {
+    opacity: 0;
+    scale: 0.1 1;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-strips-in {
+  from {
+    opacity: 0;
+    clip-path: polygon(0 0, 0 0, 0 0, 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  }
+}
+
+@keyframes deck-anim-wheel-in {
+  from {
+    opacity: 0;
+    rotate: -270deg;
+    scale: 0.2;
+  }
+  to {
+    opacity: 1;
+    rotate: 0deg;
+    scale: 1;
+  }
+}
+
 @keyframes deck-anim-pulse {
   0%,
   100% {
@@ -2246,6 +2547,151 @@
   }
   50% {
     scale: 1.12;
+  }
+}
+
+@keyframes deck-anim-spin {
+  0% {
+    rotate: 0deg;
+  }
+  100% {
+    rotate: 360deg;
+  }
+}
+
+@keyframes deck-anim-teeter {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  25% {
+    rotate: -5deg;
+  }
+  75% {
+    rotate: 5deg;
+  }
+}
+
+@keyframes deck-anim-transparency {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes deck-anim-wipe-emphasis {
+  0%,
+  100% {
+    scale: 1;
+  }
+  50% {
+    scale: 0.15 1;
+  }
+}
+
+@keyframes deck-anim-swivel-emphasis {
+  0%,
+  100% {
+    rotate: y 0deg;
+  }
+  50% {
+    rotate: y 180deg;
+  }
+}
+
+@keyframes deck-anim-bounce-emphasis {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -8%;
+  }
+}
+
+@keyframes deck-anim-blink {
+  0%,
+  49%,
+  100% {
+    opacity: 1;
+  }
+  50%,
+  85% {
+    opacity: 0;
+  }
+}
+
+@keyframes deck-anim-color-pulse {
+  0%,
+  100% {
+    filter: saturate(1) hue-rotate(0deg);
+  }
+  50% {
+    filter: saturate(2.2) hue-rotate(35deg);
+  }
+}
+
+@keyframes deck-anim-darken {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(0.45);
+  }
+}
+
+@keyframes deck-anim-desaturate {
+  0%,
+  100% {
+    filter: grayscale(0);
+  }
+  50% {
+    filter: grayscale(1);
+  }
+}
+
+@keyframes deck-anim-flicker {
+  0%,
+  18%,
+  22%,
+  55%,
+  100% {
+    opacity: 1;
+  }
+  20%,
+  24%,
+  58% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes deck-anim-lighten {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.65);
+  }
+}
+
+@keyframes deck-anim-wave {
+  0%,
+  100% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+  25% {
+    translate: 0 -4%;
+    rotate: -3deg;
+  }
+  75% {
+    translate: 0 4%;
+    rotate: 3deg;
   }
 }
 

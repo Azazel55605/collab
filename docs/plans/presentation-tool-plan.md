@@ -1071,6 +1071,33 @@ presentation pass:
       regressions. Native multi-monitor validation remains part of the physical
       release matrix.
 
+### General-Release Hardening Phase 2
+
+Implemented as the second focused editor and presentation-authoring pass:
+
+- [x] A first completed click inside a text box enters its in-place editor,
+      gives the contenteditable final keyboard focus, and puts the caret at the
+      pointer. This prevents Backspace from reaching the canvas object-delete
+      shortcut. Crossing the drag threshold still moves the box; its selection
+      outline handles resize and rotate it.
+- [x] Move object builds out of the design inspector into a dedicated Animation
+      pane. Its tree groups the stored sequence by automatic slide entry and by
+      click step, while each child retains ordered trigger, delay, and duration
+      semantics.
+- [x] Expand the native effect vocabulary with PowerPoint-aligned names:
+      Appear, Fade, Fly In/Out, Float In/Out, Split, Wipe, Zoom, Swivel, Bounce,
+      Blinds, Box, Checkerboard, Circle, Crawl In/Out, Diamond, Dissolve, Grow &
+      Turn, Peek In/Out, Random Bars, Shape, Spiral In/Out, Stretch, Strips,
+      Wheel, Pulse, Spin, Grow/Shrink, Teeter, Transparency, Blink, Color Pulse,
+      Darken, Desaturate, Flicker, Lighten, and Wave. Desktop and Android use
+      the same compiler and playback semantics.
+- [x] Keep the format honest: these semantic names create a cleaner future
+      PPTX mapping, but the current first-party PPTX writer still omits object
+      animations and reports that omission instead of claiming fidelity.
+- [x] Document phone remote discovery, opt-in, same-account trust, ephemeral
+      command delivery, and its no-write boundary in
+      `docs/mobile/presentation-companion.md`.
+
 ## Recommended Implementation Order
 
 1. Complete Phase 0 before adding `.deck` routing.

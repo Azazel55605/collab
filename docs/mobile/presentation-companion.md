@@ -35,6 +35,21 @@ The presenter opts in per desktop view: the **Phone remote** button (phone icon)
 in the slide show and presenter-view control bars. The protocol is
 `src/lib/deck/remote.ts`, carried by the existing live awareness relay:
 
+1. Sign in to the desktop and Android companion with the same account and open
+   the same deck from a hosted vault on both devices.
+2. Start the desktop slide show or presenter view, then turn on **Phone remote**
+   in its controls. It is deliberately off for every new show.
+3. The deck screen on Android discovers that show and offers **Remote control**.
+   Open it for large Previous/Next and black-screen controls plus the current
+   slide and speaker notes.
+4. Ending the show, closing its live session, or turning **Phone remote** off
+   removes it from the phone immediately.
+
+This is server-relayed live presence, not Bluetooth, a local-network discovery
+protocol, or a permanent pairing. A local-only desktop vault has no relay for a
+phone to join, and temporary network loss pauses discovery and commands until
+the live connection returns.
+
 - the presenter publishes the running show — a fresh id per show, the slide,
   position, blanking, and whether remote control is on;
 - the phone publishes its last eight commands, numbered, for that show id;

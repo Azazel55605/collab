@@ -685,6 +685,46 @@ describe('DeckView: text, placeholders, and design', () => {
     ]);
   });
 
+  it('opens a text box for editing on the first click', async () => {
+    await openDeck();
+    const surface = screen.getByTestId('deck-stage-surface');
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(20_000),
+      clientY: client(22_000),
+    });
+    fireEvent.pointerUp(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(20_000),
+      clientY: client(22_000),
+    });
+
+    expect(editor().textContent).toContain('Collab Presentations');
+    expect(document.activeElement).toBe(editor());
+    expect(screen.getByText('1 selected')).toBeTruthy();
+
+    key(editor(), 'Backspace');
+    expect(screen.getByTestId('deck-text-editor')).toBeTruthy();
+    expect((await savedDeck()).slides['slide-1'].elements['s1-title']).toBeTruthy();
+  });
+
+  it('authors animations in a separate sequence pane', async () => {
+    await openDeck();
+    key(canvas(), 'Tab');
+    fireEvent.click(screen.getByLabelText('Show animation pane'));
+    expect(screen.getByRole('complementary', { name: 'Animation pane' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add animation to selection' }));
+
+    expect(screen.getByRole('tree', { name: 'Animation sequence' })).toBeTruthy();
+    expect(screen.getByText('Click 1')).toBeTruthy();
+    expect(screen.queryByRole('complementary', { name: 'Presentation design' })).toBeNull();
+    expect((await savedDeck()).slides['slide-1'].animations).toEqual([
+      expect.objectContaining({ elementId: 's1-title', effect: 'fade', trigger: 'click' }),
+    ]);
+  });
+
   it('types in italics after Ctrl+I on a caret, and splits paragraphs on Enter', async () => {
     await openDeck();
     key(canvas(), 'Tab');
