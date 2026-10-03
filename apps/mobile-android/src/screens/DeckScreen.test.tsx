@@ -262,7 +262,7 @@ describe('DeckScreen', () => {
       onStatus: () => () => {},
       destroy: () => {},
     }));
-    render(<DeckScreen file={file} />);
+    render(<DeckScreen file={file} remoteShowId="show-9" />);
     await screen.findByText('5 slides');
 
     // The desktop presenter, signed in as the same account, with remote on.
@@ -286,8 +286,7 @@ describe('DeckScreen', () => {
     act(() => {
       applyAwarenessUpdate(awareness, encodeAwarenessUpdate(desktop, [desktop.clientID]), 'remote');
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'Remote control' }));
-    expect(screen.getByText('Showing slide 2 of 5')).toBeTruthy();
+    expect(await screen.findByText('Showing slide 2 of 5')).toBeTruthy();
     expect(screen.getByText('Mention the offline replica.')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Next/ }));

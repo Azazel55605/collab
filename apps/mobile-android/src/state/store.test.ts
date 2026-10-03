@@ -556,6 +556,17 @@ describe('offline replica store actions', () => {
         createdAt: '2026-08-01T00:00:00.000Z',
         updatedAt: '2026-08-01T00:00:00.000Z',
       },
+      {
+        id: 'deck-1',
+        parentId: 'folder-1',
+        name: 'Demo.deck',
+        relativePath: 'Boards/Demo.deck',
+        kind: 'document',
+        documentType: 'deck',
+        state: 'active',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+      },
     ];
 
     beforeEach(() => {
@@ -599,6 +610,19 @@ describe('offline replica store actions', () => {
         null,
         'folder-1',
       ]);
+    });
+
+    it('carries an app-wide discovery show into the presentation screen', async () => {
+      const result = await useMobileStore.getState().openVaultTarget('v1', 'deck-1', {
+        serverUrl: SERVER,
+        remoteShowId: 'show-9',
+      });
+      expect(result).toBe('opened');
+      expect(useMobileStore.getState().activeSheet).toEqual({
+        kind: 'presentation',
+        fileId: 'deck-1',
+        remoteShowId: 'show-9',
+      });
     });
 
     it('reports unavailable vaults and files instead of opening a dead screen', async () => {

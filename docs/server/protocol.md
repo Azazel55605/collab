@@ -287,6 +287,17 @@ The reference-impact slice also implements:
 
 Resumable streaming upload sessions remain a later Phase 4 task.
 
+## Active presentation discovery
+
+Authenticated native clients use `GET /api/v1/presentations/active` to list
+only the current account's live shows. A desktop presenter refreshes
+`PUT /api/v1/presentations/active/{showId}` while presenting and removes it with
+`DELETE` on exit. The server verifies vault read access and that the target is
+an active `.deck`, bounds each account to eight advertisements, keeps the state
+in memory only, and expires entries after 20 seconds. This endpoint discovers a
+show; slide commands continue through the document's authenticated awareness
+room.
+
 ## WebSocket Protocol
 
 Connection (implemented in Phase 5):

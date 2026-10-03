@@ -8,6 +8,7 @@ pub mod config;
 pub mod database;
 pub mod notification_api;
 pub mod notification_push;
+pub mod presentations;
 pub mod retention;
 pub mod storage;
 pub mod ws;

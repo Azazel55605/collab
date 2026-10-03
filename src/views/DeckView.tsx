@@ -114,6 +114,11 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { useCollabIdentity } from '../lib/collabIdentity';
+import {
+  ACTIVE_PRESENTATION_HEARTBEAT_MS,
+  publishActivePresentation,
+  stopPublishingActivePresentation,
+} from '../lib/deck/activePresentation';
 import { assetKey, collectDeckAssets } from '../lib/deck/assets';
 import {
   copyElements,
@@ -1955,6 +1960,70 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     }),
     [remoteAllowed],
   );
+  const activePresentation = useMemo(() => {
+    if (!presenting || !showId || !session.liveSession) return null;
+    return {
+      target: session.liveSession.target,
+      heartbeat: {
+        vaultId: session.liveSession.target.vaultId,
+        fileId: session.liveSession.target.fileId,
+        relativePath,
+        title: deckTitle,
+        slideId: showPosition?.slideId ?? presenting.startSlideId,
+        position: showPosition?.position ?? 1,
+        total: showPosition?.total ?? slideOrder.length,
+        remoteEnabled: remoteAllowed,
+      },
+    };
+  }, [
+    deckTitle,
+    presenting,
+    relativePath,
+    remoteAllowed,
+    session.liveSession,
+    showId,
+    showPosition,
+    slideOrder.length,
+  ]);
+  const activePresentationRef = useRef(activePresentation);
+  activePresentationRef.current = activePresentation;
+  const activePresentationQueue = useRef<Promise<void>>(Promise.resolve());
+  const enqueuePresentationRequest = useCallback((request: () => Promise<unknown>) => {
+    activePresentationQueue.current = activePresentationQueue.current
+      .catch(() => {})
+      .then(request)
+      .then(() => undefined)
+      .catch(() => {});
+  }, []);
+
+  // App-wide discovery is best-effort and never interrupts playback. Changes
+  // publish immediately; the heartbeat keeps the ephemeral server entry alive.
+  useEffect(() => {
+    if (!activePresentation || !showId) return;
+    enqueuePresentationRequest(() =>
+      publishActivePresentation(
+        activePresentation.target.serverUrl,
+        showId,
+        activePresentation.heartbeat,
+      ),
+    );
+  }, [activePresentation, enqueuePresentationRequest, showId]);
+
+  useEffect(() => {
+    const target = activePresentation?.target;
+    if (!target || !showId) return;
+    const timer = window.setInterval(() => {
+      const current = activePresentationRef.current;
+      if (!current) return;
+      enqueuePresentationRequest(() =>
+        publishActivePresentation(current.target.serverUrl, showId, current.heartbeat),
+      );
+    }, ACTIVE_PRESENTATION_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(timer);
+      enqueuePresentationRequest(() => stopPublishingActivePresentation(target.serverUrl, showId));
+    };
+  }, [activePresentation?.target, enqueuePresentationRequest, showId]);
 
   const present = (mode: DeckPresentMode, from: 'start' | 'current') => {
     if (!document || !supported || slideOrder.length === 0) return;

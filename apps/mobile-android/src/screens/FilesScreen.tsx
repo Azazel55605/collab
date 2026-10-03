@@ -372,7 +372,12 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   }
 
   if (presentationFile) {
-    return <DeckScreen file={presentationFile} />;
+    return (
+      <DeckScreen
+        file={presentationFile}
+        remoteShowId={activeSheet?.kind === 'presentation' ? activeSheet.remoteShowId : undefined}
+      />
+    );
   }
 
   if (workbookFile) {

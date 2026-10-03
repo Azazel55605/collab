@@ -4951,6 +4951,75 @@ p {
 
 /* ── Bottom tab bar ────────────────────────────────────────────────────────── */
 
+.presentation-remote-bubble {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right, 0px));
+  bottom: calc(78px + var(--safe-bottom));
+  z-index: 19;
+  display: flex;
+  max-width: min(330px, calc(100vw - 28px));
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px 9px 10px;
+  border: 1px solid color-mix(in oklch, var(--primary) 42%, var(--border));
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 12px 36px color-mix(in oklch, black 30%, transparent);
+  text-align: left;
+  animation: presentation-remote-arrive 180ms ease-out;
+}
+
+.presentation-remote-bubble:active {
+  transform: scale(0.98);
+}
+
+.presentation-remote-bubble:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.presentation-remote-bubble-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.presentation-remote-bubble-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.presentation-remote-bubble-copy strong,
+.presentation-remote-bubble-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presentation-remote-bubble-copy strong {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.presentation-remote-bubble-copy span {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+@keyframes presentation-remote-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
 .tab-bar {
   position: fixed;
   bottom: 0;
@@ -5998,6 +6067,12 @@ p {
       calc(8px + env(safe-area-inset-left, 0px));
     border-top: 0;
     border-right: 1px solid var(--border);
+  }
+
+  .presentation-remote-bubble {
+    bottom: calc(14px + var(--safe-bottom));
+    left: calc(92px + env(safe-area-inset-left, 0px));
+    right: auto;
   }
 
   .tab {

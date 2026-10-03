@@ -387,9 +387,10 @@ remote; Phase 9 added authored transitions and bounded object-animation
 timelines. Phase 10 added an independent accessibility reading order, semantic
 slide companion, authoring audit, heterogeneous workload/recovery/CRDT soak
 gates, and the presentation release-validation matrix. General-release
-hardening Phase 2 made text boxes content-first on click and moved object builds
+hardening Phase 2 made text boxes content-first on click, moved object builds
 into a dedicated click-step animation tree with a larger PowerPoint-aligned
-effect vocabulary.
+effect vocabulary, and added an account-scoped active-show heartbeat so the
+Android app can offer phone control without first opening the deck.
 Desktop presenter mode opens each audience surface under a unique Tauri label
 and event namespace. It creates the hidden WebView at the selected monitor's
 logical viewport size, maps it, then targets that output with Tauri's native
@@ -424,6 +425,7 @@ session's writes into a single undo step.
 | `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
 | `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, notes, native output targeting, and race-safe audience recovery    |
 | `lib/deck/remote.ts`                                         | Phone remote control over awareness: show state, numbered commands, same-account opt-in (Android companion)         |
+| `lib/deck/activePresentation.ts`                             | Best-effort active-show heartbeat and cleanup for app-wide Android discovery                                        |
 | `components/deck/DeckPlaybackSurface.tsx`                    | One slide with transient animation/transition, ink, laser, blank, and end-screen layers; shared by all show windows |
 | `components/deck/DeckAudienceWindow.tsx`                     | The second-display window (`?deck-audience`): draws frames it is sent, sends keys and clicks back                   |
 | `components/deck/DeckExportDialog.tsx`, `useDeckExport.ts`   | Export and print settings; PDF, handouts, PNG/SVG through native dialogs, with progress and cancel                  |

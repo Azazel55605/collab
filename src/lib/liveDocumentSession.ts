@@ -207,6 +207,10 @@ export class WebSocketYProvider {
     }
   }
 
+  connectionTarget(): LiveTarget {
+    return { ...this.target };
+  }
+
   /**
    * Seed the document from the offline replica's persisted CRDT state before the
    * first connection. No-op when offline replication is disabled or no state has

@@ -25,7 +25,7 @@ nodes for every table cell, chart point, or glyph.
 | Present             | Full-screen black show with the desktop's playback rules: hidden slides skipped, object builds and transitions played, tap/swipe navigation, end screen. |
 | Live                | On a connection the screen joins the deck's live room read-only: collaborators' edits appear as they are made.                                           |
 | Follow              | When someone presents the deck, **Follow** keeps this phone on the slide they show.                                                                      |
-| Remote control      | When your own computer presents the deck with **Phone remote** on, **Remote control** gives large Previous/Next, black screen, and your notes.           |
+| Remote control      | With **Phone remote** on, the app discovers your computer from any screen, shows a floating bubble, and opens Previous/Next, blanking, and notes.        |
 | Process recreation  | The slide, view, notes panel, zoom, and pan are kept per file in `sessionStorage` and restored when Android recreates the activity.                      |
 | Read-only and newer | Every role can view. A deck from a newer Collab opens with a notice; the live room is not joined for it.                                                 |
 
@@ -35,23 +35,26 @@ The presenter opts in per desktop view: the **Phone remote** button (phone icon)
 in the slide show and presenter-view control bars. The protocol is
 `src/lib/deck/remote.ts`, carried by the existing live awareness relay:
 
-1. Sign in to the desktop and Android companion with the same account and open
-   the same deck from a hosted vault on both devices.
-2. Start the desktop slide show or presenter view, then turn on **Phone remote**
+1. Sign in to the desktop and Android companion with the same account. The
+   Android app can be on any screen; the deck does not need to be open there.
+2. Start the desktop slide show or presenter view for a hosted deck, then turn on **Phone remote**
    in its controls. It is deliberately off for every new show.
-3. The deck screen on Android discovers that show and offers **Remote control**.
-   Open it for large Previous/Next and black-screen controls plus the current
-   slide and speaker notes.
+3. The desktop refreshes a short-lived account-scoped advertisement. Android
+   polls each connected account from the app shell and shows a floating remote
+   bubble. Tapping it opens the exact server, vault, and deck, then enters the
+   existing remote as soon as its live awareness snapshot arrives.
 4. Ending the show, closing its live session, or turning **Phone remote** off
-   removes it from the phone immediately.
+   removes the bubble on the next poll. A crashed presenter ages out after 20
+   seconds.
 
 This is server-relayed live presence, not Bluetooth, a local-network discovery
 protocol, or a permanent pairing. A local-only desktop vault has no relay for a
 phone to join, and temporary network loss pauses discovery and commands until
 the live connection returns.
 
-- the presenter publishes the running show — a fresh id per show, the slide,
-  position, blanking, and whether remote control is on;
+- the presenter publishes the running show — a fresh id per show, stable
+  vault/file identity, the slide and position, and whether remote control is
+  on — to an ephemeral same-account registry every five seconds;
 - the phone publishes its last eight commands, numbered, for that show id;
 - the presenter applies each command once, in order, and only while remote
   control is on — commands sent while it is off are consumed, never replayed;
@@ -67,12 +70,15 @@ Nothing in remote control writes to the deck.
 
 | File                                                       | Role                                                                                            |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `apps/mobile-android/src/MobileApp.tsx`                    | App-wide discovery polling, floating remote bubble, and stable deck routing                     |
 | `apps/mobile-android/src/screens/DeckScreen.tsx`           | The screen: load, live room, assets, list, slide view, present, follow, remote                  |
 | `apps/mobile-android/src/components/DeckSlideFrame.tsx`    | Fitted slide with pinch, pan, double-tap, swipe, tap, transitions, and transient animation CSS  |
 | `apps/mobile-android/src/components/DeckThumbnailGrid.tsx` | Windowed thumbnail grid                                                                         |
 | `apps/mobile-android/src/lib/deck.ts`                      | File predicate, network-then-replica read, asset lookup, zoom/pan bounds, windowing, view state |
 | `apps/mobile-android/src/lib/liveNote.ts`                  | `openMobileLiveDeckSession`: the read-only live room, decoded by the shared deck codec          |
 | `src/lib/deck/remote.ts`                                   | Remote-control protocol shared by desktop and phone                                             |
+| `src/lib/deck/activePresentation.ts`                       | Desktop heartbeat and cleanup for the account-scoped active-show advertisement                  |
+| `crates/collab-server/src/presentations.rs`                | Bounded in-memory active-show registry with same-account filtering and automatic expiry         |
 
 Rendering is the desktop's own: the shared resolver, `renderSlideSvg`, and
 `DeckSlide` (inline, DOMPurify-sanitized SVG). Playback is `playback.ts`; build

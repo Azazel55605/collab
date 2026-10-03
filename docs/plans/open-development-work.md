@@ -138,7 +138,9 @@ Open tracker entries:
   LibreOffice visual comparison. PowerPoint and Google Slides checks remain
   release validation items.
 - Phase 8, **Complete except physical-device release checks**: Android viewing,
-  presentation, following, and opted-in phone remote control are implemented.
+  presentation, following, and opted-in phone remote control are implemented;
+  remotely enabled shows are discovered app-wide through a same-account
+  floating bubble and route directly into the matching deck and remote.
 - Phase 9, **Complete**: bounded slide transitions and object animation
   timelines are authored and played across the main and audience windows;
   PowerPoint exports the compatible transition subset and reports animation

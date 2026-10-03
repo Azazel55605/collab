@@ -77,7 +77,13 @@ function slideTitle(slide: ResolvedSlide | undefined): string {
   return `Slide ${slide.number}${slide.hidden ? ' (hidden)' : ''}`;
 }
 
-export function DeckScreen({ file }: { file: HostedFileEntry }) {
+export function DeckScreen({
+  file,
+  remoteShowId,
+}: {
+  file: HostedFileEntry;
+  remoteShowId?: string;
+}) {
   const selected = useMobileStore((s) => s.selected);
   const statuses = useMobileStore((s) => s.statuses);
   const files = useMobileStore((s) => s.files);
@@ -387,6 +393,12 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
   useEffect(() => {
     if (mode === 'remote' && !remoteShow) setMode('slides');
   }, [mode, remoteShow]);
+
+  // An app-shell discovery bubble routes here with the show it found. Wait for
+  // the deck room's awareness snapshot, then enter the existing remote UI.
+  useEffect(() => {
+    if (remoteShowId && remoteShow?.show.id === remoteShowId) setMode('remote');
+  }, [remoteShow, remoteShowId]);
 
   // Following a presenter: keep this view on the slide they show.
   const followedSlideId = following ? (followedShow?.show.slideId ?? null) : null;

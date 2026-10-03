@@ -968,6 +968,11 @@ and are a release gate in
       commands for that show over awareness; the presenter applies each once,
       only from the same account and only while opted in. **Follow** keeps a
       phone on another presenter's slide.
+- [x] App-wide remote discovery: a presenter heartbeats a bounded, ephemeral
+      same-account advertisement while the show runs. Android checks connected
+      accounts from `MobileApp`, shows a floating bubble without requiring the
+      deck to be open, routes by stable server/vault/file identity, and enters
+      the matching remote automatically. Stale shows expire after 20 seconds.
 - [x] Slide, view, notes panel, zoom, and pan survive process recreation
       (`sessionStorage`, per file).
 - [ ] Physical Android memory, rotation, process-recreation, offline, touch,

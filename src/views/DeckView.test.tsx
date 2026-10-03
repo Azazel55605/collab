@@ -71,6 +71,7 @@ vi.mock('../lib/vaultReplica', () => ({
 }));
 
 const tauriMocks = vi.hoisted(() => ({
+  hostedVaultRequest: vi.fn(),
   showExportDialog: vi.fn(),
   writeDownloadedFile: vi.fn(),
 }));
@@ -80,6 +81,7 @@ vi.mock('../lib/tauri', async (importOriginal) => {
     ...actual,
     tauriCommands: {
       ...actual.tauriCommands,
+      hostedVaultRequest: tauriMocks.hostedVaultRequest,
       showExportDialog: tauriMocks.showExportDialog,
       writeDownloadedFile: tauriMocks.writeDownloadedFile,
     },
@@ -1150,6 +1152,7 @@ describe('DeckView: live collaboration', () => {
     const writes = vi.fn();
     const root = doc.getMap('doc');
     const session: LiveDeckSession = {
+      target: { serverUrl: 'https://example.test', vaultId: 'vault-2', fileId: 'deck-1' },
       doc,
       awareness,
       getStatus: () => 'connected',
@@ -1291,6 +1294,37 @@ describe('DeckView: live collaboration', () => {
     // This client publishes its own place for the others.
     const mine = live.session.awareness.getLocalState() as { deck?: { targetId: string } };
     expect(mine.deck?.targetId).toBe('slide-1');
+  });
+
+  it('advertises an opted-in show for app-wide phone discovery and removes it on exit', async () => {
+    await openLive();
+    fireEvent.click(menuItem('From the beginning'));
+    await screen.findByRole('dialog', { name: 'Slide show' });
+    fireEvent.click(screen.getByRole('button', { name: 'Allow phone remote' }));
+
+    await waitFor(() =>
+      expect(tauriMocks.hostedVaultRequest).toHaveBeenCalledWith(
+        'https://example.test',
+        'PUT',
+        expect.stringMatching(/^\/api\/v1\/presentations\/active\/show-/),
+        expect.objectContaining({
+          vaultId: 'vault-2',
+          fileId: 'deck-1',
+          relativePath: PATH,
+          title: 'Fixture',
+          remoteEnabled: true,
+        }),
+      ),
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() =>
+      expect(tauriMocks.hostedVaultRequest).toHaveBeenCalledWith(
+        'https://example.test',
+        'DELETE',
+        expect.stringMatching(/^\/api\/v1\/presentations\/active\/show-/),
+      ),
+    );
   });
 
   it('viewers follow the room but never write to it', async () => {

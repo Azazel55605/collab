@@ -1,5 +1,6 @@
 import type { LiveDocumentHandle } from '../liveDocumentSession';
 import { connectLiveProvider } from '../liveDocumentSession';
+import type { LiveTarget } from '../liveDocumentSession';
 import type { VaultClient } from '../vaultClient';
 
 import { DECK_ROOT_MAP, readDeck, reconcileDeck } from './liveDeckDocument';
@@ -8,6 +9,8 @@ import { DECK_ROOT_MAP, readDeck, reconcileDeck } from './liveDeckDocument';
 const LOCAL_ORIGIN = Symbol('live-deck-local');
 
 export interface LiveDeckSession extends LiveDocumentHandle {
+  /** Stable hosted identity used to advertise this show to the same account. */
+  readonly target: LiveTarget;
   /** The live deck as plain JSON, or null while the room is empty. */
   readDeck(): Record<string, unknown> | null;
   /** A local edit: the whole next deck, reconciled into the live state. */
@@ -31,6 +34,7 @@ export async function openLiveDeckSession(
   const root = doc.getMap<unknown>(DECK_ROOT_MAP);
   return {
     ...provider.handle(),
+    target: provider.connectionTarget(),
     readDeck: () => readDeck(doc),
     writeDeck: (deck) => reconcileDeck(doc, deck, LOCAL_ORIGIN),
     onChange: (callback) => {
