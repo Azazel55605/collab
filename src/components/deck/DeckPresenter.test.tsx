@@ -373,4 +373,25 @@ describe('DeckPresenter: phone remote', () => {
     setup();
     expect(screen.queryByRole('button', { name: 'Allow phone remote' })).toBeNull();
   });
+
+  it('shows and clears a laser position delivered by the phone', () => {
+    let point: ((value: { x: number; y: number } | null) => void) | null = null;
+    setup({
+      remote: {
+        allowed: true,
+        onAllowedChange: vi.fn(),
+        subscribe: () => () => {},
+        subscribePointer: (listener) => {
+          point = listener;
+          return () => {
+            point = null;
+          };
+        },
+      },
+    });
+    act(() => point!({ x: 0.25, y: 0.75 }));
+    expect(screen.getByTestId('deck-laser').getAttribute('style')).toContain('left: 25%');
+    act(() => point!(null));
+    expect(screen.queryByTestId('deck-laser')).toBeNull();
+  });
 });

@@ -60,7 +60,11 @@ export function appendRemoteCommand(
   const commands = previous?.showId === showId ? previous.commands : [];
   const seq = (commands[commands.length - 1]?.seq ?? 0) + 1;
   const command: DeckRemoteCommand = action === 'goto' ? { seq, action, index } : { seq, action };
-  return { showId, commands: [...commands, command].slice(-REMOTE_COMMAND_WINDOW) };
+  return {
+    ...(previous?.showId === showId ? previous : {}),
+    showId,
+    commands: [...commands, command].slice(-REMOTE_COMMAND_WINDOW),
+  };
 }
 
 /**

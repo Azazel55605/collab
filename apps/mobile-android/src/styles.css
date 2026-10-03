@@ -7095,9 +7095,35 @@ p {
 
 /* Remote control for a show running on the presenter's computer. */
 .deck-remote-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 0 14px 4px;
   color: var(--muted-foreground);
   font-size: 0.8rem;
+}
+.deck-remote-transport {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--surface);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+.deck-remote-transport.direct {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, var(--surface));
+}
+.deck-motion-laser {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 8px;
+}
+.deck-motion-laser .deck-remote-button {
+  min-height: 48px;
 }
 .deck-remote-frame {
   flex: 0 1 auto;

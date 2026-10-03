@@ -65,6 +65,7 @@ import { linkAt, slideTextRuns } from '../../lib/deck/textLayer';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
 import { unitsToPx } from '../../lib/deck/units';
 import type { DeckAssetRef, DeckDocument, DeckLink } from '../../types/deck';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 import { DeckPlaybackSurface } from './DeckPlaybackSurface';
 import { DeckSlide } from './DeckSlide';
@@ -95,6 +96,8 @@ export interface DeckPresenterRemote {
   onAllowedChange: (allowed: boolean) => void;
   /** Delivers remote commands as playback actions; returns an unsubscribe. */
   subscribe: (listener: (action: PlaybackAction) => void) => () => void;
+  /** Delivers a normalized phone laser position, or null when it is released. */
+  subscribePointer?: (listener: (point: { x: number; y: number } | null) => void) => () => void;
 }
 
 export interface DeckPresenterRuntime {
@@ -118,6 +121,8 @@ interface DeckPresenterProps {
   /** Reported whenever the shown slide or blanking changes. */
   onShowChange?: (show: DeckShowPosition) => void;
   remote?: DeckPresenterRemote;
+  preferredDisplayId?: string | null;
+  onPreferredDisplayChange?: (displayId: string) => void;
   runtime?: DeckPresenterRuntime;
 }
 
@@ -232,6 +237,8 @@ export function DeckPresenter({
   onNotice,
   onShowChange,
   remote,
+  preferredDisplayId = null,
+  onPreferredDisplayChange,
   runtime,
 }: DeckPresenterProps) {
   const slides = useMemo(() => resolveDeck(deck), [deck]);
@@ -262,6 +269,7 @@ export function DeckPresenter({
   const [ink, setInk] = useState<PlaybackInk>({});
   const [draft, setDraft] = useState<PlaybackStroke | null>(null);
   const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
+  const [remoteLaser, setRemoteLaser] = useState<{ x: number; y: number } | null>(null);
   const [timer, setTimer] = useState<PlaybackTimer>(() => ({
     elapsed: 0,
     runningSince: now(runtime),
@@ -309,6 +317,7 @@ export function DeckPresenter({
   const runs = useMemo(() => (slide ? slideTextRuns(slide, measurer) : []), [measurer, slide]);
   const slideInk = slide ? (ink[slide.slideId] ?? []) : [];
   const inkMarkup = strokesSvg(draft ? [...slideInk, draft] : slideInk);
+  const visibleLaser = remoteLaser ?? (tool === 'laser' ? laser : null);
   const buildStep = slide ? (buildSteps[slide.slideId] ?? 0) : 0;
   const timeline = useMemo(
     () => animationTimeline(sourceSlide?.animations),
@@ -398,7 +407,7 @@ export function DeckPresenter({
   );
 
   useEffect(() => {
-    if (mode === 'presenter') void openAudience(null);
+    if (mode === 'presenter') void openAudience(preferredDisplayId);
     return () => {
       audienceRequest.current += 1;
       closingAudience.current = true;
@@ -429,6 +438,7 @@ export function DeckPresenter({
   }, [audience, loseAudience, runtime]);
 
   const moveAudience = (displayId: string) => {
+    onPreferredDisplayChange?.(displayId);
     const request = ++audienceRequest.current;
     closingAudience.current = true;
     const current = audienceRef.current;
@@ -470,9 +480,9 @@ export function DeckPresenter({
     audience.sendOverlay({
       ink: inkMarkup,
       viewBox: [slide.width, slide.height],
-      laser,
+      laser: visibleLaser,
     });
-  }, [audience, inkMarkup, laser, slide]);
+  }, [audience, inkMarkup, slide, visibleLaser]);
 
   /* Timer and controls ----------------------------------------------------- */
 
@@ -723,6 +733,11 @@ export function DeckPresenter({
 
   const remoteSubscribe = remote?.subscribe;
   useEffect(() => remoteSubscribe?.(act), [act, remoteSubscribe]);
+  const remotePointerSubscribe = remote?.subscribePointer;
+  useEffect(
+    () => remotePointerSubscribe?.((point) => setRemoteLaser(point)),
+    [remotePointerSubscribe],
+  );
   const shownSlideId = slide?.slideId ?? null;
   useEffect(() => {
     onShowChange?.({
@@ -849,7 +864,7 @@ export function DeckPresenter({
           ended={state.ended}
           ink={inkMarkup}
           inkViewBox={[slide.width, slide.height]}
-          laser={tool === 'laser' ? laser : null}
+          laser={visibleLaser}
           slideKey={slide.slideId}
           animationKey={`${slide.slideId}:${buildStep}`}
           animationCss={buildCss}
@@ -951,19 +966,22 @@ export function DeckPresenter({
             <label className="flex items-center gap-1.5 text-xs text-white/70">
               <Monitor className="size-3.5" />
               Slides on
-              <select
-                aria-label="Display for slides"
-                className="rounded border border-white/20 bg-neutral-900 px-1.5 py-1 text-xs text-white"
-                value={audience.display.id}
-                onChange={(event) => moveAudience(event.target.value)}
-              >
-                {displays.map((display) => (
-                  <option key={display.id} value={display.id}>
-                    {display.name}
-                    {display.primary ? ' (primary)' : ''}
-                  </option>
-                ))}
-              </select>
+              <Select value={audience.display.id} onValueChange={moveAudience}>
+                <SelectTrigger
+                  aria-label="Display for slides"
+                  className="h-8 min-w-36 border-white/20 bg-neutral-900 text-xs text-white"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[100] border-white/15 bg-neutral-900 text-white">
+                  {displays.map((display) => (
+                    <SelectItem key={display.id} value={display.id}>
+                      {display.name}
+                      {display.primary ? ' (primary)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
           ) : audienceStatus === 'opening' ? (
             <span className="text-xs text-white/60">Opening the slide show window…</span>
@@ -1009,7 +1027,7 @@ export function DeckPresenter({
               ended={state.ended}
               ink={inkMarkup}
               inkViewBox={[slide.width, slide.height]}
-              laser={tool === 'laser' ? laser : null}
+              laser={visibleLaser}
               slideKey={slide.slideId}
               animationKey={`${slide.slideId}:${buildStep}`}
               animationCss={buildCss}

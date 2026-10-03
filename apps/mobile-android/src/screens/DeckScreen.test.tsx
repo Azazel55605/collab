@@ -301,6 +301,36 @@ describe('DeckScreen', () => {
     });
     expect(awareness.getLocalState()?.user).toMatchObject({ id: 'user-1' });
 
+    const OriginalDeviceOrientationEvent = globalThis.DeviceOrientationEvent;
+    class TestOrientationEvent extends Event {
+      beta: number;
+      gamma: number;
+      constructor(beta: number, gamma: number) {
+        super('deviceorientation');
+        this.beta = beta;
+        this.gamma = gamma;
+      }
+    }
+    Object.defineProperty(globalThis, 'DeviceOrientationEvent', {
+      configurable: true,
+      value: TestOrientationEvent,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Motion laser' }));
+    act(() => {
+      window.dispatchEvent(new TestOrientationEvent(10, 5));
+      window.dispatchEvent(new TestOrientationEvent(14, 9));
+    });
+    await waitFor(() =>
+      expect((awareness.getLocalState()?.deck as DeckInteraction).remote?.pointer).toMatchObject({
+        active: true,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Stop motion laser' }));
+    Object.defineProperty(globalThis, 'DeviceOrientationEvent', {
+      configurable: true,
+      value: OriginalDeviceOrientationEvent,
+    });
+
     // Another account's show is followed, never driven.
     desktop.setLocalStateField('user', { id: 'someone-else', name: 'Bo', color: '#00f' });
     act(() => {
@@ -308,5 +338,36 @@ describe('DeckScreen', () => {
     });
     expect(await screen.findByText('Bo is presenting.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Remote control' })).toBeNull();
+  });
+
+  it('requests an opted-in computer to start the open deck', async () => {
+    selectVault(true);
+    mockServer();
+    const awareness = new Awareness(new Y.Doc());
+    openLive.mockImplementation(async () => ({
+      awareness,
+      readDeck: () => null,
+      onChange: () => () => {},
+      getStatus: () => 'connected',
+      onStatus: () => () => {},
+      destroy: () => {},
+    }));
+    render(<DeckScreen file={file} />);
+    await screen.findByText('5 slides');
+
+    const desktop = new Awareness(new Y.Doc());
+    desktop.setLocalState({
+      user: { id: 'user-1', name: 'Ada’s laptop', color: '#f00' },
+      document: { kind: 'deck', relativePath: 'Talk.deck' },
+      deck: { targetId: 'slide-1', canStartPresentation: true } satisfies DeckInteraction,
+    });
+    act(() => {
+      applyAwarenessUpdate(awareness, encodeAwarenessUpdate(desktop, [desktop.clientID]), 'remote');
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Present there' }));
+    const published = awareness.getLocalState()?.deck as DeckInteraction;
+    expect(published.remote?.startRequest).toMatchObject({ targetClientId: desktop.clientID });
+    expect(published.remote?.startRequest?.id).toEqual(expect.any(String));
   });
 });

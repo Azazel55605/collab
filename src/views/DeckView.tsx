@@ -141,6 +141,11 @@ import {
   updateTheme,
 } from '../lib/deck/design';
 import {
+  acceptDirectRemoteOffer,
+  parseDirectRemoteMessage,
+  supportsDirectRemote,
+} from '../lib/deck/directRemote';
+import {
   deckAssetFolder,
   embedPreviewName,
   inkAnnotationName,
@@ -1399,6 +1404,18 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const fileTree = useVaultStore((state) => state.fileTree);
   const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
   const timeZone = useUiStore((state) => state.calendarDefaultTimeZone);
+  const presentationAlwaysAllowPhoneControl = useUiStore(
+    (state) => state.presentationAlwaysAllowPhoneControl,
+  );
+  const presentationDefaultMode = useUiStore((state) => state.presentationDefaultMode);
+  const presentationDirectControl = useUiStore((state) => state.presentationDirectControl);
+  const presentationAllowRemoteStart = useUiStore((state) => state.presentationAllowRemoteStart);
+  const presentationPreferredDisplayId = useUiStore(
+    (state) => state.presentationPreferredDisplayId,
+  );
+  const setPresentationPreferredDisplayId = useUiStore(
+    (state) => state.setPresentationPreferredDisplayId,
+  );
   const openTab = useEditorStore((state) => state.openTab);
   const setActiveView = useUiStore((state) => state.setActiveView);
   const workbooks = useMemo(
@@ -1947,8 +1964,19 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const [showId, setShowId] = useState<string | null>(null);
   const [showPosition, setShowPosition] = useState<DeckShowPosition | null>(null);
   const [remoteAllowed, setRemoteAllowed] = useState(false);
+  const [directAnswer, setDirectAnswer] = useState<{ clientId: number; sdp: string } | null>(null);
   const remoteListeners = useRef(new Set<(action: PlaybackAction) => void>());
+  const remotePointerListeners = useRef(
+    new Set<(point: { x: number; y: number } | null) => void>(),
+  );
   const remoteApplied = useRef(new Map<number, number>());
+  const remotePointerApplied = useRef(new Map<number, number>());
+  const directConnection = useRef<{
+    clientId: number;
+    offer: string;
+    connection: RTCPeerConnection | null;
+    cancelled: boolean;
+  } | null>(null);
   const presenterRemote = useMemo<DeckPresenterRemote>(
     () => ({
       allowed: remoteAllowed,
@@ -1956,6 +1984,10 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       subscribe: (listener) => {
         remoteListeners.current.add(listener);
         return () => remoteListeners.current.delete(listener);
+      },
+      subscribePointer: (listener) => {
+        remotePointerListeners.current.add(listener);
+        return () => remotePointerListeners.current.delete(listener);
       },
     }),
     [remoteAllowed],
@@ -2032,13 +2064,19 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     if (designTarget) setDesignTarget(null);
     const first = slideOrder.find((id) => !document.slides[id]?.hidden) ?? slideOrder[0];
     remoteApplied.current = new Map();
+    remotePointerApplied.current = new Map();
+    setDirectAnswer(null);
+    if (presentationAlwaysAllowPhoneControl) setRemoteAllowed(true);
     setShowPosition(null);
     setShowId(newShowId());
     setPresenting({ mode, startSlideId: from === 'current' ? activeSlideId : first });
   };
+  const presentRef = useRef(present);
+  presentRef.current = present;
 
   const endPresentation = (summary: DeckPresentSummary) => {
     setPresenting(null);
+    for (const listener of remotePointerListeners.current) listener(null);
     const slideId = summary.slideId;
     if (slideId && slideOrder.includes(slideId)) {
       setViewState((current) => ({ ...current, slideId }));
@@ -2147,6 +2185,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           }
         : null,
       presenting: presenting !== null,
+      canStartPresentation: presentationAllowRemoteStart,
       show:
         presenting && showId
           ? {
@@ -2156,6 +2195,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               total: showPosition?.total ?? slideOrder.length,
               blank: showPosition?.blank ?? null,
               remote: remoteAllowed,
+              direct: remoteAllowed && presentationDirectControl && supportsDirectRemote(),
+              directAnswer,
             }
           : null,
     };
@@ -2163,6 +2204,9 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   }, [
     editingInfo,
     presenting,
+    directAnswer,
+    presentationDirectControl,
+    presentationAllowRemoteStart,
     remoteAllowed,
     selectedIds,
     session.liveSession,
@@ -2186,6 +2230,131 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       for (const listener of remoteListeners.current) listener(action);
     }
   }, [livePeers, presenting, remoteAllowed, showId, userId]);
+
+  const appliedStartRequests = useRef(new Set<string>());
+  useEffect(() => {
+    if (presenting || !presentationAllowRemoteStart) return;
+    const myClientId = session.liveSession?.awareness.clientID;
+    if (myClientId === undefined) return;
+    const request = livePeers
+      .filter((peer) => peer.user?.id === userId)
+      .map((peer) => peer.deck?.remote?.startRequest)
+      .find(
+        (candidate) =>
+          typeof candidate?.id === 'string' &&
+          candidate.id.length <= 128 &&
+          /^[a-zA-Z0-9-]+$/.test(candidate.id) &&
+          candidate.targetClientId === myClientId &&
+          !appliedStartRequests.current.has(candidate.id),
+      );
+    if (!request) return;
+    appliedStartRequests.current.add(request.id);
+    presentRef.current(presentationDefaultMode, 'start');
+  }, [
+    livePeers,
+    presentationAllowRemoteStart,
+    presentationDefaultMode,
+    presenting,
+    session.liveSession,
+    userId,
+  ]);
+
+  useEffect(() => {
+    const candidate =
+      presenting && showId && remoteAllowed && presentationDirectControl && supportsDirectRemote()
+        ? livePeers.find(
+            (peer) =>
+              peer.user?.id === userId &&
+              peer.deck?.remote?.showId === showId &&
+              typeof peer.deck.remote.directOffer === 'string',
+          )
+        : undefined;
+    const offer = candidate?.deck?.remote?.directOffer;
+    const current = directConnection.current;
+    if (candidate && offer && current?.clientId === candidate.clientId && current.offer === offer) {
+      return;
+    }
+    if (current) {
+      current.cancelled = true;
+      current.connection?.close();
+      directConnection.current = null;
+    }
+    setDirectAnswer(null);
+    if (!candidate || !offer) return;
+
+    const attempt = {
+      clientId: candidate.clientId,
+      offer,
+      connection: null as RTCPeerConnection | null,
+      cancelled: false,
+    };
+    directConnection.current = attempt;
+    void acceptDirectRemoteOffer(offer, (channel) => {
+      channel.addEventListener('message', (event) => {
+        const message = parseDirectRemoteMessage(event.data);
+        if (!message || attempt.cancelled || !remoteAllowed) return;
+        if (message.type === 'pointer') {
+          const point = message.active ? { x: message.x, y: message.y } : null;
+          for (const listener of remotePointerListeners.current) listener(point);
+          return;
+        }
+        const action = remoteCommandAction({
+          seq: 0,
+          action: message.action,
+          ...(message.action === 'goto' ? { index: message.index } : {}),
+        });
+        if (action) for (const listener of remoteListeners.current) listener(action);
+      });
+      channel.addEventListener('close', () => {
+        for (const listener of remotePointerListeners.current) listener(null);
+      });
+    })
+      .then(({ connection, sdp }) => {
+        if (attempt.cancelled || directConnection.current !== attempt) {
+          connection.close();
+          return;
+        }
+        attempt.connection = connection;
+        setDirectAnswer({ clientId: candidate.clientId, sdp });
+      })
+      .catch(() => {
+        if (directConnection.current === attempt) directConnection.current = null;
+      });
+  }, [livePeers, presentationDirectControl, presenting, remoteAllowed, showId, userId]);
+
+  useEffect(() => {
+    if (!presenting || !showId) return;
+    for (const peer of livePeers) {
+      const pointer = peer.deck?.remote?.pointer;
+      if (
+        !pointer ||
+        peer.user?.id !== userId ||
+        peer.deck?.remote?.showId !== showId ||
+        !Number.isSafeInteger(pointer.seq) ||
+        !Number.isFinite(pointer.x) ||
+        !Number.isFinite(pointer.y) ||
+        pointer.seq <= (remotePointerApplied.current.get(peer.clientId) ?? 0)
+      ) {
+        continue;
+      }
+      remotePointerApplied.current.set(peer.clientId, pointer.seq);
+      const point = pointer.active
+        ? { x: Math.min(1, Math.max(0, pointer.x)), y: Math.min(1, Math.max(0, pointer.y)) }
+        : null;
+      if (remoteAllowed) for (const listener of remotePointerListeners.current) listener(point);
+    }
+  }, [livePeers, presenting, remoteAllowed, showId, userId]);
+
+  useEffect(
+    () => () => {
+      const current = directConnection.current;
+      if (current) {
+        current.cancelled = true;
+        current.connection?.close();
+      }
+    },
+    [],
+  );
 
   const peersBySlide = useMemo(() => {
     const map = new Map<
@@ -2766,7 +2935,10 @@ export default function DeckView({ relativePath }: DeckViewProps) {
 
     if (key === 'F5' && !mod) {
       return run(() =>
-        present(event.altKey ? 'presenter' : 'slideshow', event.shiftKey ? 'current' : 'start'),
+        present(
+          event.altKey ? 'presenter' : presentationDefaultMode,
+          event.shiftKey ? 'current' : 'start',
+        ),
       );
     }
     if (mod && lower === 'p') return run(() => setExportOpen(true));
@@ -3769,6 +3941,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           onNotice={(message) => toast.info(message)}
           onShowChange={setShowPosition}
           remote={session.liveSession ? presenterRemote : undefined}
+          preferredDisplayId={presentationPreferredDisplayId}
+          onPreferredDisplayChange={setPresentationPreferredDisplayId}
         />
       )}
     </div>

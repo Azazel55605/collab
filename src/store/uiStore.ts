@@ -19,6 +19,7 @@ export type WeekStart = 0 | 1; // 0 = Sunday, 1 = Monday
 export type TimeFormat = 'system' | '12-hour' | '24-hour';
 export type CalendarDefaultDuration = 15 | 30 | 45 | 60 | 90 | 120;
 export type AnimationSpeed = 'slow' | 'normal' | 'fast';
+export type PresentationDefaultMode = 'slideshow' | 'presenter';
 export type CanvasWebCardDefaultMode = 'preview' | 'embed';
 export type OcrModelSource = 'official-fast';
 export type OcrRenderScale = 1 | 2 | 3;
@@ -278,6 +279,22 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
       typeof state.inkDefaultHoldToStraighten === 'boolean'
         ? state.inkDefaultHoldToStraighten
         : true,
+    presentationAlwaysAllowPhoneControl:
+      typeof state.presentationAlwaysAllowPhoneControl === 'boolean'
+        ? state.presentationAlwaysAllowPhoneControl
+        : false,
+    presentationDirectControl:
+      typeof state.presentationDirectControl === 'boolean' ? state.presentationDirectControl : true,
+    presentationAllowRemoteStart:
+      typeof state.presentationAllowRemoteStart === 'boolean'
+        ? state.presentationAllowRemoteStart
+        : false,
+    presentationDefaultMode:
+      state.presentationDefaultMode === 'presenter' ? 'presenter' : 'slideshow',
+    presentationPreferredDisplayId:
+      typeof state.presentationPreferredDisplayId === 'string'
+        ? state.presentationPreferredDisplayId
+        : null,
     fileTreeCollapsedPathsByVault:
       legacyCollapsedPaths.length > 0 &&
       lastOpenedVaultPath &&
@@ -422,6 +439,11 @@ interface UiState {
   inkDefaultEraserRadius: number;
   inkDefaultSnapToGrid: boolean;
   inkDefaultHoldToStraighten: boolean;
+  presentationAlwaysAllowPhoneControl: boolean;
+  presentationDirectControl: boolean;
+  presentationAllowRemoteStart: boolean;
+  presentationDefaultMode: PresentationDefaultMode;
+  presentationPreferredDisplayId: string | null;
 
   // Actions
   setActiveView: (view: ActiveView) => void;
@@ -484,6 +506,11 @@ interface UiState {
   setInkDefaultEraserRadius: (radius: number) => void;
   setInkDefaultSnapToGrid: (enabled: boolean) => void;
   setInkDefaultHoldToStraighten: (enabled: boolean) => void;
+  setPresentationAlwaysAllowPhoneControl: (enabled: boolean) => void;
+  setPresentationDirectControl: (enabled: boolean) => void;
+  setPresentationAllowRemoteStart: (enabled: boolean) => void;
+  setPresentationDefaultMode: (mode: PresentationDefaultMode) => void;
+  setPresentationPreferredDisplayId: (displayId: string | null) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -549,6 +576,11 @@ export const useUiStore = create<UiState>()(
       inkDefaultEraserRadius: 640,
       inkDefaultSnapToGrid: true,
       inkDefaultHoldToStraighten: true,
+      presentationAlwaysAllowPhoneControl: false,
+      presentationDirectControl: true,
+      presentationAllowRemoteStart: false,
+      presentationDefaultMode: 'slideshow',
+      presentationPreferredDisplayId: null,
 
       setActiveView: (activeView) => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
@@ -650,6 +682,15 @@ export const useUiStore = create<UiState>()(
       setInkDefaultSnapToGrid: (inkDefaultSnapToGrid) => set({ inkDefaultSnapToGrid }),
       setInkDefaultHoldToStraighten: (inkDefaultHoldToStraighten) =>
         set({ inkDefaultHoldToStraighten }),
+      setPresentationAlwaysAllowPhoneControl: (presentationAlwaysAllowPhoneControl) =>
+        set({ presentationAlwaysAllowPhoneControl }),
+      setPresentationDirectControl: (presentationDirectControl) =>
+        set({ presentationDirectControl }),
+      setPresentationAllowRemoteStart: (presentationAllowRemoteStart) =>
+        set({ presentationAllowRemoteStart }),
+      setPresentationDefaultMode: (presentationDefaultMode) => set({ presentationDefaultMode }),
+      setPresentationPreferredDisplayId: (presentationPreferredDisplayId) =>
+        set({ presentationPreferredDisplayId }),
     }),
     {
       name: 'ui-storage',
@@ -713,6 +754,11 @@ export const useUiStore = create<UiState>()(
         inkDefaultEraserRadius: s.inkDefaultEraserRadius,
         inkDefaultSnapToGrid: s.inkDefaultSnapToGrid,
         inkDefaultHoldToStraighten: s.inkDefaultHoldToStraighten,
+        presentationAlwaysAllowPhoneControl: s.presentationAlwaysAllowPhoneControl,
+        presentationDirectControl: s.presentationDirectControl,
+        presentationAllowRemoteStart: s.presentationAllowRemoteStart,
+        presentationDefaultMode: s.presentationDefaultMode,
+        presentationPreferredDisplayId: s.presentationPreferredDisplayId,
       }),
     },
   ),

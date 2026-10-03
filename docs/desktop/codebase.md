@@ -402,6 +402,20 @@ mode, display, or component-lifecycle changes. Playback SVGs are sized through
 the animation-scope wrapper rather than relying on their 1280×720 intrinsic
 dimensions, so basic and audience presentation fill their fitted surface at
 every display scale.
+
+Presentation preferences are persisted in `uiStore`: default slide-show or
+presenter mode, preferred audience display, automatic phone-control opt-in,
+direct WebRTC control, and whether a same-account phone may start the currently
+open deck. The presenter uses the shared themed Select for display choice so
+WebKitGTK never delegates that popup to unthemed native control chrome.
+
+Phone commands normally negotiate a host-candidate WebRTC data channel through
+same-account deck awareness. The channel is DTLS-encrypted and carries bounded
+navigation and laser messages; the numbered awareness protocol remains the
+fallback. Motion laser samples are transient and never enter the document.
+Phone-initiated start requests target a specific desktop awareness client and
+work only while that desktop has the deck open and has opted in.
+
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -424,6 +438,8 @@ session's writes into a single undo step.
 | `components/deck/DeckSlideRail.tsx`                          | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
 | `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
 | `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, notes, native output targeting, and race-safe audience recovery    |
+| `components/settings/SettingsPresentationSection.tsx`        | Persisted presentation defaults, audience display, phone control, direct transport, and remote-start opt-in         |
+| `lib/deck/directRemote.ts`                                   | Same-LAN WebRTC offer/answer and bounded data-channel messages                                                      |
 | `lib/deck/remote.ts`                                         | Phone remote control over awareness: show state, numbered commands, same-account opt-in (Android companion)         |
 | `lib/deck/activePresentation.ts`                             | Best-effort active-show heartbeat and cleanup for app-wide Android discovery                                        |
 | `components/deck/DeckPlaybackSurface.tsx`                    | One slide with transient animation/transition, ink, laser, blank, and end-screen layers; shared by all show windows |

@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CloudOff,
+  Crosshair,
+  MonitorPlay,
   Play,
   Radio,
   Smartphone,
@@ -23,6 +25,12 @@ import {
 } from 'lucide-react';
 
 import { animationCss, animationTimeline } from '../../../../src/lib/deck/animation';
+import {
+  createDirectRemoteOffer,
+  directRemoteMessage,
+  supportsDirectRemote,
+  validDirectSdp,
+} from '../../../../src/lib/deck/directRemote';
 import {
   initialPlayback,
   playbackProgress,
@@ -112,6 +120,19 @@ export function DeckScreen({
   const [following, setFollowing] = useState(false);
   const remoteRef = useRef<DeckRemoteState | null>(null);
   const [remoteVersion, setRemoteVersion] = useState(0);
+  const directRef = useRef<{
+    showId: string;
+    connection: RTCPeerConnection;
+    channel: RTCDataChannel;
+  } | null>(null);
+  const [remoteTransport, setRemoteTransport] = useState<'relay' | 'connecting' | 'direct'>(
+    'relay',
+  );
+  const [motionLaser, setMotionLaser] = useState(false);
+  const [motionError, setMotionError] = useState<string | null>(null);
+  const motionOrigin = useRef<{ beta: number; gamma: number } | null>(null);
+  const motionPointer = useRef({ x: 0.5, y: 0.5 });
+  const lastMotionAt = useRef(0);
 
   const measurer = useMemo(() => createCanvasMeasurer(), []);
 
@@ -345,7 +366,22 @@ export function DeckScreen({
     [localUserId, peers, relativePath],
   );
   const shows = useMemo(() => presentingShows(peers, relativePath), [peers, relativePath]);
+  const startTargets = useMemo(
+    () =>
+      peers.filter(
+        (peer) =>
+          peer.user?.id === localUserId &&
+          peer.document?.kind === 'deck' &&
+          peer.document.relativePath === relativePath &&
+          peer.deck?.canStartPresentation &&
+          !peer.deck.presenting,
+      ),
+    [localUserId, peers, relativePath],
+  );
   const remoteShow = myShows[0] ?? null;
+  const remoteShowIdValue = remoteShow?.show.id ?? null;
+  const remoteDirectAnswer = remoteShow?.show.directAnswer ?? null;
+  const remoteOffersDirect = remoteShow?.show.direct === true;
   const ownShowWithoutRemote = shows.find(
     (entry) =>
       !entry.show.remote &&
@@ -366,7 +402,10 @@ export function DeckScreen({
     awareness.setLocalStateField('deck', {
       targetId: mode === 'present' ? (presentedSlide?.slideId ?? null) : (slide?.slideId ?? null),
       presenting: mode === 'present',
-      remote: remote && remoteShow && remote.showId === remoteShow.show.id ? remote : null,
+      remote:
+        remote && (remote.startRequest || (remoteShow && remote.showId === remoteShow.show.id))
+          ? remote
+          : null,
     } satisfies DeckInteraction);
   }, [
     liveSession,
@@ -382,12 +421,182 @@ export function DeckScreen({
 
   const sendRemote = useCallback(
     (action: DeckRemoteAction, at?: number) => {
-      if (!remoteShow) return;
-      remoteRef.current = appendRemoteCommand(remoteRef.current, remoteShow.show.id, action, at);
+      if (!remoteShowIdValue) return;
+      const direct = directRef.current;
+      if (direct?.showId === remoteShowIdValue && direct.channel.readyState === 'open') {
+        direct.channel.send(
+          directRemoteMessage({
+            type: 'command',
+            action,
+            ...(action === 'goto' ? { index: at } : {}),
+          }),
+        );
+        return;
+      }
+      remoteRef.current = appendRemoteCommand(remoteRef.current, remoteShowIdValue, action, at);
       setRemoteVersion((version) => version + 1);
     },
-    [remoteShow],
+    [remoteShowIdValue],
   );
+
+  const requestRemoteStart = useCallback((targetClientId: number) => {
+    remoteRef.current = {
+      showId: '',
+      commands: [],
+      startRequest: {
+        id: crypto.randomUUID(),
+        targetClientId,
+      },
+    };
+    setRemoteVersion((version) => version + 1);
+  }, []);
+
+  const sendRemotePointer = useCallback(
+    (active: boolean, x: number, y: number) => {
+      if (!remoteShowIdValue) return;
+      const direct = directRef.current;
+      if (direct?.showId === remoteShowIdValue && direct.channel.readyState === 'open') {
+        direct.channel.send(directRemoteMessage({ type: 'pointer', active, x, y }));
+        return;
+      }
+      const previous = remoteRef.current;
+      remoteRef.current = {
+        showId: remoteShowIdValue,
+        commands: previous?.showId === remoteShowIdValue ? previous.commands : [],
+        ...(previous?.showId === remoteShowIdValue && previous.directOffer
+          ? { directOffer: previous.directOffer }
+          : {}),
+        pointer: {
+          seq: ((previous?.showId === remoteShowIdValue ? previous.pointer?.seq : 0) ?? 0) + 1,
+          active,
+          x,
+          y,
+        },
+      };
+      setRemoteVersion((version) => version + 1);
+    },
+    [remoteShowIdValue],
+  );
+
+  useEffect(() => {
+    const current = directRef.current;
+    if (current && current.showId !== remoteShowIdValue) {
+      current.connection.close();
+      directRef.current = null;
+    }
+    if (
+      mode !== 'remote' ||
+      !remoteShowIdValue ||
+      !remoteOffersDirect ||
+      !supportsDirectRemote() ||
+      directRef.current
+    ) {
+      if (!remoteShowIdValue || !remoteOffersDirect) setRemoteTransport('relay');
+      return;
+    }
+    let cancelled = false;
+    setRemoteTransport('connecting');
+    void createDirectRemoteOffer()
+      .then(({ connection, channel, sdp }) => {
+        if (cancelled) {
+          connection.close();
+          return;
+        }
+        directRef.current = { showId: remoteShowIdValue, connection, channel };
+        channel.addEventListener('open', () => setRemoteTransport('direct'));
+        channel.addEventListener('close', () => setRemoteTransport('relay'));
+        channel.addEventListener('error', () => setRemoteTransport('relay'));
+        const previous = remoteRef.current;
+        remoteRef.current = {
+          showId: remoteShowIdValue,
+          commands: previous?.showId === remoteShowIdValue ? previous.commands : [],
+          ...(previous?.showId === remoteShowIdValue && previous.pointer
+            ? { pointer: previous.pointer }
+            : {}),
+          directOffer: sdp,
+        };
+        setRemoteVersion((version) => version + 1);
+      })
+      .catch(() => setRemoteTransport('relay'));
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, remoteOffersDirect, remoteShowIdValue]);
+
+  useEffect(() => {
+    const direct = directRef.current;
+    const clientId = liveSession?.awareness.clientID;
+    if (
+      !direct ||
+      direct.connection.remoteDescription ||
+      !remoteDirectAnswer ||
+      remoteDirectAnswer.clientId !== clientId ||
+      !validDirectSdp(remoteDirectAnswer.sdp)
+    ) {
+      return;
+    }
+    void direct.connection
+      .setRemoteDescription({ type: 'answer', sdp: remoteDirectAnswer.sdp })
+      .catch(() => setRemoteTransport('relay'));
+  }, [liveSession, remoteDirectAnswer]);
+
+  useEffect(
+    () => () => {
+      directRef.current?.connection.close();
+      directRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!motionLaser || mode !== 'remote' || !remoteShowIdValue) return;
+    const onOrientation = (event: DeviceOrientationEvent) => {
+      if (event.beta === null || event.gamma === null) return;
+      if (!motionOrigin.current) {
+        motionOrigin.current = { beta: event.beta, gamma: event.gamma };
+        return;
+      }
+      const now = performance.now();
+      if (now - lastMotionAt.current < 40) return;
+      lastMotionAt.current = now;
+      const deadZone = (value: number) => (Math.abs(value) < 1.5 ? 0 : value);
+      const dx = deadZone(event.gamma - motionOrigin.current.gamma) * 0.0025;
+      const dy = deadZone(event.beta - motionOrigin.current.beta) * 0.0025;
+      const point = {
+        x: Math.min(1, Math.max(0, motionPointer.current.x + dx)),
+        y: Math.min(1, Math.max(0, motionPointer.current.y + dy)),
+      };
+      motionPointer.current = point;
+      sendRemotePointer(true, point.x, point.y);
+    };
+    window.addEventListener('deviceorientation', onOrientation);
+    return () => {
+      window.removeEventListener('deviceorientation', onOrientation);
+      sendRemotePointer(false, motionPointer.current.x, motionPointer.current.y);
+    };
+  }, [mode, motionLaser, remoteShowIdValue, sendRemotePointer]);
+
+  const toggleMotionLaser = useCallback(async () => {
+    if (motionLaser) {
+      setMotionLaser(false);
+      return;
+    }
+    setMotionError(null);
+    const orientation = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+    try {
+      if (orientation.requestPermission && (await orientation.requestPermission()) !== 'granted') {
+        setMotionError('Motion access was not granted.');
+        return;
+      }
+      motionOrigin.current = null;
+      motionPointer.current = { x: 0.5, y: 0.5 };
+      setMotionLaser(true);
+    } catch {
+      setMotionError('Motion sensors are not available on this device.');
+    }
+  }, [motionLaser]);
 
   // Leave the remote when the show ends or the presenter turns it off.
   useEffect(() => {
@@ -537,6 +746,13 @@ export function DeckScreen({
           {remoteShow.show.blank
             ? `Screen is ${remoteShow.show.blank}`
             : `Showing slide ${remoteShow.show.position} of ${remoteShow.show.total}`}
+          <span className={`deck-remote-transport ${remoteTransport}`}>
+            {remoteTransport === 'direct'
+              ? 'Direct connection'
+              : remoteTransport === 'connecting'
+                ? 'Connecting directly…'
+                : 'Server relay'}
+          </span>
         </div>
         {shown ? (
           <DeckSlideFrame
@@ -576,6 +792,29 @@ export function DeckScreen({
             Next <ChevronRight size={22} />
           </button>
         </div>
+        <div className="deck-motion-laser">
+          <button
+            type="button"
+            className={`deck-remote-button${motionLaser ? ' primary' : ''}`}
+            aria-pressed={motionLaser}
+            onClick={() => void toggleMotionLaser()}
+          >
+            <Crosshair size={20} /> {motionLaser ? 'Stop motion laser' : 'Motion laser'}
+          </button>
+          {motionLaser ? (
+            <button
+              type="button"
+              className="chip"
+              onClick={() => {
+                motionOrigin.current = null;
+                motionPointer.current = { x: 0.5, y: 0.5 };
+              }}
+            >
+              Recenter
+            </button>
+          ) : null}
+        </div>
+        {motionError ? <Banner tone="error">{motionError}</Banner> : null}
         <section className="deck-notes" aria-label="Speaker notes">
           {upcoming && <p className="deck-notes-next">Next: slide {upcoming.number}</p>}
           <DeckNotes body={shown?.notes ?? null} />
@@ -611,6 +850,23 @@ export function DeckScreen({
           <span>Your computer is presenting this deck.</span>
           <button type="button" className="chip" onClick={() => setMode('remote')}>
             Remote control
+          </button>
+        </div>
+      )}
+      {!remoteShow && startTargets.length > 0 && (
+        <div className="deck-companion-bar">
+          <MonitorPlay size={16} aria-hidden />
+          <span>
+            {startTargets.length === 1
+              ? `${startTargets[0].user?.name ?? 'Your computer'} can present this deck.`
+              : `${startTargets.length} computers can present this deck.`}
+          </span>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => requestRemoteStart(startTargets[0].clientId)}
+          >
+            Present there
           </button>
         </div>
       )}
