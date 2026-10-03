@@ -79,6 +79,8 @@ export interface DeckInteraction {
   show?: DeckShowState | null;
   /** A phone driving someone's show: its recent commands (`deck/remote.ts`). */
   remote?: DeckRemoteState | null;
+  /** This desktop may be asked by the same account to start this open deck. */
+  canStartPresentation?: boolean;
 }
 
 /** A running show as its presenter publishes it. */
@@ -92,6 +94,10 @@ export interface DeckShowState {
   blank: 'black' | 'white' | null;
   /** The presenter allows their own signed-in devices to drive the show. */
   remote: boolean;
+  /** Direct same-LAN control is offered; signaling remains same-account awareness. */
+  direct?: boolean;
+  /** ICE-complete WebRTC answer for one requesting phone. */
+  directAnswer?: { clientId: number; sdp: string } | null;
 }
 
 export type DeckRemoteAction = 'next' | 'previous' | 'first' | 'last' | 'goto' | 'black' | 'white';
@@ -108,6 +114,12 @@ export interface DeckRemoteCommand {
 export interface DeckRemoteState {
   showId: string;
   commands: DeckRemoteCommand[];
+  /** ICE-complete WebRTC offer. The presenter answers only same-account peers. */
+  directOffer?: string;
+  /** Relay fallback for motion laser updates when a direct channel is unavailable. */
+  pointer?: { seq: number; active: boolean; x: number; y: number };
+  /** Same-account request to start this open deck on a particular desktop peer. */
+  startRequest?: { id: string; targetClientId: number };
 }
 
 /** The full ephemeral state a peer publishes for one document. */

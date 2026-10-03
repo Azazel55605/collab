@@ -141,6 +141,11 @@ Open tracker entries:
   presentation, following, and opted-in phone remote control are implemented;
   remotely enabled shows are discovered app-wide through a same-account
   floating bubble and route directly into the matching deck and remote.
+  Same-LAN WebRTC control now carries commands and a calibrated Android motion
+  laser directly when possible, with awareness relay fallback. Presentation
+  settings persist defaults and opt-ins, and a phone may start a deck already
+  open on a specifically targeted, opted-in desktop. Physical multi-vendor
+  sensor and network-topology evidence remains open.
 - Phase 9, **Complete**: bounded slide transitions and object animation
   timelines are authored and played across the main and audience windows;
   PowerPoint exports the compatible transition subset and reports animation

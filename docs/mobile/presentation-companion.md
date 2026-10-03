@@ -12,22 +12,24 @@ nodes for every table cell, chart point, or glyph.
 
 ## What it does
 
-| Feature             | Behaviour                                                                                                                                                |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Open                | Tapping a `.deck` (by document type or extension) opens the presentation screen.                                                                         |
-| Offline             | Reads through the server and warms the replica cache; with no connection it opens the cached copy (shown by the offline icon).                           |
-| Images              | Each image the deck draws is found by its vault path and read through the normal asset path (network, then cached bytes).                                |
-| Missing images      | Drawn as placeholders, with a banner saying how many; a missing image never stops the deck opening.                                                      |
-| Slide list          | Windowed thumbnails (only the rows near the screen mount), section names, hidden slides dimmed; 1–4 columns by width.                                    |
-| Slide view          | The slide fitted to the screen; pinch zoom (100–500%) about the fingers, drag to pan when zoomed, double-tap to zoom in or back to fit.                  |
-| Navigation          | Swipe at fit, or the toolbar buttons; every slide, including hidden ones, can be browsed.                                                                |
-| Speaker notes       | Under the slide in portrait, beside it in short landscape; formatting and list labels kept.                                                              |
-| Present             | Full-screen black show with the desktop's playback rules: hidden slides skipped, object builds and transitions played, tap/swipe navigation, end screen. |
-| Live                | On a connection the screen joins the deck's live room read-only: collaborators' edits appear as they are made.                                           |
-| Follow              | When someone presents the deck, **Follow** keeps this phone on the slide they show.                                                                      |
-| Remote control      | With **Phone remote** on, the app discovers your computer from any screen, shows a floating bubble, and opens Previous/Next, blanking, and notes.        |
-| Process recreation  | The slide, view, notes panel, zoom, and pan are kept per file in `sessionStorage` and restored when Android recreates the activity.                      |
-| Read-only and newer | Every role can view. A deck from a newer Collab opens with a notice; the live room is not joined for it.                                                 |
+| Feature             | Behaviour                                                                                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open                | Tapping a `.deck` (by document type or extension) opens the presentation screen.                                                                                  |
+| Offline             | Reads through the server and warms the replica cache; with no connection it opens the cached copy (shown by the offline icon).                                    |
+| Images              | Each image the deck draws is found by its vault path and read through the normal asset path (network, then cached bytes).                                         |
+| Missing images      | Drawn as placeholders, with a banner saying how many; a missing image never stops the deck opening.                                                               |
+| Slide list          | Windowed thumbnails (only the rows near the screen mount), section names, hidden slides dimmed; 1–4 columns by width.                                             |
+| Slide view          | The slide fitted to the screen; pinch zoom (100–500%) about the fingers, drag to pan when zoomed, double-tap to zoom in or back to fit.                           |
+| Navigation          | Swipe at fit, or the toolbar buttons; every slide, including hidden ones, can be browsed.                                                                         |
+| Speaker notes       | Under the slide in portrait, beside it in short landscape; formatting and list labels kept.                                                                       |
+| Present             | Full-screen black show with the desktop's playback rules: hidden slides skipped, object builds and transitions played, tap/swipe navigation, end screen.          |
+| Live                | On a connection the screen joins the deck's live room read-only: collaborators' edits appear as they are made.                                                    |
+| Follow              | When someone presents the deck, **Follow** keeps this phone on the slide they show.                                                                               |
+| Remote control      | With **Phone remote** on, the app discovers your computer from any screen, shows a floating bubble, and opens Previous/Next, blanking, notes, and a motion laser. |
+| Direct control      | The phone prefers an encrypted WebRTC data channel on the same network and visibly falls back to the existing server relay when it cannot connect.                |
+| Start on computer   | An opted-in computer already viewing the deck can be asked from the phone to begin its default presentation mode.                                                 |
+| Process recreation  | The slide, view, notes panel, zoom, and pan are kept per file in `sessionStorage` and restored when Android recreates the activity.                               |
+| Read-only and newer | Every role can view. A deck from a newer Collab opens with a notice; the live room is not joined for it.                                                          |
 
 ## Remote control
 
@@ -47,10 +49,12 @@ in the slide show and presenter-view control bars. The protocol is
    removes the bubble on the next poll. A crashed presenter ages out after 20
    seconds.
 
-This is server-relayed live presence, not Bluetooth, a local-network discovery
-protocol, or a permanent pairing. A local-only desktop vault has no relay for a
-phone to join, and temporary network loss pauses discovery and commands until
-the live connection returns.
+Discovery and WebRTC signaling use server-relayed live presence; control data
+uses an encrypted peer-to-peer WebRTC channel when the two devices can reach
+one another, normally on the same LAN. The UI reports **Direct connection**,
+**Connecting directly**, or **Server relay**. This is not Bluetooth, mDNS, or a
+permanent pairing: a hosted live room is still required to discover and
+authenticate the peer. A local-only desktop vault has no phone discovery path.
 
 - the presenter publishes the running show — a fresh id per show, stable
   vault/file identity, the slide and position, and whether remote control is
@@ -63,6 +67,15 @@ the live connection returns.
   keeps another member from driving someone's show;
 - commands name the show they are for, so nothing from an earlier show replays
   into a new one.
+- WebRTC offers and answers are accepted only through the same-account live
+  room, contain complete ICE candidates, and use host candidates only (no
+  public STUN/TURN service); DTLS encrypts the direct data channel;
+- the phone's **Motion laser** calibrates on activation, converts orientation
+  changes to normalized slide coordinates at a bounded rate, and falls back to
+  awareness updates if the direct channel is unavailable;
+- **Present there** targets a particular awareness client. The desktop must
+  have **Allow presentations to start from my phone** enabled and already have
+  that deck open; requests are deduplicated and are not persisted.
 
 Nothing in remote control writes to the deck.
 
@@ -77,6 +90,7 @@ Nothing in remote control writes to the deck.
 | `apps/mobile-android/src/lib/deck.ts`                      | File predicate, network-then-replica read, asset lookup, zoom/pan bounds, windowing, view state |
 | `apps/mobile-android/src/lib/liveNote.ts`                  | `openMobileLiveDeckSession`: the read-only live room, decoded by the shared deck codec          |
 | `src/lib/deck/remote.ts`                                   | Remote-control protocol shared by desktop and phone                                             |
+| `src/lib/deck/directRemote.ts`                             | Bounded WebRTC messages, offer/answer creation, and ICE gathering                               |
 | `src/lib/deck/activePresentation.ts`                       | Desktop heartbeat and cleanup for the account-scoped active-show advertisement                  |
 | `crates/collab-server/src/presentations.rs`                | Bounded in-memory active-show registry with same-account filtering and automatic expiry         |
 
@@ -104,4 +118,12 @@ and are not replaced by them:
 - [ ] Remote control: a desktop show driven from the phone over Wi-Fi and
       mobile data; latency acceptable; a second account's phone cannot drive it;
       turning Phone remote off stops it at once.
+- [ ] Direct control: two devices on the same Wi-Fi report **Direct
+      connection**; different subnets fall back to **Server relay** without
+      losing commands.
+- [ ] Motion laser: calibration, recentering, portrait/landscape orientation,
+      sensor denial, jitter, and 10 minutes of continuous movement are usable
+      on at least two Android vendors.
+- [ ] Remote start: an opted-in desktop with the deck open starts exactly once;
+      another account and an opted-out desktop ignore the request.
 - [ ] Live: an edit made on the desktop appears on the phone during viewing.

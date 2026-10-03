@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import SettingsOcrSection from '../components/settings/SettingsOcrSection';
+import SettingsPresentationSection from '../components/settings/SettingsPresentationSection';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import {
@@ -219,6 +220,11 @@ export default function SettingsPage() {
             ocrPreprocessingMode={ocrPreprocessingMode}
             setOcrPreprocessingMode={setOcrPreprocessingMode}
           />
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Presentations</h2>
+          <SettingsPresentationSection />
         </section>
       </div>
     </div>

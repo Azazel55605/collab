@@ -11,7 +11,9 @@ import { readDeck, reconcileDeck, writeDeck } from '../lib/deck/liveDeckDocument
 import type { LiveDeckSession } from '../lib/deck/liveDeckSession';
 import { serializeDeck } from '../lib/deck/validate';
 import { createEmptySheetDocument, serializeSheetDocument } from '../lib/sheet/document';
+import { useCollabStore } from '../store/collabStore';
 import { useEditorStore } from '../store/editorStore';
+import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 import type { DeckDocument } from '../types/deck';
 import type { VaultMeta } from '../types/vault';
@@ -284,6 +286,14 @@ beforeEach(() => {
     activeTabPath: PATH,
     deckViewStates: {},
   } as never);
+  useUiStore.setState({
+    presentationAllowRemoteStart: false,
+    presentationAlwaysAllowPhoneControl: false,
+    presentationDirectControl: true,
+    presentationDefaultMode: 'slideshow',
+    presentationPreferredDisplayId: null,
+  });
+  useCollabStore.setState({ myUserId: 'local-user' });
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
     configurable: true,
     get: () => STAGE.width,
@@ -1192,7 +1202,7 @@ describe('DeckView: live collaboration', () => {
         applyAwarenessUpdate(awareness, encodeAwarenessUpdate(peerAwareness, [202]), 'remote');
       });
     };
-    return { doc, peer, session, writes, peerEdit, toPeer, peerPresence };
+    return { doc, peer, peerAwareness, session, writes, peerEdit, toPeer, peerPresence };
   }
 
   beforeEach(() => {
@@ -1325,6 +1335,32 @@ describe('DeckView: live collaboration', () => {
         expect.stringMatching(/^\/api\/v1\/presentations\/active\/show-/),
       ),
     );
+  });
+
+  it('starts the open deck when an opted-in same-account phone requests this client', async () => {
+    useUiStore.setState({ presentationAllowRemoteStart: true });
+    useCollabStore.setState({ myUserId: 'same-account' });
+    const live = await openLive();
+    live.peerAwareness.setLocalState({
+      user: { id: 'same-account', name: 'Phone', color: '#e11d48' },
+      document: { kind: 'deck', relativePath: PATH },
+      deck: {
+        targetId: 'slide-1',
+        remote: {
+          showId: '',
+          commands: [],
+          startRequest: { id: 'request-1', targetClientId: live.session.awareness.clientID },
+        },
+      },
+    });
+    act(() => {
+      applyAwarenessUpdate(
+        live.session.awareness,
+        encodeAwarenessUpdate(live.peerAwareness, [live.peerAwareness.clientID]),
+        'remote',
+      );
+    });
+    expect(await screen.findByRole('dialog', { name: 'Slide show' })).toBeTruthy();
   });
 
   it('viewers follow the room but never write to it', async () => {
