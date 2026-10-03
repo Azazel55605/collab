@@ -7096,6 +7096,7 @@ p {
 /* Remote control for a show running on the presenter's computer. */
 .deck-remote-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -7115,6 +7116,12 @@ p {
 .deck-remote-transport.direct {
   color: var(--primary);
   background: color-mix(in oklch, var(--primary) 14%, var(--surface));
+}
+.deck-remote-transport-issue {
+  flex-basis: 100%;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 .deck-motion-laser {
   display: flex;

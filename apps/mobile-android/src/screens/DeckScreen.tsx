@@ -124,10 +124,12 @@ export function DeckScreen({
     showId: string;
     connection: RTCPeerConnection;
     channel: RTCDataChannel;
+    timeout: number;
   } | null>(null);
   const [remoteTransport, setRemoteTransport] = useState<'relay' | 'connecting' | 'direct'>(
     'relay',
   );
+  const [remoteDirectIssue, setRemoteDirectIssue] = useState<string | null>(null);
   const [motionLaser, setMotionLaser] = useState(false);
   const [motionError, setMotionError] = useState<string | null>(null);
   const motionOrigin = useRef<{ beta: number; gamma: number } | null>(null);
@@ -481,6 +483,7 @@ export function DeckScreen({
   useEffect(() => {
     const current = directRef.current;
     if (current && current.showId !== remoteShowIdValue) {
+      window.clearTimeout(current.timeout);
       current.connection.close();
       directRef.current = null;
     }
@@ -491,21 +494,44 @@ export function DeckScreen({
       !supportsDirectRemote() ||
       directRef.current
     ) {
-      if (!remoteShowIdValue || !remoteOffersDirect) setRemoteTransport('relay');
+      if (mode !== 'remote' || !remoteShowIdValue || !remoteOffersDirect) {
+        setRemoteTransport('relay');
+        setRemoteDirectIssue(null);
+      }
+      if (mode === 'remote' && remoteShowIdValue && remoteOffersDirect && !supportsDirectRemote()) {
+        setRemoteDirectIssue('Direct control is unavailable in this system WebView.');
+      }
       return;
     }
     let cancelled = false;
     setRemoteTransport('connecting');
+    setRemoteDirectIssue(null);
     void createDirectRemoteOffer()
       .then(({ connection, channel, sdp }) => {
         if (cancelled) {
           connection.close();
           return;
         }
-        directRef.current = { showId: remoteShowIdValue, connection, channel };
-        channel.addEventListener('open', () => setRemoteTransport('direct'));
-        channel.addEventListener('close', () => setRemoteTransport('relay'));
-        channel.addEventListener('error', () => setRemoteTransport('relay'));
+        const timeout = window.setTimeout(() => {
+          if (channel.readyState === 'open') return;
+          setRemoteTransport('relay');
+          setRemoteDirectIssue('Direct connection timed out; commands still use the server relay.');
+        }, 15_000);
+        directRef.current = { showId: remoteShowIdValue, connection, channel, timeout };
+        channel.addEventListener('open', () => {
+          window.clearTimeout(timeout);
+          setRemoteDirectIssue(null);
+          setRemoteTransport('direct');
+        });
+        channel.addEventListener('close', () => {
+          window.clearTimeout(timeout);
+          setRemoteTransport('relay');
+        });
+        channel.addEventListener('error', () => {
+          window.clearTimeout(timeout);
+          setRemoteDirectIssue('The direct channel failed; commands still use the server relay.');
+          setRemoteTransport('relay');
+        });
         const previous = remoteRef.current;
         remoteRef.current = {
           showId: remoteShowIdValue,
@@ -517,7 +543,10 @@ export function DeckScreen({
         };
         setRemoteVersion((version) => version + 1);
       })
-      .catch(() => setRemoteTransport('relay'));
+      .catch(() => {
+        setRemoteDirectIssue('Direct setup failed; commands still use the server relay.');
+        setRemoteTransport('relay');
+      });
     return () => {
       cancelled = true;
     };
@@ -537,11 +566,17 @@ export function DeckScreen({
     }
     void direct.connection
       .setRemoteDescription({ type: 'answer', sdp: remoteDirectAnswer.sdp })
-      .catch(() => setRemoteTransport('relay'));
+      .catch(() => {
+        setRemoteDirectIssue(
+          'The computer rejected the direct connection; using the server relay.',
+        );
+        setRemoteTransport('relay');
+      });
   }, [liveSession, remoteDirectAnswer]);
 
   useEffect(
     () => () => {
+      if (directRef.current) window.clearTimeout(directRef.current.timeout);
       directRef.current?.connection.close();
       directRef.current = null;
     },
@@ -561,7 +596,9 @@ export function DeckScreen({
       lastMotionAt.current = now;
       const deadZone = (value: number) => (Math.abs(value) < 1.5 ? 0 : value);
       const dx = deadZone(event.gamma - motionOrigin.current.gamma) * 0.0025;
-      const dy = deadZone(event.beta - motionOrigin.current.beta) * 0.0025;
+      // Device beta grows when the top of the phone tilts toward the user,
+      // which is the inverse of the slide's top-to-bottom Y axis.
+      const dy = -deadZone(event.beta - motionOrigin.current.beta) * 0.0025;
       const point = {
         x: Math.min(1, Math.max(0, motionPointer.current.x + dx)),
         y: Math.min(1, Math.max(0, motionPointer.current.y + dy)),
@@ -753,6 +790,9 @@ export function DeckScreen({
                 ? 'Connecting directly…'
                 : 'Server relay'}
           </span>
+          {remoteDirectIssue ? (
+            <span className="deck-remote-transport-issue">{remoteDirectIssue}</span>
+          ) : null}
         </div>
         {shown ? (
           <DeckSlideFrame

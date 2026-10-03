@@ -409,10 +409,12 @@ direct WebRTC control, and whether a same-account phone may start the currently
 open deck. The presenter uses the shared themed Select for display choice so
 WebKitGTK never delegates that popup to unthemed native control chrome.
 
-Phone commands normally negotiate a host-candidate WebRTC data channel through
-same-account deck awareness. The channel is DTLS-encrypted and carries bounded
-navigation and laser messages; the numbered awareness protocol remains the
-fallback. Motion laser samples are transient and never enter the document.
+Phone commands normally negotiate a WebRTC data channel through same-account
+deck awareness. Cloudflare STUN supplies address discovery where WebKit hides
+host candidates; it does not relay presentation traffic. The channel is
+DTLS-encrypted and carries bounded navigation and laser messages; the numbered
+awareness protocol remains the fallback. Motion laser samples are transient and
+never enter the document.
 Phone-initiated start requests target a specific desktop awareness client and
 work only while that desktop has the deck open and has opted in.
 

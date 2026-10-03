@@ -973,9 +973,10 @@ and are a release gate in
       accounts from `MobileApp`, shows a floating bubble without requiring the
       deck to be open, routes by stable server/vault/file identity, and enters
       the matching remote automatically. Stale shows expire after 20 seconds.
-- [x] Direct phone control: negotiate a DTLS-encrypted, host-candidate WebRTC
-      data channel through same-account deck awareness, report its state on the
-      phone, and retain the numbered awareness relay as an automatic fallback.
+- [x] Direct phone control: negotiate a DTLS-encrypted WebRTC data channel
+      through same-account deck awareness, use STUN address discovery for
+      WebKit compatibility, report its state on the phone, and retain the
+      numbered awareness relay as an automatic fallback.
 - [x] Motion laser: calibrate Android orientation sensors on demand, send
       bounded normalized pointer samples over the direct channel or throttled
       relay, and support recenter/stop controls without changing the deck.

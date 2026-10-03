@@ -9,6 +9,7 @@ import {
   Languages,
   Layout,
   Monitor,
+  MonitorPlay,
   Palette,
   PenLine,
   RefreshCw,
@@ -42,6 +43,7 @@ import SettingsInkSection from './SettingsInkSection';
 import SettingsLogicSection from './SettingsLogicSection';
 import SettingsNotificationsSection from './SettingsNotificationsSection';
 import SettingsOcrSection from './SettingsOcrSection';
+import SettingsPresentationSection from './SettingsPresentationSection';
 import SettingsProfileSection from './SettingsProfileSection';
 import SettingsServerSection from './SettingsServerSection';
 import ShortcutsTab from './ShortcutsTab';
@@ -84,6 +86,12 @@ const TABS = [
     label: 'Display',
     icon: <Monitor size={15} />,
     keywords: ['scale', 'motion', 'animation', 'ui'],
+  },
+  {
+    id: 'presentations',
+    label: 'Presentations',
+    icon: <MonitorPlay size={15} />,
+    keywords: ['slides', 'presenter', 'monitor', 'phone', 'remote', 'laser', 'webrtc'],
   },
   {
     id: 'canvas',
@@ -408,6 +416,8 @@ export default function SettingsModal() {
                 setAnimationSpeed={setAnimationSpeed}
               />
             )}
+
+            {activeTab === 'presentations' && <SettingsPresentationSection />}
 
             {/* ── Canvas ── */}
             {activeTab === 'canvas' && (
