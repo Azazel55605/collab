@@ -1056,9 +1056,9 @@ presentation pass:
 - [x] Complete every resolved font stack with bundled and platform families.
       `Inter Variable`, shipped with Collab, is the first automatic substitute
       when a machine does not provide `Inter`.
-- [x] Size the native audience window with explicit physical monitor bounds
-      before entering fullscreen, avoiding high-DPI logical/physical scaling
-      mismatches.
+- [x] Reassert explicit physical monitor bounds after native fullscreen for
+      both the main slide show and the visible audience window, avoiding
+      high-DPI logical/physical scaling mismatches.
 - [x] Pin these behaviors with editor, font-resolution, and Tauri-window unit
       regressions. Native multi-monitor validation remains part of the physical
       release matrix.

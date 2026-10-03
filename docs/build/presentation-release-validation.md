@@ -32,8 +32,8 @@ The presentation release command covers:
   order, stable semantic labels, alternative text, contrast, and font fallback;
 - keyboard authoring, presentation navigation, animation builds, second-display
   recovery, stable formatting-row geometry, blank-canvas arrow navigation,
-  physical audience-window sizing, mobile touch/view state, and Android process
-  recreation;
+  physical main/audience fullscreen sizing, mobile touch/view state, and
+  Android process recreation;
 - deterministic PDF/image/print planning and the first-party OOXML writer;
 - reversible operations, crash-repair paths, and a sustained two-client Yjs
   convergence soak including accessibility-order edits;

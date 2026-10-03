@@ -9,6 +9,8 @@
     "core:webview:allow-set-webview-zoom",
     "core:webview:allow-create-webview-window",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
     "core:window:allow-destroy",
     "opener:default",
     "opener:allow-reveal-item-in-dir",

@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DisplayInfo } from './presentWindow';
-import { openAudienceWindow } from './presentWindow';
+import { openAudienceWindow, setWindowFullscreen } from './presentWindow';
 
 const mocks = vi.hoisted(() => ({
   options: null as Record<string, unknown> | null,
   setPosition: vi.fn(async () => {}),
   setSize: vi.fn(async () => {}),
   setFullscreen: vi.fn(async () => {}),
-  show: vi.fn(async () => {}),
   destroy: vi.fn(async () => {}),
+  currentSetSize: vi.fn(async () => {}),
+  currentSetFullscreen: vi.fn(async () => {}),
 }));
 
 vi.mock('@tauri-apps/api/dpi', () => ({
@@ -33,7 +34,6 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
     setPosition = mocks.setPosition;
     setSize = mocks.setSize;
     setFullscreen = mocks.setFullscreen;
-    show = mocks.show;
     destroy = mocks.destroy;
 
     constructor(_label: string, options: Record<string, unknown>) {
@@ -47,6 +47,15 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
   },
 }));
 
+vi.mock('@tauri-apps/api/window', () => ({
+  currentMonitor: vi.fn(async () => ({ size: { width: 2_554, height: 1_464 } })),
+  getCurrentWindow: vi.fn(() => ({
+    isFullscreen: vi.fn(async () => false),
+    setFullscreen: mocks.currentSetFullscreen,
+    setSize: mocks.currentSetSize,
+  })),
+}));
+
 vi.mock('@tauri-apps/api/event', () => ({
   emitTo: vi.fn(async () => {}),
   listen: vi.fn(async () => () => {}),
@@ -56,8 +65,8 @@ afterEach(() => {
   delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 });
 
-describe('openAudienceWindow', () => {
-  it('applies physical monitor bounds before revealing the fullscreen window', async () => {
+describe('presentation windows', () => {
+  it('opens the audience window visibly and reapplies physical fullscreen bounds', async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     const display: DisplayInfo = {
       id: 'projector',
@@ -77,12 +86,23 @@ describe('openAudienceWindow', () => {
     });
 
     expect(handle).not.toBeNull();
-    expect(mocks.options).toMatchObject({ visible: false, fullscreen: false });
+    expect(mocks.options).toMatchObject({ fullscreen: true });
+    expect(mocks.options).not.toHaveProperty('visible');
     expect(mocks.setPosition).toHaveBeenCalledWith(expect.objectContaining({ x: 0, y: 0 }));
     expect(mocks.setSize).toHaveBeenCalledWith(
       expect.objectContaining({ width: 2_554, height: 1_464 }),
     );
     expect(mocks.setFullscreen).toHaveBeenCalledWith(true);
-    expect(mocks.show).toHaveBeenCalledOnce();
+  });
+
+  it('reapplies physical monitor size after the main window enters fullscreen', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+
+    await expect(setWindowFullscreen(true)).resolves.toBe(false);
+
+    expect(mocks.currentSetFullscreen).toHaveBeenCalledWith(true);
+    expect(mocks.currentSetSize).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 2_554, height: 1_464 }),
+    );
   });
 });

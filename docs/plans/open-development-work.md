@@ -150,9 +150,9 @@ Open tracker entries:
   [Presentation Release Validation](../build/presentation-release-validation.md).
 - General-release hardening Phase 1, **Complete**: the formatting row no longer
   moves the canvas when selection changes, blank-canvas arrow navigation is
-  focusable, resolved fonts gain bundled/platform fallbacks, and audience
-  windows use physical monitor bounds before fullscreen. The high-DPI audience
-  fix still requires confirmation in the physical multi-monitor matrix.
+  focusable, resolved fonts gain bundled/platform fallbacks, and the main and
+  audience fullscreen surfaces reassert physical monitor bounds. The high-DPI
+  fixes still require confirmation in the physical multi-monitor matrix.
 - Phase 11, **Deferred**: bounded PPTX import into a new `.deck`; import is not
   required for the first production release.
 

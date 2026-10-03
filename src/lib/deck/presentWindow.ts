@@ -163,10 +163,9 @@ export async function openAudienceWindow(
       url: `index.html?${AUDIENCE_QUERY}=1`,
       title: 'Slide show',
       decorations: false,
-      fullscreen: false,
+      fullscreen: true,
       focus: false,
       skipTaskbar: true,
-      visible: false,
     });
 
     let latestSlide: AudienceSlideFrame | null = null;
@@ -193,7 +192,6 @@ export async function openAudienceWindow(
       .setSize(new PhysicalSize(Math.max(320, display.width), Math.max(240, display.height)))
       .catch(() => undefined);
     await window.setFullscreen(true).catch(() => undefined);
-    await window.show().catch(() => undefined);
 
     unlisteners.push(
       await window.once('tauri://destroyed', finish),
@@ -237,10 +235,24 @@ export async function openAudienceWindow(
 export async function setWindowFullscreen(fullscreen: boolean): Promise<boolean | null> {
   if (isDesktopRuntime()) {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const [{ PhysicalSize }, { currentMonitor, getCurrentWindow }] = await Promise.all([
+        import('@tauri-apps/api/dpi'),
+        import('@tauri-apps/api/window'),
+      ]);
       const current = getCurrentWindow();
       const was = await current.isFullscreen();
       if (was !== fullscreen) await current.setFullscreen(fullscreen);
+      if (fullscreen) {
+        const monitor = await currentMonitor();
+        if (monitor) {
+          // Some scaled Linux desktops fullscreen the native window without
+          // resizing its WebKit surface. Reasserting physical monitor bounds
+          // after the transition makes the in-window slide fill that surface.
+          await current
+            .setSize(new PhysicalSize(monitor.size.width, monitor.size.height))
+            .catch(() => undefined);
+        }
+      }
       return was;
     } catch {
       return null;
