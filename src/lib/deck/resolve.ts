@@ -223,6 +223,8 @@ export interface ResolvedSlide {
   background: ResolvedFill;
   /** Paint order, back to front. Groups are flattened into their children. */
   items: ResolvedItem[];
+  /** Slide-owned object ids in assistive-technology reading order. */
+  readingOrder: string[];
   notes: ResolvedTextBody | null;
   theme: DeckTheme;
 }
@@ -920,6 +922,7 @@ export function resolveSlide(
     hidden: slide.hidden ?? false,
     background: resolveFill(slide.background ?? layout?.background ?? master.background, theme),
     items,
+    readingOrder: [...(slide.readingOrder ?? [])],
     notes: slide.speakerNotes
       ? {
           paragraphs: resolveParagraphs(slide.speakerNotes.paragraphs, notesContext),
@@ -977,6 +980,7 @@ export function resolveDesign(
     hidden: false,
     background: resolveFill(layout?.background ?? master.background, theme),
     items,
+    readingOrder: [],
     notes: null,
     theme,
   };

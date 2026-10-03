@@ -5,6 +5,11 @@ present, and remote-control a show**. It never composes slides and never writes
 a `.deck`: the desktop editor stays the only place a deck changes. This is
 Phase 8 of the [presentation plan](../plans/presentation-tool-plan.md).
 
+Phase 10 shares the slide's bounded semantic companion with Android: TalkBack
+receives one named entry per resolved object in the authored reading order,
+while the visual SVG stays deterministic. It does not create accessibility
+nodes for every table cell, chart point, or glyph.
+
 ## What it does
 
 | Feature             | Behaviour                                                                                                                                                |

@@ -2211,18 +2211,20 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     );
   };
 
-  const onObjectText = (patch: { altText?: string }) => {
+  const onObjectText = (patch: { altText?: string; name?: string }) => {
     if (!singleObject) return;
     applyUpdaters(
       {
         [singleObject.element.id]: (current) => {
           const next = { ...current };
+          if (patch.name) next.name = patch.name.slice(0, 256);
+          else if (patch.name !== undefined) delete next.name;
           if (patch.altText) next.altText = patch.altText.slice(0, 4_096);
-          else delete next.altText;
+          else if (patch.altText !== undefined) delete next.altText;
           return next;
         },
       },
-      'Alt text',
+      patch.name !== undefined ? 'Object name' : 'Alt text',
     );
   };
 
@@ -2440,6 +2442,17 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       if (animations.length > 0) next.animations = animations;
       else delete next.animations;
       return applyPatch(current, { slides: { [activeSlideId]: next } });
+    });
+  };
+
+  const onReadingOrderChange = (readingOrder: string[]) => {
+    if (!activeSlideId) return;
+    commit('Reading order', (current) => {
+      const slide = current.slides[activeSlideId];
+      if (!slide) return noEdit(current);
+      return applyPatch(current, {
+        slides: { [activeSlideId]: { ...slide, readingOrder: [...readingOrder] } },
+      });
     });
   };
 
@@ -3500,6 +3513,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onTransitionPreview={previewTransition}
             onAnimationAdd={onAnimationAdd}
             onAnimationsChange={onAnimationsChange}
+            onReadingOrderChange={onReadingOrderChange}
             onApplyTemplate={onApplyTemplate}
             onThemeColor={onThemeColor}
             onThemeFont={onThemeFont}

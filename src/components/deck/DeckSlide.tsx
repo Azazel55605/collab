@@ -1,7 +1,8 @@
-import { memo, useMemo } from 'react';
+import { memo, useId, useMemo } from 'react';
 
 import DOMPurify from 'dompurify';
 
+import { accessibleItemLabel, accessibleSlideItems } from '../../lib/deck/accessibility';
 import type { ResolvedSlide } from '../../lib/deck/resolve';
 import { renderSlideSvg } from '../../lib/deck/svg';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
@@ -33,6 +34,7 @@ function DeckSlideComponent({
   className,
   label,
 }: DeckSlideProps) {
+  const accessibleId = useId();
   const height = (width * slide.height) / slide.width;
   const markup = useMemo(
     () =>
@@ -42,15 +44,24 @@ function DeckSlideComponent({
       ),
     [height, measurer, resolveAsset, slide, width],
   );
+  const accessibleItems = useMemo(() => accessibleSlideItems(slide), [slide]);
+  const slideLabel = label ?? `Slide ${slide.number}`;
   return (
-    <div
-      role="img"
-      aria-label={label ?? `Slide ${slide.number}`}
-      className={className}
-      style={{ width, height }}
-      // Sanitized above; see the component comment.
-      dangerouslySetInnerHTML={{ __html: markup }}
-    />
+    <div className={className} style={{ width, height }}>
+      <div
+        role="img"
+        aria-label={slideLabel}
+        aria-describedby={accessibleId}
+        style={{ width: '100%', height: '100%' }}
+        // Sanitized above; see the component comment.
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+      <ol id={accessibleId} className="sr-only" aria-label="Slide contents">
+        {accessibleItems.map((item, index) => (
+          <li key={`${item.origin}:${item.id}:${index}`}>{accessibleItemLabel(item)}</li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

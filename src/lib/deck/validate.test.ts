@@ -19,6 +19,24 @@ describe('validateDeck', () => {
     expect(validateDeck(buildScaleDeck(300)).ok).toBe(true);
   });
 
+  it('validates optional accessibility reading order', () => {
+    expect(
+      issues((deck) => {
+        deck.slides['slide-3'].readingOrder = ['s3-image', 's3-title'];
+      }),
+    ).toEqual([]);
+    expect(
+      issues((deck) => {
+        deck.slides['slide-3'].readingOrder = ['s3-image', 'missing'];
+      }).join(),
+    ).toMatch(/readingOrder.*missing element/);
+    expect(
+      issues((deck) => {
+        deck.slides['slide-3'].readingOrder = ['s3-image', 's3-image'];
+      }).join(),
+    ).toMatch(/readingOrder.*twice/);
+  });
+
   it('rejects non-finite and out-of-range geometry instead of clamping it', () => {
     expect(
       issues((deck) => (deck.slides['slide-5'].elements['s5-note'].frame!.x = Number.NaN)).join(),

@@ -148,15 +148,20 @@ function replaceSlide(
   return applyPatch(document, { masters: { [target.id]: container as DeckMaster } });
 }
 
-/** Drops animations whose element no longer exists; only slides carry them. */
-function withLiveAnimations(container: AnyContainer): AnyContainer {
-  if (!('animations' in container) || !container.animations) return container;
-  const animations = container.animations.filter(
-    (animation) => container.elements[animation.elementId],
-  );
+/** Drops slide-only references whose target no longer exists. */
+function withLiveSlideReferences(container: AnyContainer): AnyContainer {
+  if (!('animations' in container) && !('readingOrder' in container)) return container;
   const next: DeckSlide = { ...container };
-  if (animations.length > 0) next.animations = animations;
-  else delete next.animations;
+  if (next.animations) {
+    const animations = next.animations.filter((animation) => next.elements[animation.elementId]);
+    if (animations.length > 0) next.animations = animations;
+    else delete next.animations;
+  }
+  if (next.readingOrder) {
+    const readingOrder = next.readingOrder.filter((id) => next.elements[id]);
+    if (readingOrder.length > 0) next.readingOrder = readingOrder;
+    else delete next.readingOrder;
+  }
   return next;
 }
 
@@ -282,6 +287,11 @@ export function duplicateSlides(
         elementId: ids.get(animation.elementId) ?? animation.elementId,
       }));
     }
+    if (copy.readingOrder) {
+      copy.readingOrder = copy.readingOrder
+        .map((elementId) => ids.get(elementId))
+        .filter((elementId): elementId is string => elementId !== undefined);
+    }
     slides[id] = copy;
     order.splice(order.indexOf(sourceId) + 1, 0, id);
     created.push(id);
@@ -405,7 +415,7 @@ export function removeElements(
   return replaceSlide(
     document,
     slideId,
-    withLiveAnimations({ ...slide, elements, elementOrder: order }),
+    withLiveSlideReferences({ ...slide, elements, elementOrder: order }),
   );
 }
 
@@ -526,7 +536,7 @@ export function ungroupElements(
   return replaceSlide(
     document,
     slideId,
-    withLiveAnimations({ ...slide, elements, elementOrder: order }),
+    withLiveSlideReferences({ ...slide, elements, elementOrder: order }),
   );
 }
 

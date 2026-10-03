@@ -718,6 +718,39 @@ describe('DeckView: text, placeholders, and design', () => {
     expect(saved.themeId).toBe(buildFixtureDeck().themeId);
   });
 
+  it('authors an object name and reading order independently from paint order', async () => {
+    await openDeck();
+    await showSlide(2);
+    const surface = screen.getByTestId('deck-stage-surface');
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(70_000),
+      clientY: client(25_000),
+    });
+    fireEvent.pointerUp(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(70_000),
+      clientY: client(25_000),
+    });
+    fireEvent.click(screen.getByLabelText('Show design panel'));
+
+    const name = screen.getByLabelText('Object name');
+    fireEvent.change(name, { target: { value: 'System architecture' } });
+    fireEvent.blur(name);
+    fireEvent.click(screen.getByRole('button', { name: 'Move System architecture earlier' }));
+
+    const saved = await savedDeck();
+    expect(saved.slides['slide-3'].elements['s3-image'].name).toBe('System architecture');
+    expect(saved.slides['slide-3'].readingOrder?.indexOf('s3-image')).toBeLessThan(
+      saved.slides['slide-3'].readingOrder?.indexOf('s3-line') ?? -1,
+    );
+    expect(saved.slides['slide-3'].elementOrder.indexOf('s3-image')).toBeGreaterThan(
+      saved.slides['slide-3'].elementOrder.indexOf('s3-line'),
+    );
+  });
+
   it('edits layouts in the master view and adds placeholders to them', async () => {
     await openDeck();
     fireEvent.click(menuItem('Edit master and layouts'));

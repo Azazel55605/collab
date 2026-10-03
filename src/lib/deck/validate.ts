@@ -550,6 +550,23 @@ export function validateDeck(value: unknown): DeckValidationResult {
         c.fail(`${at}.layoutId`, 'references a missing layout');
       checkFill(c, `${at}.background`, slide.background);
       checkContainer(c, at, slide, extent, slideIds);
+      if (slide.readingOrder !== undefined) {
+        if (!Array.isArray(slide.readingOrder)) c.fail(`${at}.readingOrder`, 'must be an array');
+        else {
+          const seen = new Set<string>();
+          slide.readingOrder.forEach((id, index) => {
+            if (typeof id !== 'string' || !slide.elements[id])
+              c.fail(`${at}.readingOrder[${index}]`, 'references a missing element');
+            else if (slide.elements[id].type === 'group')
+              c.fail(
+                `${at}.readingOrder[${index}]`,
+                'must reference a rendered object, not a group',
+              );
+            else if (seen.has(id)) c.fail(`${at}.readingOrder[${index}]`, `lists ${id} twice`);
+            seen.add(id);
+          });
+        }
+      }
       checkRichText(c, `${at}.speakerNotes`, slide.speakerNotes, slideIds);
       if (slide.transition !== undefined) {
         if (!['none', 'fade', 'push', 'wipe'].includes(slide.transition.kind))

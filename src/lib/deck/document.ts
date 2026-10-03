@@ -238,6 +238,29 @@ function repairContainer(
   container.elementOrder = order;
 }
 
+function repairReadingOrder(
+  slide: Record<string, unknown>,
+  where: string,
+  warnings: string[],
+): void {
+  if (slide.readingOrder === undefined) return;
+  const elements = slide.elements as Record<string, unknown>;
+  const raw = Array.isArray(slide.readingOrder) ? slide.readingOrder : [];
+  const order = raw.filter(
+    (id, index): id is string =>
+      isId(id) &&
+      id in elements &&
+      isRecord(elements[id]) &&
+      elements[id].type !== 'group' &&
+      raw.indexOf(id) === index,
+  );
+  if (order.length !== raw.length) {
+    warnings.push(`${where}: invalid, duplicate, or missing reading-order entries were dropped`);
+  }
+  if (order.length > 0) slide.readingOrder = order;
+  else delete slide.readingOrder;
+}
+
 function repairStructure(deck: Record<string, unknown>, warnings: string[]): void {
   for (const field of ['themes', 'masters', 'layouts', 'slides'] as const) {
     if (!isRecord(deck[field])) {
@@ -292,6 +315,7 @@ function repairStructure(deck: Record<string, unknown>, warnings: string[]): voi
       warnings.push(`slide '${id}' used a missing layout; it now uses its master directly`);
     }
     repairContainer(slide, `slide '${id}'`, warnings);
+    repairReadingOrder(slide, `slide '${id}'`, warnings);
   }
 
   const rawOrder = Array.isArray(deck.slideOrder) ? deck.slideOrder : [];

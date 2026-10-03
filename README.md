@@ -31,9 +31,10 @@ Container Registry and run with a single production Compose file.
 - Pressure-aware `.ink` drawings with pages or infinite canvas, layers, rich
   tools, desktop/mobile editing, hosted merge, deterministic export, and
   source-linked note embeds
-- Native `.deck` presentations in progress: slides open, browse, sync, and
-  keep their history like any other vault document; editing tools and
-  PowerPoint export follow in later phases
+- Native `.deck` presentations with desktop authoring, themes/layouts, rich
+  objects, hosted/offline collaboration, presenter and Android companion
+  workflows, accessible reading order, PDF/image/print output, and compatible
+  PowerPoint export with a visible conversion report
 - Logic and electronic schematic diagrams with live Boolean evaluation,
   reusable components, sequenced digital tools, SVG note exports, and an
   offline first-party Rust circuit simulator

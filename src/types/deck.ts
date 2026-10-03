@@ -524,6 +524,12 @@ export interface DeckSlide extends DeckElementContainer {
   speakerNotes?: DeckRichText;
   transition?: DeckTransition;
   animations?: DeckAnimation[];
+  /**
+   * Optional assistive-technology reading order for slide-owned objects.
+   * Missing ids are appended in paint order, so older decks and newly added
+   * objects remain readable without coupling reading order to z-order.
+   */
+  readingOrder?: string[];
 }
 
 export interface DeckSection {

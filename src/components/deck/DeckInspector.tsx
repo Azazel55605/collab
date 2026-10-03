@@ -1,7 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { ArrowDown, ArrowUp, LayoutTemplate, Palette, Play, RotateCcw, Trash2 } from 'lucide-react';
 
+import {
+  auditDeckAccessibility,
+  objectReadingLabel,
+  slideReadingOrder,
+} from '../../lib/deck/accessibility';
 import { orderedLayouts } from '../../lib/deck/design';
 import { effectiveFamily, fontChoices, isFontAvailable } from '../../lib/deck/fonts';
 import { DECK_TEMPLATES } from '../../lib/deck/templates';
@@ -54,6 +59,7 @@ interface DeckInspectorProps {
   onTransitionPreview: () => void;
   onAnimationAdd: (elementId: string) => void;
   onAnimationsChange: (animations: DeckAnimation[]) => void;
+  onReadingOrderChange: (readingOrder: string[]) => void;
   onApplyTemplate: (templateId: DeckTemplateId) => void;
   onThemeColor: (token: DeckThemeColorToken, hex: string) => void;
   onThemeFont: (role: DeckThemeFontRole, family: string) => void;
@@ -575,7 +581,9 @@ function ObjectSection({
   onText: NonNullable<DeckInspectorProps['onObjectText']>;
 }) {
   const { element, frame } = object;
+  const [name, setName] = useState(element.name ?? '');
   const [alt, setAlt] = useState(element.altText ?? '');
+  useEffect(() => setName(element.name ?? ''), [element.name]);
   useEffect(() => setAlt(element.altText ?? ''), [element.altText]);
   const isLine = element.type === 'line';
   const toUnits = (points: number) => Math.round(points * DECK_UNITS_PER_POINT);
@@ -621,6 +629,21 @@ function ObjectSection({
         )}
       </div>
       <label className="flex flex-col gap-1 pt-1 text-xs">
+        <span className="text-muted-foreground">Object name</span>
+        <Input
+          aria-label="Object name"
+          className="h-7 text-xs"
+          maxLength={256}
+          value={name}
+          disabled={readOnly}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            const value = name.trim();
+            if (value !== (element.name ?? '')) onText({ name: value });
+          }}
+        />
+      </label>
+      <label className="flex flex-col gap-1 pt-1 text-xs">
         <span className="text-muted-foreground">Alt text</span>
         <textarea
           aria-label="Alt text"
@@ -635,6 +658,102 @@ function ObjectSection({
           }}
         />
       </label>
+    </Section>
+  );
+}
+
+function AccessibilitySection({
+  deck,
+  slide,
+  readOnly,
+  onReadingOrderChange,
+}: {
+  deck: DeckDocument;
+  slide: DeckDocument['slides'][string];
+  readOnly: boolean;
+  onReadingOrderChange: (readingOrder: string[]) => void;
+}) {
+  const issues = useMemo(
+    () =>
+      auditDeckAccessibility(deck).filter((issue) => !issue.slideId || issue.slideId === slide.id),
+    [deck, slide.id],
+  );
+  const order = slideReadingOrder(slide);
+  const move = (index: number, delta: number) => {
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[index], next[target]] = [next[target], next[index]];
+    onReadingOrderChange(next);
+  };
+  return (
+    <Section title="Accessibility">
+      <p className="text-xs" role="status">
+        {issues.length === 0 ? (
+          <span className="text-emerald-500">No automated issues found.</span>
+        ) : (
+          <span className="text-amber-500">
+            {issues.length} issue{issues.length === 1 ? '' : 's'} to review
+          </span>
+        )}
+      </p>
+      {issues.length > 0 && (
+        <ul
+          className="space-y-1 text-[11px] text-muted-foreground"
+          aria-label="Accessibility issues"
+        >
+          {issues.slice(0, 5).map((issue, index) => (
+            <li key={`${issue.code}:${issue.elementId ?? 'deck'}:${index}`}>{issue.message}</li>
+          ))}
+          {issues.length > 5 && <li>And {issues.length - 5} more issues.</li>}
+        </ul>
+      )}
+      <div className="pt-1 text-xs font-medium">Reading order</div>
+      <p className="text-[11px] text-muted-foreground">
+        Screen readers follow this order without changing visual stacking.
+      </p>
+      <ol className="space-y-1" aria-label="Object reading order">
+        {order.slice(0, 50).map((id, index) => {
+          const element = slide.elements[id];
+          if (!element) return null;
+          return (
+            <li
+              key={id}
+              className="flex items-center gap-1 rounded border border-border/50 px-1.5 py-1 text-[11px]"
+            >
+              <span className="w-4 shrink-0 text-right tabular-nums text-muted-foreground">
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{objectReadingLabel(element)}</span>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                disabled={readOnly || index === 0}
+                aria-label={`Move ${objectReadingLabel(element)} earlier`}
+                onClick={() => move(index, -1)}
+              >
+                <ArrowUp className="size-3" />
+              </Button>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                disabled={readOnly || index === order.length - 1}
+                aria-label={`Move ${objectReadingLabel(element)} later`}
+                onClick={() => move(index, 1)}
+              >
+                <ArrowDown className="size-3" />
+              </Button>
+            </li>
+          );
+        })}
+      </ol>
+      {order.length > 50 && (
+        <p className="text-[11px] text-muted-foreground">
+          Showing the first 50 of {order.length} objects to keep the inspector responsive.
+        </p>
+      )}
     </Section>
   );
 }
@@ -657,6 +776,7 @@ export function DeckInspector({
   onTransitionPreview,
   onAnimationAdd,
   onAnimationsChange,
+  onReadingOrderChange,
   onApplyTemplate,
   onThemeColor,
   onThemeFont,
@@ -742,15 +862,23 @@ export function DeckInspector({
       )}
 
       {!design && slide && slideIds.length === 1 && (
-        <AnimationSection
-          slide={slide}
-          selectedElementId={object?.element.id}
-          readOnly={readOnly}
-          onTransitionChange={onTransitionChange}
-          onTransitionPreview={onTransitionPreview}
-          onAnimationAdd={onAnimationAdd}
-          onAnimationsChange={onAnimationsChange}
-        />
+        <>
+          <AccessibilitySection
+            deck={deck}
+            slide={slide}
+            readOnly={readOnly}
+            onReadingOrderChange={onReadingOrderChange}
+          />
+          <AnimationSection
+            slide={slide}
+            selectedElementId={object?.element.id}
+            readOnly={readOnly}
+            onTransitionChange={onTransitionChange}
+            onTransitionPreview={onTransitionPreview}
+            onAnimationAdd={onAnimationAdd}
+            onAnimationsChange={onAnimationsChange}
+          />
+        </>
       )}
 
       {design && designMaster && (

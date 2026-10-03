@@ -20,6 +20,9 @@ overrides:
   qs@>=6.0.0 <6.16.0: 6.16.0
   undici@>=7.0.0 <7.30.0: 7.30.0
 
+patchedDependencies:
+  braces@3.0.3: 42bad2c86a83936e5a2412d635ebce35632bc85671a4a32805c838a9763a8eb9
+
 importers:
 
   .:
@@ -7741,7 +7744,7 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
-  braces@3.0.3:
+  braces@3.0.3(patch_hash=42bad2c86a83936e5a2412d635ebce35632bc85671a4a32805c838a9763a8eb9):
     dependencies:
       fill-range: 7.1.1
 
@@ -8994,7 +8997,7 @@ snapshots:
 
   micromatch@4.0.8:
     dependencies:
-      braces: 3.0.3
+      braces: 3.0.3(patch_hash=42bad2c86a83936e5a2412d635ebce35632bc85671a4a32805c838a9763a8eb9)
       picomatch: 2.3.2
 
   mime-db@1.54.0: {}

@@ -51,6 +51,7 @@ RUN node ./scripts/docker-install-pnpm.mjs "${PNPM_VERSION}" /tmp/pnpm.tgz \
     && ln -sf /opt/pnpm/bin/pnpx.cjs /usr/local/bin/pnpx \
     && pnpm --version
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig*.json ./
+COPY patches ./patches
 RUN --mount=type=cache,id=collab-pnpm-store,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store \
     && pnpm install --frozen-lockfile --prefer-offline

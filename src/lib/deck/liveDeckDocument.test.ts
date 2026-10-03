@@ -19,9 +19,10 @@ import * as Y from 'yjs';
 import type { DeckDocument, DeckRichText, DeckShapeElement } from '../../types/deck';
 
 import { normalizeDeckDocument } from './document';
-import { buildFixtureDeck } from './fixture';
+import { buildFixtureDeck, buildScaleDeck } from './fixture';
 import { mergeRichText, readDeck, reconcileDeck, writeDeck } from './liveDeckDocument';
 import { addElements, removeElements } from './operations';
+import { validateDeck } from './validate';
 
 const FIXTURES = resolve(__dirname, '../../../crates/collab-live/fixtures');
 
@@ -227,6 +228,29 @@ describe('deck live codec', () => {
     reconcileDeck(a, read(a));
     expect(updates.length).toBe(before);
   });
+
+  it('survives a sustained two-client structural and accessibility edit soak', () => {
+    const { a, b, sync, read } = peers(buildScaleDeck(20));
+    for (let round = 0; round < 80; round += 1) {
+      const aSlide = `scale-${(round % 10) + 1}`;
+      const bSlide = `scale-${(round % 10) + 11}`;
+      const fromA = structuredClone(read(a));
+      const fromB = structuredClone(read(b));
+      fromA.slides[aSlide].elements[`${aSlide}-shape-0`].frame!.x = 10_000 + round;
+      fromA.slides[aSlide].readingOrder = [`${aSlide}-body`, `${aSlide}-title`];
+      fromB.slides[bSlide].elements[`${bSlide}-shape-1`].frame!.y = 20_000 + round;
+      fromB.slides[bSlide].readingOrder = [`${bSlide}-title`, `${bSlide}-body`];
+      reconcileDeck(a, fromA);
+      reconcileDeck(b, fromB);
+      if (round % 8 === 7) sync();
+    }
+    sync();
+    const merged = read(a);
+    expect(merged).toEqual(read(b));
+    expect(validateDeck(merged).ok).toBe(true);
+    expect(merged.slides['scale-1'].readingOrder).toEqual(['scale-1-body', 'scale-1-title']);
+    expect(merged.slides['scale-11'].readingOrder).toEqual(['scale-11-title', 'scale-11-body']);
+  }, 20_000);
 
   it('rebases a text draft onto a collaborator’s typing, carrying the caret', () => {
     const base = body(buildFixtureDeck(), 'slide-2', 's2-body');

@@ -1,0 +1,27 @@
+diff --git a/lib/parse.js b/lib/parse.js
+index 3a6988e629f52aee6609dc5ec290a5e9ff47cecb..1f96304b92c4427fb665bec82f778d788fbbf054 100644
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -24,6 +24,11 @@ const {
+   CHAR_ZERO_WIDTH_NOBREAK_SPACE
+ } = require('./constants');
+ 
++// Bound AST depth before the recursive compiler/expander walks it. The input
++// length limit alone still permits enough nested braces to exhaust Node's
++// call stack (CVE-2026-93687 / GHSA-vfj7-8cjw-p6xm).
++const MAX_DEPTH = 100;
++
+ /**
+  * parse
+  */
+@@ -197,6 +202,10 @@ const parse = (input, options = {}) => {
+     if (value === CHAR_LEFT_CURLY_BRACE) {
+       depth++;
+ 
++      if (depth > MAX_DEPTH) {
++        throw new SyntaxError(`Input depth (${depth}), exceeds max depth (${MAX_DEPTH})`);
++      }
++
+       const dollar = prev.value && prev.value.slice(-1) === '$' || block.dollar === true;
+       const brace = {
+         type: 'brace',

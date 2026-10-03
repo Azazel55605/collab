@@ -132,6 +132,17 @@ describe('parseDeckDocument', () => {
     expect(warnings.join('\n')).toMatch(/missing or shared children/);
   });
 
+  it('repairs stale accessibility reading order without changing paint order', () => {
+    const deck = buildFixtureDeck();
+    const slide = deck.slides['slide-3'];
+    const paintOrder = [...slide.elementOrder];
+    slide.readingOrder = ['s3-image', 'missing', 's3-image', 's3-title'];
+    const { document, warnings } = normalizeDeckDocument(deck);
+    expect(document.slides['slide-3'].readingOrder).toEqual(['s3-image', 's3-title']);
+    expect(document.slides['slide-3'].elementOrder).toEqual(paintOrder);
+    expect(warnings.join('\n')).toMatch(/reading-order entries were dropped/);
+  });
+
   it('adds a blank slide, a theme, and a master rather than refusing an empty deck', () => {
     const empty = {
       kind: 'collab-deck',
