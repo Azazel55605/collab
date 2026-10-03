@@ -85,6 +85,10 @@ export function DeckAudienceWindow() {
           ink={overlay?.ink ?? ''}
           inkViewBox={overlay?.viewBox ?? [1, 1]}
           laser={overlay?.laser ?? null}
+          slideKey={slide.slideKey}
+          animationKey={slide.animationKey}
+          animationCss={slide.animationCss}
+          transition={slide.transition}
         />
       )}
     </div>

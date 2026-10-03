@@ -175,6 +175,28 @@ describe('DeckPresenter: slide show', () => {
     expect(screen.getByText('2 / 5')).toBeTruthy();
   });
 
+  it('consumes animation build clicks before advancing the slide', () => {
+    const deck = buildFixtureDeck();
+    deck.slides['slide-1'].animations = [
+      {
+        id: 'animation-1',
+        elementId: 's1-title',
+        effect: 'fade',
+        phase: 'entrance',
+        trigger: 'click',
+        durationMs: 500,
+      },
+    ];
+    setup({ deck });
+    const dialog = screen.getByRole('dialog', { name: 'Slide show' });
+    expect(dialog.querySelector('style')?.textContent).toContain('visibility:hidden');
+    key('ArrowRight');
+    expect(screen.getByText('1 / 5')).toBeTruthy();
+    expect(dialog.querySelector('style')?.textContent).toContain('deck-anim-fade-in');
+    key('ArrowRight');
+    expect(screen.getByText('2 / 5')).toBeTruthy();
+  });
+
   it('keeps keys away from the editor behind it', () => {
     const outside = vi.fn();
     document.body.addEventListener('keydown', outside);

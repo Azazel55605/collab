@@ -882,6 +882,17 @@ pub fn validate_document(value: &Value, limits: DeckLimits) -> Result<(), DeckVa
         if let Some(notes) = slide.get("speakerNotes") {
             check_rich_text(&mut ctx, notes, "speakerNotes")?;
         }
+        if let Some(transition) = slide.get("transition") {
+            let kind = transition.get("kind").and_then(Value::as_str);
+            if !matches!(kind, Some("none" | "fade" | "push" | "wipe")) {
+                return Err(wrong("transition kind"));
+            }
+            let duration = limits.animation_duration_ms;
+            if !matches!(integer(transition.get("durationMs")), Some(ms) if (0..=duration).contains(&ms))
+            {
+                return Err(wrong("transition durationMs"));
+            }
+        }
         let animations = slide.get("animations").and_then(Value::as_array);
         if let Some(animations) = animations {
             if animations.len() > limits.animations_per_slide {
@@ -891,7 +902,16 @@ pub fn validate_document(value: &Value, limits: DeckLimits) -> Result<(), DeckVa
                 });
             }
             let elements = slide.get("elements").and_then(Value::as_object);
+            let mut animation_ids = HashSet::new();
             for animation in animations {
+                let id = valid_id(animation.get("id"))
+                    .ok_or(DeckValidationError::InvalidId { kind: "animation" })?;
+                if !animation_ids.insert(id) {
+                    return Err(DeckValidationError::DuplicateId {
+                        kind: "animation",
+                        id: id.to_string(),
+                    });
+                }
                 let target = animation
                     .get("elementId")
                     .and_then(Value::as_str)
@@ -906,6 +926,23 @@ pub fn validate_document(value: &Value, limits: DeckLimits) -> Result<(), DeckVa
                 if !matches!(integer(animation.get("durationMs")), Some(ms) if (0..=duration).contains(&ms))
                 {
                     return Err(wrong("durationMs"));
+                }
+                if animation.get("delayMs").is_some()
+                    && !matches!(integer(animation.get("delayMs")), Some(ms) if (0..=duration).contains(&ms))
+                {
+                    return Err(wrong("delayMs"));
+                }
+                if !matches!(
+                    animation.get("effect").and_then(Value::as_str),
+                    Some("appear" | "fade" | "fly" | "zoom")
+                ) || !matches!(
+                    animation.get("phase").and_then(Value::as_str),
+                    Some("entrance" | "emphasis" | "exit")
+                ) || !matches!(
+                    animation.get("trigger").and_then(Value::as_str),
+                    Some("click" | "withPrevious" | "afterPrevious")
+                ) {
+                    return Err(wrong("animation kind"));
                 }
             }
         }
@@ -1159,6 +1196,26 @@ mod tests {
             check(&deck),
             Err(DeckValidationError::WrongType { .. })
         ));
+    }
+
+    #[test]
+    fn validates_transitions_and_animation_timelines() {
+        let mut deck = fixture();
+        deck["slides"]["slide-1"]["transition"] =
+            json!({ "kind": "wipe", "durationMs": 350 });
+        deck["slides"]["slide-1"]["animations"] = json!([{
+            "id": "animation-1",
+            "elementId": "s1-title",
+            "effect": "fly",
+            "phase": "entrance",
+            "trigger": "click",
+            "durationMs": 500,
+            "delayMs": 100
+        }]);
+        assert_eq!(check(&deck), Ok(()));
+
+        deck["slides"]["slide-1"]["animations"][0]["delayMs"] = json!(-1);
+        assert!(check(&deck).is_err());
     }
 
     #[test]

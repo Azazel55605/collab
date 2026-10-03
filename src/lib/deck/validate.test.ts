@@ -139,6 +139,40 @@ describe('validateDeck', () => {
       }).join(),
     ).toMatch(/row and column/);
   });
+
+  it('validates transition and animation timelines', () => {
+    expect(
+      issues((deck) => {
+        deck.slides['slide-1'].transition = { kind: 'wipe', durationMs: 350 };
+        deck.slides['slide-1'].animations = [
+          {
+            id: 'animation-1',
+            elementId: 's1-title',
+            effect: 'fly',
+            phase: 'entrance',
+            trigger: 'click',
+            durationMs: 500,
+            delayMs: 100,
+          },
+        ];
+      }),
+    ).toEqual([]);
+    expect(
+      issues((deck) => {
+        deck.slides['slide-1'].animations = [
+          {
+            id: 'animation-1',
+            elementId: 's1-title',
+            effect: 'fade',
+            phase: 'entrance',
+            trigger: 'click',
+            durationMs: 500,
+            delayMs: -1,
+          },
+        ];
+      }).join(),
+    ).toMatch(/delayMs.*out of range/);
+  });
 });
 
 describe('serialization', () => {

@@ -202,6 +202,37 @@ describe('DeckScreen', () => {
     expect(screen.getByText('Slide 5 of 5')).toBeTruthy();
   });
 
+  it('plays object builds before advancing while presenting on the phone', async () => {
+    selectVault(true);
+    const deck = fixture();
+    deck.slides['slide-1'].animations = [
+      {
+        id: 'animation-1',
+        elementId: 's1-title',
+        effect: 'fade',
+        phase: 'entrance',
+        trigger: 'click',
+        durationMs: 500,
+      },
+    ];
+    invoke.mockImplementation((command: string) =>
+      command === 'hosted_vault_request'
+        ? Promise.resolve({ file, content: JSON.stringify(deck) })
+        : command === 'hosted_vault_asset_data_url'
+          ? Promise.resolve(PNG)
+          : Promise.resolve(null),
+    );
+    render(<DeckScreen file={file} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Present/ }));
+    const show = screen.getByRole('dialog', { name: 'Slide show' });
+    expect(show.querySelector('style')?.textContent).toContain('visibility:hidden');
+    fireEvent.click(screen.getByRole('button', { name: 'Next slide' }));
+    expect(screen.getByRole('img', { name: 'Slide 1' })).toBeTruthy();
+    expect(show.querySelector('style')?.textContent).toContain('deck-anim-fade-in');
+    fireEvent.click(screen.getByRole('button', { name: 'Next slide' }));
+    expect(screen.getByRole('img', { name: 'Slide 2' })).toBeTruthy();
+  });
+
   it('opens the offline copy when the server is unreachable and says when there is none', async () => {
     selectVault(false, [file]);
     mockServer();

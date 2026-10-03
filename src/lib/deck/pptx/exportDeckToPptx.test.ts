@@ -188,6 +188,28 @@ describe('exportDeckToPptx', () => {
     expect(xml).toContain('<asvg:svgBlip');
   });
 
+  it('exports the compatible transition subset and reports animation omissions', async () => {
+    const deck = buildFixtureDeck();
+    deck.slides['slide-1'].transition = { kind: 'wipe', durationMs: 900 };
+    deck.slides['slide-1'].animations = [
+      {
+        id: 'animation-1',
+        elementId: 's1-title',
+        effect: 'fade',
+        phase: 'entrance',
+        trigger: 'click',
+        durationMs: 500,
+      },
+    ];
+    const animated = await exportDeckToPptx(deck, { slideIds: ['slide-1'] });
+    const animatedZip = await JSZip.loadAsync(animated.bytes);
+    const xml = await animatedZip.file('ppt/slides/slide1.xml')!.async('string');
+    expect(xml).toContain('<p:transition spd="med" advClick="1"><p:wipe dir="r"/></p:transition>');
+    expect(animated.report.entries.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining(['transition-duration', 'animation']),
+    );
+  });
+
   it('reports a missing image and writes a placeholder instead of failing', async () => {
     const missing = await exportDeckToPptx(buildFixtureDeck(), { slideIds: ['slide-3'] });
     expect(missing.report.missingAssets).toEqual([FIXTURE_IMAGE_PATH]);

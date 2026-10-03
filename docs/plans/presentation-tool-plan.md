@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-8 are complete; Phase 9 is next.
+contract differ, the contract wins. Phases 1-9 are complete; Phase 10 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -491,7 +491,7 @@ Security requirements:
 | 6. Hosted collaboration and offline behavior          | Complete    | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
 | 7. Compatible PPTX export                             | Complete    | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
 | 8. Mobile viewer and presentation companion           | Complete    | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
-| 9. Transitions and animations                         | Not started | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
+| 9. Transitions and animations                         | Complete    | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
 | 10. Performance, accessibility, and release hardening | Not started | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications.        |
 | 11. Deferred PPTX import                              | Deferred    | Convert a bounded supported subset of `.pptx` into a new `.deck` with a detailed import report.                     |
 
@@ -976,11 +976,36 @@ correction on the phone.
 
 ### Phase 9: Transitions And Animations
 
-- Add a bounded per-slide animation timeline.
-- Support entrance, emphasis, exit, and motion for a deliberately small subset.
-- Add transition preview and playback.
-- Keep base document geometry independent of transient animation state.
-- Export only the proven PPTX-compatible subset and report the rest.
+Complete. The frozen Phase 0 fields are now authored and played rather than
+being passive schema placeholders.
+
+- [x] The inspector has a bounded, ordered per-slide build timeline. A selected
+      object can gain an entrance, emphasis, or exit cue using appear, fade,
+      fly/motion, or zoom, with on-click, with-previous, and after-previous
+      timing, duration, delay, reordering, and removal. Every edit is one
+      ordinary undoable/live document operation.
+- [x] `animation.ts` compiles the linear stored list into deterministic build
+      steps. Automatic cues run on slide entry; an advance consumes the next
+      click build before moving slides, and previous walks builds back first.
+      The slide show, presenter view, phone remote, and second-display audience
+      window all use the same step state.
+- [x] Fade, push, and wipe transitions have editor preview and playback with
+      their stored duration. The existing app motion setting and the system
+      reduced-motion preference reduce transitions and object effects to a
+      cut.
+- [x] Transient effects are scoped CSS over the shared SVG's stable
+      `data-element` identities. They never rewrite an element frame, the
+      resolved scene, or the `.deck` document, so geometry, collaboration,
+      thumbnails, PDF, and image output remain static and deterministic.
+- [x] PowerPoint export writes the proven fade/push/wipe transition subset,
+      mapping Collab's exact duration to PowerPoint's nearest preset speed and
+      reporting that approximation. Object animations remain outside the
+      physically proven OOXML subset and are explicitly reported as omitted;
+      their base objects remain visible.
+- [x] Client and server validation now enforce transition/effect/phase/trigger
+      enums, unique animation IDs, live targets, counts, durations, and delays.
+      Unit coverage pins timeline grouping, transient states, click-before-
+      slide playback, validation, audience frames, and PPTX reporting.
 
 ### Phase 10: Performance, Accessibility, And Release Hardening
 

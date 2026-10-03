@@ -382,7 +382,9 @@ rich text, placeholders, themes, templates, and the master and layout editor;
 Phase 4 added images, tables, charts, linked documents, and slide exports;
 Phase 5 added presenting and PDF, handout, image, and print output; Phase 6
 added live hosted editing; Phase 7 replaced PowerPoint export with a
-first-party writer.
+first-party writer; Phase 8 added the Android viewer/presenter and phone
+remote; Phase 9 added authored transitions and bounded object-animation
+timelines.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -394,7 +396,7 @@ session's writes into a single undo step.
 | `components/deck/DeckTextEditor.tsx`                         | First-party `contenteditable` adapter: intercepts `beforeinput`/clipboard/IME, applies `richText.ts`, redraws       |
 | `components/deck/textDom.ts`                                 | Draws a resolved body into the editor (text nodes only) and maps DOM selection points to text offsets               |
 | `components/deck/DeckTextToolbar.tsx`                        | Font, size, styles, colour, alignment, lists and levels, spacing, links, autofit, reset to layout                   |
-| `components/deck/DeckInspector.tsx`                          | Design panel: slide layout and background, templates, theme colours and fonts, layout and master settings           |
+| `components/deck/DeckInspector.tsx`                          | Design panel: slide/design settings plus transition and ordered object-animation timeline authoring                 |
 | `components/deck/DeckDesignRail.tsx`                         | Master view rail: masters and their layouts with usage counts; duplicate and delete layouts                         |
 | `components/deck/DeckLinkDialog.tsx`                         | Link to a web address or a slide; only `http(s)` and `mailto` addresses (`lib/deck/links.ts`)                       |
 | `components/deck/DeckObjectToolbar.tsx`                      | Fill, outline, arrowheads, shape, opacity, flip/rotate; image, table, chart, and linked-document actions            |
@@ -403,9 +405,9 @@ session's writes into a single undo step.
 | `components/deck/DeckStage.tsx`                              | Zoom/pan stage: hit testing, marquee, move/resize/rotate/crop gestures, snap guides, grid, rulers                   |
 | `components/deck/DeckSlideRail.tsx`                          | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
 | `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
-| `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: notes, timer, next slide, ink/laser/blank, slide grid, audience-window recovery      |
+| `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, transitions, notes, ink/laser/blank, audience-window recovery      |
 | `lib/deck/remote.ts`                                         | Phone remote control over awareness: show state, numbered commands, same-account opt-in (Android companion)         |
-| `components/deck/DeckPlaybackSurface.tsx`                    | One slide with ink, laser, blank, and end-screen layers; shared by show, presenter, and audience window             |
+| `components/deck/DeckPlaybackSurface.tsx`                    | One slide with transient animation/transition, ink, laser, blank, and end-screen layers; shared by all show windows |
 | `components/deck/DeckAudienceWindow.tsx`                     | The second-display window (`?deck-audience`): draws frames it is sent, sends keys and clicks back                   |
 | `components/deck/DeckExportDialog.tsx`, `useDeckExport.ts`   | Export and print settings; PDF, handouts, PNG/SVG through native dialogs, with progress and cancel                  |
 | `components/deck/DeckPrintHost.tsx`                          | Prints output pages as vector SVG through the system print dialog                                                   |
@@ -433,6 +435,7 @@ session's writes into a single undo step.
 | `lib/deck/output.ts`, `exportPdf.ts`                         | Output pages (slides or handouts with notes) as SVG plus text layer and links; rasterize to PDF; slide images       |
 | `lib/deck/pdf.ts`, `textLayer.ts`                            | PDF writer: raster pages with an invisible, extractable text layer and links; text runs placed as drawn             |
 | `lib/deck/playback.ts`                                       | Playback state: navigation skipping hidden slides, keys, swipes, blanking, timer, temporary ink                     |
+| `lib/deck/animation.ts`                                      | Compiles stored cues into automatic/click build steps and scoped transient CSS without changing scene geometry      |
 | `lib/deck/presentWindow.ts`                                  | Audience window on a second display over Tauri events; display list and choice; full screen                         |
 | `lib/deck/liveText.ts`                                       | `Y.Text` encoding of one rich-text body (runs as attributes, paragraph ends, empty runs on `pempty`)                |
 | `lib/deck/liveDeckDocument.ts`                               | Deck live codec: JSON ↔ shared types, minimal reconcile (text character diff), three-way text merge                 |

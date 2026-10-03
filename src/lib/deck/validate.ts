@@ -551,18 +551,47 @@ export function validateDeck(value: unknown): DeckValidationResult {
       checkFill(c, `${at}.background`, slide.background);
       checkContainer(c, at, slide, extent, slideIds);
       checkRichText(c, `${at}.speakerNotes`, slide.speakerNotes, slideIds);
+      if (slide.transition !== undefined) {
+        if (!['none', 'fade', 'push', 'wipe'].includes(slide.transition.kind))
+          c.fail(`${at}.transition.kind`, 'is not supported');
+        if (
+          !isInt(slide.transition.durationMs) ||
+          slide.transition.durationMs < 0 ||
+          slide.transition.durationMs > DECK_LIMITS.animationDurationMs
+        ) {
+          c.fail(`${at}.transition.durationMs`, 'is out of range');
+        }
+      }
       const animations = slide.animations ?? [];
       if (animations.length > DECK_LIMITS.animationsPerSlide)
         c.fail(`${at}.animations`, 'has too many animations');
+      const animationIds = new Set<string>();
       animations.forEach((animation, index) => {
+        if (!animation.id || animationIds.has(animation.id))
+          c.fail(`${at}.animations[${index}].id`, 'must be a unique id');
+        animationIds.add(animation.id);
         if (!slide.elements[animation.elementId])
           c.fail(`${at}.animations[${index}]`, 'targets a missing element');
+        if (!['appear', 'fade', 'fly', 'zoom'].includes(animation.effect))
+          c.fail(`${at}.animations[${index}].effect`, 'is not supported');
+        if (!['entrance', 'emphasis', 'exit'].includes(animation.phase))
+          c.fail(`${at}.animations[${index}].phase`, 'is not supported');
+        if (!['click', 'withPrevious', 'afterPrevious'].includes(animation.trigger))
+          c.fail(`${at}.animations[${index}].trigger`, 'is not supported');
         if (
           !isInt(animation.durationMs) ||
           animation.durationMs < 0 ||
           animation.durationMs > DECK_LIMITS.animationDurationMs
         ) {
           c.fail(`${at}.animations[${index}].durationMs`, 'is out of range');
+        }
+        if (
+          animation.delayMs !== undefined &&
+          (!isInt(animation.delayMs) ||
+            animation.delayMs < 0 ||
+            animation.delayMs > DECK_LIMITS.animationDurationMs)
+        ) {
+          c.fail(`${at}.animations[${index}].delayMs`, 'is out of range');
         }
       });
     }

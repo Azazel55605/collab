@@ -159,6 +159,30 @@ function itemsOf(scene: ResolvedSlide, origin: ResolvedItem['origin']): Map<stri
   );
 }
 
+function transitionXml(
+  transition: DeckDocument['slides'][string]['transition'],
+  report: DeckExportReportBuilder,
+  slideId: string,
+): string {
+  if (!transition || transition.kind === 'none') return '';
+  const speed =
+    transition.durationMs <= 500 ? 'fast' : transition.durationMs >= 1_500 ? 'slow' : 'med';
+  const effect =
+    transition.kind === 'fade'
+      ? '<p:fade/>'
+      : transition.kind === 'push'
+        ? '<p:push dir="l"/>'
+        : '<p:wipe dir="r"/>';
+  report.add({
+    severity: 'approximated',
+    code: 'transition-duration',
+    message:
+      'PowerPoint stores preset transition speeds; the duration was mapped to the nearest speed.',
+    slideId,
+  });
+  return `<p:transition spd="${speed}" advClick="1">${effect}</p:transition>`;
+}
+
 /** Exports a deck to `.pptx` bytes plus a report of everything not written faithfully. */
 export async function exportDeckToPptx(
   deck: DeckDocument,
@@ -451,11 +475,12 @@ export async function exportDeckToPptx(
       return entry ? phXml(entry) : '';
     });
     const shapes = containerXml(writer, source, itemsOf(scene, 'slide'));
+    const transition = transitionXml(source.transition, report, slideId);
     part(
       `ppt/slides/${name}`,
       `${XML_HEADER}<p:sld ${SLIDE_ROOT}${scene.hidden ? ' show="0"' : ''}>` +
         `<p:cSld${source.name ? ` name="${attr(source.name)}"` : ''}>${backgroundXml(scene, writer.image)}<p:spTree>${EMPTY_GROUP}${shapes}</p:spTree></p:cSld>` +
-        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>',
+        `<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>${transition}</p:sld>`,
       CT.slide,
     );
 
@@ -498,19 +523,12 @@ export async function exportDeckToPptx(
     sldIds.set(slideId, sldId);
     slideEntries.push(`<p:sldId id="${sldId}" r:id="${relId}"/>`);
 
-    if (source.transition && source.transition.kind !== 'none') {
-      report.add({
-        severity: 'omitted',
-        code: 'transition',
-        message: 'Slide transitions are not exported yet.',
-        slideId,
-      });
-    }
     if (source.animations?.length) {
       report.add({
         severity: 'omitted',
         code: 'animation',
-        message: 'Animations are not exported yet.',
+        message:
+          'Object animations are outside the proven PowerPoint subset and were omitted; the base object remains visible.',
         slideId,
       });
     }

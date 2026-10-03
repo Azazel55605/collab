@@ -2091,7 +2091,8 @@
 }
 
 .deck-playback-fade {
-  animation: deck-playback-fade var(--motion-base, 180ms) ease-out both;
+  animation: deck-playback-fade var(--deck-transition-duration, var(--motion-base, 180ms)) ease-out
+    both;
 }
 
 @keyframes deck-playback-fade {
@@ -2100,5 +2101,162 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+.deck-playback-push {
+  animation: deck-playback-push var(--deck-transition-duration, 350ms) ease-out both;
+}
+
+.deck-playback-wipe {
+  animation: deck-playback-wipe var(--deck-transition-duration, 350ms) ease-out both;
+}
+
+@keyframes deck-playback-push {
+  from {
+    opacity: 0.75;
+    translate: 12% 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes deck-playback-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes deck-anim-appear-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes deck-anim-appear-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes deck-anim-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-fly-in {
+  from {
+    opacity: 0;
+    translate: -12% 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes deck-anim-fly-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    translate: 12% 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-zoom-in {
+  from {
+    opacity: 0;
+    scale: 0.75;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes deck-anim-zoom-out {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.75;
+    visibility: hidden;
+  }
+}
+
+@keyframes deck-anim-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes deck-anim-motion {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  35% {
+    translate: -3% 0;
+  }
+  70% {
+    translate: 3% 0;
+  }
+}
+
+@keyframes deck-anim-grow {
+  0%,
+  100% {
+    scale: 1;
+  }
+  50% {
+    scale: 1.12;
+  }
+}
+
+html[data-motion='off'] .deck-playback-animation-scope [data-element] {
+  animation-duration: 1ms !important;
+  animation-delay: 0ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-playback-animation-scope [data-element] {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
   }
 }

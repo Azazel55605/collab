@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { LayoutTemplate, Palette, RotateCcw } from 'lucide-react';
+import { ArrowDown, ArrowUp, LayoutTemplate, Palette, Play, RotateCcw, Trash2 } from 'lucide-react';
 
 import { orderedLayouts } from '../../lib/deck/design';
 import { effectiveFamily, fontChoices, isFontAvailable } from '../../lib/deck/fonts';
@@ -10,6 +10,7 @@ import { THEME_COLOR_LABELS } from '../../lib/deck/themeColors';
 import { cn } from '../../lib/utils';
 import { DECK_THEME_COLOR_TOKENS, DECK_UNITS_PER_POINT } from '../../types/deck';
 import type {
+  DeckAnimation,
   DeckColor,
   DeckDocument,
   DeckElement,
@@ -19,6 +20,7 @@ import type {
   DeckTheme,
   DeckThemeColorToken,
   DeckThemeFontRole,
+  DeckTransition,
 } from '../../types/deck';
 import { Button } from '../ui/button';
 import { ColorPicker } from '../ui/color-picker';
@@ -48,6 +50,10 @@ interface DeckInspectorProps {
   onSlideLayout: (layoutId: string) => void;
   onResetSlide: () => void;
   onSlideBackground: (fill: DeckFill | null) => void;
+  onTransitionChange: (transition: DeckTransition | null) => void;
+  onTransitionPreview: () => void;
+  onAnimationAdd: (elementId: string) => void;
+  onAnimationsChange: (animations: DeckAnimation[]) => void;
   onApplyTemplate: (templateId: DeckTemplateId) => void;
   onThemeColor: (token: DeckThemeColorToken, hex: string) => void;
   onThemeFont: (role: DeckThemeFontRole, family: string) => void;
@@ -155,6 +161,7 @@ function NumberField({
   value,
   disabled,
   signed = false,
+  allowZero = false,
   onCommit,
 }: {
   label: string;
@@ -162,13 +169,19 @@ function NumberField({
   disabled: boolean;
   /** Accepts zero and negative values (positions, rotation). */
   signed?: boolean;
+  allowZero?: boolean;
   onCommit: (value: number) => void;
 }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
   useEffect(() => setDraft(value === undefined ? '' : String(value)), [value]);
   const commit = () => {
     const parsed = Number(draft);
-    if (Number.isFinite(parsed) && (signed || parsed > 0) && parsed !== value) onCommit(parsed);
+    if (
+      Number.isFinite(parsed) &&
+      (signed || parsed > 0 || (allowZero && parsed === 0)) &&
+      parsed !== value
+    )
+      onCommit(parsed);
     else setDraft(value === undefined ? '' : String(value));
   };
   return (
@@ -187,6 +200,225 @@ function NumberField({
         }}
       />
     </label>
+  );
+}
+
+function AnimationSection({
+  slide,
+  selectedElementId,
+  readOnly,
+  onTransitionChange,
+  onTransitionPreview,
+  onAnimationAdd,
+  onAnimationsChange,
+}: {
+  slide: NonNullable<DeckDocument['slides'][string]>;
+  selectedElementId?: string;
+  readOnly: boolean;
+  onTransitionChange: DeckInspectorProps['onTransitionChange'];
+  onTransitionPreview: DeckInspectorProps['onTransitionPreview'];
+  onAnimationAdd: DeckInspectorProps['onAnimationAdd'];
+  onAnimationsChange: DeckInspectorProps['onAnimationsChange'];
+}) {
+  const animations = slide.animations ?? [];
+  const transition = slide.transition ?? { kind: 'none' as const, durationMs: 350 };
+  const update = (index: number, patch: Partial<DeckAnimation>) =>
+    onAnimationsChange(
+      animations.map((animation, at) => (at === index ? { ...animation, ...patch } : animation)),
+    );
+  const move = (index: number, by: -1 | 1) => {
+    const to = index + by;
+    if (to < 0 || to >= animations.length) return;
+    const next = [...animations];
+    [next[index], next[to]] = [next[to], next[index]];
+    onAnimationsChange(next);
+  };
+
+  return (
+    <Section title="Transitions and animations">
+      <div className="flex items-center gap-1.5">
+        <Select
+          value={transition.kind}
+          disabled={readOnly}
+          onValueChange={(kind) =>
+            onTransitionChange(
+              kind === 'none'
+                ? null
+                : {
+                    kind: kind as Exclude<DeckTransition['kind'], 'none'>,
+                    durationMs: transition.durationMs,
+                  },
+            )
+          }
+        >
+          <SelectTrigger size="sm" className="min-w-0 flex-1" aria-label="Slide transition">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No transition</SelectItem>
+            <SelectItem value="fade">Fade</SelectItem>
+            <SelectItem value="push">Push</SelectItem>
+            <SelectItem value="wipe">Wipe</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Preview transition"
+          title="Preview transition"
+          disabled={transition.kind === 'none'}
+          onClick={onTransitionPreview}
+        >
+          <Play className="size-3.5" />
+        </Button>
+      </div>
+      {transition.kind !== 'none' && (
+        <NumberField
+          label="Transition (s)"
+          value={transition.durationMs / 1_000}
+          disabled={readOnly}
+          onCommit={(seconds) =>
+            onTransitionChange({ ...transition, durationMs: Math.round(seconds * 1_000) })
+          }
+        />
+      )}
+
+      <div className="pt-1 text-xs text-muted-foreground">Build timeline</div>
+      {animations.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">No object animations on this slide.</p>
+      ) : (
+        <div className="space-y-2">
+          {animations.map((animation, index) => {
+            const element = slide.elements[animation.elementId];
+            return (
+              <div
+                key={animation.id}
+                className="space-y-1.5 rounded-md border border-border/60 p-2"
+              >
+                <div className="flex items-center gap-1 text-[11px]">
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {index + 1}. {element?.name ?? animation.elementId}
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Move animation up"
+                    disabled={readOnly || index === 0}
+                    onClick={() => move(index, -1)}
+                  >
+                    <ArrowUp className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Move animation down"
+                    disabled={readOnly || index === animations.length - 1}
+                    onClick={() => move(index, 1)}
+                  >
+                    <ArrowDown className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Remove animation"
+                    disabled={readOnly}
+                    onClick={() => onAnimationsChange(animations.filter((_, at) => at !== index))}
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  <Select
+                    value={animation.phase}
+                    disabled={readOnly}
+                    onValueChange={(phase) =>
+                      update(index, { phase: phase as DeckAnimation['phase'] })
+                    }
+                  >
+                    <SelectTrigger size="sm" aria-label={`Animation ${index + 1} phase`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="entrance">Entrance</SelectItem>
+                      <SelectItem value="emphasis">Emphasis</SelectItem>
+                      <SelectItem value="exit">Exit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={animation.effect}
+                    disabled={readOnly}
+                    onValueChange={(effect) =>
+                      update(index, { effect: effect as DeckAnimation['effect'] })
+                    }
+                  >
+                    <SelectTrigger size="sm" aria-label={`Animation ${index + 1} effect`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="appear">Appear</SelectItem>
+                      <SelectItem value="fade">Fade</SelectItem>
+                      <SelectItem value="fly">Fly / motion</SelectItem>
+                      <SelectItem value="zoom">Zoom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Select
+                  value={animation.trigger}
+                  disabled={readOnly}
+                  onValueChange={(trigger) =>
+                    update(index, { trigger: trigger as DeckAnimation['trigger'] })
+                  }
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full"
+                    aria-label={`Animation ${index + 1} trigger`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="click">On click</SelectItem>
+                    <SelectItem value="withPrevious">With previous</SelectItem>
+                    <SelectItem value="afterPrevious">After previous</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <NumberField
+                    label="Duration (s)"
+                    value={animation.durationMs / 1_000}
+                    disabled={readOnly}
+                    onCommit={(seconds) =>
+                      update(index, { durationMs: Math.round(seconds * 1_000) })
+                    }
+                  />
+                  <NumberField
+                    label="Delay (s)"
+                    value={(animation.delayMs ?? 0) / 1_000}
+                    disabled={readOnly}
+                    allowZero
+                    onCommit={(seconds) => update(index, { delayMs: Math.round(seconds * 1_000) })}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        className="h-7 w-full text-xs"
+        disabled={readOnly || !selectedElementId || animations.length >= 200}
+        onClick={() => selectedElementId && onAnimationAdd(selectedElementId)}
+      >
+        {selectedElementId ? 'Animate selected object' : 'Select one object to animate'}
+      </Button>
+    </Section>
   );
 }
 
@@ -421,6 +653,10 @@ export function DeckInspector({
   onSlideLayout,
   onResetSlide,
   onSlideBackground,
+  onTransitionChange,
+  onTransitionPreview,
+  onAnimationAdd,
+  onAnimationsChange,
   onApplyTemplate,
   onThemeColor,
   onThemeFont,
@@ -503,6 +739,18 @@ export function DeckInspector({
             onChange={onSlideBackground}
           />
         </Section>
+      )}
+
+      {!design && slide && slideIds.length === 1 && (
+        <AnimationSection
+          slide={slide}
+          selectedElementId={object?.element.id}
+          readOnly={readOnly}
+          onTransitionChange={onTransitionChange}
+          onTransitionPreview={onTransitionPreview}
+          onAnimationAdd={onAnimationAdd}
+          onAnimationsChange={onAnimationsChange}
+        />
       )}
 
       {design && designMaster && (

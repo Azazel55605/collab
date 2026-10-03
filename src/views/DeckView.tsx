@@ -250,6 +250,7 @@ import {
   DECK_UNITS_PER_PX,
 } from '../types/deck';
 import type {
+  DeckAnimation,
   DeckArrowhead,
   DeckAssetRef,
   DeckChartElement,
@@ -268,6 +269,7 @@ import type {
   DeckTextLevelStyle,
   DeckThemeColorToken,
   DeckThemeFontRole,
+  DeckTransition,
 } from '../types/deck';
 import { isVaultReadOnly } from '../types/vault';
 
@@ -1927,6 +1929,10 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     startSlideId: string | null;
   } | null>(null);
   const [inkToKeep, setInkToKeep] = useState<PlaybackInk | null>(null);
+  const [transitionPreview, setTransitionPreview] = useState<{
+    key: number;
+    transition: DeckTransition;
+  } | null>(null);
   // Phone remote control (`lib/deck/remote.ts`): off until the presenter
   // turns it on, then kept on for this view.
   const { userId } = useCollabIdentity();
@@ -2408,6 +2414,55 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       },
       `slide-background:${slideSelection.join(',')}`,
     );
+  };
+
+  const onTransitionChange = (transition: DeckTransition | null) => {
+    commit('Slide transition', (current) => {
+      const slides: Record<string, DeckDocument['slides'][string]> = {};
+      for (const id of slideSelection) {
+        const slide = current.slides[id];
+        if (!slide) continue;
+        const next = { ...slide };
+        if (transition) next.transition = transition;
+        else delete next.transition;
+        slides[id] = next;
+      }
+      return applyPatch(current, { slides });
+    });
+  };
+
+  const onAnimationsChange = (animations: DeckAnimation[]) => {
+    if (!activeSlideId) return;
+    commit('Animation timeline', (current) => {
+      const slide = current.slides[activeSlideId];
+      if (!slide) return noEdit(current);
+      const next = { ...slide };
+      if (animations.length > 0) next.animations = animations;
+      else delete next.animations;
+      return applyPatch(current, { slides: { [activeSlideId]: next } });
+    });
+  };
+
+  const onAnimationAdd = (elementId: string) => {
+    if (!document || !activeSlideId) return;
+    onAnimationsChange([
+      ...(document.slides[activeSlideId]?.animations ?? []),
+      {
+        id: nextId('anim'),
+        elementId,
+        effect: 'fade',
+        phase: 'entrance',
+        trigger: 'click',
+        durationMs: 500,
+      },
+    ]);
+  };
+
+  const previewTransition = () => {
+    const transition = activeSlideId ? document?.slides[activeSlideId]?.transition : undefined;
+    if (transition && transition.kind !== 'none') {
+      setTransitionPreview({ key: Date.now(), transition });
+    }
   };
 
   const onLayoutChange = (patch: { name?: string; showMasterElements?: boolean }) => {
@@ -3331,6 +3386,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                     editing={editingOverlay}
                     onExitText={endTextSession}
                     peers={stagePeers}
+                    transitionPreview={designTarget ? null : transitionPreview}
                   />
                 ) : null}
               </div>
@@ -3440,6 +3496,10 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onSlideLayout={onSlideLayout}
             onResetSlide={onResetSlide}
             onSlideBackground={onSlideBackground}
+            onTransitionChange={onTransitionChange}
+            onTransitionPreview={previewTransition}
+            onAnimationAdd={onAnimationAdd}
+            onAnimationsChange={onAnimationsChange}
             onApplyTemplate={onApplyTemplate}
             onThemeColor={onThemeColor}
             onThemeFont={onThemeFont}

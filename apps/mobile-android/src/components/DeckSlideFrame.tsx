@@ -14,7 +14,7 @@ import { DeckSlide } from '../../../../src/components/deck/DeckSlide';
 import { swipeCommand } from '../../../../src/lib/deck/playback';
 import type { ResolvedSlide } from '../../../../src/lib/deck/resolve';
 import type { DeckTextMeasurer } from '../../../../src/lib/deck/textLayout';
-import type { DeckAssetRef } from '../../../../src/types/deck';
+import type { DeckAssetRef, DeckTransition } from '../../../../src/types/deck';
 import {
   clampDeckPan,
   DECK_MOBILE_ZOOM,
@@ -60,6 +60,9 @@ interface DeckSlideFrameProps {
   onTap?: (fractionX: number) => void;
   className?: string;
   children?: ReactNode;
+  animationKey?: string;
+  animationCss?: string;
+  transition?: DeckTransition;
 }
 
 export function DeckSlideFrame({
@@ -72,6 +75,9 @@ export function DeckSlideFrame({
   onTap,
   className,
   children,
+  animationKey,
+  animationCss,
+  transition,
 }: DeckSlideFrameProps) {
   const [setFrame, frameSize] = useElementSize<HTMLDivElement>();
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -253,6 +259,7 @@ export function DeckSlideFrame({
     >
       {fit.width > 0 && (
         <div
+          key={slide.slideId}
           className="deck-frame-slide"
           style={{
             width: fit.width,
@@ -260,13 +267,31 @@ export function DeckSlideFrame({
             transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
           }}
         >
-          <DeckSlide
-            slide={slide}
-            width={fit.width}
-            measurer={measurer}
-            resolveAsset={resolveAsset}
-            label={`Slide ${slide.number}`}
-          />
+          <div
+            className={
+              transition && transition.kind !== 'none'
+                ? `deck-mobile-transition deck-playback-${transition.kind}`
+                : undefined
+            }
+            style={
+              transition
+                ? ({
+                    '--deck-transition-duration': `${transition.durationMs}ms`,
+                  } as React.CSSProperties)
+                : undefined
+            }
+          >
+            {animationCss ? <style>{animationCss}</style> : null}
+            <div key={animationKey} className="deck-playback-animation-scope">
+              <DeckSlide
+                slide={slide}
+                width={fit.width}
+                measurer={measurer}
+                resolveAsset={resolveAsset}
+                label={`Slide ${slide.number}`}
+              />
+            </div>
+          </div>
         </div>
       )}
       {children}

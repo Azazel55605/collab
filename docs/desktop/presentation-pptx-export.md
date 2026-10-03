@@ -63,7 +63,8 @@ Each of these is listed in the export report when it applies.
 | SVG with no picture fallback        | Only when the fallback cannot be drawn; older PowerPoint versions cannot show it                    | Approximated |
 | Linked documents                    | Their preview picture                                                                               | Flattened    |
 | Links to vault files                | Plain text (they have no meaning outside Collab)                                                    | Omitted      |
-| Transitions and animations          | Not exported yet (Phase 9)                                                                          | Omitted      |
+| Transition duration                 | Fade, push, and wipe are native; the exact duration maps to PowerPoint's nearest preset speed       | Approximated |
+| Object animations                   | Base objects remain visible; cues are outside the physically proven OOXML subset                    | Omitted      |
 | Images that were not available      | A grey placeholder of the same size                                                                 | Missing      |
 
 ## Validated in

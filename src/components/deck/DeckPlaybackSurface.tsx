@@ -1,7 +1,9 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import DOMPurify from 'dompurify';
+
+import type { DeckTransition } from '../../types/deck';
 
 interface DeckPlaybackSurfaceProps {
   /** Sanitized slide SVG markup. */
@@ -17,6 +19,11 @@ interface DeckPlaybackSurfaceProps {
   laser: { x: number; y: number } | null;
   /** Changes when the slide changes, to run the (motion-permitting) fade. */
   slideKey?: string;
+  /** Changes when a build step begins, without replaying the slide transition. */
+  animationKey?: string | number;
+  /** Scoped rules for the current animation build. */
+  animationCss?: string;
+  transition?: DeckTransition;
   /** Layers above the slide that take pointer input (ink, laser, links). */
   children?: (box: { width: number; height: number }) => ReactNode;
   endMessage?: string;
@@ -47,6 +54,9 @@ export function DeckPlaybackSurface({
   inkViewBox,
   laser,
   slideKey,
+  animationKey,
+  animationCss,
+  transition,
   children,
   endMessage = 'End of slide show. Click or press Esc to exit.',
 }: DeckPlaybackSurfaceProps) {
@@ -79,17 +89,31 @@ export function DeckPlaybackSurface({
         : '',
     [ink, inkViewBox],
   );
-  const fade = motionAllowed();
+  const animate = motionAllowed();
+  const transitionKind = transition?.kind ?? 'none';
+  const transitionClass =
+    animate && transitionKind !== 'none' ? ` deck-playback-${transitionKind}` : '';
 
   return (
     <div ref={container} className="relative flex size-full items-center justify-center">
       <div className="relative overflow-hidden" style={{ width: box.width, height: box.height }}>
         <div
-          key={fade ? slideKey : undefined}
-          className={`deck-playback-slide absolute inset-0${fade ? ' deck-playback-fade' : ''}`}
-          // Sanitized by the caller (DOMPurify, SVG profile).
-          dangerouslySetInnerHTML={{ __html: markup }}
-        />
+          key={animate ? slideKey : undefined}
+          className={`deck-playback-slide absolute inset-0${transitionClass}`}
+          style={
+            animate && transition?.durationMs
+              ? ({ '--deck-transition-duration': `${transition.durationMs}ms` } as CSSProperties)
+              : undefined
+          }
+        >
+          {animationCss ? <style>{animationCss}</style> : null}
+          <div
+            key={animationKey}
+            className="deck-playback-animation-scope size-full"
+            // Sanitized by the caller (DOMPurify, SVG profile).
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        </div>
         {inkMarkup && (
           <div
             className="pointer-events-none absolute inset-0"

@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { animationCss, animationTimeline } from '../../../../src/lib/deck/animation';
 import {
   initialPlayback,
   playbackProgress,
@@ -267,9 +268,13 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
     undefined,
     () => initialPlayback([{ id: '', hidden: false }]),
   );
+  const [buildSteps, setBuildSteps] = useState<Record<string, number>>({});
   const present = (from: 'start' | 'current') => {
     const first = playbackSlides.findIndex((entry) => !entry.hidden);
-    dispatch({ type: 'start', index: from === 'current' ? index : Math.max(0, first) });
+    const start = from === 'current' ? index : Math.max(0, first);
+    const target = slides[start];
+    if (target) setBuildSteps((current) => ({ ...current, [target.slideId]: 0 }));
+    dispatch({ type: 'start', index: start });
     setMode('present');
   };
   const stopPresenting = useCallback(() => {
@@ -278,6 +283,48 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
     setMode('slide');
   }, [playback.index, slides]);
   const presentedSlide = slides[Math.min(playback.index, slides.length - 1)];
+  const presentedSource = presentedSlide ? deck?.slides[presentedSlide.slideId] : undefined;
+  const presentBuildStep = presentedSlide ? (buildSteps[presentedSlide.slideId] ?? 0) : 0;
+  const presentTimeline = useMemo(
+    () => animationTimeline(presentedSource?.animations),
+    [presentedSource?.animations],
+  );
+  const presentAnimationCss = useMemo(
+    () => animationCss(presentedSource?.animations, presentBuildStep),
+    [presentBuildStep, presentedSource?.animations],
+  );
+  const presentAction = useCallback(
+    (action: PlaybackAction) => {
+      if (
+        action.type === 'next' &&
+        !playback.blank &&
+        !playback.ended &&
+        presentedSlide &&
+        presentBuildStep < presentTimeline.lastStep
+      ) {
+        setBuildSteps((current) => ({
+          ...current,
+          [presentedSlide.slideId]: presentBuildStep + 1,
+        }));
+        return;
+      }
+      if (
+        action.type === 'previous' &&
+        !playback.blank &&
+        !playback.ended &&
+        presentedSlide &&
+        presentBuildStep > 0
+      ) {
+        setBuildSteps((current) => ({
+          ...current,
+          [presentedSlide.slideId]: presentBuildStep - 1,
+        }));
+        return;
+      }
+      dispatch(action);
+    },
+    [playback.blank, playback.ended, presentBuildStep, presentTimeline.lastStep, presentedSlide],
+  );
   const presentProgress =
     slides.length > 0
       ? playbackProgress(playbackSlides, Math.min(playback.index, slides.length - 1))
@@ -412,7 +459,9 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
 
   if (mode === 'present' && presentedSlide && presentProgress) {
     const tap = (fraction: number) =>
-      playback.ended ? stopPresenting() : dispatch({ type: fraction < 0.33 ? 'previous' : 'next' });
+      playback.ended
+        ? stopPresenting()
+        : presentAction({ type: fraction < 0.33 ? 'previous' : 'next' });
     return (
       <div className="deck-present" role="dialog" aria-label="Slide show">
         <DeckSlideFrame
@@ -420,9 +469,12 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
           measurer={measurer}
           resolveAsset={resolveAsset}
           viewport={null}
-          onSwipe={(direction) => dispatch({ type: direction })}
+          onSwipe={(direction) => presentAction({ type: direction })}
           onTap={tap}
           className="deck-present-frame"
+          animationKey={`${presentedSlide.slideId}:${presentBuildStep}`}
+          animationCss={presentAnimationCss}
+          transition={presentedSource?.transition}
         >
           {playback.ended && (
             <div className="deck-present-end">End of slide show. Tap to exit.</div>
@@ -433,7 +485,7 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
             type="button"
             className="icon-button"
             aria-label="Previous slide"
-            onClick={() => dispatch({ type: 'previous' })}
+            onClick={() => presentAction({ type: 'previous' })}
           >
             <ChevronLeft size={20} />
           </button>
@@ -444,7 +496,7 @@ export function DeckScreen({ file }: { file: HostedFileEntry }) {
             type="button"
             className="icon-button"
             aria-label="Next slide"
-            onClick={() => dispatch({ type: 'next' })}
+            onClick={() => presentAction({ type: 'next' })}
           >
             <ChevronRight size={20} />
           </button>

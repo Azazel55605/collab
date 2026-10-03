@@ -30,7 +30,7 @@ import type {
 } from '../../lib/deck/transform';
 import { targetGeometry } from '../../lib/deck/transform';
 import { DECK_UNITS_PER_INCH, DECK_UNITS_PER_PX } from '../../types/deck';
-import type { DeckAssetRef, DeckDocument } from '../../types/deck';
+import type { DeckAssetRef, DeckDocument, DeckTransition } from '../../types/deck';
 
 import { DeckSlide } from './DeckSlide';
 
@@ -100,6 +100,7 @@ interface DeckStageProps {
   onExitText?: () => void;
   /** Collaborators' selections on this slide, outlined in their colour. */
   peers?: DeckStagePeer[];
+  transitionPreview?: { key: number; transition: DeckTransition } | null;
 }
 
 export interface DeckStagePeer {
@@ -286,6 +287,7 @@ export function DeckStage({
   onActiveCell,
   onOpenEmbed,
   onDropFiles,
+  transitionPreview,
 }: DeckStageProps) {
   const slideId = target.id;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -687,14 +689,30 @@ export function DeckStage({
             className="absolute"
             style={{ left: MARGIN_PX, top: MARGIN_PX, width: slideWidthPx, height: slideHeightPx }}
           >
-            <DeckSlide
-              slide={shownSlide}
-              width={slideWidthPx}
-              measurer={measurer}
-              resolveAsset={resolveAsset}
-              className="overflow-hidden shadow-lg shadow-black/20"
-              label={`Slide ${resolved.number}`}
-            />
+            <div
+              key={transitionPreview?.key}
+              className={
+                transitionPreview
+                  ? `size-full deck-playback-${transitionPreview.transition.kind}`
+                  : 'size-full'
+              }
+              style={
+                transitionPreview
+                  ? ({
+                      '--deck-transition-duration': `${transitionPreview.transition.durationMs}ms`,
+                    } as React.CSSProperties)
+                  : undefined
+              }
+            >
+              <DeckSlide
+                slide={shownSlide}
+                width={slideWidthPx}
+                measurer={measurer}
+                resolveAsset={resolveAsset}
+                className="overflow-hidden shadow-lg shadow-black/20"
+                label={`Slide ${resolved.number}`}
+              />
+            </div>
             {options.grid > 0 && (
               <svg
                 className="pointer-events-none absolute inset-0"

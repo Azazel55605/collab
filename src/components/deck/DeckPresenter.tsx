@@ -23,6 +23,7 @@ import {
   Zap,
 } from 'lucide-react';
 
+import { animationCss, animationTimeline } from '../../lib/deck/animation';
 import {
   eraseStrokes,
   extendStroke,
@@ -251,6 +252,7 @@ export function DeckPresenter({
   );
   const index = Math.min(state.index, Math.max(0, slides.length - 1));
   const slide: ResolvedSlide | undefined = slides[index];
+  const sourceSlide = slide ? deck.slides[slide.slideId] : undefined;
   const upcomingIndex = nextIndex(playbackSlides, index);
   const upcoming = upcomingIndex === null ? null : slides[upcomingIndex];
 
@@ -267,6 +269,7 @@ export function DeckPresenter({
   const [, setTick] = useState(0);
   const [notesScale, setNotesScale] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [buildSteps, setBuildSteps] = useState<Record<string, number>>({});
   const [audience, setAudience] = useState<AudienceHandle | null>(null);
   const [audienceStatus, setAudienceStatus] = useState<'none' | 'opening' | 'open' | 'unavailable'>(
     'none',
@@ -305,6 +308,15 @@ export function DeckPresenter({
   const runs = useMemo(() => (slide ? slideTextRuns(slide, measurer) : []), [measurer, slide]);
   const slideInk = slide ? (ink[slide.slideId] ?? []) : [];
   const inkMarkup = strokesSvg(draft ? [...slideInk, draft] : slideInk);
+  const buildStep = slide ? (buildSteps[slide.slideId] ?? 0) : 0;
+  const timeline = useMemo(
+    () => animationTimeline(sourceSlide?.animations),
+    [sourceSlide?.animations],
+  );
+  const buildCss = useMemo(
+    () => animationCss(sourceSlide?.animations, buildStep),
+    [buildStep, sourceSlide?.animations],
+  );
 
   /* Exit ------------------------------------------------------------------ */
 
@@ -424,8 +436,22 @@ export function DeckPresenter({
       aspect,
       blank: state.blank,
       ended: state.ended,
+      slideKey: slide.slideId,
+      animationKey: `${slide.slideId}:${buildStep}`,
+      animationCss: buildCss,
+      transition: sourceSlide?.transition,
     });
-  }, [aspect, audience, markup, slide, state.blank, state.ended]);
+  }, [
+    aspect,
+    audience,
+    buildCss,
+    buildStep,
+    markup,
+    slide,
+    sourceSlide?.transition,
+    state.blank,
+    state.ended,
+  ]);
 
   useEffect(() => {
     if (!audience || !slide) return;
@@ -458,11 +484,32 @@ export function DeckPresenter({
 
   /* Links ----------------------------------------------------------------- */
 
+  const act = useCallback(
+    (action: PlaybackAction) => {
+      if (action.type === 'next' && !state.blank && !state.ended && slide) {
+        if (buildStep < timeline.lastStep) {
+          setBuildSteps((current) => ({ ...current, [slide.slideId]: buildStep + 1 }));
+          return;
+        }
+      }
+      if (action.type === 'previous' && !state.blank && !state.ended && slide && buildStep > 0) {
+        setBuildSteps((current) => ({ ...current, [slide.slideId]: buildStep - 1 }));
+        return;
+      }
+      if (action.type === 'goto') {
+        const target = slides[action.index];
+        if (target) setBuildSteps((current) => ({ ...current, [target.slideId]: 0 }));
+      }
+      dispatch(action);
+    },
+    [buildStep, slide, slides, state.blank, state.ended, timeline.lastStep],
+  );
+
   const followLink = useCallback(
     (link: DeckLink) => {
       if (link.kind === 'slide') {
         const target = slidesRef.current.findIndex((entry) => entry.id === link.slideId);
-        if (target >= 0) dispatch({ type: 'goto', index: target });
+        if (target >= 0) act({ type: 'goto', index: target });
       } else if (link.kind === 'url') {
         onOpenUrl?.(link.href);
       } else if (onOpenVaultLink) {
@@ -470,7 +517,7 @@ export function DeckPresenter({
         onOpenVaultLink(link.path);
       }
     },
-    [exit, onOpenUrl, onOpenVaultLink],
+    [act, exit, onOpenUrl, onOpenVaultLink],
   );
 
   /* Keys ------------------------------------------------------------------ */
@@ -513,7 +560,7 @@ export function DeckPresenter({
         }));
         break;
       default:
-        dispatch(command);
+        act(command);
     }
     return true;
   };
@@ -524,7 +571,7 @@ export function DeckPresenter({
   });
   pointerRef.current = (action) => {
     if (action === 'next' && state.ended) exit();
-    else dispatch({ type: action });
+    else act({ type: action });
   };
 
   useEffect(() => {
@@ -632,14 +679,14 @@ export function DeckPresenter({
         const dy = event.clientY - start.y;
         if (Math.hypot(dx, dy) > TAP_SLOP) {
           const swipe = swipeCommand(dx, dy);
-          if (swipe) dispatch(swipe);
+          if (swipe) act(swipe);
           return;
         }
         const point = slidePoint(event, box);
         const link = point ? linkAt(runs, point.x, point.y) : null;
         if (link) followLink(link);
         else if (state.ended) exit();
-        else dispatch({ type: 'next' });
+        else act({ type: 'next' });
       }}
       onPointerCancel={() => {
         pointerStart.current = null;
@@ -647,13 +694,13 @@ export function DeckPresenter({
       }}
       onContextMenu={(event) => {
         event.preventDefault();
-        dispatch({ type: 'previous' });
+        act({ type: 'previous' });
       }}
       onWheel={(event) => {
         const time = now(runtime);
         if (Math.abs(event.deltaY) < 4 || time - lastWheel.current < WHEEL_GAP_MS) return;
         lastWheel.current = time;
-        dispatch({ type: event.deltaY > 0 ? 'next' : 'previous' });
+        act({ type: event.deltaY > 0 ? 'next' : 'previous' });
       }}
     />
   );
@@ -663,7 +710,7 @@ export function DeckPresenter({
   const progress = playbackProgress(playbackSlides, index);
 
   const remoteSubscribe = remote?.subscribe;
-  useEffect(() => remoteSubscribe?.((action) => dispatch(action)), [remoteSubscribe]);
+  useEffect(() => remoteSubscribe?.(act), [act, remoteSubscribe]);
   const shownSlideId = slide?.slideId ?? null;
   useEffect(() => {
     onShowChange?.({
@@ -752,7 +799,7 @@ export function DeckPresenter({
             key={entry.slideId}
             type="button"
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => dispatch({ type: 'goto', index: at })}
+            onClick={() => act({ type: 'goto', index: at })}
             className={`flex flex-col items-start gap-1 rounded-md p-1 text-left text-xs text-white/80 hover:bg-white/10 ${at === index ? 'ring-2 ring-primary' : ''} ${entry.hidden ? 'opacity-50' : ''}`}
           >
             <DeckSlide slide={entry} width={200} measurer={measurer} resolveAsset={resolveAsset} />
@@ -792,6 +839,9 @@ export function DeckPresenter({
           inkViewBox={[slide.width, slide.height]}
           laser={tool === 'laser' ? laser : null}
           slideKey={slide.slideId}
+          animationKey={`${slide.slideId}:${buildStep}`}
+          animationCss={buildCss}
+          transition={sourceSlide?.transition}
         >
           {interaction}
         </DeckPlaybackSurface>
@@ -802,13 +852,13 @@ export function DeckPresenter({
           aria-label="Slide show controls"
           role="toolbar"
         >
-          <ControlButton label="Previous slide" onClick={() => dispatch({ type: 'previous' })}>
+          <ControlButton label="Previous slide" onClick={() => act({ type: 'previous' })}>
             <ChevronLeft className="size-4" />
           </ControlButton>
           <span className="px-1 text-xs text-white/80 tabular-nums" aria-live="polite">
             {progress.position} / {progress.total}
           </span>
-          <ControlButton label="Next slide" onClick={() => dispatch({ type: 'next' })}>
+          <ControlButton label="Next slide" onClick={() => act({ type: 'next' })}>
             <ChevronRight className="size-4" />
           </ControlButton>
           <span className="mx-1 h-5 w-px bg-white/20" />
@@ -948,6 +998,9 @@ export function DeckPresenter({
               inkViewBox={[slide.width, slide.height]}
               laser={tool === 'laser' ? laser : null}
               slideKey={slide.slideId}
+              animationKey={`${slide.slideId}:${buildStep}`}
+              animationCss={buildCss}
+              transition={sourceSlide?.transition}
               endMessage="End of slide show. Click or press Esc to exit."
             >
               {interaction}
@@ -960,13 +1013,13 @@ export function DeckPresenter({
             role="toolbar"
             aria-label="Presenter controls"
           >
-            <ControlButton label="Previous slide" onClick={() => dispatch({ type: 'previous' })}>
+            <ControlButton label="Previous slide" onClick={() => act({ type: 'previous' })}>
               <ChevronLeft className="size-4" />
             </ControlButton>
             <span className="px-1 text-xs text-white/80 tabular-nums">
               {progress.position} / {progress.total}
             </span>
-            <ControlButton label="Next slide" onClick={() => dispatch({ type: 'next' })}>
+            <ControlButton label="Next slide" onClick={() => act({ type: 'next' })}>
               <ChevronRight className="size-4" />
             </ControlButton>
             <span className="mx-1 h-5 w-px bg-white/20" />

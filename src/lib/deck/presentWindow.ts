@@ -10,6 +10,7 @@
  * Every call degrades to "no second display" outside the desktop app or when
  * the platform refuses, so presenting still works in a single window.
  */
+import type { DeckTransition } from '../../types/deck';
 
 export const AUDIENCE_WINDOW_LABEL = 'deck-audience';
 export const AUDIENCE_QUERY = 'deck-audience';
@@ -29,6 +30,10 @@ export interface AudienceSlideFrame {
   aspect: number;
   blank: 'black' | 'white' | null;
   ended: boolean;
+  slideKey?: string;
+  animationKey?: string;
+  animationCss?: string;
+  transition?: DeckTransition;
 }
 
 /** Ink and pointer, sent as they change. Coordinates are 0..1 of the slide. */
