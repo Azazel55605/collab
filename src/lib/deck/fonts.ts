@@ -34,6 +34,28 @@ export const COMMON_FONT_FAMILIES = [
 
 const GENERIC = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/;
 
+const SERIF = /(?:serif|georgia|times|palatino|garamond|book antiqua)/i;
+const MONOSPACE = /(?:mono|courier|consolas|code)/i;
+
+/**
+ * Complete an authored font stack with faces that exist without a separate
+ * font installation. Inter Variable is shipped with Collab; the CSS generic
+ * families let the platform choose its own installed UI face after that.
+ */
+export function automaticFontFallbacks(family: string, declared: readonly string[] = []): string[] {
+  const bundled = family.toLowerCase() === 'inter' ? ['Inter Variable'] : [];
+  const platform = MONOSPACE.test(family)
+    ? ['ui-monospace', 'monospace']
+    : SERIF.test(family)
+      ? ['ui-serif', 'serif']
+      : ['system-ui', 'sans-serif'];
+  const concrete = declared.filter((fallback) => !GENERIC.test(fallback));
+  const generic = declared.filter((fallback) => GENERIC.test(fallback));
+  return [...new Set([...bundled, ...concrete, ...platform, ...generic])].filter(
+    (fallback) => fallback.toLowerCase() !== family.toLowerCase(),
+  );
+}
+
 type Context = { font: string; measureText(text: string): { width: number } };
 
 let context: Context | null | undefined;
@@ -92,9 +114,12 @@ export function isFontAvailable(family: string): boolean {
 }
 
 /** The family that will actually draw: the first installed one in the stack. */
-export function effectiveFamily(font: DeckThemeFont | { family: string; fallbacks: string[] }) {
-  const stack = [font.family, ...(font.fallbacks ?? [])];
-  return stack.find((family) => isFontAvailable(family)) ?? stack[stack.length - 1];
+export function effectiveFamily(
+  font: DeckThemeFont | { family: string; fallbacks: string[] },
+  available: (family: string) => boolean = isFontAvailable,
+) {
+  const stack = [font.family, ...automaticFontFallbacks(font.family, font.fallbacks)];
+  return stack.find((family) => available(family)) ?? stack[stack.length - 1];
 }
 
 /** Every family a picker should offer: the theme's first, then the common list. */
@@ -125,9 +150,10 @@ export function missingDeckFonts(
     if (missing[font.family] !== undefined || available(font.family)) return;
     const stack = [
       font.family,
-      ...(font.fallbacks ?? []),
-      ...(body?.fallbacks ?? []),
-      'sans-serif',
+      ...automaticFontFallbacks(font.family, [
+        ...(font.fallbacks ?? []),
+        ...(body?.fallbacks ?? []),
+      ]),
     ];
     missing[font.family] = stack.find((family) => available(family)) ?? stack[stack.length - 1];
   };

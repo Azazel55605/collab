@@ -59,6 +59,8 @@ interface DeckTextToolbarProps {
   theme: DeckTheme;
   box: TextBoxSettings | null;
   disabled?: boolean;
+  /** Render inside the editor's shared, always-present formatting row. */
+  embedded?: boolean;
   /** A placeholder whose overrides can be reset to its layout. */
   canResetPlaceholder?: boolean;
   onCommand: (command: TextCommand) => void;
@@ -97,6 +99,7 @@ export function DeckTextToolbar({
   theme,
   box,
   disabled,
+  embedded,
   canResetPlaceholder,
   onCommand,
   onFont,
@@ -119,7 +122,11 @@ export function DeckTextToolbar({
 
   return (
     <div
-      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none"
+      className={
+        embedded
+          ? 'flex shrink-0 items-center gap-1'
+          : 'flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none'
+      }
       role="toolbar"
       aria-label="Text formatting"
     >

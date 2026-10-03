@@ -447,6 +447,37 @@ describe('DeckView: viewing', () => {
 });
 
 describe('DeckView: editing', () => {
+  it('keeps one formatting row mounted while selection changes', async () => {
+    await openDeck();
+    const row = screen.getByTestId('deck-formatting-row');
+    const font = screen.getByRole('combobox', { name: 'Font' }) as HTMLButtonElement;
+    expect(font.disabled).toBe(true);
+
+    key(canvas(), 'Tab');
+    expect(screen.getByTestId('deck-formatting-row')).toBe(row);
+    expect(font.disabled).toBe(false);
+    expect(within(row).getByRole('toolbar', { name: 'Text formatting' })).toBeTruthy();
+    expect(within(row).getByRole('toolbar', { name: 'Object formatting' })).toBeTruthy();
+  });
+
+  it('focuses the canvas on a blank click and uses arrows to change slides', async () => {
+    await openDeck();
+    const surface = screen.getByTestId('deck-stage-surface');
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(48_000),
+      clientY: client(13_000),
+    });
+    fireEvent.pointerUp(surface, { pointerId: 1 });
+
+    expect(document.activeElement).toBe(canvas());
+    key(document.activeElement!, 'ArrowRight');
+    expect(await screen.findByText('Slide 2 of 5')).toBeTruthy();
+    key(document.activeElement!, 'ArrowLeft');
+    expect(await screen.findByText('Slide 1 of 5')).toBeTruthy();
+  });
+
   it('inserts a shape, selects it, and undoes and redoes the insert', async () => {
     await openDeck();
     fireEvent.click(menuItem('Rectangle'));

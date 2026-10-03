@@ -150,25 +150,23 @@ export async function openAudienceWindow(
 ): Promise<AudienceHandle | null> {
   if (!isDesktopRuntime()) return null;
   try {
-    const [{ WebviewWindow }, { emitTo, listen }] = await Promise.all([
-      import('@tauri-apps/api/webviewWindow'),
-      import('@tauri-apps/api/event'),
-    ]);
+    const [{ PhysicalPosition, PhysicalSize }, { WebviewWindow }, { emitTo, listen }] =
+      await Promise.all([
+        import('@tauri-apps/api/dpi'),
+        import('@tauri-apps/api/webviewWindow'),
+        import('@tauri-apps/api/event'),
+      ]);
     const existing = await WebviewWindow.getByLabel(AUDIENCE_WINDOW_LABEL);
     if (existing) await existing.destroy().catch(() => undefined);
 
-    const scale = display.scaleFactor || 1;
     const window = new WebviewWindow(AUDIENCE_WINDOW_LABEL, {
       url: `index.html?${AUDIENCE_QUERY}=1`,
       title: 'Slide show',
-      x: display.x / scale,
-      y: display.y / scale,
-      width: Math.max(320, display.width / scale),
-      height: Math.max(240, display.height / scale),
       decorations: false,
-      fullscreen: true,
+      fullscreen: false,
       focus: false,
       skipTaskbar: true,
+      visible: false,
     });
 
     let latestSlide: AudienceSlideFrame | null = null;
@@ -187,6 +185,15 @@ export async function openAudienceWindow(
       void window.once('tauri://error', () => resolve(false));
     });
     if (!created) return null;
+
+    // Monitor bounds are physical pixels. Explicit DPI types prevent a scaled
+    // desktop (notably Wayland) from treating them as smaller logical bounds.
+    await window.setPosition(new PhysicalPosition(display.x, display.y)).catch(() => undefined);
+    await window
+      .setSize(new PhysicalSize(Math.max(320, display.width), Math.max(240, display.height)))
+      .catch(() => undefined);
+    await window.setFullscreen(true).catch(() => undefined);
+    await window.show().catch(() => undefined);
 
     unlisteners.push(
       await window.once('tauri://destroyed', finish),

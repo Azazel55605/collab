@@ -2806,8 +2806,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const hasSelection = selectedIds.length > 0;
   const hasGroup = selectedIds.some((id) => geometry?.slide.elements[id]?.type === 'group');
   const aspect = document && supported ? document.size.width / document.size.height : 16 / 9;
-  const showTextToolbar =
-    editable && (textSession !== null || textTargets.length > 0) && Boolean(document);
+  const hasTextFormattingTarget = textSession !== null || textTargets.length > 0;
   const theme = document && supported ? document.themes[document.themeId] : undefined;
 
   const textEditorFor = (active: TextSession, plain: boolean) =>
@@ -3251,54 +3250,61 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         }
       />
 
-      {showTextToolbar && theme && (
-        <DeckTextToolbar
-          state={toolbarState}
-          theme={theme}
-          box={textSession?.kind === 'notes' ? null : box}
-          disabled={!editable}
-          canResetPlaceholder={placeholderToReset.length > 0}
-          onCommand={runCommand}
-          onFont={setFont}
-          onColor={(color) => setColor(color)}
-          onBox={setBox}
-          onLink={openLinkDialog}
-          onResetPlaceholder={resetSelectedPlaceholders}
-        />
-      )}
+      {theme && (
+        <div
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none"
+          data-testid="deck-formatting-row"
+        >
+          <DeckTextToolbar
+            state={toolbarState}
+            theme={theme}
+            box={textSession?.kind === 'notes' ? null : box}
+            disabled={!editable || !hasTextFormattingTarget}
+            embedded
+            canResetPlaceholder={placeholderToReset.length > 0}
+            onCommand={runCommand}
+            onFont={setFont}
+            onColor={(color) => setColor(color)}
+            onBox={setBox}
+            onLink={openLinkDialog}
+            onResetPlaceholder={resetSelectedPlaceholders}
+          />
 
-      {editable && !textSession && formatElements.length > 0 && theme && (
-        <DeckObjectToolbar
-          elements={formatElements}
-          theme={theme}
-          hasActiveCell={Boolean(tableCellHere)}
-          cropping={cropping}
-          onFill={onFill}
-          onOutline={onOutline}
-          onArrow={onArrow}
-          onGeometry={onGeometry}
-          onOpacity={onOpacity}
-          onFlip={onFlip}
-          onRotate={onRotateQuarter}
-          onCrop={() => setCropping(!cropping)}
-          onResetCrop={() =>
-            updateEach('Reset crop', (element) => {
-              if (element.type !== 'image') return element;
-              const next = { ...element };
-              delete next.crop;
-              return next;
-            })
-          }
-          onReplaceImage={() =>
-            selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
-          }
-          onTable={onTableAction}
-          onCellFill={onCellFill}
-          onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
-          onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
-          onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
-          onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
-        />
+          {editable && !textSession && formatElements.length > 0 && (
+            <DeckObjectToolbar
+              elements={formatElements}
+              theme={theme}
+              embedded
+              hasActiveCell={Boolean(tableCellHere)}
+              cropping={cropping}
+              onFill={onFill}
+              onOutline={onOutline}
+              onArrow={onArrow}
+              onGeometry={onGeometry}
+              onOpacity={onOpacity}
+              onFlip={onFlip}
+              onRotate={onRotateQuarter}
+              onCrop={() => setCropping(!cropping)}
+              onResetCrop={() =>
+                updateEach('Reset crop', (element) => {
+                  if (element.type !== 'image') return element;
+                  const next = { ...element };
+                  delete next.crop;
+                  return next;
+                })
+              }
+              onReplaceImage={() =>
+                selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
+              }
+              onTable={onTableAction}
+              onCellFill={onCellFill}
+              onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
+              onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
+              onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
+              onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
+            />
+          )}
+        </div>
       )}
 
       <div className="flex min-h-0 flex-1" role="application" aria-label="Presentation editor">
@@ -3367,6 +3373,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                 className="relative min-h-0 flex-1 outline-none"
                 tabIndex={0}
                 aria-label="Slide canvas"
+                onPointerDownCapture={focusCanvas}
               >
                 {document && stageTarget && stageScene && geometry && stageSize.width > 0 ? (
                   <DeckStage

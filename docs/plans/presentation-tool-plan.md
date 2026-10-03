@@ -6,7 +6,8 @@ Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
 contract differ, the contract wins. Phases 1-10 are implemented; Phase 10 is
-in release testing and Phase 11 remains deferred.
+in release testing, general-release hardening Phase 1 is implemented, and
+Phase 11 remains deferred.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -1042,6 +1043,25 @@ and third-party-application evidence remains a release gate in
 - Flatten or omit unsupported content with a per-slide import report.
 - Preserve the source `.pptx` unchanged.
 - Never promise lossless round trips.
+
+### General-Release Hardening Phase 1
+
+Implemented after the feature phases as the first focused usability and native
+presentation pass:
+
+- [x] Keep text and object formatting controls in one permanently mounted row,
+      so selecting an object cannot move the stage beneath the pointer.
+- [x] Focus the canvas when its blank surface is clicked; with no object
+      selected, Left/Right and Up/Down move between slides.
+- [x] Complete every resolved font stack with bundled and platform families.
+      `Inter Variable`, shipped with Collab, is the first automatic substitute
+      when a machine does not provide `Inter`.
+- [x] Size the native audience window with explicit physical monitor bounds
+      before entering fullscreen, avoiding high-DPI logical/physical scaling
+      mismatches.
+- [x] Pin these behaviors with editor, font-resolution, and Tauri-window unit
+      regressions. Native multi-monitor validation remains part of the physical
+      release matrix.
 
 ## Recommended Implementation Order
 

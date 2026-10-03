@@ -148,6 +148,11 @@ Open tracker entries:
   platform, assistive-technology, packaging, encryption/history/crash, resource
   soak, and third-party application matrix in
   [Presentation Release Validation](../build/presentation-release-validation.md).
+- General-release hardening Phase 1, **Complete**: the formatting row no longer
+  moves the canvas when selection changes, blank-canvas arrow navigation is
+  focusable, resolved fonts gain bundled/platform fallbacks, and audience
+  windows use physical monitor bounds before fullscreen. The high-DPI audience
+  fix still requires confirmation in the physical multi-monitor matrix.
 - Phase 11, **Deferred**: bounded PPTX import into a new `.deck`; import is not
   required for the first production release.
 
