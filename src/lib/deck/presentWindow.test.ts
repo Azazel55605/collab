@@ -1,15 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DisplayInfo } from './presentWindow';
-import { openAudienceWindow, setWindowFullscreen } from './presentWindow';
+import { audienceViewportSize, openAudienceWindow, setWindowFullscreen } from './presentWindow';
 
 const mocks = vi.hoisted(() => ({
   options: null as Record<string, unknown> | null,
-  setPosition: vi.fn(async () => {}),
-  setSize: vi.fn(async () => {}),
-  setFullscreen: vi.fn(async () => {}),
+  setFullscreenOnMonitor: vi.fn(async () => {}),
+  show: vi.fn(async () => {}),
   destroy: vi.fn(async () => {}),
-  currentSetSize: vi.fn(async () => {}),
   currentSetFullscreen: vi.fn(async () => {}),
 }));
 
@@ -20,20 +18,12 @@ vi.mock('@tauri-apps/api/dpi', () => ({
       public y: number,
     ) {}
   },
-  PhysicalSize: class PhysicalSize {
-    constructor(
-      public width: number,
-      public height: number,
-    ) {}
-  },
 }));
 
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
   WebviewWindow: class WebviewWindow {
-    static getByLabel = vi.fn(async () => null);
-    setPosition = mocks.setPosition;
-    setSize = mocks.setSize;
-    setFullscreen = mocks.setFullscreen;
+    setFullscreenOnMonitor = mocks.setFullscreenOnMonitor;
+    show = mocks.show;
     destroy = mocks.destroy;
 
     constructor(_label: string, options: Record<string, unknown>) {
@@ -48,11 +38,9 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
-  currentMonitor: vi.fn(async () => ({ size: { width: 2_554, height: 1_464 } })),
   getCurrentWindow: vi.fn(() => ({
     isFullscreen: vi.fn(async () => false),
     setFullscreen: mocks.currentSetFullscreen,
-    setSize: mocks.currentSetSize,
   })),
 }));
 
@@ -66,7 +54,29 @@ afterEach(() => {
 });
 
 describe('presentation windows', () => {
-  it('opens the audience window visibly and reapplies physical fullscreen bounds', async () => {
+  it.each([
+    { width: 1_920, height: 1_080, scaleFactor: 1 },
+    { width: 2_560, height: 1_440, scaleFactor: 1.33 },
+    { width: 2_554, height: 1_464, scaleFactor: 1.875 },
+  ])(
+    'converts $scaleFactor-scale monitor bounds into an initial logical webview size',
+    ({ width, height, scaleFactor }) => {
+      expect(
+        audienceViewportSize({
+          id: 'projector',
+          name: 'Projector',
+          x: 0,
+          y: 0,
+          width,
+          height,
+          scaleFactor,
+          primary: false,
+        }),
+      ).toEqual({ width: width / scaleFactor, height: height / scaleFactor });
+    },
+  );
+
+  it('maps the audience webview before fullscreening it on the selected monitor', async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     const display: DisplayInfo = {
       id: 'projector',
@@ -86,23 +96,26 @@ describe('presentation windows', () => {
     });
 
     expect(handle).not.toBeNull();
-    expect(mocks.options).toMatchObject({ fullscreen: true });
-    expect(mocks.options).not.toHaveProperty('visible');
-    expect(mocks.setPosition).toHaveBeenCalledWith(expect.objectContaining({ x: 0, y: 0 }));
-    expect(mocks.setSize).toHaveBeenCalledWith(
-      expect.objectContaining({ width: 2_554, height: 1_464 }),
+    expect(mocks.options).toMatchObject({
+      fullscreen: false,
+      visible: false,
+      width: 2_554 / 1.875,
+      height: 1_464 / 1.875,
+    });
+    expect(mocks.setFullscreenOnMonitor).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 0, y: 0 }),
     );
-    expect(mocks.setFullscreen).toHaveBeenCalledWith(true);
+    expect(mocks.show).toHaveBeenCalledOnce();
+    expect(mocks.show.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.setFullscreenOnMonitor.mock.invocationCallOrder[0],
+    );
   });
 
-  it('reapplies physical monitor size after the main window enters fullscreen', async () => {
+  it('lets the platform size the main window when it enters fullscreen', async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
 
     await expect(setWindowFullscreen(true)).resolves.toBe(false);
 
     expect(mocks.currentSetFullscreen).toHaveBeenCalledWith(true);
-    expect(mocks.currentSetSize).toHaveBeenCalledWith(
-      expect.objectContaining({ width: 2_554, height: 1_464 }),
-    );
   });
 });

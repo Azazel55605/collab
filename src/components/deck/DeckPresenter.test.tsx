@@ -1,3 +1,5 @@
+import { StrictMode } from 'react';
+
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -72,6 +74,7 @@ function setup(
     runtime?: DeckPresenterRuntime;
     remote?: DeckPresenterRemote;
     onShowChange?: (show: DeckShowPosition) => void;
+    strict?: boolean;
   } = {},
 ) {
   const onExit = vi.fn();
@@ -79,7 +82,7 @@ function setup(
   const onOpenUrl = vi.fn();
   const setWindowFullscreen = vi.fn(async () => false);
   const deck = options.deck ?? buildFixtureDeck();
-  render(
+  const presenter = (
     <DeckPresenter
       deck={deck}
       startSlideId={options.start ?? null}
@@ -98,8 +101,9 @@ function setup(
         setWindowFullscreen,
         ...options.runtime,
       }}
-    />,
+    />
   );
+  render(options.strict ? <StrictMode>{presenter}</StrictMode> : presenter);
   return { onExit, onNotice, onOpenUrl, setWindowFullscreen, deck };
 }
 
@@ -264,6 +268,60 @@ describe('DeckPresenter: presenter view', () => {
     expect(await screen.findByRole('dialog', { name: 'Slide show' })).toBeTruthy();
     expect(screen.getByText('2 / 5')).toBeTruthy();
     expect(onNotice).toHaveBeenCalledWith(expect.stringMatching(/continues on this screen/));
+  });
+
+  it('opens only one audience window under Strict Mode', async () => {
+    const pending: Array<(handle: AudienceHandle) => void> = [];
+    const handle = {
+      display: DISPLAYS[1],
+      sendSlide: vi.fn(),
+      sendOverlay: vi.fn(),
+      close: vi.fn(async () => {}),
+    } satisfies AudienceHandle;
+    const openAudienceWindow = vi.fn(
+      async () => await new Promise<AudienceHandle>((resolve) => pending.push(resolve)),
+    );
+
+    setup({
+      mode: 'presenter',
+      strict: true,
+      runtime: {
+        listDisplays: async () => DISPLAYS,
+        currentDisplayId: async () => 'laptop',
+        openAudienceWindow,
+      },
+    });
+
+    await waitFor(() => expect(openAudienceWindow).toHaveBeenCalledOnce());
+    await act(async () => pending[0](handle));
+    await screen.findByLabelText('Display for slides');
+    expect(handle.close).not.toHaveBeenCalled();
+  });
+
+  it('closes an audience window that finishes opening after switching to this screen', async () => {
+    let resolveOpen!: (handle: AudienceHandle) => void;
+    const handle = {
+      display: DISPLAYS[1],
+      sendSlide: vi.fn(),
+      sendOverlay: vi.fn(),
+      close: vi.fn(async () => {}),
+    } satisfies AudienceHandle;
+    const openAudienceWindow = vi.fn(
+      async () => await new Promise<AudienceHandle>((resolve) => (resolveOpen = resolve)),
+    );
+    setup({
+      mode: 'presenter',
+      runtime: {
+        listDisplays: async () => DISPLAYS,
+        currentDisplayId: async () => 'laptop',
+        openAudienceWindow,
+      },
+    });
+    await waitFor(() => expect(openAudienceWindow).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button', { name: 'Show slides here' }));
+    expect(screen.getByRole('dialog', { name: 'Slide show' })).toBeTruthy();
+    await act(async () => resolveOpen(handle));
+    await waitFor(() => expect(handle.close).toHaveBeenCalledOnce());
   });
 
   it('rehearses in one window when there is no second display', async () => {

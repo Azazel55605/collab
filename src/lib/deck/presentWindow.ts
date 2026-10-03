@@ -14,13 +14,26 @@ import type { DeckTransition } from '../../types/deck';
 
 export const AUDIENCE_WINDOW_LABEL = 'deck-audience';
 export const AUDIENCE_QUERY = 'deck-audience';
-export const AUDIENCE_EVENTS = {
-  slide: 'deck-audience://slide',
-  overlay: 'deck-audience://overlay',
-  ready: 'deck-audience://ready',
-  key: 'deck-audience://key',
-  pointer: 'deck-audience://pointer',
-} as const;
+
+/** Events are scoped to one audience window so overlapping open/close work cannot cross-talk. */
+export function audienceEvents(session: string) {
+  const prefix = `deck-audience://${session}`;
+  return {
+    slide: `${prefix}/slide`,
+    overlay: `${prefix}/overlay`,
+    ready: `${prefix}/ready`,
+    key: `${prefix}/key`,
+    pointer: `${prefix}/pointer`,
+  } as const;
+}
+
+let audienceWindowSequence = 0;
+
+function nextAudienceWindowLabel(): string {
+  audienceWindowSequence += 1;
+  const unique = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${audienceWindowSequence}`;
+  return `${AUDIENCE_WINDOW_LABEL}-${unique}`;
+}
 
 /** The slide as the audience sees it. Sent when the slide or blanking changes. */
 export interface AudienceSlideFrame {
@@ -143,6 +156,16 @@ export function chooseAudienceDisplay(
   return null;
 }
 
+/** Monitor bounds are physical; Tauri window constructor dimensions are logical. */
+export function audienceViewportSize(display: DisplayInfo): { width: number; height: number } {
+  const scaleFactor =
+    Number.isFinite(display.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
+  return {
+    width: Math.max(320, display.width / scaleFactor),
+    height: Math.max(240, display.height / scaleFactor),
+  };
+}
+
 /** Opens the audience window full screen on a display. Null when it cannot. */
 export async function openAudienceWindow(
   display: DisplayInfo,
@@ -150,22 +173,24 @@ export async function openAudienceWindow(
 ): Promise<AudienceHandle | null> {
   if (!isDesktopRuntime()) return null;
   try {
-    const [{ PhysicalPosition, PhysicalSize }, { WebviewWindow }, { emitTo, listen }] =
-      await Promise.all([
-        import('@tauri-apps/api/dpi'),
-        import('@tauri-apps/api/webviewWindow'),
-        import('@tauri-apps/api/event'),
-      ]);
-    const existing = await WebviewWindow.getByLabel(AUDIENCE_WINDOW_LABEL);
-    if (existing) await existing.destroy().catch(() => undefined);
-
-    const window = new WebviewWindow(AUDIENCE_WINDOW_LABEL, {
-      url: `index.html?${AUDIENCE_QUERY}=1`,
+    const [{ PhysicalPosition }, { WebviewWindow }, { emitTo, listen }] = await Promise.all([
+      import('@tauri-apps/api/dpi'),
+      import('@tauri-apps/api/webviewWindow'),
+      import('@tauri-apps/api/event'),
+    ]);
+    const label = nextAudienceWindowLabel();
+    const events = audienceEvents(label);
+    const viewport = audienceViewportSize(display);
+    const window = new WebviewWindow(label, {
+      url: `index.html?${AUDIENCE_QUERY}=${encodeURIComponent(label)}`,
       title: 'Slide show',
       decorations: false,
-      fullscreen: true,
+      fullscreen: false,
       focus: false,
       skipTaskbar: true,
+      visible: false,
+      width: viewport.width,
+      height: viewport.height,
     });
 
     let latestSlide: AudienceSlideFrame | null = null;
@@ -185,39 +210,49 @@ export async function openAudienceWindow(
     });
     if (!created) return null;
 
-    // Monitor bounds are physical pixels. Explicit DPI types prevent a scaled
-    // desktop (notably Wayland) from treating them as smaller logical bounds.
-    await window.setPosition(new PhysicalPosition(display.x, display.y)).catch(() => undefined);
-    await window
-      .setSize(new PhysicalSize(Math.max(320, display.width), Math.max(240, display.height)))
-      .catch(() => undefined);
-    await window.setFullscreen(true).catch(() => undefined);
-
-    unlisteners.push(
-      await window.once('tauri://destroyed', finish),
-      await listen<AudienceKey>(AUDIENCE_EVENTS.key, (event) => callbacks.onKey(event.payload)),
-      await listen<'next' | 'previous'>(AUDIENCE_EVENTS.pointer, (event) =>
-        callbacks.onPointer(event.payload),
-      ),
+    try {
+      unlisteners.push(await window.once('tauri://destroyed', finish));
+      unlisteners.push(
+        await listen<AudienceKey>(events.key, (event) => callbacks.onKey(event.payload)),
+      );
+      unlisteners.push(
+        await listen<'next' | 'previous'>(events.pointer, (event) =>
+          callbacks.onPointer(event.payload),
+        ),
+      );
       // A window that loads after the first frame asks for the latest one.
-      await listen(AUDIENCE_EVENTS.ready, () => {
-        if (latestSlide) void emitTo(AUDIENCE_WINDOW_LABEL, AUDIENCE_EVENTS.slide, latestSlide);
-        if (latestOverlay)
-          void emitTo(AUDIENCE_WINDOW_LABEL, AUDIENCE_EVENTS.overlay, latestOverlay);
-      }),
-    );
+      unlisteners.push(
+        await listen(events.ready, () => {
+          if (latestSlide) void emitTo(label, events.slide, latestSlide);
+          if (latestOverlay) void emitTo(label, events.overlay, latestOverlay);
+        }),
+      );
+
+      // Map the native window before asking the compositor to fullscreen it.
+      // WebKitGTK can retain the hidden window's initial viewport allocation
+      // when fullscreen is applied first, leaving the slide at the old size
+      // inside an otherwise correctly sized native window.
+      await window.show();
+      // This uses the native monitor handle selected by Tauri instead of
+      // emulating placement with absolute coordinates. That distinction is
+      // required on Wayland and avoids mixed-DPI coordinate bugs elsewhere.
+      await window.setFullscreenOnMonitor(new PhysicalPosition(display.x, display.y));
+    } catch {
+      closed = true;
+      for (const unlisten of unlisteners) unlisten();
+      await window.destroy().catch(() => undefined);
+      return null;
+    }
 
     return {
       display,
       sendSlide(frame) {
         latestSlide = frame;
-        if (!closed)
-          void emitTo(AUDIENCE_WINDOW_LABEL, AUDIENCE_EVENTS.slide, frame).catch(() => {});
+        if (!closed) void emitTo(label, events.slide, frame).catch(() => {});
       },
       sendOverlay(frame) {
         latestOverlay = frame;
-        if (!closed)
-          void emitTo(AUDIENCE_WINDOW_LABEL, AUDIENCE_EVENTS.overlay, frame).catch(() => {});
+        if (!closed) void emitTo(label, events.overlay, frame).catch(() => {});
       },
       async close() {
         if (closed) return;
@@ -235,24 +270,10 @@ export async function openAudienceWindow(
 export async function setWindowFullscreen(fullscreen: boolean): Promise<boolean | null> {
   if (isDesktopRuntime()) {
     try {
-      const [{ PhysicalSize }, { currentMonitor, getCurrentWindow }] = await Promise.all([
-        import('@tauri-apps/api/dpi'),
-        import('@tauri-apps/api/window'),
-      ]);
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const current = getCurrentWindow();
       const was = await current.isFullscreen();
       if (was !== fullscreen) await current.setFullscreen(fullscreen);
-      if (fullscreen) {
-        const monitor = await currentMonitor();
-        if (monitor) {
-          // Some scaled Linux desktops fullscreen the native window without
-          // resizing its WebKit surface. Reasserting physical monitor bounds
-          // after the transition makes the in-window slide fill that surface.
-          await current
-            .setSize(new PhysicalSize(monitor.size.width, monitor.size.height))
-            .catch(() => undefined);
-        }
-      }
       return was;
     } catch {
       return null;

@@ -32,8 +32,8 @@ The presentation release command covers:
   order, stable semantic labels, alternative text, contrast, and font fallback;
 - keyboard authoring, presentation navigation, animation builds, second-display
   recovery, stable formatting-row geometry, blank-canvas arrow navigation,
-  physical main/audience fullscreen sizing, mobile touch/view state, and
-  Android process recreation;
+  native audience-output targeting, stale-window cancellation, platform-owned
+  fullscreen sizing, mobile touch/view state, and Android process recreation;
 - deterministic PDF/image/print planning and the first-party OOXML writer;
 - reversible operations, crash-repair paths, and a sustained two-client Yjs
   convergence soak including accessibility-order edits;
@@ -73,21 +73,23 @@ Fill this table for the exact release commit. Attach package names, OS/WebView
 versions, screenshots or recordings, and exported fixtures to the release
 issue. Do not carry a pass forward from another commit.
 
-| Target                                   | Required presentation checks                                                         | Status before physical run |
-| ---------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------- |
-| Linux x86_64 native and portable package | Create/save/reopen, WebKit text probe, keyboard/screen reader, show, print/PDF/PPTX  | Unverified                 |
-| Linux ARM64 native or portable package   | Create/save/reopen, show, asset loading, PDF/PPTX                                    | Unverified                 |
-| Linux Flatpak                            | Portal open/save/export/print, fonts/assets, fullscreen and audience window          | Unverified                 |
-| Windows x86_64 MSI                       | WebView2 text probe, Narrator/NVDA, show/audience window, print/PDF, PowerPoint      | Unverified                 |
-| macOS Apple Silicon DMG                  | WKWebView text probe, VoiceOver, show/audience window, print/PDF, Keynote/PowerPoint | Unverified                 |
-| macOS Intel DMG                          | Open/save/show/export smoke and package signature                                    | Unverified                 |
-| Android ARM64 APK/AAB phone              | TalkBack, rotation/process recreation, offline view, touch show, remote              | Unverified                 |
-| Android ARM64 APK/AAB tablet             | TalkBack, large-screen layout, rotation, touch show, remote                          | Unverified                 |
-| Printed page and generated PDF           | Slide/handout geometry, notes, links, searchable text, missing-font report           | Unverified                 |
-| Microsoft PowerPoint desktop             | Fixture opens without repair; masters, charts, notes, transitions, fonts             | Unverified                 |
-| Google Slides import                     | Fixture import and presentation; conversion differences recorded                     | Unverified                 |
-| LibreOffice Impress                      | Fixture render comparison and presentation                                           | Automated baseline passed  |
-| Apple Keynote                            | Fixture import and presentation, when macOS is available                             | Unverified                 |
+| Target                                      | Required presentation checks                                                        | Status before physical run |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------- |
+| Linux Wayland: GNOME, KDE, wlroots/Hyprland | Mixed-scale output switching, one audience window, fullscreen/recovery              | Unverified                 |
+| Linux X11: desktop and tiling WM            | Mixed-scale output switching, one audience window, fullscreen/recovery              | Unverified                 |
+| Linux x86_64 native and portable package    | Create/save/reopen, WebKit text probe, keyboard/screen reader, show, print/PDF/PPTX | Unverified                 |
+| Linux ARM64 native or portable package      | Create/save/reopen, show, asset loading, PDF/PPTX                                   | Unverified                 |
+| Linux Flatpak                               | Portal open/save/export/print, fonts/assets, fullscreen and audience window         | Unverified                 |
+| Windows x86_64 MSI                          | Mixed-DPI switching, WebView2, Narrator/NVDA, show, print/PDF, PowerPoint           | Unverified                 |
+| macOS Apple Silicon DMG                     | Mixed-Retina switching/Spaces, VoiceOver, show, print/PDF, Keynote/PowerPoint       | Unverified                 |
+| macOS Intel DMG                             | Open/save/show/export smoke and package signature                                   | Unverified                 |
+| Android ARM64 APK/AAB phone                 | TalkBack, rotation/process recreation, offline view, touch show, remote             | Unverified                 |
+| Android ARM64 APK/AAB tablet                | TalkBack, large-screen layout, rotation, touch show, remote                         | Unverified                 |
+| Printed page and generated PDF              | Slide/handout geometry, notes, links, searchable text, missing-font report          | Unverified                 |
+| Microsoft PowerPoint desktop                | Fixture opens without repair; masters, charts, notes, transitions, fonts            | Unverified                 |
+| Google Slides import                        | Fixture import and presentation; conversion differences recorded                    | Unverified                 |
+| LibreOffice Impress                         | Fixture render comparison and presentation                                          | Automated baseline passed  |
+| Apple Keynote                               | Fixture import and presentation, when macOS is available                            | Unverified                 |
 
 Package checks must also verify icons, MIME registration for `.deck`, file
 associations, bundled OCR/static assets, upgrade install, uninstall, and launch

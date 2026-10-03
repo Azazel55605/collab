@@ -387,6 +387,17 @@ remote; Phase 9 added authored transitions and bounded object-animation
 timelines. Phase 10 added an independent accessibility reading order, semantic
 slide companion, authoring audit, heterogeneous workload/recovery/CRDT soak
 gates, and the presentation release-validation matrix.
+Desktop presenter mode opens each audience surface under a unique Tauri label
+and event namespace. It creates the hidden WebView at the selected monitor's
+logical viewport size, maps it, then targets that output with Tauri's native
+`setFullscreenOnMonitor` API. This avoids a stale initial WebView allocation
+while leaving fullscreen placement to the platform; Wayland compositors own
+placement, and the same native path avoids mixed-DPI coordinate conversion on
+X11, Windows, and macOS. Generation checks close late audience opens after
+mode, display, or component-lifecycle changes. Playback SVGs are sized through
+the animation-scope wrapper rather than relying on their 1280×720 intrinsic
+dimensions, so basic and audience presentation fill their fitted surface at
+every display scale.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -407,7 +418,7 @@ session's writes into a single undo step.
 | `components/deck/DeckStage.tsx`                              | Zoom/pan stage: hit testing, marquee, move/resize/rotate/crop gestures, snap guides, grid, rulers                   |
 | `components/deck/DeckSlideRail.tsx`                          | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
 | `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
-| `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, transitions, notes, ink/laser/blank, audience-window recovery      |
+| `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, notes, native output targeting, and race-safe audience recovery    |
 | `lib/deck/remote.ts`                                         | Phone remote control over awareness: show state, numbered commands, same-account opt-in (Android companion)         |
 | `components/deck/DeckPlaybackSurface.tsx`                    | One slide with transient animation/transition, ink, laser, blank, and end-screen layers; shared by all show windows |
 | `components/deck/DeckAudienceWindow.tsx`                     | The second-display window (`?deck-audience`): draws frames it is sent, sends keys and clicks back                   |

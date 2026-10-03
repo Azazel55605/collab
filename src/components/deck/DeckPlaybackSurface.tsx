@@ -61,6 +61,7 @@ export function DeckPlaybackSurface({
   endMessage = 'End of slide show. Click or press Esc to exit.',
 }: DeckPlaybackSurfaceProps) {
   const container = useRef<HTMLDivElement | null>(null);
+  const slideContent = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useLayoutEffect(() => {
@@ -73,6 +74,17 @@ export function DeckPlaybackSurface({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useLayoutEffect(() => {
+    const svg = slideContent.current?.querySelector<SVGSVGElement>(':scope > svg');
+    if (!svg) return;
+    // The generated slide carries intrinsic export dimensions (normally
+    // 1280x720). Playback must override them after the Phase 9 animation
+    // wrapper is mounted or the slide remains at that intrinsic size.
+    svg.style.display = 'block';
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+  }, [animationKey, markup]);
 
   const box = useMemo(() => {
     const width = Math.min(size.width, size.height * aspect);
@@ -108,6 +120,7 @@ export function DeckPlaybackSurface({
         >
           {animationCss ? <style>{animationCss}</style> : null}
           <div
+            ref={slideContent}
             key={animationKey}
             className="deck-playback-animation-scope size-full"
             // Sanitized by the caller (DOMPurify, SVG profile).

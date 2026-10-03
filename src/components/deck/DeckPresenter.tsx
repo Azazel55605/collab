@@ -276,6 +276,7 @@ export function DeckPresenter({
   );
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const audienceRef = useRef<AudienceHandle | null>(null);
+  const audienceRequest = useRef(0);
   const closingAudience = useRef(false);
   const exited = useRef(false);
 
@@ -324,6 +325,7 @@ export function DeckPresenter({
   const exit = useCallback(() => {
     if (exited.current) return;
     exited.current = true;
+    audienceRequest.current += 1;
     closingAudience.current = true;
     void audienceRef.current?.close();
     audienceRef.current = null;
@@ -349,6 +351,7 @@ export function DeckPresenter({
   /* Audience window ------------------------------------------------------- */
 
   const loseAudience = useCallback(() => {
+    audienceRequest.current += 1;
     audienceRef.current = null;
     setAudience(null);
     if (closingAudience.current || exited.current) {
@@ -363,24 +366,30 @@ export function DeckPresenter({
 
   const openAudience = useCallback(
     async (preferredId: string | null) => {
+      const request = ++audienceRequest.current;
       setAudienceStatus('opening');
       const list = await (runtime?.listDisplays ?? listDisplays)();
+      if (request !== audienceRequest.current || exited.current) return;
       setDisplays(list);
       const own = await (runtime?.currentDisplayId ?? currentDisplayId)();
+      if (request !== audienceRequest.current || exited.current) return;
       const target = chooseAudienceDisplay(list, own, preferredId);
-      if (!target || exited.current) {
+      if (!target) {
         setAudienceStatus('unavailable');
         return;
       }
       const handle = await (runtime?.openAudienceWindow ?? openAudienceWindow)(target, {
-        onClosed: loseAudience,
+        onClosed: () => {
+          if (request === audienceRequest.current) loseAudience();
+        },
         onKey: (key) => handleKeyRef.current?.(key),
         onPointer: (action) => pointerRef.current(action),
       });
-      if (exited.current) {
+      if (request !== audienceRequest.current || exited.current) {
         void handle?.close();
         return;
       }
+      closingAudience.current = false;
       audienceRef.current = handle;
       setAudience(handle);
       setAudienceStatus(handle ? 'open' : 'unavailable');
@@ -391,6 +400,7 @@ export function DeckPresenter({
   useEffect(() => {
     if (mode === 'presenter') void openAudience(null);
     return () => {
+      audienceRequest.current += 1;
       closingAudience.current = true;
       void audienceRef.current?.close();
       audienceRef.current = null;
@@ -419,11 +429,13 @@ export function DeckPresenter({
   }, [audience, loseAudience, runtime]);
 
   const moveAudience = (displayId: string) => {
+    const request = ++audienceRequest.current;
     closingAudience.current = true;
     const current = audienceRef.current;
     audienceRef.current = null;
     setAudience(null);
     void (current ? current.close() : Promise.resolve()).then(() => {
+      if (request !== audienceRequest.current || exited.current) return;
       closingAudience.current = false;
       void openAudience(displayId);
     });
@@ -964,6 +976,7 @@ export function DeckPresenter({
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
+              audienceRequest.current += 1;
               closingAudience.current = true;
               void audienceRef.current?.close();
               audienceRef.current = null;

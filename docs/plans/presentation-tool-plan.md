@@ -1056,9 +1056,17 @@ presentation pass:
 - [x] Complete every resolved font stack with bundled and platform families.
       `Inter Variable`, shipped with Collab, is the first automatic substitute
       when a machine does not provide `Inter`.
-- [x] Reassert explicit physical monitor bounds after native fullscreen for
-      both the main slide show and the visible audience window, avoiding
-      high-DPI logical/physical scaling mismatches.
+- [x] Let the platform size ordinary full screen, and use Tauri's native
+      monitor-targeted fullscreen API after creating the audience WebView at
+      the output's logical viewport size and mapping it. This avoids unsupported
+      absolute placement on Wayland, manual fullscreen resizing elsewhere, and
+      stale hidden-WebView allocations on WebKitGTK.
+- [x] Size the generated playback SVG through the Phase 9 animation wrapper;
+      otherwise its intrinsic 1280×720 dimensions remain visible inside a
+      correctly fullscreened presentation surface.
+- [x] Give every audience attempt a unique native label and event namespace;
+      cancel stale async opens during Strict Mode, display changes, or exit so
+      an overlap cannot leave an extra black window behind.
 - [x] Pin these behaviors with editor, font-resolution, and Tauri-window unit
       regressions. Native multi-monitor validation remains part of the physical
       release matrix.

@@ -2084,7 +2084,7 @@
 }
 
 /* Presentation playback: the slide fills its box; a short cross-fade when motion is on. */
-.deck-playback-slide > svg {
+.deck-playback-animation-scope > svg {
   display: block;
   width: 100%;
   height: 100%;
