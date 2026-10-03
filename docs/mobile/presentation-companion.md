@@ -68,8 +68,10 @@ authenticate the peer. A local-only desktop vault has no phone discovery path.
 - commands name the show they are for, so nothing from an earlier show replays
   into a new one.
 - WebRTC offers and answers are accepted only through the same-account live
-  room, contain complete ICE candidates, and use host candidates only (no
-  public STUN/TURN service); DTLS encrypts the direct data channel;
+  room and contain complete ICE candidates. Cloudflare's public STUN endpoint
+  supplies server-reflexive candidates because WebKit can suppress host
+  candidates without media permission; STUN discovers addresses but does not
+  relay presentation data. DTLS encrypts the direct data channel;
 - the phone's **Motion laser** calibrates on activation, converts orientation
   changes to normalized slide coordinates at a bounded rate, and falls back to
   awareness updates if the direct channel is unavailable;

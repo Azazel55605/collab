@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  directRemoteConfiguration,
   directRemoteMessage,
   MAX_DIRECT_SDP_BYTES,
   parseDirectRemoteMessage,
@@ -32,5 +33,12 @@ describe('direct presentation remote messages', () => {
     expect(validDirectSdp('v=0\r\n')).toBe(true);
     expect(validDirectSdp('')).toBe(false);
     expect(validDirectSdp('x'.repeat(MAX_DIRECT_SDP_BYTES + 1))).toBe(false);
+  });
+
+  it('uses STUN because WebKit can suppress host candidates without capture permission', () => {
+    expect(directRemoteConfiguration()).toEqual({
+      iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
+      iceCandidatePoolSize: 1,
+    });
   });
 });

@@ -323,7 +323,12 @@ describe('DeckScreen', () => {
     await waitFor(() =>
       expect((awareness.getLocalState()?.deck as DeckInteraction).remote?.pointer).toMatchObject({
         active: true,
+        x: expect.any(Number),
+        y: expect.any(Number),
       }),
+    );
+    expect((awareness.getLocalState()?.deck as DeckInteraction).remote?.pointer?.y).toBeLessThan(
+      0.5,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Stop motion laser' }));
     Object.defineProperty(globalThis, 'DeviceOrientationEvent', {

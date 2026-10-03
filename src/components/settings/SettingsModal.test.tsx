@@ -27,4 +27,13 @@ describe('SettingsModal layout', () => {
       .find((button) => button.textContent === 'Close');
     expect(footerClose?.parentElement?.className).toContain('shrink-0');
   });
+
+  it('exposes presentation preferences in the normal settings modal', () => {
+    render(<SettingsModal />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Presentations' }));
+
+    expect(screen.getByText('Default presentation mode')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: /Always allow phone control/ })).toBeTruthy();
+  });
 });

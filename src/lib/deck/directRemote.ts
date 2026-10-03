@@ -14,6 +14,17 @@ const REMOTE_ACTIONS = new Set<DeckRemoteAction>([
   'white',
 ]);
 export const MAX_DIRECT_SDP_BYTES = 64 * 1_024;
+const DIRECT_REMOTE_STUN_URL = 'stun:stun.cloudflare.com:3478';
+
+export function directRemoteConfiguration(): RTCConfiguration {
+  // WebKit restricts host ICE candidates unless capture permission has been
+  // granted. STUN supplies a server-reflexive candidate without requesting
+  // microphone/camera access; presentation data still travels peer-to-peer.
+  return {
+    iceServers: [{ urls: DIRECT_REMOTE_STUN_URL }],
+    iceCandidatePoolSize: 1,
+  };
+}
 
 export function validDirectSdp(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_DIRECT_SDP_BYTES;
@@ -67,7 +78,7 @@ export function supportsDirectRemote(): boolean {
 
 export async function waitForIceGathering(
   connection: RTCPeerConnection,
-  timeoutMs = 4_000,
+  timeoutMs = 8_000,
 ): Promise<void> {
   if (connection.iceGatheringState === 'complete') return;
   await new Promise<void>((resolve) => {
@@ -89,7 +100,7 @@ export async function createDirectRemoteOffer(): Promise<{
   channel: RTCDataChannel;
   sdp: string;
 }> {
-  const connection = new RTCPeerConnection({ iceServers: [] });
+  const connection = new RTCPeerConnection(directRemoteConfiguration());
   const channel = connection.createDataChannel('collab-presentation-remote', { ordered: true });
   await connection.setLocalDescription(await connection.createOffer());
   await waitForIceGathering(connection);
@@ -106,7 +117,7 @@ export async function acceptDirectRemoteOffer(
   onChannel: (channel: RTCDataChannel) => void,
 ): Promise<{ connection: RTCPeerConnection; sdp: string }> {
   if (!validDirectSdp(sdp)) throw new Error('The direct presentation offer is invalid.');
-  const connection = new RTCPeerConnection({ iceServers: [] });
+  const connection = new RTCPeerConnection(directRemoteConfiguration());
   connection.addEventListener('datachannel', (event) => onChannel(event.channel), { once: true });
   try {
     await connection.setRemoteDescription({ type: 'offer', sdp });
