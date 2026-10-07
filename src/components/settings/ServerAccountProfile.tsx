@@ -7,7 +7,7 @@ import { isEffectivelyConnected, useServerStore } from '../../store/serverStore'
 import { Button } from '../ui/button';
 import { Field, FieldGroup, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
-import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 
 import { SectionLabel } from './settingsControls';
 
@@ -21,7 +21,7 @@ export default function ServerAccountProfile() {
   return (
     <section className="flex flex-col gap-4 mt-6">
       <SectionLabel>Server account</SectionLabel>
-      {connected.length > 1 && (
+      {connected.length > 1 ? (
         <Tabs value={serverUrl} onValueChange={setChosen}>
           <TabsList className="flex flex-wrap h-auto" aria-label="Profile server">
             {connected.map(({ status }) => (
@@ -30,9 +30,13 @@ export default function ServerAccountProfile() {
               </TabsTrigger>
             ))}
           </TabsList>
+          {connected.map(({ status }) => (
+            <TabsContent key={status.serverUrl} value={status.serverUrl!}>
+              <AccountForm serverUrl={status.serverUrl!} />
+            </TabsContent>
+          ))}
         </Tabs>
-      )}
-      {serverUrl ? (
+      ) : serverUrl ? (
         <AccountForm key={serverUrl} serverUrl={serverUrl} />
       ) : (
         <p className="text-xs text-muted-foreground">Connect to a server to manage your account.</p>

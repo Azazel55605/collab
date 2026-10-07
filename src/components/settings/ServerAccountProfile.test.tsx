@@ -60,6 +60,9 @@ describe('desktop server profile', () => {
     await screen.findByDisplayValue('first-user');
     fireEvent.mouseDown(screen.getByRole('tab', { name: second }), { button: 0, ctrlKey: false });
     await screen.findByDisplayValue('second-user');
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(
+      screen.getByRole('tab', { name: second }).id,
+    );
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'renamed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
     await screen.findByText('Profile updated.');
