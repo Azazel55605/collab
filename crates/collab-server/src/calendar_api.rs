@@ -2417,11 +2417,11 @@ pub async fn delete_calendar(
     .execute(&mut *tx)
     .await
     .map_err(|_| CalendarApiError::server(&request_id))?;
-    for table in ["calendar_attendees", "calendar_attachments"] {
-        let statement = format!(
-            "DELETE FROM {table} WHERE owner_id=$1 AND item_id IN (SELECT id FROM calendar_items WHERE calendar_id=$2 AND owner_id=$1)"
-        );
-        sqlx::query(&statement)
+    for statement in [
+        "DELETE FROM calendar_attendees WHERE owner_id=$1 AND item_id IN (SELECT id FROM calendar_items WHERE calendar_id=$2 AND owner_id=$1)",
+        "DELETE FROM calendar_attachments WHERE owner_id=$1 AND item_id IN (SELECT id FROM calendar_items WHERE calendar_id=$2 AND owner_id=$1)",
+    ] {
+        sqlx::query(statement)
             .bind(owner)
             .bind(calendar_id)
             .execute(&mut *tx)
