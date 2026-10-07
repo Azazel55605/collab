@@ -157,32 +157,24 @@ The previously documented moderate `shadcn` subtree findings and low
 fixes remain in the lockfile/override policy. `shadcn` stays installed because
 `src/App.css` imports `shadcn/tailwind.css`; its CLI code is not shipped.
 
-### `diff` — GHSA-73rr-hh4g-fpgx (ReDoS in `parsePatch`/`applyPatch`)
+### Resolved by the npm major migration
 
-- **Severity:** low.
-- **Dependency path:** direct dependency, used by `src/lib/textMerge.ts`,
-  `DocumentReconciler`, and `VersionHistoryModal`.
-- **Why it is not reachable here:** the advisory is in patch **string parsing**.
-  `textMerge` never calls `parsePatch`; it passes `applyPatch` a structured patch
-  object produced in-process by `merge`, so the vulnerable parsing path is not
-  entered.
-- **Why it is not fixed:** the fix is in `diff` >= 8.0.3, and `diff` 8.0.0
-  **removed the `merge` export** that `mergeText` is built on. Upgrading means
-  reimplementing the frontend three-way merge that mirrors the backend's
-  non-overlapping auto-merge.
-- **Remove this entry when:** `mergeText` is rewritten against the 8.x API (or
-  onto another three-way merge), and `diff` is raised to >= 8.0.3.
+**`diff` — GHSA-73rr-hh4g-fpgx** is resolved by `diff` 9.0.0. The removed
+`merge` export is replaced with a line-edit three-way merge using `diffArrays`.
+Overlapping edits remain conflicts; disjoint edits preserve both sides and
+line endings. Regression tests cover insertions, deletions, adjacent edits,
+multiple edits, repeated lines, Unicode, and trailing-newline changes.
 
 ### `katex` — GHSA-238p-pmpm-9mq7 (trust bypass after prototype pollution)
 
 - **Severity:** low. Pre-existing prototype pollution can bypass KaTeX trust
   restrictions; this advisory does not itself provide prototype pollution.
-- **Dependency paths:** direct `katex` **0.16.47** and `mermaid` **11.17.2**
+- **Dependency paths:** direct `katex` **0.16.47** and `mermaid` **12.1.0**
   → `katex` **0.16.47**.
-- **Fix:** `katex >= 0.18.2`. Mermaid 11's `^0.16.9` range does not permit
+- **Fix:** `katex >= 0.18.2`. Mermaid 12's `^0.16.47` range does not permit
   that release. Do not force an incompatible override; upgrade the parent and
-  validate Markdown/math/diagram behavior together. The grouped npm major PR
-  has unrelated compilation failures and is not ready to provide this fix.
+  validate Markdown/math/diagram behavior together. Mermaid 12 still requires the vulnerable KaTeX line, so this advisory
+  remains after the tested major migration.
 - **Remove this entry when:** both direct and Mermaid paths resolve to a
   patched release after that migration.
 

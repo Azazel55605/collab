@@ -1,4 +1,4 @@
-import nerdamer from 'nerdamer/all';
+import nerdamer from 'nerdamer';
 
 export type MathSolveResult =
   { kind: 'expression'; latex: string } | { kind: 'equation'; variable: string; latex: string };
@@ -18,11 +18,19 @@ function parseMathSource(source: string) {
 
   if (!normalized) return null;
 
+  let parsed;
   try {
-    return nerdamer.convertFromLaTeX(normalized);
+    parsed = nerdamer.convertFromLaTeX(normalized);
   } catch {
-    return nerdamer(normalized);
+    parsed = nerdamer(normalized);
   }
+  if (
+    !(parsed instanceof nerdamer.classes.Expression) &&
+    !(parsed instanceof nerdamer.classes.Equation)
+  ) {
+    throw new Error('Only scalar expressions and equations can be solved');
+  }
+  return parsed;
 }
 
 function toLatex(expression: string) {
@@ -30,7 +38,7 @@ function toLatex(expression: string) {
 }
 
 function toApproximateText(expression: string) {
-  const decimal = nerdamer(expression).evaluate().text('decimals');
+  const decimal = nerdamer(expression).evaluate().text({ decimal: true });
   const numeric = Number(decimal);
   if (!Number.isFinite(numeric)) return decimal;
   return Number.parseFloat(numeric.toPrecision(12)).toString();
@@ -40,9 +48,8 @@ function chooseSolveVariable(variables: string[]) {
   return variables.length === 1 ? variables[0] : null;
 }
 
-function formatEquationSolution(variable: string, solution: string, mode: MathSolveMode) {
-  const parts = solution
-    .split(',')
+function formatEquationSolution(variable: string, solutions: string[], mode: MathSolveMode) {
+  const parts = solutions
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => (mode === 'approximate' ? toApproximateText(part) : toLatex(part)));
@@ -57,9 +64,11 @@ export function analyzeMathInput(source: string): MathInputAnalysis {
   const expression = parseMathSource(source);
   if (!expression) return { kind: 'empty' };
 
-  const expressionText = expression.toString();
-  const variables = expression.variables();
-  const isEquation = expressionText.includes('=');
+  const variables =
+    expression instanceof nerdamer.classes.Equation
+      ? [...new Set([...expression.LHS.variables(), ...expression.RHS.variables()])].sort()
+      : expression.variables();
+  const isEquation = expression instanceof nerdamer.classes.Equation;
 
   if (isEquation) {
     return {
@@ -80,15 +89,20 @@ export function solveMathInput(
   const expression = parseMathSource(source);
   if (!expression) return null;
 
-  const expressionText = expression.toString();
-  const variables = expression.variables();
-  const isEquation = expressionText.includes('=');
+  const variables =
+    expression instanceof nerdamer.classes.Equation
+      ? [...new Set([...expression.LHS.variables(), ...expression.RHS.variables()])].sort()
+      : expression.variables();
+  const isEquation = expression instanceof nerdamer.classes.Equation;
 
   if (isEquation) {
     const variable = solveVariable ?? chooseSolveVariable(variables);
     if (!variable) return null;
 
-    const solution = expression.solveFor(variable).toString();
+    const solution = expression
+      .solveFor(variable)
+      .toArray()
+      .map((value) => value.toString());
     const latex = formatEquationSolution(variable, solution, mode);
     return latex ? { kind: 'equation', variable, latex } : null;
   }

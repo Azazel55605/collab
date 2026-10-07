@@ -41,7 +41,7 @@ describe('solveMathInput', () => {
     expect(solveMathInput('a*x+b=0', 'exact', 'x')).toEqual({
       kind: 'equation',
       variable: 'x',
-      latex: 'x = - \\frac{1}{{a}^{1}} \\cdot b',
+      latex: 'x = -b \\cdot \\frac{1}{a}',
     });
   });
 
@@ -49,7 +49,7 @@ describe('solveMathInput', () => {
     expect(solveMathInput('x^2-4=0')).toEqual({
       kind: 'equation',
       variable: 'x',
-      latex: 'x \\in \\left\\{2, - 2\\right\\}',
+      latex: 'x \\in \\left\\{2, -2\\right\\}',
     });
   });
 
@@ -59,5 +59,20 @@ describe('solveMathInput', () => {
       variable: 'x',
       latex: 'x \\approx \\left\\{1.41421356237, -1.41421356237\\right\\}',
     });
+  });
+  it('finds equation variables on both sides without duplicates', () => {
+    expect(analyzeMathInput('x+a=x+b')).toEqual({
+      kind: 'equation',
+      variables: ['a', 'b', 'x'],
+      defaultVariable: null,
+    });
+  });
+
+  it('rejects structured input instead of treating it as a scalar', () => {
+    expect(() => solveMathInput('[1,2]')).toThrow('Only scalar');
+  });
+
+  it('does not display an empty solution set as a solution', () => {
+    expect(solveMathInput('1/x=0', 'exact', 'x')).toBeNull();
   });
 });

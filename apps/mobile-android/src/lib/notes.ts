@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import katex from 'katex';
-import MarkdownIt from 'markdown-it';
+import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from 'markdown-it';
 // @ts-ignore - plugin has no bundled types.
 import mark from 'markdown-it-mark';
 // @ts-ignore - plugin has no bundled types.
@@ -34,7 +34,7 @@ export interface RenderedMarkdownDocument {
   plotBlocks: ParsedMathPlots[];
 }
 
-function buildMarkdown(): MarkdownIt {
+function buildMarkdown(): MarkdownItInstance {
   const instance = new MarkdownIt({
     breaks: true,
     html: true,

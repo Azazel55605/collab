@@ -1,4 +1,4 @@
-import nerdamer from 'nerdamer/all';
+import nerdamer from 'nerdamer';
 
 export type MathPlotKind = '2d' | '3d';
 
