@@ -98,6 +98,34 @@ pub fn build_router(state: AppState) -> Router {
             put(api::upload_self_avatar).delete(api::delete_self_avatar),
         )
         .route("/api/v1/users/{user_id}/avatar", get(api::get_user_avatar))
+        .route(
+            "/api/v1/conversations",
+            get(api::conversations::list).post(api::conversations::create),
+        )
+        .route(
+            "/api/v1/conversations/events",
+            get(api::conversations::events),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}",
+            patch(api::conversations::update),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/messages",
+            get(api::conversations::messages).post(api::conversations::send),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/read",
+            post(api::conversations::read),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/members",
+            get(api::conversations::members).post(api::conversations::add_member),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/members/{user_id}",
+            patch(api::conversations::change_member).delete(api::conversations::remove_member),
+        )
         .route("/api/v1/users/directory", get(api::user_directory))
         .route(
             "/api/v1/presentations/active",

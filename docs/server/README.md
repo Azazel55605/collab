@@ -95,3 +95,39 @@ chat history, conversation inboxes, teams/channels and browser libraries remain
 separate work in the [collaboration plan](../plans/teams-chat-and-file-sharing-plan.md).
 Only server admins will create teams; users may create group chats. Permission
 groups are not teams, and account identity never crosses server boundaries.
+
+## Personal Direct And Group Conversations
+
+Personal chats are server-local and independent of vault permissions. Any active
+user can create a direct pair or a named group of 2–50 active users. Direct pairs
+are canonical. Group owners add/remove members, assign owner/member roles, rename
+and set PNG pictures (64 KiB, at most 1024×1024 pixels). New/rejoining members see
+messages starting after joining. Server administrators have no read/member bypass.
+Transfer the last active group's ownership before leaving, demotion, account disable
+or deletion. Deleted senders are labelled `Deleted user`; direct sends require both
+accounts to remain available.
+
+- `GET/POST /api/v1/conversations`: paged inbox/create; `limit` 1–100 (default 50),
+  optional `before` activity cursor or `conversation` UUID filter. The filter always
+  checks membership, including notification destinations outside the first page.
+- `PATCH /api/v1/conversations/{id}`: owner-managed group name/picture.
+- `GET/POST /api/v1/conversations/{id}/messages`: bounded chronological cursor pages
+  (`before`/`after` mutually exclusive), or UUID-idempotent sends. Exact retries
+  return 200, first sends 201, changed actor/content/conversation returns 409.
+- `POST /api/v1/conversations/{id}/read`: monotonic decimal-string read sequence,
+  bounded by the committed head. Unread excludes the reader's own sends and
+  inaccessible pre-join history.
+- `GET/POST /api/v1/conversations/{id}/members`: member listing/owner adds.
+  `PATCH/DELETE .../members/{userId}`: owner role/removal or a member's own leave.
+- `GET /api/v1/conversations/events?after=...`: recipient-scoped bounded event
+  replay (`created`, `message`, `members`, `updated`, `read`, `removed`). Current
+  membership and join boundaries apply; former members receive only removal events.
+
+Migration 0036 preserves existing vault chat and introduces a commit-order lock for
+personal mutations/events. Cursors use decimal strings across JSON/IPC. Ordinary
+browser mutations require CSRF; native requests require bearer authentication.
+Generic message notifications use the existing collaboration delivery/preferences
+and disclose no chat content or participant/group names. Native opening validates
+source-server/account identity and current membership. History is online-authorized;
+only private unsent drafts are persisted encrypted in native clients. Fine-grained
+conversation mute/collapsing and attachments remain planned.

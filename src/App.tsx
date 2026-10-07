@@ -22,6 +22,7 @@ import { useServerStore } from './store/serverStore';
 import { ACCENT_COLORS, INTERFACE_FONTS, useUiStore } from './store/uiStore';
 import { useUpdateStore } from './store/updateStore';
 import { useVaultStore } from './store/vaultStore';
+import ChatsPage from './views/ChatsPage';
 import NotePrintView from './views/NotePrintView';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
@@ -93,6 +94,7 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 };
 
 export default function App() {
+  const activeView = useUiStore((state) => state.activeView);
   const exportNoteRelativePath = new URLSearchParams(window.location.search).get('print-note');
   const [activePrintNotePath, setActivePrintNotePath] = useState<string | null>(
     exportNoteRelativePath,
@@ -368,7 +370,9 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className={activePrintNotePath ? 'app-print-hidden' : undefined}>
-        {vault ? (
+        {activeView === 'chats' && (!vault || isVaultLocked) ? (
+          <ChatsPage />
+        ) : vault ? (
           isVaultLocked ? (
             <VaultUnlockModal />
           ) : (

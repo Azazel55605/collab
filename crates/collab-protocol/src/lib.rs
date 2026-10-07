@@ -1,3 +1,6 @@
+pub mod conversation;
+pub use conversation::*;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -49,6 +52,7 @@ pub enum ErrorCode {
     PathInvalid,
     PathConflict,
     VaultPermissionDenied,
+    ConversationPermissionDenied,
     VaultArchived,
     RevisionConflict,
     ManifestConflict,

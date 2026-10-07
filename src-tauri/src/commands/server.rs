@@ -350,6 +350,40 @@ pub async fn hosted_vault_request(
 }
 
 #[tauri::command]
+pub async fn hosted_conversation_request(
+    state: State<'_, AppState>,
+    server_url: String,
+    expected_user_id: String,
+    method: String,
+    path: String,
+    body: Option<Value>,
+    expected_notification_account_key: Option<String>,
+) -> Result<Value, String> {
+    crate::hosted_client::validate_hosted_conversation_request(&method, &path)?;
+    let session = fresh_session_for(
+        state.hosted_sessions(),
+        &server_url,
+        "Reconnect your account to open conversations.",
+    )
+    .await?;
+    crate::hosted_client::validate_conversation_identity(
+        &session.user.id,
+        &expected_user_id,
+        expected_notification_account_key.as_deref(),
+    )?;
+    let mut request = server_client(session.allow_invalid_certificates)?
+        .request(
+            hosted_request_method(&method)?,
+            format!("{}{}", session.server_url, path),
+        )
+        .bearer_auth(&session.access_token);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    decode_hosted_json_response(request.send().await.map_err(server_request_error)?).await
+}
+
+#[tauri::command]
 pub async fn hosted_account_request(
     state: State<'_, AppState>,
     server_url: String,
@@ -628,6 +662,7 @@ pub async fn hosted_user_directory(
     state: State<'_, AppState>,
     server_url: String,
     query: String,
+    expected_user_id: Option<String>,
 ) -> Result<Value, String> {
     let session = fresh_session_for(
         state.hosted_sessions(),
@@ -635,6 +670,12 @@ pub async fn hosted_user_directory(
         "Connect to the Collab server before browsing users.",
     )
     .await?;
+    if expected_user_id
+        .as_ref()
+        .is_some_and(|id| id != &session.user.id)
+    {
+        return Err("The connected conversation account changed. Reopen Chats.".into());
+    }
     let request = server_client(session.allow_invalid_certificates)?
         .get(format!("{}/api/v1/users/directory", session.server_url))
         .query(&[("q", query.as_str())])

@@ -38,7 +38,11 @@ fn scope(
     server_url: &str,
     vault_id: &str,
     expected_account: &str,
+    kind: &str,
 ) -> Result<(PathBuf, String, String), String> {
+    if !matches!(kind, "vault" | "conversation") {
+        return Err("Invalid chat scope.".into());
+    }
     let base = validate_server_url(server_url)?.to_owned();
     let vault = Uuid::parse_str(vault_id).map_err(|_| "Invalid chat vault ID.")?;
     let account = state
@@ -53,11 +57,23 @@ fn scope(
     }
     let account = Uuid::parse_str(&account).map_err(|_| "Invalid chat account ID.")?;
     let path = app_config_dir()?
-        .join("chat-outbox")
+        .join(if kind == "conversation" {
+            "conversation-outbox"
+        } else {
+            "chat-outbox"
+        })
         .join(server_key(&base))
         .join(account.to_string())
         .join(format!("{vault}.enc"));
-    Ok((path, base, format!("chat-{account}-{vault}")))
+    Ok((
+        path,
+        base,
+        if kind == "vault" {
+            format!("chat-{account}-{vault}")
+        } else {
+            format!("conversation-chat-{account}-{vault}")
+        },
+    ))
 }
 
 fn read(path: &Path, key: &[u8; 32]) -> Result<Vec<PendingChatMessage>, String> {
@@ -119,9 +135,16 @@ pub fn hosted_chat_outbox(
     server_url: String,
     vault_id: String,
     account_id: String,
+    scope_kind: Option<String>,
 ) -> Result<Vec<PendingChatMessage>, String> {
     let _lock = OUTBOX_LOCK.lock();
-    let (path, base, account) = scope(&state, &server_url, &vault_id, &account_id)?;
+    let (path, base, account) = scope(
+        &state,
+        &server_url,
+        &vault_id,
+        &account_id,
+        scope_kind.as_deref().unwrap_or("vault"),
+    )?;
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -134,10 +157,17 @@ pub fn hosted_chat_queue(
     server_url: String,
     vault_id: String,
     account_id: String,
+    scope_kind: Option<String>,
     message: PendingChatMessage,
 ) -> Result<(), String> {
     let _lock = OUTBOX_LOCK.lock();
-    let (path, base, account) = scope(&state, &server_url, &vault_id, &account_id)?;
+    let (path, base, account) = scope(
+        &state,
+        &server_url,
+        &vault_id,
+        &account_id,
+        scope_kind.as_deref().unwrap_or("vault"),
+    )?;
     let key = key_for(&path, &base, &account)?;
     let mut messages = read(&path, &key)?;
     let content = message.content.trim();
@@ -167,10 +197,17 @@ pub fn hosted_chat_discard(
     server_url: String,
     vault_id: String,
     account_id: String,
+    scope_kind: Option<String>,
     message_id: Uuid,
 ) -> Result<(), String> {
     let _lock = OUTBOX_LOCK.lock();
-    let (path, base, account) = scope(&state, &server_url, &vault_id, &account_id)?;
+    let (path, base, account) = scope(
+        &state,
+        &server_url,
+        &vault_id,
+        &account_id,
+        scope_kind.as_deref().unwrap_or("vault"),
+    )?;
     if !path.exists() {
         return Ok(());
     }

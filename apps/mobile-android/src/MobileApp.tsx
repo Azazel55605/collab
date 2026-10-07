@@ -6,10 +6,13 @@ import {
   Cloud,
   FolderOpen,
   Library,
+  MessageCircle,
   Settings as SettingsIcon,
   Smartphone,
 } from 'lucide-react';
 
+import { getConversation } from '../../../src/lib/conversations';
+import { useConversationNavigation } from '../../../src/store/conversationNavigation';
 import type { ActivePresentation } from '../../../src/types/activePresentation';
 
 import { Banner, ConfirmSheet } from './components/ui';
@@ -38,6 +41,7 @@ import {
   widgetRefresh,
 } from './mobileTauri';
 import { CalendarScreen } from './screens/CalendarScreen';
+import { ConversationsScreen } from './screens/ConversationsScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { ServersScreen } from './screens/ServersScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -48,6 +52,7 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'servers', label: 'Servers', icon: <Cloud size={20} aria-hidden /> },
   { id: 'vaults', label: 'Vaults', icon: <Library size={20} aria-hidden /> },
   { id: 'files', label: 'Files', icon: <FolderOpen size={20} aria-hidden /> },
+  { id: 'chats', label: 'Chats', icon: <MessageCircle size={20} aria-hidden /> },
   { id: 'calendar', label: 'Calendar', icon: <CalendarDays size={20} aria-hidden /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} aria-hidden /> },
 ];
@@ -411,6 +416,27 @@ export function MobileApp() {
             }),
           );
         }, 0);
+      } else if (destination.kind === 'conversation') {
+        const serverUrl = record.envelope.serverUrl;
+        const status = serverUrl ? useMobileStore.getState().statuses[serverUrl] : undefined;
+        if (serverUrl && status?.connected && status.user) {
+          const account = { serverUrl, accountId: status.user.id };
+          try {
+            await getConversation(account, destination.conversationId, record.envelope.accountKey);
+            useConversationNavigation
+              .getState()
+              .open({ ...account, conversationId: destination.conversationId });
+            setTab('chats');
+          } catch {
+            setRestoreError(
+              'This conversation is unavailable. Reconnect or check your membership.',
+            );
+            setTab('settings');
+          }
+        } else {
+          setRestoreError('Reconnect the notification’s server to open this conversation.');
+          setTab('settings');
+        }
       } else if (destination.kind === 'vault-chat') {
         const state = useMobileStore.getState();
         const sourceServer = record.envelope.serverUrl;
@@ -587,6 +613,7 @@ export function MobileApp() {
           ) : null}
           {tab === 'vaults' ? <VaultsScreen /> : null}
           {tab === 'files' ? <FilesScreen prefs={prefs} /> : null}
+          {tab === 'chats' ? <ConversationsScreen /> : null}
           {tab === 'calendar' ? <CalendarScreen prefs={prefs} /> : null}
           {tab === 'settings' ? <SettingsScreen prefs={prefs} onChange={updatePrefs} /> : null}
         </div>

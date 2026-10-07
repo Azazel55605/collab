@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useEditorStore } from '../../store/editorStore';
@@ -10,6 +10,7 @@ import { useVaultStore } from '../../store/vaultStore';
 
 import AppShell from './AppShell';
 
+const providerLifecycle = vi.hoisted(() => ({ mounted: 0, unmounted: 0 }));
 const noteLifecycle = vi.hoisted(() => ({ events: [] as string[] }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -29,7 +30,20 @@ vi.mock('./StatusBar', () => ({ default: () => <div data-testid="status-bar" /> 
 vi.mock('../grid/SplitDropZones', () => ({ default: () => null }));
 vi.mock('../command-bar/CommandBar', () => ({ CommandBar: () => null }));
 vi.mock('../collaboration/CollabProvider', () => ({
-  CollabProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  CollabProvider: function MockCollabProvider({ children }: { children: React.ReactNode }) {
+    useEffect(() => {
+      providerLifecycle.mounted++;
+      return () => {
+        providerLifecycle.unmounted++;
+      };
+    }, []);
+    return <>{children}</>;
+  },
+}));
+vi.mock('../../views/ChatsPage', () => ({
+  default: ({ standalone }: { standalone: boolean }) => (
+    <div data-testid="personal-chats">{String(standalone)}</div>
+  ),
 }));
 vi.mock('../../contexts/DragContext', () => ({
   DragProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -60,6 +74,8 @@ vi.mock('../../views/NoteView', () => ({
 describe('AppShell document remounting', () => {
   beforeEach(() => {
     noteLifecycle.events.length = 0;
+    providerLifecycle.mounted = 0;
+    providerLifecycle.unmounted = 0;
 
     useVaultStore.setState({
       vault: {
@@ -128,5 +144,16 @@ describe('AppShell document remounting', () => {
       'unmount:Notes/a.md',
       'mount:Notes/b.md',
     ]);
+  });
+  it('opens personal chats without closing the current vault collaboration session', async () => {
+    render(<AppShell />);
+    await screen.findByTestId('note-view');
+    act(() => useUiStore.getState().setActiveView('chats'));
+    expect((await screen.findByTestId('personal-chats')).textContent).toBe('false');
+    expect(screen.queryByTestId('tab-bar')).toBeNull();
+    expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
+    act(() => useUiStore.getState().setActiveView('editor'));
+    await screen.findByTestId('note-view');
+    expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
   });
 });

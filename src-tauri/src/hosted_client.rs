@@ -136,6 +136,60 @@ pub fn validate_hosted_vault_path(value: &str) -> Result<&str, String> {
     Ok(value)
 }
 
+pub fn validate_conversation_identity(
+    user_id: &str,
+    expected_user_id: &str,
+    notice_key: Option<&str>,
+) -> Result<(), String> {
+    if user_id != expected_user_id {
+        return Err("The connected conversation account changed. Reopen Chats.".into());
+    }
+    if notice_key.is_some_and(|key| {
+        key != collab_core::sha256_text(&format!("collab-notification-account:{user_id}"))
+    }) {
+        return Err("This notification belongs to a different server account.".into());
+    }
+    Ok(())
+}
+
+/// Personal conversations cannot reach vault/admin/account routes.
+pub fn validate_hosted_conversation_request(method: &str, value: &str) -> Result<(), String> {
+    let path = value.split('?').next().unwrap_or(value);
+    let Some(suffix) = path.strip_prefix("/api/v1/conversations") else {
+        return Err("Unsupported conversation operation.".into());
+    };
+    if !suffix.is_empty() && !suffix.starts_with('/') {
+        return Err("Unsupported conversation operation.".into());
+    }
+    let parts: Vec<_> = suffix
+        .strip_prefix('/')
+        .unwrap_or(suffix)
+        .split('/')
+        .collect();
+    let valid = match parts.as_slice() {
+        [""] => matches!(method, "GET" | "POST"),
+        ["events"] => method == "GET",
+        [id] if uuid::Uuid::parse_str(id).is_ok() => method == "PATCH",
+        [id, "messages"] if uuid::Uuid::parse_str(id).is_ok() => matches!(method, "GET" | "POST"),
+        [id, "read"] if uuid::Uuid::parse_str(id).is_ok() => method == "POST",
+        [id, "members"] if uuid::Uuid::parse_str(id).is_ok() => matches!(method, "GET" | "POST"),
+        [id, "members", user]
+            if uuid::Uuid::parse_str(id).is_ok() && uuid::Uuid::parse_str(user).is_ok() =>
+        {
+            matches!(method, "PATCH" | "DELETE")
+        }
+        _ => false,
+    };
+    if !valid
+        || value.contains('#')
+        || value.contains("://")
+        || (method != "GET" && value.contains('?'))
+    {
+        return Err("Unsupported conversation operation.".into());
+    }
+    Ok(())
+}
+
 /// Self-service mutations and authenticated user-avatar reads only.
 pub fn validate_hosted_account_request(method: &str, path: &str) -> Result<(), String> {
     if method == "GET" && user_avatar_id(path).is_some() {
@@ -218,6 +272,36 @@ mod tests {
         validate_hosted_calendar_path, validate_hosted_vault_path, validate_identifier,
         validate_server_url,
     };
+
+    #[test]
+    fn personal_notification_identity_is_bound_to_the_current_account() {
+        use super::validate_conversation_identity as validate;
+        let key = collab_core::sha256_text("collab-notification-account:account-a");
+        assert!(validate("account-a", "account-a", Some(&key)).is_ok());
+        assert!(validate("account-b", "account-b", Some(&key)).is_err());
+        assert!(validate("account-b", "account-a", None).is_err());
+        assert!(validate("account-a", "account-a", None).is_ok());
+    }
+
+    #[test]
+    fn personal_gateway_cannot_escape_its_resource_or_method() {
+        use super::validate_hosted_conversation_request as validate;
+        let id = "10000000-0000-4000-8000-000000000001";
+        assert!(validate("GET", "/api/v1/conversations/events?after=9007199254740993").is_ok());
+        assert!(validate("POST", &format!("/api/v1/conversations/{id}/messages")).is_ok());
+        for path in [
+            "/api/v1/admin/users",
+            "/api/v1/conversations-evil",
+            "/api/v1/conversations/../admin",
+            "/api/v1/conversations/%2e%2e/messages",
+            "/api/v1/conversations/events#other",
+        ] {
+            assert!(validate("GET", path).is_err(), "{path}");
+        }
+        assert!(validate("DELETE", &format!("/api/v1/conversations/{id}/messages")).is_err());
+        assert!(validate("POST", "/api/v1/conversations/events").is_err());
+        assert!(validate("PATCH", &format!("/api/v1/conversations/{id}?ignored=1")).is_err());
+    }
 
     #[test]
     fn account_avatar_read_is_strictly_get_and_uuid_scoped() {

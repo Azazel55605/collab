@@ -13,10 +13,13 @@ import {
   Settings,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
+import { getConversation } from '../../lib/conversations';
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import { useCollabStore } from '../../store/collabStore';
+import { useConversationNavigation } from '../../store/conversationNavigation';
 import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
@@ -132,6 +135,24 @@ export default function NotificationCenter() {
           new CustomEvent('calendar:open-notification', { detail: destination }),
         );
       }, 0);
+    } else if (destination.kind === 'conversation') {
+      const serverUrl = record.envelope.serverUrl;
+      const status = serverUrl
+        ? useServerStore.getState().connections[serverUrl]?.status
+        : undefined;
+      if (serverUrl && status?.connected && status.user) {
+        const account = { serverUrl, accountId: status.user.id };
+        try {
+          await getConversation(account, destination.conversationId, record.envelope.accountKey);
+          useConversationNavigation
+            .getState()
+            .open({ ...account, conversationId: destination.conversationId });
+          setActiveView('chats');
+        } catch {
+          toast.error('This conversation is unavailable. Reconnect or check your membership.');
+          return;
+        }
+      }
     } else if (destination.kind === 'vault-chat') {
       const current = useVaultStore.getState().vault;
       let targetAvailable =

@@ -210,6 +210,11 @@ function validateDestination(value: unknown): NotificationDestination {
     case 'calendar-invitations':
     case 'notification-center':
       return { kind: destination.kind };
+    case 'conversation':
+      return {
+        kind: 'conversation',
+        conversationId: requireString(destination.conversationId, 'Conversation ID', 160),
+      };
     case 'vault-chat':
       return {
         kind: 'vault-chat',
@@ -417,6 +422,8 @@ export function notificationDestinationKey(destination: NotificationDestination)
         destination.itemId,
         destination.occurrenceKey ?? '-',
       ].join(':');
+    case 'conversation':
+      return `${destination.kind}:${destination.conversationId}`;
     case 'vault-chat':
       return `${destination.kind}:${destination.vaultId}`;
     case 'vault-file':

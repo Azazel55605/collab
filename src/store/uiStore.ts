@@ -5,7 +5,7 @@ import type { InkEraserMode } from '../lib/ink/erase';
 import type { InkBrushKind } from '../types/ink';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
 
-export type ActiveView = 'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid';
+export type ActiveView = 'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid' | 'chats';
 export type SidebarPanel = 'files' | 'search' | 'tags' | 'collab';
 export type CollabTab = 'peers' | 'chat' | 'history';
 export type Theme = 'dark' | 'midnight' | 'warm' | 'light';

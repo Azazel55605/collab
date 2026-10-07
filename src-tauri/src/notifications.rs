@@ -1414,6 +1414,7 @@ fn validate_envelope(
         destination_kind,
         "calendar-item"
             | "calendar-invitations"
+            | "conversation"
             | "vault-chat"
             | "vault-file"
             | "sync-recovery"

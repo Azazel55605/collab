@@ -29,6 +29,7 @@ import { onReplicaMutated } from '../../lib/vaultReplica';
 import { useEditorStore, useNoteIndexStore, useUiStore, useVaultStore } from '../../store';
 import CalendarPage from '../../views/CalendarPage';
 import CanvasPage from '../../views/CanvasPage';
+import ChatsPage from '../../views/ChatsPage';
 import DeckView from '../../views/DeckView';
 import GraphPage from '../../views/GraphPage';
 import GridView from '../../views/GridView';
@@ -334,6 +335,7 @@ export default function AppShell() {
     // Grid mode is self-contained — always shown when activeView === 'grid'
     if (activeView === 'grid') return <GridView />;
     if (activeView === 'calendar') return <CalendarPage />;
+    if (activeView === 'chats') return <ChatsPage standalone={false} />;
 
     // View and document tabs take priority because their type unambiguously
     // identifies the content that was explicitly opened.
@@ -416,7 +418,9 @@ export default function AppShell() {
 
           {/* Main pane */}
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-            {activeView !== 'grid' && activeView !== 'calendar' && <TabBar />}
+            {activeView !== 'grid' && activeView !== 'calendar' && activeView !== 'chats' && (
+              <TabBar />
+            )}
             {/* position:relative so the split drop zones are positioned inside the content area */}
             <div className="relative flex-1 overflow-hidden">
               <EditorErrorBoundary key={activeTabPath ?? activeView}>
@@ -428,7 +432,9 @@ export default function AppShell() {
                 </div>
               </EditorErrorBoundary>
               {/* Edge drop zones — only visible when a tab is being dragged */}
-              {activeView !== 'grid' && activeView !== 'calendar' && <SplitDropZones />}
+              {activeView !== 'grid' && activeView !== 'calendar' && activeView !== 'chats' && (
+                <SplitDropZones />
+              )}
             </div>
             <StatusBar />
           </div>

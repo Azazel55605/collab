@@ -35,6 +35,7 @@ export type NotificationDestination =
       occurrenceKey?: string;
     }
   | { kind: 'calendar-invitations' }
+  | { kind: 'conversation'; conversationId: string }
   | { kind: 'vault-chat'; vaultId: string }
   | { kind: 'vault-file'; vaultId: string; fileId: string }
   | { kind: 'sync-recovery'; vaultId?: string; operationId?: string }

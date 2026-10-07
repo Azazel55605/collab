@@ -7375,3 +7375,7 @@ p {
 .chat-notices:empty {
   display: none;
 }
+
+.app-main:has(.mobile-conversations) {
+  overflow: hidden;
+}
