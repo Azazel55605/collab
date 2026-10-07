@@ -6855,6 +6855,175 @@ pub async fn reset_user_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedeemPasswordResetRequest {
+    pub token: String,
+    pub new_password: String,
+}
+
+pub async fn create_password_reset_link(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<(StatusCode, HeaderMap, Json<DataResponse<Value>>), ApiFailure> {
+    let actor = require_admin_csrf(&state, &headers, &request_id).await?;
+    let mut tx = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let changed = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+        "SELECT c.password_changed_at FROM credentials c JOIN users u ON u.id = c.user_id WHERE u.id = $1 AND u.status = 'active' FOR UPDATE OF c, u",
+    ).bind(user_id).fetch_optional(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?
+        .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    sqlx::query("UPDATE password_reset_links SET revoked_at = NOW() WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL")
+        .bind(user_id).execute(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let token = generate_secret();
+    let id = Uuid::now_v7();
+    let expires = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+        "INSERT INTO password_reset_links (id, user_id, token_hash, created_by, password_changed_at, expires_at) VALUES ($1,$2,$3,$4,$5,NOW() + INTERVAL '1 hour') RETURNING expires_at",
+    ).bind(id).bind(user_id).bind(hash_secret(&token)).bind(user_uuid(&actor.user)).bind(changed)
+        .fetch_one(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+    audit(
+        &mut tx,
+        Some(&actor.user.id),
+        "admin.user.password_reset_link.create",
+        Some("user"),
+        Some(&user_id.to_string()),
+        "success",
+        &request_id,
+        json!({"linkId": id}),
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        StatusCode::CREATED,
+        response_headers,
+        Json(DataResponse::new(
+            json!({"id": id, "token": token, "expiresAt": expires}),
+        )),
+    ))
+}
+
+pub async fn revoke_password_reset_link(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<StatusCode, ApiFailure> {
+    let actor = require_admin_csrf(&state, &headers, &request_id).await?;
+    let mut tx = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    // Same credential lock as issuance/redemption: a concurrent revoke must
+    // finish before redemption or revoke links issued before it completes.
+    sqlx::query("SELECT user_id FROM credentials WHERE user_id = $1 FOR UPDATE")
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?
+        .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    sqlx::query("UPDATE password_reset_links SET revoked_at = NOW() WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL")
+        .bind(user_id).execute(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+    audit(
+        &mut tx,
+        Some(&actor.user.id),
+        "admin.user.password_reset_link.revoke",
+        Some("user"),
+        Some(&user_id.to_string()),
+        "success",
+        &request_id,
+        json!({}),
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn redeem_password_reset_link(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    Json(payload): Json<RedeemPasswordResetRequest>,
+) -> Result<StatusCode, ApiFailure> {
+    let invalid = || {
+        ApiFailure::new(
+            StatusCode::GONE,
+            ErrorCode::ResourceNotFound,
+            "The password reset link is invalid or expired.",
+            request_id.clone(),
+        )
+    };
+    if payload.token.len() != 43 {
+        return Err(invalid());
+    }
+    let token_hash = hash_secret(&payload.token);
+    let mut tx = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let user_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM password_reset_links WHERE token_hash = $1",
+    )
+    .bind(&token_hash)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?
+    .ok_or_else(invalid)?;
+    let changed = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+        "SELECT c.password_changed_at FROM credentials c JOIN users u ON u.id = c.user_id WHERE u.id = $1 AND u.status = 'active' FOR UPDATE OF c, u",
+    ).bind(user_id).fetch_optional(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?.ok_or_else(invalid)?;
+    let link = sqlx::query_scalar::<_, Uuid>("SELECT id FROM password_reset_links WHERE token_hash = $1 AND password_changed_at = $2 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > clock_timestamp() FOR UPDATE")
+        .bind(&token_hash).bind(changed).fetch_optional(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?.ok_or_else(invalid)?;
+    let password_hash = hash_password(&payload.new_password)
+        .map_err(|e| ApiFailure::validation(e.to_string(), request_id.clone()))?;
+    sqlx::query("UPDATE credentials SET password_hash = $1, password_changed_at = clock_timestamp() WHERE user_id = $2")
+        .bind(password_hash).bind(user_id).execute(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+    sqlx::query("UPDATE password_reset_links SET used_at = NOW() WHERE id = $1")
+        .bind(link)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    sqlx::query("UPDATE password_reset_links SET revoked_at = NOW() WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL")
+        .bind(user_id).execute(&mut *tx).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+    for query in [
+        "UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+        "UPDATE native_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+    ] {
+        sqlx::query(query)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    }
+    audit(
+        &mut tx,
+        Some(&user_id.to_string()),
+        "auth.password_reset_link.redeem",
+        Some("user"),
+        Some(&user_id.to_string()),
+        "success",
+        &request_id,
+        json!({"linkId": link}),
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id))?;
+    // No automatic login. All web/native sessions are invalidated atomically.
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn create_invitation(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
@@ -13047,6 +13216,312 @@ mod tests {
         }
         let csrf_value = csrf.split_once('=').unwrap().1.to_owned();
         (format!("{session}; {csrf}"), csrf_value)
+    }
+
+    #[tokio::test]
+    async fn admin_password_reset_links_are_single_use_and_revoke_sessions() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users, hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Arc::new(FileSystemBlobStorage::new(dir.path()).await.unwrap());
+        let app = build_router(AppState::new(
+            ServerConfig {
+                rest_rate_limit_per_minute: 0,
+                ..ServerConfig::default()
+            },
+            pool.clone(),
+            blobs,
+        ));
+        let bootstrap = request(&app, "POST", "/api/v1/auth/bootstrap", json!({"username":"admin","displayName":"Admin","password":"correct horse battery staple"}), None, None).await;
+        let (cookie, csrf) = session_cookies(&bootstrap);
+        let member = request(&app, "POST", "/api/v1/admin/users", json!({"username":"member","displayName":"Member","password":"original member password"}), Some(&cookie), Some(&csrf)).await;
+        let id = json_body(member).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let endpoint = format!("/api/v1/admin/users/{id}/password-reset-link");
+        let login = request(
+            &app,
+            "POST",
+            "/api/v1/auth/login",
+            json!({"username":"member","password":"original member password"}),
+            None,
+            None,
+        )
+        .await;
+        let (member_cookie, member_csrf) = session_cookies(&login);
+        assert_eq!(
+            request(&app, "POST", &endpoint, json!({}), None, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &endpoint,
+                json!({}),
+                Some(&member_cookie),
+                Some(&member_csrf)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(&app, "POST", &endpoint, json!({}), Some(&cookie), None)
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &endpoint,
+                json!({}),
+                Some(&member_cookie),
+                Some(&member_csrf)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        async fn issue(app: &Router, endpoint: &str, cookie: &str, csrf: &str) -> String {
+            let response =
+                request(app, "POST", endpoint, json!({}), Some(cookie), Some(csrf)).await;
+            assert_eq!(response.status(), StatusCode::CREATED);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            json_body(response).await["data"]["token"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+        async fn redeem(app: &Router, token: &str, password: &str) -> StatusCode {
+            request(
+                app,
+                "POST",
+                "/api/v1/auth/password-reset",
+                json!({"token":token,"newPassword":password}),
+                None,
+                None,
+            )
+            .await
+            .status()
+        }
+        let first = issue(&app, &endpoint, &cookie, &csrf).await;
+        let hash = sqlx::query_scalar::<_, String>(
+            "SELECT token_hash FROM password_reset_links WHERE user_id = $1::uuid",
+        )
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_ne!(hash, first);
+        assert_eq!(hash, hash_secret(&first));
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                "/api/v1/users/me",
+                json!({}),
+                Some(&member_cookie),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(redeem(&app, &first, "short").await, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            redeem(&app, &"x".repeat(43), "replacement member password").await,
+            StatusCode::GONE
+        );
+        let second = issue(&app, &endpoint, &cookie, &csrf).await;
+        assert_eq!(
+            redeem(&app, &first, "replacement member password").await,
+            StatusCode::GONE
+        );
+        sqlx::query("UPDATE password_reset_links SET expires_at = NOW() - INTERVAL '1 minute' WHERE token_hash = $1").bind(hash_secret(&second)).execute(&pool).await.unwrap();
+        assert_eq!(
+            redeem(&app, &second, "replacement member password").await,
+            StatusCode::GONE
+        );
+        let third = issue(&app, &endpoint, &cookie, &csrf).await;
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &endpoint,
+                json!({}),
+                Some(&cookie),
+                Some(&csrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            redeem(&app, &third, "replacement member password").await,
+            StatusCode::GONE
+        );
+        let fourth = issue(&app, &endpoint, &cookie, &csrf).await;
+        assert_eq!(request(&app,"POST","/api/v1/users/me/password",json!({"currentPassword":"original member password","newPassword":"changed member password"}),Some(&member_cookie),Some(&member_csrf)).await.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            redeem(&app, &fourth, "replacement member password").await,
+            StatusCode::GONE
+        );
+        let native = request(&app,"POST","/api/v1/auth/native/login",json!({"username":"member","password":"changed member password","clientName":"reset test"}),None,None).await;
+        let native_body = json_body(native).await;
+        let access = native_body["data"]["accessToken"].as_str().unwrap();
+        let refresh = native_body["data"]["refreshToken"].as_str().unwrap();
+        let final_token = issue(&app, &endpoint, &cookie, &csrf).await;
+        let (a, b) = tokio::join!(
+            redeem(&app, &final_token, "replacement member password"),
+            redeem(&app, &final_token, "replacement member password")
+        );
+        assert!(matches!(
+            (a, b),
+            (StatusCode::NO_CONTENT, StatusCode::GONE) | (StatusCode::GONE, StatusCode::NO_CONTENT)
+        ));
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                "/api/v1/users/me",
+                json!({}),
+                Some(&member_cookie),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            bearer_request(&app, "GET", "/api/v1/users/me", json!({}), access)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                "/api/v1/auth/refresh",
+                json!({"refreshToken":refresh}),
+                None,
+                None
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                "/api/v1/auth/login",
+                json!({"username":"member","password":"changed member password"}),
+                None,
+                None
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                "/api/v1/auth/login",
+                json!({"username":"member","password":"replacement member password"}),
+                None,
+                None
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        let disabled_token = issue(&app, &endpoint, &cookie, &csrf).await;
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &format!("/api/v1/admin/users/{id}"),
+                json!({"disabled":true}),
+                Some(&cookie),
+                Some(&csrf)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            redeem(&app, &disabled_token, "disabled member password").await,
+            StatusCode::GONE
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &endpoint,
+                json!({}),
+                Some(&cookie),
+                Some(&csrf)
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        let audit = sqlx::query_scalar::<_, Value>(
+            "SELECT metadata FROM audit_events WHERE action LIKE '%password_reset_link%'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(audit.len() >= 8);
+        for metadata in audit {
+            let text = metadata.to_string();
+            assert!(!text.contains(&final_token));
+            assert!(!text.contains("replacement member password"));
+        }
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &format!("/api/v1/admin/users/{id}"),
+                json!({}),
+                Some(&cookie),
+                Some(&csrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM password_reset_links WHERE user_id = $1::uuid"
+            )
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]

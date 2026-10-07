@@ -84,6 +84,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/auth/invitations/{token}/accept",
             post(api::accept_invitation),
         )
+        .route(
+            "/api/v1/auth/password-reset",
+            post(api::redeem_password_reset_link),
+        )
         .route("/api/v1/auth/ws-ticket", post(api::issue_ws_ticket))
         .route("/api/v1/auth/logout", post(api::logout))
         .route("/ws/v1/vaults/{vault_id}", get(crate::ws::vault_ws))
@@ -384,6 +388,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/admin/users/{user_id}/reset-password",
             post(api::reset_user_password),
+        )
+        .route(
+            "/api/v1/admin/users/{user_id}/password-reset-link",
+            post(api::create_password_reset_link).delete(api::revoke_password_reset_link),
         )
         .route(
             "/api/v1/admin/users/{user_id}/activity",
@@ -713,6 +721,12 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
 }
 
 fn rate_limit_buckets(scope: &str, request: &Request, limit: u32) -> Vec<(String, u32)> {
+    if scope == "rest" && request.uri().path() == "/api/v1/auth/password-reset" {
+        return vec![(
+            format!("password-reset:ip:{}", client_key(request)),
+            limit.min(10),
+        )];
+    }
     let identity = rate_limit_identity(scope, request);
     let mut buckets = vec![(format!("{scope}:{identity}"), limit)];
     if matches!(scope, "rest" | "calendar") && identity.starts_with("session:") {
@@ -1165,6 +1179,26 @@ mod tests {
         let calendar_buckets = rate_limit_buckets("calendar", &dav, 600);
         assert_eq!(calendar_buckets.len(), 2);
         assert_eq!(calendar_buckets[0].1, 600);
+    }
+
+    #[test]
+    fn password_reset_rate_limit_cannot_be_bypassed_with_fake_credentials() {
+        let first = Request::builder()
+            .uri("/api/v1/auth/password-reset")
+            .header("authorization", "Bearer fake-one")
+            .body(Body::empty())
+            .unwrap();
+        let second = Request::builder()
+            .uri("/api/v1/auth/password-reset")
+            .header("authorization", "Bearer fake-two")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            rate_limit_buckets("rest", &first, 1200),
+            rate_limit_buckets("rest", &second, 1200)
+        );
+        assert_eq!(rate_limit_buckets("rest", &first, 1200)[0].1, 10);
+        assert_eq!(rate_limit_buckets("rest", &first, 2)[0].1, 2);
     }
 
     #[tokio::test]

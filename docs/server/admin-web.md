@@ -55,7 +55,7 @@ Phase 2 delivers:
 
 - First-administrator bootstrap and admin login.
 - User creation, invitations, disabling/re-enabling, protected account deletion,
-  password resets, and session revocation.
+  admin-issued password reset links, and session revocation.
 - A dashboard showing server health, version, uptime, storage summaries, and
   counts for users, sessions, invitations, and hosted vaults.
 - Recent redacted audit events and actionable operational warnings.
@@ -108,6 +108,34 @@ The browser never receives raw container logs, environment variables, stack
 traces, authorization headers, cookies, refresh tokens, or password material.
 The raw invitation secret is returned only once to the administrator that
 creates it so it can be shared with the intended user.
+
+## Admin-Issued Password Reset Links
+
+Users → Reset password opens a link dialog. Create a link and share it privately
+with the account owner using your existing communication channel. The server
+does not send email automatically. Only active users can receive or redeem a
+link. Creating a new link replaces previous outstanding links; administrators
+can revoke links even after closing the dialog. Issuing a link does not change
+the password or sign the user out.
+
+Links expire after one hour and work once. The recipient opens the public reset
+page, enters and confirms a password, then signs in normally. Successful
+redemption changes the password, consumes the link, invalidates remaining reset
+links, and revokes all browser/native sessions in one database transaction.
+Any intervening password change invalidates older links as well. Invalid,
+expired, revoked, used, deleted-user, and disabled-user links cannot reset an
+account. A reset never changes account roles or enables a disabled account.
+
+The secret is returned only on creation with `Cache-Control: no-store`; only its
+hash is stored. The share URL carries it in a fragment, which the reset page
+removes from the address bar. Redemption sends it in the POST body rather than
+the request path. Nothing persists the secret or password in browser storage or
+audit metadata. Public reset requests have an IP-scoped maximum of ten requests
+per minute (or the lower configured REST limit), even with supplied bearer
+headers; setting the REST limit to zero disables limiting as elsewhere.
+
+The existing direct administrative reset API remains available for compatibility;
+the web interface uses the recipient-controlled link flow.
 
 ## Dashboard Data
 

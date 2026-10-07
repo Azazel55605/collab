@@ -90,6 +90,18 @@ export const serverApi = {
         body: JSON.stringify({ password }),
       },
     ),
+  createPasswordResetLink: (id: string) =>
+    api<{ id: string; token: string; expiresAt: string }>(
+      `/api/v1/admin/users/${id}/password-reset-link`,
+      { method: 'POST' },
+    ),
+  revokePasswordResetLink: (id: string) =>
+    api<void>(`/api/v1/admin/users/${id}/password-reset-link`, { method: 'DELETE' }),
+  redeemPasswordReset: (token: string, newPassword: string) =>
+    api<void>('/api/v1/auth/password-reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    }),
   logout: () => api<void>('/api/v1/auth/logout', { method: 'POST' }),
   me: () => api<ServerUser>('/api/v1/users/me'),
   updateSelf: (payload: Record<string, unknown>) =>
