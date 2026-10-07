@@ -2494,7 +2494,7 @@ pub async fn upload_attachment(
     )
     .await?;
     let id = Uuid::now_v7();
-    let sha256 = format!("{:x}", Sha256::digest(&content));
+    let sha256 = hex::encode(Sha256::digest(&content));
     sqlx::query(
         "INSERT INTO calendar_attachment_uploads (id,owner_id,calendar_id,name,media_type,sha256,size_bytes,content) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     ).bind(id).bind(owner).bind(calendar_id).bind(name).bind(&request.media_type).bind(&sha256)

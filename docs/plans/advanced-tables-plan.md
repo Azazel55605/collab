@@ -432,10 +432,10 @@ insertion of single-cell and range references. The grid paints precedents and
 dependents for inspection, and merged ranges render as one visual cell while
 keeping the top-left cell as their canonical value.
 
-The known formualizer 0.7.1 range-text aggregation defect remains explicitly
-outside the compatibility claim: scalar `CONCAT` is supported, while
-`CONCAT`/`TEXTJOIN` range arguments are not advertised until the pinned
-upstream-gap test can be removed.
+The formualizer 0.10.1 migration fixes the earlier range-text aggregation
+defect. `CONCAT` and `TEXTJOIN` range arguments are covered by
+`range_text_aggregation_preserves_every_cell` and included in the compatibility
+claim.
 
 ### Phase 4: Formatting And Spreadsheet Interactions
 

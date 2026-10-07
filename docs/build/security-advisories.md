@@ -124,18 +124,19 @@ current scan.
   direct dependency to `glib` 0.22 does not update GTK's types and cannot clear
   the transitive 0.18 instance. A compatible upstream GTK runtime migration or
   reviewed backport is needed.
-- **Tauri tooling (`unmaintained`).** `fxhash` 0.2.1
-  (RUSTSEC-2025-0057) and `proc-macro-error` 1.0.4 (RUSTSEC-2024-0370)
-  remain through upstream dependencies; there is no selectable compatible
-  maintained release of either crate.
+- **Tauri tooling (`unmaintained`).** `proc-macro-error` 1.0.4
+  (RUSTSEC-2024-0370) remains through upstream dependencies; there is no
+  selectable compatible maintained release. `fxhash` is absent from the
+  refreshed lockfile after the Rust major migrations.
 - **RUSTSEC-2026-0215 — `smallstr` 0.3.1 (`unmaintained`).** Pulled by `yrs`
-  0.27.2 in the shipped collaboration runtime. Replacing it requires upstream
+  0.28.0 in the shipped collaboration runtime. Replacing it requires upstream
   `yrs` changes or a reviewed fork; `compact_str`/`smol_str` are different APIs,
   not drop-in lockfile substitutions. This is not a build-time-only dependency.
-- **RUSTSEC-2025-0052 — `async-std` 1.13.2 (`unmaintained`).** Pulled through
-  the `httpmock` dev dependency and not shipped. `httpmock` 0.8 is a potential
-  migration, but the grouped Rust major-update PR does not compile and is not
-  accepted as a workaround for this warning.
+
+The `httpmock` 0.8 migration removes `async-std` and its
+RUSTSEC-2025-0052 warning. No new Rust audit ignores were added. GLib stays
+on the GTK3-compatible 0.18 family; JNI stays on 0.21 because 0.22 requires
+a separate migration of Android native entrypoints and reference lifetimes.
 
 ## npm advisories below the failing threshold
 
@@ -185,9 +186,11 @@ fixes remain in the lockfile/override policy. `shadcn` stays installed because
 - **Remove this entry when:** both direct and Mermaid paths resolve to a
   patched release after that migration.
 
-## Dependabot PR review (2026-10-07)
+## Initial Dependabot PR review (2026-10-07)
 
-These are review results, not merge approvals. No dependency PR was merged.
+The table preserves the initial review, before the compatibility repairs in
+#76 and #78. Current remediation is described above and in those PRs.
+Compatible Rust updates merged separately as #80.
 
 | PR                                                                            | Local evidence                                                                                                                                                                                      | Recommendation                                                                                                |
 | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |

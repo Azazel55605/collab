@@ -100,7 +100,7 @@ pub(super) fn parse_vault_zip(
     Ok(entries)
 }
 
-fn zip_entry_kind(entry: &zip::read::ZipFile<'_>) -> ArchiveEntryKind {
+fn zip_entry_kind<R: std::io::Read>(entry: &zip::read::ZipFile<'_, R>) -> ArchiveEntryKind {
     let unix_kind = entry.unix_mode().map(|mode| mode & 0o170000);
     if unix_kind == Some(0o120000) {
         ArchiveEntryKind::Symlink

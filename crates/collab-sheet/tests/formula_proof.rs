@@ -276,12 +276,9 @@ fn deep_dependencies_wide_fanout_and_error_propagation_are_bounded() {
     );
 }
 
-/// `TEXTJOIN`/`CONCAT` over a *range* collapse to the first cell in
-/// formualizer 0.7.1. Recorded here so the defect is tracked rather than
-/// discovered later; Phase 3 must re-check it and either report upstream or
-/// implement the range form in the adapter.
+/// Range text aggregation was broken in formualizer 0.7.1; preserve the 0.10 fix.
 #[test]
-fn known_upstream_gap_range_text_aggregation() {
+fn range_text_aggregation_preserves_every_cell() {
     let mut engine = engine();
     engine
         .set_values(
@@ -294,17 +291,16 @@ fn known_upstream_gap_range_text_aggregation() {
             ],
         )
         .unwrap();
-    engine
-        .set_formula(&cell("Sheet1", 1, 3), "=TEXTJOIN(\",\",TRUE,A1:A2)")
-        .unwrap();
-
-    let actual = evaluate_one(&mut engine, &cell("Sheet1", 1, 3));
-    assert_eq!(
-        actual,
-        SheetFormulaValue::text("a"),
-        "if this now returns \"a,b\", the upstream gap is fixed — update the \
-         Phase 0 contract and delete this test"
-    );
+    for (formula, expected) in [
+        ("=TEXTJOIN(\",\",TRUE,A1:A2)", "a,b"),
+        ("=CONCAT(A1:A2)", "ab"),
+    ] {
+        engine.set_formula(&cell("Sheet1", 1, 3), formula).unwrap();
+        assert_eq!(
+            evaluate_one(&mut engine, &cell("Sheet1", 1, 3)),
+            SheetFormulaValue::text(expected)
+        );
+    }
 }
 
 #[test]

@@ -29,14 +29,13 @@ surface from `src/lib/sheet/formulaFunctions.ts`.
 | Aggregate | `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `SUMIF`, `SUMIFS`, `COUNTIF`, `COUNTIFS`, `AVERAGEIF`, `AVERAGEIFS` |
 | Logic     | `IF`, `IFS`, `AND`, `OR`, `NOT`, `IFERROR`                                                                             |
 | Math      | `ROUND`, `ABS`, `MOD`, `SQRT`, `POWER`                                                                                 |
-| Text      | `CONCAT`, `LEFT`, `RIGHT`, `MID`, `LEN`, `TRIM`                                                                        |
+| Text      | `CONCAT`, `TEXTJOIN`, `LEFT`, `RIGHT`, `MID`, `LEN`, `TRIM`                                                            |
 | Date/time | `DATE`, `YEAR`, `MONTH`, `DAY`, `TODAY`, `NOW`                                                                         |
 | Lookup    | `INDEX`, `MATCH`, `VLOOKUP`, `HLOOKUP`, `XLOOKUP`                                                                      |
 
-`CONCAT` with scalar arguments is supported. `CONCAT` and `TEXTJOIN` with range
-arguments remain disabled as a compatibility claim because formualizer 0.7.1
-collapses the range to its first cell. The pinned upstream-gap test prevents
-this from being silently presented as correct.
+`CONCAT` and `TEXTJOIN` support scalar and range arguments. The formualizer
+0.10.1 migration fixes the previous first-cell-only range behavior;
+`range_text_aggregation_preserves_every_cell` covers both functions.
 
 ## Errors And Bounds
 

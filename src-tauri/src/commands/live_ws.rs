@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
-use reqwest_websocket::{Message, RequestBuilderExt};
+use reqwest_websocket::{Message, Upgrade};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::State;

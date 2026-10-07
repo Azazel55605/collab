@@ -1,7 +1,7 @@
 use crate::commands::vault::{read_vault_config_pub, write_vault_config_pub};
 use crate::crypto;
 use crate::state::AppState;
-use rand::RngCore;
+use rand::Rng;
 use tauri::State;
 
 /// Derive key from password, verify it matches vault.enc, store in AppState.
@@ -32,7 +32,7 @@ pub async fn enable_vault_encryption(
 
     // Generate a fresh 32-byte random salt.
     let mut salt = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut salt);
+    rand::rng().fill_bytes(&mut salt);
 
     let key = crypto::derive_key(&password, &salt)?;
 
@@ -102,7 +102,7 @@ pub async fn change_vault_password(
 
     // New salt + new key.
     let mut new_salt = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut new_salt);
+    rand::rng().fill_bytes(&mut new_salt);
     let new_key = crypto::derive_key(&new_password, &new_salt)?;
 
     // Re-encrypt with new key.

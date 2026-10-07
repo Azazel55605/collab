@@ -11,7 +11,7 @@ use collab_replica::{
     server_key, CacheCleanupReport, CachedContentStatus, PendingOpStatus, PendingOperation,
     ReplicaIntegrityReport, ReplicaStore, ReplicaSummary, ReplicaSyncState, Tombstone,
 };
-use rand::RngCore;
+use rand::Rng;
 use serde_json::Value;
 use tauri::State;
 
@@ -236,7 +236,7 @@ fn replica_key(server_url: &str, vault_id: &str, create: bool) -> Result<Option<
         Some(encoded) => encoded,
         None if create => {
             let mut key = [0u8; 32];
-            rand::thread_rng().fill_bytes(&mut key);
+            rand::rng().fill_bytes(&mut key);
             let encoded = base64::engine::general_purpose::STANDARD.encode(key);
             write_replica_key_encoded(server_url, vault_id, &encoded)?;
             encoded

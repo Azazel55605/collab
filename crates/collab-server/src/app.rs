@@ -746,7 +746,7 @@ fn rate_limit_identity(scope: &str, request: &Request) -> String {
                 return format!("ip:{}", client_key(request));
             };
             let digest = Sha256::digest(credential.as_bytes());
-            return format!("session:{digest:x}");
+            return format!("session:{}", hex::encode(digest));
         }
     }
     format!("ip:{}", client_key(request))

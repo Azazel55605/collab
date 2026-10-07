@@ -9422,7 +9422,7 @@ fn parse_checksum_line(line: &str) -> Option<(String, String)> {
 fn sha256_file(path: &FsPath) -> std::io::Result<String> {
     let bytes = fs::read(path)?;
     let digest = Sha256::digest(&bytes);
-    Ok(format!("{digest:x}"))
+    Ok(hex::encode(digest))
 }
 
 pub(crate) async fn run_operator_command(
