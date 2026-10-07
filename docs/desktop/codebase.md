@@ -40,6 +40,10 @@ for chats, teams, and shared libraries.
 
 Frontend regression coverage uses Vitest + jsdom via `pnpm test`.
 
+`scripts/tauri-dependency-versions.test.ts` runs in Node and compares installed
+Tauri JavaScript packages with their Rust counterparts in `Cargo.lock`, enforcing
+the major/minor compatibility required by desktop and Android packaging.
+
 Rust workspace tests run via `cargo test --workspace`; Tauri-only tests can run
 via `cd src-tauri && cargo test`.
 
