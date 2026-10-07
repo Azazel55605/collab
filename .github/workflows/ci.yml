@@ -34,6 +34,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Tauri dependency compatibility
+        run: pnpm exec vitest run scripts/tauri-dependency-versions.test.ts
+
       - name: Formatting
         run: pnpm format:check
 

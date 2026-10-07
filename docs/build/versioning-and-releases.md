@@ -91,6 +91,12 @@ commands, so normal desktop and Android Tauri builds pick up `versions.json`.
 Running `pnpm versions:sync` manually is still recommended before committing so
 the synced files are visible in the diff.
 
+Tauri dependencies have a separate compatibility requirement: each installed
+`@tauri-apps/api` or `@tauri-apps/plugin-*` package must match its Rust crate's
+major and minor version in `Cargo.lock`. Update both sides together.
+`scripts/tauri-dependency-versions.test.ts` checks these pairs during `pnpm test`,
+before a mismatch can reach desktop or Android packaging.
+
 ## Release Checks
 
 Use target-specific checks:
