@@ -126,9 +126,10 @@ Validated on 2026-10-07:
 - Browser checks passed at 1,440 px and 390 px. A separately built live server
   also verified admin Dashboard/Profile routing, member Profile routing,
   persisted account edits, password changes, retained sessions, and reconnect.
-- Compose configuration passed. The isolated container smoke build failed
-  twice during Debian package-index verification (`Hash Sum mismatch`), before
-  application startup; the container smoke check remains unverified.
+- Compose configuration and the isolated container smoke test passed. Earlier
+  attempts failed during Debian package-index verification (`Hash Sum mismatch`);
+  the later rerun built the server image and verified live/ready health, bootstrap
+  status, the admin page, and writable storage/backup directories.
 
 Physical Android picture selection, process recreation, native desktop visual
 QA, measured preview performance, and the follow-on work above remain open.
