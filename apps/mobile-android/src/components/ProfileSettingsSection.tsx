@@ -1,16 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { tauriCommands } from '../../../../src/lib/tauri';
+import {
+  type ServerProfile as Profile,
+  useServerProfile,
+} from '../../../../src/lib/useServerProfile';
 import { upsertKnownServer } from '../lib/servers';
 import { useMobileStore } from '../state/store';
-
-interface Profile {
-  id: string;
-  username: string;
-  displayName: string;
-  hasAvatar: boolean;
-  avatarUpdatedAt: string | null;
-}
 
 export function ProfileSettingsSection() {
   const servers = useMobileStore((s) => s.servers);
@@ -70,72 +66,27 @@ function ServerProfile({
   serverUrl: string;
   onUpdated: (profile: Profile) => Promise<void>;
 }) {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [username, setUsername] = useState('');
-  const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState<string | null>(null);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const {
+    profile,
+    username,
+    setUsername,
+    name,
+    setName,
+    avatar,
+    currentPassword,
+    setCurrentPassword,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    busy,
+    error,
+    setError,
+    message,
+    mutate,
+    alive,
+  } = useServerProfile(serverUrl, onUpdated);
   const fileInput = useRef<HTMLInputElement>(null);
-  const alive = useRef(true);
-
-  useEffect(() => {
-    alive.current = true;
-    void tauriCommands
-      .hostedAccountRequest<Profile>(serverUrl, 'GET', '/api/v1/users/me')
-      .then((user) => {
-        if (!alive.current) return;
-        setProfile(user);
-        setUsername(user.username);
-        setName(user.displayName);
-      })
-      .catch((reason) => {
-        if (alive.current) setError(String(reason));
-      });
-    return () => {
-      alive.current = false;
-    };
-  }, [serverUrl]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAvatar(null);
-    if (profile?.hasAvatar)
-      void tauriCommands
-        .hostedAccountRequest<string>(serverUrl, 'GET', '/api/v1/users/me/avatar')
-        .then((data) => {
-          if (!cancelled) setAvatar(data);
-        })
-        .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [serverUrl, profile?.hasAvatar, profile?.avatarUpdatedAt]);
-
-  async function mutate(action: () => Promise<Profile | void>, success: string) {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const user = await action();
-      if (!alive.current) return;
-      if (user) {
-        setProfile(user);
-        setName(user.displayName);
-        setUsername(user.username);
-        await onUpdated(user);
-      }
-      if (alive.current) setMessage(success);
-    } catch (reason) {
-      if (alive.current) setError(String(reason));
-    } finally {
-      if (alive.current) setBusy(false);
-    }
-  }
 
   return (
     <div className="profile-form">

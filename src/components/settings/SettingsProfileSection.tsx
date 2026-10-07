@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Separator } from '../ui/separator';
 
+import ServerAccountProfile from './ServerAccountProfile';
 import { OptionRow, SectionLabel } from './settingsControls';
 
 type Props = {
@@ -28,7 +29,7 @@ export default function SettingsProfileSection({
       <SectionLabel>Your Identity</SectionLabel>
       <p className="text-xs text-muted-foreground mb-4">
         {serverManaged
-          ? 'In this hosted vault your identity is managed by the server and cannot be edited here.'
+          ? 'In this hosted vault your identity is managed by the server. Edit your server account below.'
           : 'Shown to collaborators when editing a shared vault.'}
       </p>
 
@@ -75,6 +76,7 @@ export default function SettingsProfileSection({
           </Button>
         )}
       </div>
+      <ServerAccountProfile />
     </div>
   );
 }
