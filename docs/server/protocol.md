@@ -97,13 +97,16 @@ been created or the server has restarted.
 - `POST /api/v1/auth/logout`
 - `POST /api/v1/auth/native/logout`
 - `POST /api/v1/auth/invitations/{token}/accept`
+- `POST /api/v1/auth/password-reset` — `{ token, newPassword }`, no session required; returns 204 after atomic redemption.
 - `POST /api/v1/auth/ws-ticket`
 - `GET /api/v1/users/me`
 - `POST /api/v1/users/me/password`
 - `GET|POST /api/v1/admin/users`
 - `PATCH|DELETE /api/v1/admin/users/{userId}`
 - `POST /api/v1/admin/users/{userId}/revoke-sessions`
-- `POST /api/v1/admin/users/{userId}/reset-password`
+- `POST /api/v1/admin/users/{userId}/reset-password` — direct reset retained for compatibility.
+- `POST /api/v1/admin/users/{userId}/password-reset-link` — admin + CSRF; returns `{ id, token, expiresAt }` once, with a one-hour expiry.
+- `DELETE /api/v1/admin/users/{userId}/password-reset-link` — admin + CSRF; revokes all outstanding reset links for that user.
 - `GET /api/v1/admin/users/{userId}/activity`
 - `GET|POST /api/v1/admin/invitations`
 - `POST /api/v1/admin/invitations`

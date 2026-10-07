@@ -48,6 +48,7 @@ import {
   describeIncompatibility,
   findIncompatibleFiles,
 } from './compatibility';
+import { PasswordResetLinkDialog, PasswordResetScreen } from './PasswordReset';
 import { truncatePathForDisplay } from './paths';
 import { type AdminAccent, type AdminTheme, useAdminAppearance } from './theme';
 import type { TransferProgress } from './transfer';
@@ -107,6 +108,9 @@ export async function fileToBase64(file: File) {
 }
 
 export function App() {
+  const [resetToken] = useState(() =>
+    new URLSearchParams(window.location.hash.slice(1)).get('reset'),
+  );
   const invitationToken = new URLSearchParams(window.location.search).get('invite');
   const [bootRequired, setBootRequired] = useState<boolean | null>(null);
   const [me, setMe] = useState<ServerUser | null>(null);
@@ -124,9 +128,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!invitationToken) void refreshSession();
-  }, [invitationToken, refreshSession]);
+    if (!invitationToken && !resetToken) void refreshSession();
+  }, [invitationToken, resetToken, refreshSession]);
 
+  if (resetToken) return <PasswordResetScreen token={resetToken} />;
   if (invitationToken) return <InvitationScreen token={invitationToken} />;
   if (error && bootRequired === null) return <CenteredMessage title={error} />;
   if (bootRequired === null) return <CenteredMessage title="Connecting to Collab server..." />;
@@ -2127,6 +2132,7 @@ function UsersPage({ currentUser }: { currentUser: ServerUser }) {
                   title="Reset password"
                   variant="outline"
                   size="icon"
+                  disabled={user.status !== 'active'}
                   onClick={() => setResetTarget(user)}
                 >
                   <KeyRound size={15} />
@@ -2243,25 +2249,7 @@ function UsersPage({ currentUser }: { currentUser: ServerUser }) {
         />
       )}
       {resetTarget && (
-        <PromptDialog
-          title={`Reset password for ${resetTarget.username}`}
-          description="Every session of this user is revoked and the new password takes effect immediately."
-          label="New password"
-          type="password"
-          minLength={12}
-          submitLabel="Reset password"
-          onCancel={() => setResetTarget(null)}
-          onSubmit={async (password) => {
-            const user = resetTarget;
-            setResetTarget(null);
-            try {
-              await serverApi.resetPassword(user.id, password);
-              await load();
-            } catch (reason) {
-              setError(String(reason));
-            }
-          }}
-        />
+        <PasswordResetLinkDialog user={resetTarget} onClose={() => setResetTarget(null)} />
       )}
       {editTarget && (
         <EditUserDialog

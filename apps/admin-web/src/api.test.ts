@@ -8,6 +8,32 @@ describe('admin API client', () => {
     document.cookie = 'collab_csrf=; Max-Age=0';
   });
 
+  it('keeps reset secrets in the request body and uses admin mutation routes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await serverApi.createPasswordResetLink('member-id');
+    await serverApi.revokePasswordResetLink('member-id');
+    await serverApi.redeemPasswordReset('private-token', 'new password long enough');
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/admin/users/member-id/password-reset-link',
+      expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/admin/users/member-id/password-reset-link',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/auth/password-reset',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ token: 'private-token', newPassword: 'new password long enough' }),
+      }),
+    );
+  });
+
   it('sends same-origin credentials and CSRF for mutations', async () => {
     document.cookie = 'collab_csrf=csrf-token';
     const fetchMock = vi.fn().mockResolvedValue(

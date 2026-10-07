@@ -1204,6 +1204,17 @@ restoreSnapshot(vaultPath, relativePath, snapshotId, restoringUserId, restoringU
 
 ---
 
+## Server Password Recovery
+
+`apps/admin-web/src/PasswordReset.tsx` provides the admin link dialog and public
+recipient form. `App` routes fragment reset links before authentication. Issuance,
+revocation, and redemption handlers are in `crates/collab-server/src/api.rs` with
+routes and an IP rate-limit bucket in `app.rs`. Migration 0034 stores hashed,
+expiring reset links bound to user IDs and credential change timestamps.
+Credential row locks serialize issuance/revocation/redemption; consuming a link,
+changing the password, and revoking sessions commit atomically. See
+[Admin Web](../server/admin-web.md#admin-issued-password-reset-links).
+
 ## Rust Backend
 
 The repository root is a Cargo workspace:
