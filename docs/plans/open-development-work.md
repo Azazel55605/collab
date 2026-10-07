@@ -20,23 +20,24 @@ work from being mistaken for an active roadmap item.
 
 ## Open Project Summary
 
-| Project                          | Current status                   | Remaining work                                                                                                                                                                                                                                                                                                                                             | Canonical document                                                                                                                        |
-| -------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Advanced Tables                  | Testing                          | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase.                                                                                                                                                                                              | [Advanced Tables Plan](./advanced-tables-plan.md)                                                                                         |
-| Android companion app            | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and the notification system are complete and archived.                                                                                                                                    | [Android Companion App Plan](./android-companion-app-plan.md)                                                                             |
-| Electronic circuit simulation    | In progress / planned            | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation.                                                                                                                                                                        | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md)                                                             |
-| Logic and circuit diagram editor | In progress umbrella             | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream.                                                                                                                                                                                                                  | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md)                                                                  |
-| User calendar                    | Testing                          | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete.                                                                                                                                                                                | [User Calendar Feature Plan](./user-calendar-feature-plan.md)                                                                             |
-| Collab Presentations             | Phase 10 testing                 | Phases 0-10 are implemented, including bounded accessibility semantics/audits, heterogeneous performance and malformed-file gates, recovery/CRDT soak coverage, and a release-validation matrix. Physical platform, screen-reader, package, crash/encryption/history/resource-soak, Android, PowerPoint, Google Slides, and Keynote evidence remains open. | [Collab Presentations Plan](./presentation-tool-plan.md), [Release Validation](../build/presentation-release-validation.md)               |
-| Digital ink and annotation       | Phase 10 testing                 | Phase 10 code and automated hardening are implemented. Complete the physical platform/input/accessibility/resource matrix and multi-client release soak before sign-off.                                                                                                                                                                                   | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Release Validation](../build/digital-ink-release-validation.md) |
-| Flatpak distribution             | Planned                          | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                                                                                                                                                                 | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                               |
+| Project                          | Current status                     | Remaining work                                                                                                                                                                                                                                                                                                                                             | Canonical document                                                                                                                        |
+| -------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Advanced Tables                  | Testing                            | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase.                                                                                                                                                                                              | [Advanced Tables Plan](./advanced-tables-plan.md)                                                                                         |
+| Full mobile app                  | Planned / baseline release testing | Deliver independent Android local vaults, common document adapters, touch authoring, file/preview workflows, platform integration and later text collaboration. Existing companion Phase 7 device/release checks remain prerequisites and recurring gates.                                                                                                 | [Full Mobile App Overhaul](./mobile-full-app-plan.md), [Companion Baseline](./android-companion-app-plan.md)                              |
+| Electronic circuit simulation    | In progress / planned              | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation.                                                                                                                                                                        | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md)                                                             |
+| Logic and circuit diagram editor | In progress umbrella               | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream.                                                                                                                                                                                                                  | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md)                                                                  |
+| User calendar                    | Testing                            | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete.                                                                                                                                                                                | [User Calendar Feature Plan](./user-calendar-feature-plan.md)                                                                             |
+| Collab Presentations             | Phase 10 testing                   | Phases 0-10 are implemented, including bounded accessibility semantics/audits, heterogeneous performance and malformed-file gates, recovery/CRDT soak coverage, and a release-validation matrix. Physical platform, screen-reader, package, crash/encryption/history/resource-soak, Android, PowerPoint, Google Slides, and Keynote evidence remains open. | [Collab Presentations Plan](./presentation-tool-plan.md), [Release Validation](../build/presentation-release-validation.md)               |
+| Digital ink and annotation       | Phase 10 testing                   | Phase 10 code and automated hardening are implemented. Complete the physical platform/input/accessibility/resource matrix and multi-client release soak before sign-off.                                                                                                                                                                                   | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Release Validation](../build/digital-ink-release-validation.md) |
+| Flatpak distribution             | Planned                            | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                                                                                                                                                                 | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                               |
 
-### Accounts, Previews, And Collaboration Expansion
+### Completed Accounts And Collaboration Expansion
 
-- **Testing**: web member/admin self-service profiles, desktop and Android
-  server-specific profile editing, and shared internal content previews with server caching.
-  See [Accounts And Document Previews](./accounts-and-previews-plan.md) for the
-  implemented scope, thumbnail fidelity limits, and remaining validation.
+Accounts and the original internal-preview delivery are complete and
+[archived](../archive/accounts-and-previews-plan.md), including desktop and
+Android server profile editing. Admin-issued password reset links are also
+implemented. Native picker/lifecycle checks remain recurring release gates.
+
 - **Planned**: Android vault chat, then direct/group conversations and teams.
 - **Ideas only / draft proposal**: browser shared libraries, team-owned files,
   folder/file permissions, and optional guest/share links. Voice/video calls
@@ -44,10 +45,32 @@ work from being mistaken for an active roadmap item.
 
 The expansion sequence and open product decisions are in
 [Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md).
+Mobile delivery uses that shared model through the new full-app plan.
+
+### Document Preview Expansion
+
+**Planned**, outside the completed original preview scope:
+
+1. Measure cold/warm generation, transfer, memory and Android timings against
+   maintained fixtures before setting production budgets or claiming speedups.
+2. Add scene-faithful deck/ink/worksheet thumbnails in bounded workers, retaining
+   summaries as fallback. Do not execute document scripts or fetch arbitrary URLs.
+3. Add server PDF/resized-image generation with explicit decoder dependencies,
+   process isolation, time/memory limits and deployment validation.
+4. Add conditional responses and bounded account-scoped client caching.
+   Authorization, offline-copy permissions, logout and replica removal govern
+   access and retention; cached content must not bypass permission denial.
+5. Add Android file-list previews and optional generation after committed
+   revisions, without eagerly rendering entire vaults. The Android portion is
+   owned by [mobile Phase 3](./mobile-full-app-plan.md#phase-3--file-workflows-and-previews).
+
+The archived account/preview contract remains the implemented baseline; fuller
+rendering and server PDF/image support have not shipped through this plan.
 
 ## Recommended Dependency Order
 
-1. Finish Android Phase 7 lifecycle and release validation.
+1. Begin the full mobile app Phase 0 local-storage proof while carrying forward
+   Android companion Phase 7 lifecycle and release validation.
 2. Route future server/native feed, map, webhook, or preview integrations
    through the completed shared outbound-network policy.
 3. Complete the calendar Phase 9 maintained external-client interoperability
@@ -75,17 +98,27 @@ engine.
 
 ## Project Details
 
-### Android Companion App
+### Full Mobile App
 
-Open tracker entries:
+The source audit is complete; overhaul implementation has not begun. The
+[full-app plan](./mobile-full-app-plan.md) owns the delivery sequence:
 
-- Phase 7, **In progress**: lifecycle, device matrix, signing, reproducible
-  release packaging, crash/error strategy, and public reverse-proxy validation.
-- Phase 8, **Deferred**: richer mobile editing, iOS, capture flows, and other
-  post-MVP expansion.
+- Phases 0-2, **Not started**: contracts/device proof, standalone local vaults,
+  backup/recovery, and migration of existing editors. This is the first release
+  milestone; a server must be optional.
+- Phases 3-4, **Planned**: file organization/search/recovery, Android previews and
+  touch authoring depth, delivered as separate editor projects.
+- Phase 5, **Planned**: text collaboration using the teams/chat server plan.
+- Phase 6, **Planned / recurring release gates**: Android file integration,
+  accessibility/tablet behavior, migrations, device evidence and distribution.
+- iOS, **Deferred discovery**: separate feasibility and release plan required.
 
-Background sync and push notification delivery are complete and documented in
-the archive rather than implemented as Android-only forks.
+The old companion Phase 7 remains **Testing / release work** for lifecycle,
+signing, reproducible packaging, error handling and public reverse proxies;
+carry its unfinished evidence into the new release matrix. The old Phase 8
+expansion bucket is superseded, not an additional implementation stream.
+Background sync, notification delivery and widgets remain implemented and
+archived; their physical device/release matrices must still be maintained.
 
 ### Advanced Tables
 

@@ -1,10 +1,9 @@
 # Active Plans
 
-The progress trackers in these documents are the source of truth for
-implementation status. Start with
+Start with
 [Open Development Work](./open-development-work.md) for the consolidated view.
 
-- [Accounts And Document Previews](./accounts-and-previews-plan.md)
+- [Full Mobile App Overhaul](./mobile-full-app-plan.md)
 - [Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md)
 - [Android Companion App](./android-companion-app-plan.md)
 - [Advanced Tables](./advanced-tables-plan.md)

@@ -16,7 +16,7 @@ documentation.
 ## Categories
 
 - [Desktop](./desktop/README.md) - desktop architecture and relevant plans
-- [Mobile](./mobile/README.md) - Android companion scope, builds, releases, and
+- [Mobile](./mobile/README.md) - Android capabilities, standalone-app roadmap, builds, releases, and
   launcher-widget release validation
 - [Server](./server/README.md) - hosted server architecture, operations,
   security, protocol, and administration
