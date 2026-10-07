@@ -136,6 +136,16 @@ pub fn validate_hosted_vault_path(value: &str) -> Result<&str, String> {
     Ok(value)
 }
 
+/// Only self-service account routes are exposed to the webview.
+pub fn validate_hosted_account_request(method: &str, path: &str) -> Result<(), String> {
+    match (method, path) {
+        ("GET" | "PATCH", "/api/v1/users/me")
+        | ("POST", "/api/v1/users/me/password")
+        | ("GET" | "PUT" | "DELETE", "/api/v1/users/me/avatar") => Ok(()),
+        _ => Err("Account requests must target a supported self-service operation.".into()),
+    }
+}
+
 pub fn validate_hosted_calendar_path(value: &str) -> Result<&str, String> {
     let request_path = value.split('?').next().unwrap_or(value);
     let lower_path = request_path.to_ascii_lowercase();
@@ -254,5 +264,26 @@ mod tests {
             .err()
             .unwrap();
         assert!(server_request_error(error).contains("DNS, proxy, and network"));
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    #[test]
+    fn account_bridge_is_scoped_to_supported_self_service_routes() {
+        use super::validate_hosted_account_request as validate;
+        assert!(validate("GET", "/api/v1/users/me").is_ok());
+        assert!(validate("PATCH", "/api/v1/users/me").is_ok());
+        assert!(validate("POST", "/api/v1/users/me/password").is_ok());
+        for path in [
+            "/api/v1/admin/users",
+            "/api/v1/users/other",
+            "/api/v1/users/me/../admin",
+            "/api/v1/users/me?role=admin",
+            "https://other/users/me",
+        ] {
+            assert!(validate("GET", path).is_err());
+        }
+        assert!(validate("DELETE", "/api/v1/users/me").is_err());
     }
 }

@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-07
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -30,6 +30,20 @@ work from being mistaken for an active roadmap item.
 | Collab Presentations             | Phase 10 testing                 | Phases 0-10 are implemented, including bounded accessibility semantics/audits, heterogeneous performance and malformed-file gates, recovery/CRDT soak coverage, and a release-validation matrix. Physical platform, screen-reader, package, crash/encryption/history/resource-soak, Android, PowerPoint, Google Slides, and Keynote evidence remains open. | [Collab Presentations Plan](./presentation-tool-plan.md), [Release Validation](../build/presentation-release-validation.md)               |
 | Digital ink and annotation       | Phase 10 testing                 | Phase 10 code and automated hardening are implemented. Complete the physical platform/input/accessibility/resource matrix and multi-client release soak before sign-off.                                                                                                                                                                                   | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Release Validation](../build/digital-ink-release-validation.md) |
 | Flatpak distribution             | Planned                          | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                                                                                                                                                                 | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                               |
+
+### Accounts, Previews, And Collaboration Expansion
+
+- **Testing**: web member/admin self-service profiles, Android server-specific
+  profile editing, and shared internal content previews with server caching.
+  See [Accounts And Document Previews](./accounts-and-previews-plan.md) for the
+  implemented scope, thumbnail fidelity limits, and remaining validation.
+- **Planned**: Android vault chat, then direct/group conversations and teams.
+- **Ideas only / draft proposal**: browser shared libraries, team-owned files,
+  folder/file permissions, and optional guest/share links. Voice/video calls
+  remain **Deferred**.
+
+The expansion sequence and open product decisions are in
+[Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md).
 
 ## Recommended Dependency Order
 

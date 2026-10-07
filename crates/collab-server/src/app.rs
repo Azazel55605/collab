@@ -237,6 +237,10 @@ pub fn build_router(state: AppState) -> Router {
             get(api::list_vault_files).post(api::create_vault_file),
         )
         .route(
+            "/api/v1/vaults/{vault_id}/files/{file_id}/preview",
+            get(api::get_document_preview),
+        )
+        .route(
             "/api/v1/vaults/{vault_id}/files/{file_id}",
             get(api::get_vault_file),
         )

@@ -360,6 +360,22 @@ describe('FileTree folder collapse state', () => {
     expect(screen.queryByText('child.md')).toBeNull();
   });
 
+  it.each(['md', 'sheet', 'deck', 'ink', 'kanban', 'canvas', 'logic'])(
+    'offers an internal %s content preview',
+    (extension) => {
+      const name = `Document.${extension}`;
+      useVaultStore.setState({
+        ...useVaultStore.getState(),
+        fileTree: [
+          { relativePath: name, name, extension, modifiedAt: 1, size: 10, isFolder: false },
+        ],
+      });
+      render(<FileTree />);
+      fireEvent.mouseEnter(screen.getByText(name));
+      expect(screen.getByTestId('file-hover-preview').textContent).toBe(`document:${name}`);
+    },
+  );
+
   it('shows a PDF hover preview when enabled', () => {
     useVaultStore.setState({
       ...useVaultStore.getState(),

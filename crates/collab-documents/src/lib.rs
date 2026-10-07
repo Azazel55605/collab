@@ -2,6 +2,7 @@ pub mod deck;
 pub mod ink;
 pub mod kanban;
 pub mod pdf;
+pub mod preview;
 pub mod references;
 pub mod sheet;
 

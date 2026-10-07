@@ -10,8 +10,9 @@ use tokio::io::AsyncWriteExt;
 
 use crate::hosted_client::{
     decode_hosted_error, decode_hosted_json_response, decode_session, hosted_request_method,
-    server_client, server_request_error, validate_hosted_calendar_path, validate_hosted_vault_path,
-    validate_identifier, validate_server_url,
+    server_client, server_request_error, validate_hosted_account_request,
+    validate_hosted_calendar_path, validate_hosted_vault_path, validate_identifier,
+    validate_server_url,
 };
 use crate::hosted_session::{fresh_session_for, refresh_session_locked};
 use crate::server_token_store::{delete_refresh_token, read_refresh_token, store_refresh_token};
@@ -339,6 +340,66 @@ pub async fn hosted_vault_request(
         request = request.json(&body);
     }
     decode_hosted_json_response(request.send().await.map_err(server_request_error)?).await
+}
+
+#[tauri::command]
+pub async fn hosted_account_request(
+    state: State<'_, AppState>,
+    server_url: String,
+    method: String,
+    path: String,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    validate_hosted_account_request(&method, &path)?;
+    let session = fresh_session_for(
+        state.hosted_sessions(),
+        &server_url,
+        "Connect to the server before editing your profile.",
+    )
+    .await?;
+    // The avatar GET uses the existing authenticated image endpoint.
+    let avatar = method == "GET" && path == "/api/v1/users/me/avatar";
+    let endpoint = if avatar {
+        format!("/api/v1/users/{}/avatar", session.user.id)
+    } else {
+        path
+    };
+    let mut request = server_client(session.allow_invalid_certificates)?
+        .request(
+            hosted_request_method(&method)?,
+            format!("{}{}", session.server_url, endpoint),
+        )
+        .bearer_auth(&session.access_token);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(server_request_error)?;
+    if avatar {
+        if !response.status().is_success() {
+            return Err(decode_hosted_error(response).await);
+        }
+        let mime = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("image/png")
+            .to_owned();
+        let bytes = response.bytes().await.map_err(server_request_error)?;
+        return Ok(Value::String(format!(
+            "data:{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        )));
+    }
+    let result = decode_hosted_json_response(response).await?;
+    if let Ok(user) = serde_json::from_value::<ServerUser>(result.clone()) {
+        let mut sessions = state.hosted_sessions().server_sessions.write();
+        if let Some(current) = sessions.get_mut(&session.server_url) {
+            if current.user.id == user.id {
+                current.user = user;
+            }
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import { NotificationSettingsSection } from '../components/NotificationSettingsSection';
+import { ProfileSettingsSection } from '../components/ProfileSettingsSection';
 import { TimeField } from '../components/TimeField';
 import { WidgetSettingsSection } from '../components/WidgetSettingsSection';
 import { useBackDismiss } from '../lib/backStack';
@@ -140,8 +141,8 @@ const SETTINGS_CATEGORIES: Array<{
   },
   {
     id: 'account',
-    label: 'Account',
-    description: 'Server connections and session information',
+    label: 'Profile',
+    description: 'Name, username, picture, password, and server accounts',
     keywords: 'account profile server login connection session',
     Icon: UserRound,
   },
@@ -967,26 +968,29 @@ export function SettingsScreen({
       ) : null}
 
       {activeCategory === 'account' ? (
-        <section className="card">
-          <div className="card-title">
-            <Server size={18} aria-hidden />
-            <span>Account</span>
-          </div>
-          <div className="info-rows">
-            <div className="info-row">
-              <span>Connected servers</span>
-              <strong>{connectedCount}</strong>
+        <>
+          <ProfileSettingsSection />
+          <section className="card">
+            <div className="card-title">
+              <Server size={18} aria-hidden />
+              <span>Account</span>
             </div>
-            <div className="info-row">
-              <span>Saved servers</span>
-              <strong>{servers.length}</strong>
+            <div className="info-rows">
+              <div className="info-row">
+                <span>Connected servers</span>
+                <strong>{connectedCount}</strong>
+              </div>
+              <div className="info-row">
+                <span>Saved servers</span>
+                <strong>{servers.length}</strong>
+              </div>
             </div>
-          </div>
-          <p className="footnote">
-            Manage sign-in and reconnect on the Servers tab. Session tokens stay in native storage
-            and never enter the web view.
-          </p>
-        </section>
+            <p className="footnote">
+              Manage sign-in and reconnect on the Servers tab. Session tokens stay in native storage
+              and never enter the web view.
+            </p>
+          </section>
+        </>
       ) : null}
     </div>
   );

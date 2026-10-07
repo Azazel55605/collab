@@ -1550,6 +1550,25 @@ export class HostedVaultClient implements VaultClient {
     throw new Error('Hosted snapshot history is immutable and cannot be cleared.');
   }
 
+  async readDocumentPreviewDataUrl(relativePath: string): Promise<string> {
+    const manifest = await this.onlineOrCachedManifest();
+    const file = this.findByPath(manifest, relativePath);
+    // Unsynced edits must preview the local draft rather than an older server revision.
+    const local = await this.readCurrentCachedDocument(file).catch(() => null);
+    if (file.currentRevision?.contentHash === 'offline' && local !== null) {
+      return tauriCommands.generateDocumentPreview(relativePath, local);
+    }
+    try {
+      const preview = await this.request<{ dataUrl: string }>('GET', `/files/${file.id}/preview`);
+      return preview.dataUrl;
+    } catch (error) {
+      // Connectivity failures may use an authorized offline replica. Permission
+      // failures must never fall back to cached private content.
+      if (!isLikelyConnectivityError(error) || local === null) throw error;
+      return tauriCommands.generateDocumentPreview(relativePath, local);
+    }
+  }
+
   async readAssetDataUrl(relativePath: string): Promise<string> {
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);

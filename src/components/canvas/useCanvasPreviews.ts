@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { Node as FlowNode } from '@xyflow/react';
 
+import { getDocumentPreviewDataUrl, supportsDocumentPreview } from '../../lib/documentPreview';
 import { createVaultClient } from '../../lib/vaultClient';
 import {
   prefetchWebPreviews,
@@ -184,6 +185,8 @@ export function useCanvasPreviews({
           } else if (node.type === 'note') {
             const { content } = await client.readDocument(path);
             nextPreview = { excerpt: cleanPreviewText(content), markdownContent: content };
+          } else if (supportsDocumentPreview(path)) {
+            nextPreview = { imageSrc: await getDocumentPreviewDataUrl(client, path) };
           } else if (canPreviewText(extension)) {
             const { content } = await client.readDocument(path);
             nextPreview = { excerpt: cleanPreviewText(content) };

@@ -54,7 +54,7 @@ export default function SettingsGeneralSection({
       <SectionLabel>Previews</SectionLabel>
       <OptionRow
         label="Hover previews in file tree"
-        description="Show a lightweight image or PDF preview beside supported files when hovering them in the file tree"
+        description="Show content thumbnails for notes, sheets, decks, boards, diagrams, ink, images, and PDFs when hovering files"
       >
         <ToggleSwitch
           checked={fileTreeHoverPreviewsEnabled}

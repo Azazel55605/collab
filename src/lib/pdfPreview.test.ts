@@ -1,8 +1,9 @@
+import { getDocument } from 'pdfjs-dist';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalVaultMeta } from '../types/vault';
 
-import { loadPdfPreviewDataUrl } from './pdfPreview';
+import { loadPdfPreviewDataUrl, renderPdfPreviewFromDataUrl } from './pdfPreview';
 import { LocalVaultClient, type VaultClient } from './vaultClient';
 
 vi.mock('pdfjs-dist', () => ({
@@ -88,5 +89,42 @@ describe('loadPdfPreviewDataUrl', () => {
     expect(readAssetDataUrl).toHaveBeenCalledWith('Docs/spec.pdf');
     expect(readCachedDocumentPreviewDataUrl).not.toHaveBeenCalled();
     expect(writeCachedDocumentPreviewDataUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('PDF renderer resource lifecycle', () => {
+  it('destroys the loading task after rendering and shares a completed preview', async () => {
+    const destroy = vi.fn(async () => {});
+    const page = {
+      getViewport: () => ({ width: 260, height: 180 }),
+      render: vi.fn(() => ({ promise: Promise.resolve() })),
+    };
+    vi.mocked(getDocument).mockReturnValue({
+      promise: Promise.resolve({ getPage: async () => page }),
+      destroy,
+    } as never);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as never);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('rendered-png');
+    const source = 'data:application/pdf;base64,bGlmZWN5Y2xl';
+    expect(await renderPdfPreviewFromDataUrl(source)).toBe('rendered-png');
+    expect(await renderPdfPreviewFromDataUrl(source)).toBe('rendered-png');
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(page.render).toHaveBeenCalledTimes(1);
+  });
+  it('destroys a failed loading task and permits another render attempt', async () => {
+    const destroy = vi.fn(async () => {});
+    vi.mocked(getDocument).mockReturnValue({
+      promise: Promise.reject(new Error('bad PDF')),
+      destroy,
+    } as never);
+    const source = 'data:application/pdf;base64,cmV0cnk=';
+    await expect(renderPdfPreviewFromDataUrl(source)).rejects.toThrow('bad PDF');
+    expect(destroy).toHaveBeenCalledTimes(1);
+    vi.mocked(getDocument).mockReturnValue({
+      promise: Promise.reject(new Error('second attempt')),
+      destroy,
+    } as never);
+    await expect(renderPdfPreviewFromDataUrl(source)).rejects.toThrow('second attempt');
+    expect(destroy).toHaveBeenCalledTimes(2);
   });
 });

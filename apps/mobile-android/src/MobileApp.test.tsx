@@ -351,7 +351,7 @@ describe('MobileApp shell', () => {
     // Sync recovery opens the app's own settings; the widget offers no fix of
     // its own because it cannot show whether one worked.
     await waitFor(() => expect(useMobileStore.getState().tab).toBe('settings'));
-    expect(await screen.findByRole('heading', { name: /Account/ })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: /Profile/ })).toBeTruthy();
   });
 
   it('persists the IEC/DIN schematic notation preference', async () => {

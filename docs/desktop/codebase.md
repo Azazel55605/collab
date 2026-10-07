@@ -9,6 +9,33 @@ For the app's visual language, interaction patterns, and UI rules, see the
 
 **Sections:** [Views](#views) · [Components](#components) · [Stores](#stores) · [Types](#types) · [IPC Commands](#ipc-commands) · [Rust Backend](#rust-backend) · [Theming](#theming) · [Feature Map](#feature-map) · [Shadcn Components](#shadcn-components-installed)
 
+## Account And Preview Adapters
+
+- `apps/admin-web/src/App.tsx` routes members to Profile and administrators to
+  Dashboard, with a Profile navigation item. The inline profile and existing
+  account dialog share the same form and `/users/me` APIs.
+- `apps/mobile-android/src/components/ProfileSettingsSection.tsx` owns the
+  connected-server switch and self-service forms under Settings → Profile.
+- `hosted_account_request` in `src-tauri/src/commands/server.rs` accepts only
+  supported self-service method/path pairs; tokens remain native. Profile
+  responses update the native session identity. `src/lib/tauri.ts` exposes the
+  typed gateway to app surfaces.
+- `src/lib/documentPreview.ts` deduplicates internal preview loads;
+  `HostedVaultClient.readDocumentPreviewDataUrl` uses the server preview endpoint
+  and connectivity-only offline fallback. Native `generate_document_preview`
+  calls the pure `collab-documents::preview` SVG content renderer. Local caches
+  honor source metadata/renderer version and compare the source hash on writes.
+- File-tree hovers and canvas file cards support `.md`, `.sheet`, `.deck`,
+  `.kanban`, `.canvas`, `.logic`, and `.ink` summaries. Existing image/PDF paths
+  remain; `pdfPreview.ts` bounds memory, retries failures, and releases workers.
+- Server migration 0033 stores one derived preview per file, keyed by source
+  hash/name/renderer version. Retrieval checks current `vault.read` and active
+  file state before cache access. No preview is an authoritative document.
+
+See [Accounts And Document Previews](../plans/accounts-and-previews-plan.md)
+for rendering limits and [the collaboration expansion draft](../plans/teams-chat-and-file-sharing-plan.md)
+for chats, teams, and shared libraries.
+
 ## Testing
 
 Frontend regression coverage uses Vitest + jsdom via `pnpm test`.

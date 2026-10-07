@@ -613,7 +613,7 @@ pub async fn me(
     Extension(request_id): Extension<String>,
     headers: HeaderMap,
 ) -> Result<Json<DataResponse<ServerUser>>, ApiFailure> {
-    let authenticated = require_user(&state, &headers, &request_id).await?;
+    let authenticated = require_authenticated_user(&state, &headers, &request_id).await?;
     Ok(Json(DataResponse::new(authenticated.user)))
 }
 
@@ -1043,62 +1043,43 @@ pub async fn update_self(
     headers: HeaderMap,
     Json(payload): Json<UpdateSelfRequest>,
 ) -> Result<Json<DataResponse<ServerUser>>, ApiFailure> {
-    let authenticated = require_csrf(&state, &headers, &request_id).await?;
+    let authenticated = require_any_user(&state, &headers, &request_id).await?;
     let user_id = user_uuid(&authenticated.user);
-    if let Some(username) = payload.username.as_deref() {
-        let normalized = normalize_username(username)
-            .map_err(|error| ApiFailure::validation(error.to_string(), request_id.clone()))?;
-        let taken = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM users WHERE normalized_username = $1 AND id <> $2)",
-        )
-        .bind(&normalized)
+    // Validate the complete patch before writing any part of it.
+    let normalized = payload
+        .username
+        .as_deref()
+        .map(normalize_username)
+        .transpose()
+        .map_err(|error| ApiFailure::validation(error.to_string(), request_id.clone()))?;
+    if let Some(name) = payload.display_name.as_deref() {
+        if name.trim().is_empty() || name.chars().count() > 200 {
+            return Err(ApiFailure::validation(
+                "A display name of 1 to 200 characters is required.",
+                request_id,
+            ));
+        }
+    }
+    if let Some(preferences) = payload.preferences.as_ref() {
+        if !preferences.is_object() || preferences.to_string().len() > 16 * 1024 {
+            return Err(ApiFailure::validation(
+                "Preferences must be a JSON object of at most 16 KB.",
+                request_id,
+            ));
+        }
+    }
+    sqlx::query("UPDATE users SET username = COALESCE($1, username), normalized_username = COALESCE($2, normalized_username), display_name = COALESCE($3, display_name), preferences = COALESCE($4, preferences), updated_at = NOW() WHERE id = $5")
+        .bind(payload.username.as_deref().map(str::trim))
+        .bind(normalized)
+        .bind(payload.display_name.as_deref().map(str::trim))
+        .bind(payload.preferences)
         .bind(user_id)
-        .fetch_one(&state.database)
-        .await
-        .map_err(|_| ApiFailure::server(request_id.clone()))?;
-        if taken {
-            return Err(ApiFailure::validation(
-                "That username is already in use.",
-                request_id,
-            ));
-        }
-        sqlx::query("UPDATE users SET username = $1, normalized_username = $2, updated_at = NOW() WHERE id = $3")
-            .bind(username.trim())
-            .bind(&normalized)
-            .bind(user_id)
-            .execute(&state.database)
-            .await
-            .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    }
-    if let Some(display_name) = payload.display_name.as_deref() {
-        let trimmed = display_name.trim();
-        if trimmed.is_empty() {
-            return Err(ApiFailure::validation(
-                "A display name is required.",
-                request_id,
-            ));
-        }
-        sqlx::query("UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2")
-            .bind(trimmed)
-            .bind(user_id)
-            .execute(&state.database)
-            .await
-            .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    }
-    if let Some(preferences) = payload.preferences {
-        if !preferences.is_object() {
-            return Err(ApiFailure::validation(
-                "Preferences must be a JSON object.",
-                request_id,
-            ));
-        }
-        sqlx::query("UPDATE users SET preferences = $1, updated_at = NOW() WHERE id = $2")
-            .bind(preferences)
-            .bind(user_id)
-            .execute(&state.database)
-            .await
-            .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    }
+        .execute(&state.database).await
+        .map_err(|error| {
+            if error.as_database_error().is_some_and(|error| error.is_unique_violation()) {
+                ApiFailure::validation("That username is already in use.", request_id.clone())
+            } else { ApiFailure::server(request_id.clone()) }
+        })?;
     let user = fetch_user_profile(&state.database, user_id, &request_id).await?;
     Ok(Json(DataResponse::new(user)))
 }
@@ -1113,7 +1094,7 @@ pub async fn upload_self_avatar(
     headers: HeaderMap,
     Json(payload): Json<UploadAvatarRequest>,
 ) -> Result<Json<DataResponse<ServerUser>>, ApiFailure> {
-    let authenticated = require_csrf(&state, &headers, &request_id).await?;
+    let authenticated = require_any_user(&state, &headers, &request_id).await?;
     let user_id = user_uuid(&authenticated.user);
     if !matches!(
         payload.media_type.as_str(),
@@ -1153,7 +1134,7 @@ pub async fn delete_self_avatar(
     Extension(request_id): Extension<String>,
     headers: HeaderMap,
 ) -> Result<Json<DataResponse<ServerUser>>, ApiFailure> {
-    let authenticated = require_csrf(&state, &headers, &request_id).await?;
+    let authenticated = require_any_user(&state, &headers, &request_id).await?;
     let user_id = user_uuid(&authenticated.user);
     sqlx::query(
         "UPDATE users SET avatar_bytes = NULL, avatar_media_type = NULL, avatar_updated_at = NULL, updated_at = NOW() WHERE id = $1",
@@ -2625,6 +2606,101 @@ pub async fn get_vault_file(
         file,
         content,
     })))
+}
+
+/// Content thumbnails are authorized just like reading the original document.
+/// A transaction-scoped lock deduplicates generation across server processes.
+pub async fn get_document_preview(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path((vault_id, file_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<DataResponse<Value>>, ApiFailure> {
+    let actor = require_authenticated_user(&state, &headers, &request_id).await?;
+    require_capability(
+        &state.database,
+        vault_id,
+        user_uuid(&actor.user),
+        Capability::VaultRead,
+        &request_id,
+    )
+    .await?;
+    let file = load_vault_file_entry(&state.database, vault_id, file_id, &request_id).await?;
+    let mut transaction = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("preview:{file_id}"))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    if file.state != HostedFileState::Active || file.kind == HostedFileKind::Folder {
+        return Err(ApiFailure::not_found(request_id));
+    }
+    let revision = file
+        .current_revision
+        .as_ref()
+        .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    let kind = collab_documents::classify_path(&file.relative_path);
+    if !matches!(
+        kind,
+        Some(
+            collab_documents::DocumentKind::Note
+                | collab_documents::DocumentKind::Sheet
+                | collab_documents::DocumentKind::Deck
+                | collab_documents::DocumentKind::Ink
+                | collab_documents::DocumentKind::Canvas
+                | collab_documents::DocumentKind::Kanban
+                | collab_documents::DocumentKind::Logic
+        )
+    ) {
+        return Err(ApiFailure::validation(
+            "This format has no server content preview.",
+            request_id,
+        ));
+    }
+    if revision.size_bytes > collab_documents::preview::MAX_SOURCE_BYTES as u64 {
+        return Err(ApiFailure::validation(
+            "Document is too large for a preview.",
+            request_id,
+        ));
+    }
+    let cached = sqlx::query_scalar::<_, String>("SELECT svg FROM hosted_document_previews WHERE file_id = $1 AND content_hash = $2 AND file_name = $3 AND renderer_version = $4")
+        .bind(file_id).bind(&revision.content_hash).bind(&file.name).bind(collab_documents::preview::RENDERER_VERSION)
+        .fetch_optional(&mut *transaction).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let svg = match cached {
+        Some(svg) => svg,
+        None => {
+            let bytes = state
+                .blobs
+                .get(&revision.content_hash)
+                .await
+                .map_err(|_| ApiFailure::server(request_id.clone()))?
+                .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+            let path = file.relative_path.clone();
+            let svg = tokio::task::spawn_blocking(move || {
+                collab_documents::preview::render(&path, &bytes)
+            })
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?
+            .map_err(|error| ApiFailure::validation(error, request_id.clone()))?;
+            sqlx::query("INSERT INTO hosted_document_previews (file_id, content_hash, file_name, renderer_version, svg) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (file_id) DO UPDATE SET content_hash = EXCLUDED.content_hash, file_name = EXCLUDED.file_name, renderer_version = EXCLUDED.renderer_version, svg = EXCLUDED.svg, generated_at = NOW()")
+                .bind(file_id).bind(&revision.content_hash).bind(&file.name).bind(collab_documents::preview::RENDERER_VERSION).bind(&svg)
+                .execute(&mut *transaction).await.map_err(|_| ApiFailure::server(request_id.clone()))?;
+            svg
+        }
+    };
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    Ok(Json(DataResponse::new(json!({
+        "contentHash": revision.content_hash,
+        "rendererVersion": collab_documents::preview::RENDERER_VERSION,
+        "dataUrl": format!("data:image/svg+xml;base64,{}", STANDARD.encode(svg))
+    }))))
 }
 
 pub async fn list_file_revisions(
@@ -12971,6 +13047,229 @@ mod tests {
         }
         let csrf_value = csrf.split_once('=').unwrap().1.to_owned();
         (format!("{session}; {csrf}"), csrf_value)
+    }
+
+    #[tokio::test]
+    async fn self_service_accounts_and_preview_cache_are_authorized_and_revision_bound() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _db_guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users, hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let directory = tempfile::tempdir().unwrap();
+        let blobs = Arc::new(FileSystemBlobStorage::new(directory.path()).await.unwrap());
+        let app = build_router(AppState::new(ServerConfig::default(), pool.clone(), blobs));
+        let bootstrap = request(&app, "POST", "/api/v1/auth/bootstrap", json!({"username":"admin","displayName":"Admin","password":"correct horse battery staple"}), None, None).await;
+        let (cookie, csrf) = session_cookies(&bootstrap);
+        let member = request(&app, "POST", "/api/v1/admin/users", json!({"username":"member","displayName":"Member","password":"member password is long enough"}), Some(&cookie), Some(&csrf)).await;
+        assert_eq!(member.status(), StatusCode::CREATED);
+        let member_id = json_body(member).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let login = request(&app,"POST","/api/v1/auth/native/login",json!({"username":"member","password":"member password is long enough","clientName":"profile test"}),None,None).await;
+        let native = json_body(login).await;
+        let token = native["data"]["accessToken"].as_str().unwrap();
+        assert_eq!(
+            bearer_request(&app, "GET", "/api/v1/users/me", json!({}), token)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        let invalid = bearer_request(
+            &app,
+            "PATCH",
+            "/api/v1/users/me",
+            json!({"username":"should-not-save","displayName":" "}),
+            token,
+        )
+        .await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json_body(bearer_request(&app, "GET", "/api/v1/users/me", json!({}), token).await)
+                .await["data"]["username"],
+            "member"
+        );
+        let profile = bearer_request(
+            &app,
+            "PATCH",
+            "/api/v1/users/me",
+            json!({"username":"renamed","displayName":"New name","role":"admin"}),
+            token,
+        )
+        .await;
+        assert_eq!(profile.status(), StatusCode::OK);
+        let user = json_body(profile).await;
+        assert_eq!(user["data"]["role"], "member");
+        assert_eq!(user["data"]["username"], "renamed");
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                "/api/v1/users/me",
+                json!({"displayName":"CSRF bypass"}),
+                Some(&cookie),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            bearer_request(
+                &app,
+                "PUT",
+                "/api/v1/users/me/avatar",
+                json!({"mediaType":"image/png","contentBase64":"AQIDBA=="}),
+                token
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            bearer_request(&app, "DELETE", "/api/v1/users/me/avatar", json!({}), token)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            bearer_request(
+                &app,
+                "POST",
+                "/api/v1/users/me/password",
+                json!({"currentPassword":"incorrect","newPassword":"a new password long enough"}),
+                token
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(bearer_request(&app,"POST","/api/v1/users/me/password",json!({"currentPassword":"member password is long enough","newPassword":"a new password long enough"}),token).await.status(),StatusCode::NO_CONTENT);
+        assert_eq!(
+            bearer_request(&app, "GET", "/api/v1/users/me", json!({}), token)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+
+        let vault = request(
+            &app,
+            "POST",
+            "/api/v1/vaults",
+            json!({"name":"Previews"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(vault.status(), StatusCode::CREATED);
+        let vault_id = json_body(vault).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let file = request(&app,"POST",&format!("/api/v1/vaults/{vault_id}/files"),json!({"name":"Test.md","kind":"document","documentType":"note","content":"# First preview"}),Some(&cookie),Some(&csrf)).await;
+        assert_eq!(file.status(), StatusCode::CREATED);
+        let file_id = json_body(file).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let uri = format!("/api/v1/vaults/{vault_id}/files/{file_id}/preview");
+        assert_eq!(
+            request(&app, "GET", &uri, json!({}), None, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            bearer_request(&app, "GET", &uri, json!({}), token)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let first = request(&app, "GET", &uri, json!({}), Some(&cookie), None).await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let first = json_body(first).await;
+        let generated = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+            "SELECT generated_at FROM hosted_document_previews WHERE file_id = $1::uuid",
+        )
+        .bind(&file_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let repeated =
+            json_body(request(&app, "GET", &uri, json!({}), Some(&cookie), None).await).await;
+        assert_eq!(first, repeated);
+        assert_eq!(
+            generated,
+            sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+                "SELECT generated_at FROM hosted_document_previews WHERE file_id = $1::uuid"
+            )
+            .bind(&file_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        );
+        let update = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/files/{file_id}/revisions"),
+            json!({"expectedRevisionSequence":1,"content":"# Updated preview"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(update.status(), StatusCode::CREATED);
+        let changed =
+            json_body(request(&app, "GET", &uri, json!({}), Some(&cookie), None).await).await;
+        assert_ne!(first["data"]["dataUrl"], changed["data"]["dataUrl"]);
+        assert_ne!(first["data"]["contentHash"], changed["data"]["contentHash"]);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM hosted_document_previews")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+        // A cached thumbnail never grants access to a non-member.
+        assert_eq!(
+            bearer_request(&app, "GET", &uri, json!({}), token)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let added = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/members"),
+            json!({"userId":member_id,"role":"viewer"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(added.status(), StatusCode::CREATED);
+        assert_eq!(
+            bearer_request(&app, "GET", &uri, json!({}), token)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        sqlx::query("DELETE FROM hosted_document_previews")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let rebuilt =
+            json_body(request(&app, "GET", &uri, json!({}), Some(&cookie), None).await).await;
+        assert_eq!(changed, rebuilt);
     }
 
     #[tokio::test]
