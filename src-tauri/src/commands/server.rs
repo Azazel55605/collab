@@ -324,6 +324,7 @@ pub async fn hosted_vault_request(
     method: String,
     path: String,
     body: Option<Value>,
+    expected_user_id: Option<String>,
 ) -> Result<Value, String> {
     let session = fresh_session_for(
         state.hosted_sessions(),
@@ -331,6 +332,12 @@ pub async fn hosted_vault_request(
         "Connect to the Collab server before opening hosted vaults.",
     )
     .await?;
+    if expected_user_id
+        .as_ref()
+        .is_some_and(|id| id != &session.user.id)
+    {
+        return Err("The connected chat account changed. Reopen chat.".into());
+    }
     let method = hosted_request_method(&method)?;
     let path = validate_hosted_vault_path(&path)?;
     let mut request = server_client(session.allow_invalid_certificates)?
@@ -358,8 +365,10 @@ pub async fn hosted_account_request(
     )
     .await?;
     // The avatar GET uses the existing authenticated image endpoint.
-    let avatar = method == "GET" && path == "/api/v1/users/me/avatar";
-    let endpoint = if avatar {
+    let own_avatar = path == "/api/v1/users/me/avatar";
+    let avatar =
+        method == "GET" && (own_avatar || crate::hosted_client::user_avatar_id(&path).is_some());
+    let endpoint = if avatar && own_avatar {
         format!("/api/v1/users/{}/avatar", session.user.id)
     } else {
         path

@@ -362,6 +362,8 @@ pub enum HostedVaultRole {
 pub enum Capability {
     #[serde(rename = "vault.read")]
     VaultRead,
+    #[serde(rename = "chat.send")]
+    ChatSend,
     #[serde(rename = "vault.search")]
     VaultSearch,
     #[serde(rename = "vault.viewHistory")]
@@ -419,8 +421,9 @@ pub enum Capability {
 impl Capability {
     /// Every capability, in canonical order. Used to seed the admin built-in
     /// template and to resolve tokens back to the typed enum.
-    pub const ALL: [Capability; 27] = [
+    pub const ALL: [Capability; 28] = [
         Capability::VaultRead,
+        Capability::ChatSend,
         Capability::VaultSearch,
         Capability::VaultViewHistory,
         Capability::VaultViewActivity,
@@ -452,6 +455,7 @@ impl Capability {
     pub fn as_token(self) -> &'static str {
         match self {
             Capability::VaultRead => "vault.read",
+            Capability::ChatSend => "chat.send",
             Capability::VaultSearch => "vault.search",
             Capability::VaultViewHistory => "vault.viewHistory",
             Capability::VaultViewActivity => "vault.viewActivity",
@@ -499,6 +503,7 @@ pub fn capabilities_for_role(role: HostedVaultRole) -> Vec<Capability> {
         Capability::VaultViewActivity,
     ];
     let editor_extra = [
+        Capability::ChatSend,
         Capability::FileCreate,
         Capability::FileWrite,
         Capability::FileMove,
@@ -710,6 +715,28 @@ pub struct HostedChatMessage {
     pub content: String,
     /// Milliseconds since the Unix epoch, matching the native chat DTO.
     pub timestamp: u64,
+}
+
+/// Sequence strings preserve PostgreSQL BIGINT precision in JavaScript clients.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostedChatPageMessage {
+    #[serde(flatten)]
+    pub message: HostedChatMessage,
+    pub sequence: String,
+    pub has_avatar: bool,
+    pub avatar_updated_at: Option<String>,
+}
+
+/// Messages are chronological in both modes. Before pages point to older
+/// history; after pages point to the last delivered item, never an unread head.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostedChatPage {
+    pub messages: Vec<HostedChatPageMessage>,
+    pub next_before: Option<String>,
+    pub next_after: Option<String>,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1145,6 +1172,8 @@ mod tests {
         assert!(editor.iter().all(|cap| admin.contains(cap)));
         assert!(viewer.contains(&Capability::VaultRead));
         assert!(!viewer.contains(&Capability::FileWrite));
+        assert!(!viewer.contains(&Capability::ChatSend));
+        assert!(editor.contains(&Capability::ChatSend));
         assert!(!viewer.contains(&Capability::VaultOfflineCopy));
         assert!(editor.contains(&Capability::KanbanCardComment));
         assert!(editor.contains(&Capability::VaultOfflineCopy));

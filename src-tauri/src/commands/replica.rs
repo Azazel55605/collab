@@ -231,7 +231,11 @@ fn delete_replica_key(server_url: &str, vault_id: &str) {
     }
 }
 
-fn replica_key(server_url: &str, vault_id: &str, create: bool) -> Result<Option<[u8; 32]>, String> {
+pub(crate) fn replica_key(
+    server_url: &str,
+    vault_id: &str,
+    create: bool,
+) -> Result<Option<[u8; 32]>, String> {
     let encoded = match read_replica_key_encoded(server_url, vault_id) {
         Some(encoded) => encoded,
         None if create => {

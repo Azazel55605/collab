@@ -2799,7 +2799,7 @@ p {
 
 .markdown-preview .md-mermaid-block {
   margin: 16px 0;
-  min-height: 180px;
+  min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
@@ -2812,7 +2812,7 @@ p {
   display: grid;
   place-items: center;
   min-width: 0;
-  min-height: 180px;
+  min-height: 0;
   padding: 14px;
   color: var(--muted-foreground);
   font-size: 0.78rem;
@@ -7214,4 +7214,164 @@ p {
   background: var(--muted);
   color: var(--primary);
   font-weight: 600;
+}
+
+.app-main:has(.vault-chat) {
+  overflow: hidden;
+}
+.vault-chat {
+  height: calc(100dvh - var(--safe-top) - 72px - var(--safe-bottom));
+  min-height: 0;
+}
+.vault-chat > .screen-header,
+.vault-chat > .banner,
+.chat-composer {
+  flex-shrink: 0;
+}
+
+/* Shared controls adopt the mobile surface without exposing native chrome. */
+.vault-chat [data-slot='button'] {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  min-height: 44px;
+  padding: 8px 12px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+.vault-chat [data-slot='button']:disabled {
+  opacity: 0.5;
+}
+.vault-chat [data-slot='button'] svg {
+  width: 20px;
+  height: 20px;
+}
+.vault-chat [data-slot='textarea'] {
+  appearance: none;
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font: inherit;
+  width: 100%;
+  resize: vertical;
+}
+.vault-chat [data-slot='button']:focus-visible,
+.vault-chat [data-slot='textarea']:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.chat-heading {
+  flex: 1;
+  min-width: 0;
+}
+.chat-heading h1,
+.chat-heading p {
+  overflow-wrap: anywhere;
+}
+.chat-history {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.chat-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-message-list {
+  padding: 0;
+  margin: 16px 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.chat-message {
+  display: flex;
+  gap: 10px;
+}
+.chat-message [data-slot='avatar'] {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--muted);
+  overflow: hidden;
+}
+.chat-message [data-slot='avatar-image'] {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+}
+.chat-message-body {
+  flex: 1;
+  min-width: 0;
+}
+.chat-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.chat-message-meta time {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.chat-message-body p,
+.chat-pending-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 6px 0;
+}
+.chat-self .chat-message-body {
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+}
+.chat-pending {
+  max-height: 25dvh;
+  overflow: auto;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.chat-pending h2 {
+  font-size: 1rem;
+}
+.chat-pending > p {
+  color: var(--muted-foreground);
+}
+.chat-pending-message {
+  margin-bottom: 12px;
+}
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.chat-composer [type='submit'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  align-self: flex-end;
+}
+
+.chat-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.chat-notices:empty {
+  display: none;
 }

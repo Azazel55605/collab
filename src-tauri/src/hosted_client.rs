@@ -136,14 +136,24 @@ pub fn validate_hosted_vault_path(value: &str) -> Result<&str, String> {
     Ok(value)
 }
 
-/// Only self-service account routes are exposed to the webview.
+/// Self-service mutations and authenticated user-avatar reads only.
 pub fn validate_hosted_account_request(method: &str, path: &str) -> Result<(), String> {
+    if method == "GET" && user_avatar_id(path).is_some() {
+        return Ok(());
+    }
     match (method, path) {
         ("GET" | "PATCH", "/api/v1/users/me")
         | ("POST", "/api/v1/users/me/password")
         | ("GET" | "PUT" | "DELETE", "/api/v1/users/me/avatar") => Ok(()),
         _ => Err("Account requests must target a supported self-service operation.".into()),
     }
+}
+
+pub fn user_avatar_id(path: &str) -> Option<uuid::Uuid> {
+    let id = path
+        .strip_prefix("/api/v1/users/")?
+        .strip_suffix("/avatar")?;
+    uuid::Uuid::parse_str(id).ok()
 }
 
 pub fn validate_hosted_calendar_path(value: &str) -> Result<&str, String> {
@@ -204,9 +214,19 @@ pub async fn decode_hosted_error(response: reqwest::Response) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        hosted_request_method, server_request_error, validate_hosted_calendar_path,
-        validate_hosted_vault_path, validate_identifier, validate_server_url,
+        hosted_request_method, server_request_error, validate_hosted_account_request,
+        validate_hosted_calendar_path, validate_hosted_vault_path, validate_identifier,
+        validate_server_url,
     };
+
+    #[test]
+    fn account_avatar_read_is_strictly_get_and_uuid_scoped() {
+        let path = "/api/v1/users/10000000-0000-4000-8000-000000000001/avatar";
+        assert!(validate_hosted_account_request("GET", path).is_ok());
+        assert!(validate_hosted_account_request("DELETE", path).is_err());
+        assert!(validate_hosted_account_request("GET", "/api/v1/users/../avatar").is_err());
+        assert!(validate_hosted_account_request("GET", &format!("{path}?other=1")).is_err());
+    }
 
     #[test]
     fn validates_server_urls() {

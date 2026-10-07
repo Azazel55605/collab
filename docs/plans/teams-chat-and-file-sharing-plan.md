@@ -1,7 +1,37 @@
 # Teams, Chats, And Shared File Libraries
 
-Drafted: 2026-10-07. Planning only; these features are not implemented by the
-account/preview change. Voice and video calls are deferred.
+Reviewed: 2026-10-07. Status: **In progress**. Shared vault-chat foundations and
+Android vault chat are implemented and under validation; direct/group chats,
+teams/channels and browser libraries remain planned. Voice/video calls are deferred.
+[Open Development Work](./open-development-work.md) owns consolidated status.
+
+This program precedes the standalone mobile overhaul. Build conversation,
+membership, unread, notification and library contracts here, then consume them
+from the new mobile location/document architecture; do not implement another
+Android-only collaboration model.
+
+## Delivery Tracker
+
+| Work                                              | Status      | Remaining gate                                                                                              |
+| ------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| Shared vault-chat contract and Android chat       | Testing     | Physical Android process-death/Keystore/keyboard checks; automated/live server and browser checks completed |
+| Authenticated browser library portal              | Not started | Vault-wide access first; browse/upload/download/history/trash/previews                                      |
+| Direct/group conversations and unread             | Not started | Shared server model, desktop/Android inboxes, join-time history and notifications                           |
+| Teams/channels and library ownership              | Not started | Admin-only team creation, explicit team roles/private channels, ownership migration                         |
+| Folder/file ACLs                                  | Planned     | Same enforcement across every read/write, replica and metadata path                                         |
+| Authenticated share links                         | Planned     | Scoped expiry/revocation after ACL contracts                                                                |
+| Anonymous guests, document workflows, voice/video | Deferred    | Separate accepted scope required                                                                            |
+
+## Accepted Product Rules
+
+- Only server administrators create teams. Users can create group conversations.
+  Team ownership/membership are independent roles; being server admin must not
+  silently bypass private-channel membership.
+- New group members start at their join sequence; earlier history is not exposed.
+- Sharing starts with authenticated recipients. Anonymous external sharing is
+  deferred; no guest tokens, media permissions or calling UI land implicitly.
+- Accounts remain server-local and administrative permission groups remain
+  distinct from teams and conversational groups.
 
 ## What Already Exists
 
@@ -12,7 +42,8 @@ account/preview change. Voice and video calls are deferred.
   are not conversational groups or Teams-style workspaces.
 - `hosted_chat_messages` and vault-scoped chat APIs already persist messages.
   The desktop `ChatPanel` uses the collaboration transport; admin-web can review
-  vault chat. Android has no conversation inbox or chat screen.
+  vault chat. Android now has vault chat; a direct/group conversation inbox
+  remains planned.
 - Shared notification delivery, native sessions, a user directory, and a
   multi-server connection registry exist. Keep server/account identifiers in
   every new cache, navigation destination, notification, and unread counter.
@@ -21,8 +52,8 @@ account/preview change. Voice and video calls are deferred.
 
 ## Product Model
 
-Start with mobile vault chat, then add direct/group conversations, followed by
-teams and channels. Keep personal direct messages independent of vault access.
+Start with shared chat foundations and mobile vault chat, then direct/group
+conversations, followed by teams and channels. Keep personal direct messages independent of vault access.
 Team channels can associate with a hosted vault for files without moving or
 copying the authoritative content.
 
@@ -33,6 +64,36 @@ private channel attachments, and leaving a chat must not delete vault content.
 
 Accounts are server-local. Same usernames on two servers are different people;
 there is no cross-server federation in this plan.
+
+## Shared Foundation Delivered With Phase 1
+
+Migration 0035 backfills deterministic chronological sequences, preserves old
+message UUIDs and adds an indexed cursor. Sequences are decimal strings across
+JSON/IPC to retain BIGINT precision. A per-vault transaction lock serializes
+allocation through commit; gaps are allowed and reconnect cursors cannot skip a
+slower preceding commit. The legacy latest-message API stays compatible.
+
+`GET /api/v1/vaults/{id}/chat/page` returns chronological bounded pages, with
+mutually exclusive `before`/`after` cursors and explicit continuation. Send
+requires both `vault.read` and `chat.send` on an active vault. Built-in writers
+retain sending through migration; viewers cannot send; custom grants explicitly
+opt in. Identical UUID retries return the original message; changed content,
+sender or vault returns a conflict without generating another mention event.
+
+Shared TypeScript chat types, request helpers and session hook live in `src/`.
+Native requests check the expected account before using a token. Android's
+private unsent outbox is encrypted with a native durable key, capped at 100
+messages/2 MiB, and scoped to server/account/vault. Persist before sending;
+acknowledge before removing. Retrying preserves the UUID. History is not
+persisted as an offline chat cache, and failed authorization clears the visible
+history. Explicit reconnect/retry retains private drafts; logout does not make
+them accessible to another account. Older-history browsing uses a bounded
+300-message window with a return-to-latest action.
+
+The UI uses shared controls through the mobile build's shared-source alias.
+Mention notifications route by native server provenance; ambiguous legacy
+notifications cannot select a same-ID vault on an arbitrary server. Physical
+Android lifecycle/Keystore and keyboard validation remains a release gate.
 
 ## Phase 1: Android Vault Chat
 
@@ -74,15 +135,15 @@ than exposing administrative chat review to ordinary users.
 
 Acceptance: two-person and group sends, duplicate retry deduplication, unread
 reconciliation after reconnect, last-owner protection, membership revocation,
-user deletion/disable, cursor ordering, and bounded offline queues. Clarify
-whether new group members can see earlier history before implementing it.
-Default proposal: history begins at their join sequence.
+user deletion/disable, cursor ordering, and bounded offline queues. New group members
+see history from their join sequence; cursor/replay/unread queries enforce that
+boundary rather than merely hiding older messages in the UI.
 
 ## Phase 3: Teams And Channels
 
 Introduce teams, team roles, channels, and channel membership. Start with public
-channels within a team and private channels with explicit membership. Add team
-creation/invitation rules, archive/restore, member management, and last-owner
+channels within a team and private channels with explicit membership. Allow only server admins to create teams; add team
+invitation rules, archive/restore, member management, and last-owner
 protection. A team channel can link one library vault; access is checked both
 at the channel and file boundaries. Do not reuse server-admin as team-owner.
 
@@ -141,15 +202,16 @@ revocation, and backup/restore. Never test migrations against real user data.
 
 Recommended delivery order:
 
-1. Accounts and revision-bound previews (current implementation/validation).
-2. Mobile vault chat and authenticated browser file browsing, independently.
+1. Accounts and revision-bound previews (complete and archived).
+2. Shared chat pagination/identity/retry/permission foundations, Android vault
+   chat, and authenticated browser file browsing as focused deliveries.
 3. Direct/group conversations and unread/notification semantics.
 4. Teams/channels with shared library ownership.
 5. Folder/file ACLs, then optional external sharing.
 
-Before their respective implementation phases, decide conversation history for
-new members, self-created versus admin-created teams, attachment retention,
-team/group synchronization, library ownership migration, and external guest
-policy. These are open product decisions rather than blockers for accounts or
-previews. Calling can later use a separate signaling/media system without
+Conversation history, team creation and the initial recipient policy are
+recorded above. Before their respective later phases, define attachment
+retention, optional team/group synchronization and library ownership migration.
+These do not block vault chat; they must be resolved before corresponding
+storage or permission mutations are implemented. Calling can later use a separate signaling/media system without
 changing message persistence; no call UI or media permissions land now.
