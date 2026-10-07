@@ -1,11 +1,11 @@
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
     Argon2,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use collab_core::sha256_text;
 use collab_protocol::{ServerUser, ServerUserRole, ServerUserStatus};
-use rand::{rngs::OsRng, RngCore};
+use rand::Rng;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -41,9 +41,8 @@ pub fn validate_password(password: &str) -> Result<(), AuthError> {
 
 pub fn hash_password(password: &str) -> Result<String, AuthError> {
     validate_password(password)?;
-    let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|hash| hash.to_string())
         .map_err(|_| AuthError::PasswordHash)
 }
@@ -61,7 +60,7 @@ pub fn verify_password(password: &str, encoded_hash: &str) -> bool {
 
 pub fn generate_secret() -> String {
     let mut bytes = [0_u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -232,6 +231,15 @@ mod tests {
         assert!(!hash.contains("correct horse"));
         assert!(verify_password("correct horse battery staple", &hash));
         assert!(!verify_password("wrong password", &hash));
+    }
+
+    #[test]
+    fn verifies_existing_argon2id_phc_hashes() {
+        // Independent libargon2 fixture with the parameters used by Argon2 0.5.
+        let encoded = "$argon2id$v=19$m=19456,t=2,p=1$MDEyMzQ1Njc4OWFiY2RlZg$J86bD7nzhCDfFC4DP3Q5NzLGgPLgJJqEYKz51afxy1E";
+        assert!(verify_password("old server password", encoded));
+        assert!(!verify_password("wrong password", encoded));
+        assert!(!verify_password("old server password", "invalid hash"));
     }
 
     #[test]

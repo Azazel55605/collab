@@ -13,9 +13,9 @@
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
-    Aes256Gcm, Key, Nonce,
+    Aes256Gcm, Nonce,
 };
-use rand::RngCore;
+use rand::Rng;
 
 /// Magic prefix that marks an encrypted blob.
 pub const MAGIC: &[u8; 4] = b"CENC";
@@ -30,12 +30,12 @@ pub fn is_encrypted_data(data: &[u8]) -> bool {
 /// Encrypt `plaintext` with `key`. Returns `MAGIC || nonce || ciphertext+tag`.
 pub fn encrypt_bytes(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, String> {
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new(key.into());
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|e| format!("Encryption failed: {e}"))?;
 
     let mut out = Vec::with_capacity(4 + NONCE_LEN + ciphertext.len());
@@ -55,18 +55,33 @@ pub fn decrypt_bytes(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, String> {
         return Err("File does not have the encrypted-file header".to_string());
     }
 
-    let nonce = Nonce::from_slice(&data[4..4 + NONCE_LEN]);
+    let nonce = Nonce::try_from(&data[4..4 + NONCE_LEN])
+        .map_err(|_| "Invalid encrypted-file nonce".to_string())?;
     let ciphertext = &data[4 + NONCE_LEN..];
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new(key.into());
 
     cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| "Decryption failed — incorrect password or corrupted file".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{decrypt_bytes, encrypt_bytes, is_encrypted_data, MAGIC};
+
+    #[test]
+    fn decrypts_the_existing_cenc_format() {
+        // AES-256-GCM zero-key/zero-nonce vector, with the unchanged CENC header.
+        let mut container = b"CENC".to_vec();
+        container.extend([0_u8; 12]);
+        container.extend(
+            hex::decode("cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919")
+                .unwrap(),
+        );
+        assert_eq!(decrypt_bytes(&[0; 32], &container).unwrap(), vec![0; 16]);
+        *container.last_mut().unwrap() ^= 1;
+        assert!(decrypt_bytes(&[0; 32], &container).is_err());
+    }
 
     #[test]
     fn roundtrips_and_detects_header() {

@@ -123,7 +123,7 @@ fn json_to_any(value: &Value) -> Any {
     match value {
         Value::Null => Any::Null,
         Value::Bool(value) => Any::Bool(*value),
-        Value::Number(number) => Any::Number(number.as_f64().unwrap_or(0.0)),
+        Value::Number(number) => Any::Number(number.as_f64().unwrap_or(0.0).into()),
         Value::String(text) => Any::String(text.as_str().into()),
         Value::Array(items) => Any::Array(items.iter().map(json_to_any).collect::<Vec<_>>().into()),
         Value::Object(map) => Any::Map(Arc::new(
@@ -166,7 +166,7 @@ fn run_attributes(style: Option<&Value>, link: Option<&Value>) -> HashMap<Arc<st
             }
         }
         if let Some(size) = style.get("size").and_then(Value::as_f64) {
-            attrs.insert("sz".into(), Any::Number(size));
+            attrs.insert("sz".into(), Any::Number(size.into()));
         }
         match style.get("font") {
             Some(Value::String(font)) => {
@@ -271,8 +271,8 @@ fn any_to_json(value: &Any) -> Value {
     match value {
         Any::Null | Any::Undefined => Value::Null,
         Any::Bool(value) => Value::Bool(*value),
-        Any::Number(number) => number_to_json(*number),
-        Any::BigInt(number) => Value::Number((*number).into()),
+        Any::Number(yrs::Number::Float(number)) => number_to_json(*number),
+        Any::Number(yrs::Number::Int(number)) => Value::Number((*number).into()),
         Any::String(text) => Value::String(text.to_string()),
         Any::Buffer(_) => Value::Null,
         Any::Array(items) => Value::Array(items.iter().map(any_to_json).collect()),
@@ -362,10 +362,10 @@ fn run_style(attrs: Option<&Attrs>) -> Map<String, Value> {
         }
     }
     match attrs.and_then(|attrs| attrs.get("sz")) {
-        Some(Any::Number(size)) => {
+        Some(Any::Number(yrs::Number::Float(size))) => {
             style.insert("size".into(), number_to_json(*size));
         }
-        Some(Any::BigInt(size)) => {
+        Some(Any::Number(yrs::Number::Int(size))) => {
             style.insert("size".into(), Value::Number((*size).into()));
         }
         _ => {}
@@ -756,7 +756,7 @@ mod tests {
                 Some(Out::Any(Any::Map(frame))) => (*frame).clone(),
                 other => panic!("frame: {other:?}"),
             };
-            frame.insert("x".into(), Any::Number(1234.0));
+            frame.insert("x".into(), Any::Number(1234.0.into()));
             shape.insert(&mut txn, "frame", Any::Map(Arc::new(frame)));
         }
         let body_a = text_at(

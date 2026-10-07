@@ -1335,9 +1335,9 @@ mod tests {
             .expect("manifest exists");
         assert_eq!(synced.sequence, 2);
         assert_eq!(synced.files, vec![file()]);
-        refresh.assert_hits_async(1).await;
-        inventory.assert_hits_async(1).await;
-        delta.assert_hits_async(1).await;
+        refresh.assert_calls_async(1).await;
+        inventory.assert_calls_async(1).await;
+        delta.assert_calls_async(1).await;
 
         let no_op_delta = server
             .mock_async(|when, then| {
@@ -1378,7 +1378,7 @@ mod tests {
             no_op.summary.as_deref(),
             Some("Offline replicas are already up to date")
         );
-        no_op_delta.assert_hits_async(1).await;
+        no_op_delta.assert_calls_async(1).await;
     }
 
     /// A tick used to rewrite the whole ledger, and a tick happens once per file

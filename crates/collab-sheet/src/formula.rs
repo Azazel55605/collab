@@ -126,6 +126,7 @@ impl SheetFormulaError {
             ExcelErrorKind::NImpl => Self::Unsupported,
             ExcelErrorKind::Cancelled => Self::BudgetExceeded,
             ExcelErrorKind::Error => Self::Malformed,
+            _ => Self::Malformed,
         }
     }
 
@@ -467,7 +468,7 @@ impl SheetFormulaEngine {
         let budget = self.budget.max_evaluation;
         let workbook = &mut self.workbook;
         let values = run_bounded(budget, |cancel| {
-            workbook.evaluate_cells_cancellable(&targets, cancel)
+            workbook.evaluate_cells_cancellable(&targets, cancel.into())
         })?
         .map_err(|error| SheetEngineError::Engine(error.to_string()))?;
         Ok(values
@@ -481,8 +482,10 @@ impl SheetFormulaEngine {
     pub fn evaluate_all(&mut self) -> Result<usize, SheetEngineError> {
         let budget = self.budget.max_evaluation;
         let workbook = &mut self.workbook;
-        let result = run_bounded(budget, |cancel| workbook.evaluate_all_cancellable(cancel))?
-            .map_err(|error| SheetEngineError::Engine(error.to_string()))?;
+        let result = run_bounded(budget, |cancel| {
+            workbook.evaluate_all_cancellable(cancel.into())
+        })?
+        .map_err(|error| SheetEngineError::Engine(error.to_string()))?;
         Ok(result.computed_vertices)
     }
 

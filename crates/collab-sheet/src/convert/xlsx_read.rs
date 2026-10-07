@@ -229,8 +229,7 @@ impl BoundedArchive {
 
 fn attribute(element: &BytesStart, key: &[u8]) -> Option<String> {
     element.attributes().flatten().find_map(|attribute| {
-        (attribute.key.as_ref() == key)
-            .then(|| String::from_utf8_lossy(&attribute.value).into_owned())
+        (attribute.key.as_ref().as_bytes() == key).then(|| attribute.value.into_owned())
     })
 }
 
@@ -254,7 +253,7 @@ fn resolve_entity(reference: &BytesRef) -> Option<char> {
     if let Ok(Some(character)) = reference.resolve_char_ref() {
         return Some(character);
     }
-    match reference.decode().ok()?.as_ref() {
+    match reference.as_ref() {
         "amp" => Some('&'),
         "lt" => Some('<'),
         "gt" => Some('>'),
@@ -278,7 +277,7 @@ fn parse_shared_strings(xml: &str, limits: &ConversionLimits) -> ConversionResul
 
     loop {
         match reader.read_event_into(&mut buffer) {
-            Ok(Event::Start(element)) => match element.local_name().as_ref() {
+            Ok(Event::Start(element)) => match element.local_name().as_ref().as_bytes() {
                 b"si" => {
                     in_item = true;
                     current.clear();
@@ -287,18 +286,14 @@ fn parse_shared_strings(xml: &str, limits: &ConversionLimits) -> ConversionResul
                 _ => {}
             },
             Ok(Event::Text(text)) if in_text => {
-                current.push_str(
-                    &text
-                        .xml_content(XmlVersion::Explicit1_0)
-                        .unwrap_or_default(),
-                );
+                current.push_str(&text.xml_content(XmlVersion::Explicit1_0));
             }
             Ok(Event::GeneralRef(reference)) if in_text => {
                 if let Some(character) = resolve_entity(&reference) {
                     current.push(character);
                 }
             }
-            Ok(Event::End(element)) => match element.local_name().as_ref() {
+            Ok(Event::End(element)) => match element.local_name().as_ref().as_bytes() {
                 b"t" => in_text = false,
                 b"si" => {
                     in_item = false;
@@ -347,7 +342,7 @@ fn parse_styles(xml: &str) -> ConversionResult<StyleTables> {
         match event {
             Event::Eof => break,
             Event::Start(element) | Event::Empty(element) => {
-                match element.local_name().as_ref() {
+                match element.local_name().as_ref().as_bytes() {
                     b"numFmt" => {
                         if let (Some(id), Some(code)) = (
                             attribute(&element, b"numFmtId").and_then(|v| v.parse::<u32>().ok()),
@@ -452,7 +447,7 @@ fn parse_styles(xml: &str) -> ConversionResult<StyleTables> {
                     _ => {}
                 }
             }
-            Event::End(element) => match element.local_name().as_ref() {
+            Event::End(element) => match element.local_name().as_ref().as_bytes() {
                 b"font" if section == Some("fonts") => tables.fonts.push(font.clone()),
                 b"fill" if section == Some("fills") => tables.fills.push(fill.take()),
                 b"border" if section == Some("borders") => tables.borders.push(borders),
@@ -825,15 +820,15 @@ fn parse_workbook_sheets(xml: &str, relationships: &HashMap<String, String>) -> 
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(element)) | Ok(Event::Empty(element))
-                if element.local_name().as_ref() == b"sheet" =>
+                if element.local_name().as_ref().as_bytes() == b"sheet" =>
             {
                 let name = attribute(&element, b"name").unwrap_or_else(|| "Sheet".into());
                 let state = attribute(&element, b"state").unwrap_or_default();
                 let id = element
                     .attributes()
                     .flatten()
-                    .find(|attribute| attribute.key.as_ref().ends_with(b"id"))
-                    .map(|attribute| String::from_utf8_lossy(&attribute.value).into_owned())
+                    .find(|attribute| attribute.key.as_ref().ends_with("id"))
+                    .map(|attribute| attribute.value.into_owned())
                     .unwrap_or_default();
                 let target = relationships
                     .get(&id)
@@ -860,7 +855,7 @@ fn parse_relationships(xml: &str) -> HashMap<String, String> {
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(element)) | Ok(Event::Empty(element))
-                if element.local_name().as_ref() == b"Relationship" =>
+                if element.local_name().as_ref().as_bytes() == b"Relationship" =>
             {
                 if let (Some(id), Some(target)) =
                     (attribute(&element, b"Id"), attribute(&element, b"Target"))
@@ -924,7 +919,7 @@ fn parse_worksheet(
         match event {
             Event::Eof => break,
             Event::Start(element) | Event::Empty(element) => {
-                match element.local_name().as_ref() {
+                match element.local_name().as_ref().as_bytes() {
                     b"dimension" => {
                         if let Some(reference) = attribute(&element, b"ref") {
                             if let Some((_, end)) = reference.split_once(':') {
@@ -1033,9 +1028,7 @@ fn parse_worksheet(
                 }
             }
             Event::Text(text) => {
-                let decoded = text
-                    .xml_content(XmlVersion::Explicit1_0)
-                    .unwrap_or_default();
+                let decoded = text.xml_content(XmlVersion::Explicit1_0);
                 if in_value || in_inline_text {
                     value.push_str(&decoded);
                 } else if in_formula {
@@ -1053,7 +1046,7 @@ fn parse_worksheet(
                     }
                 }
             }
-            Event::End(element) => match element.local_name().as_ref() {
+            Event::End(element) => match element.local_name().as_ref().as_bytes() {
                 b"v" => in_value = false,
                 b"f" => in_formula = false,
                 b"t" => in_inline_text = false,

@@ -266,14 +266,14 @@ fn validate_svg(input: DocumentInput<'_>, limits: ParserLimits) -> Result<(), Do
                 depth += 1;
                 entries += 1;
                 if depth == 1 {
-                    saw_root = element.local_name().as_ref() == b"svg";
+                    saw_root = element.local_name().as_ref() == "svg";
                 }
                 enforce_xml_limits(limits, depth, entries)?;
             }
             Ok(Event::Empty(element)) => {
                 entries += 1;
                 if depth == 0 {
-                    saw_root = element.local_name().as_ref() == b"svg";
+                    saw_root = element.local_name().as_ref() == "svg";
                 }
                 enforce_xml_limits(limits, depth.saturating_add(1), entries)?;
             }

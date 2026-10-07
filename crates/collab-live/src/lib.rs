@@ -460,7 +460,9 @@ fn json_to_in(value: &serde_json::Value, ink: bool) -> In {
     match value {
         serde_json::Value::Null => In::Any(Any::Null),
         serde_json::Value::Bool(value) => In::Any(Any::Bool(*value)),
-        serde_json::Value::Number(value) => In::Any(Any::Number(value.as_f64().unwrap_or(0.0))),
+        serde_json::Value::Number(value) => {
+            In::Any(Any::Number(value.as_f64().unwrap_or(0.0).into()))
+        }
         serde_json::Value::String(value) => In::Any(Any::String(value.as_str().into())),
         serde_json::Value::Array(items) => In::Array(ArrayPrelim::from(
             items

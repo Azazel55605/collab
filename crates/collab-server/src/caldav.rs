@@ -418,9 +418,12 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn local_name(value: &[u8]) -> String {
-    let value = value.rsplit(|byte| *byte == b':').next().unwrap_or(value);
-    String::from_utf8_lossy(value).to_ascii_lowercase()
+fn local_name(value: &str) -> String {
+    value
+        .rsplit(':')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_lowercase()
 }
 
 fn parse_xml_request(body: &[u8]) -> Result<DavXmlRequest, Response> {
@@ -444,7 +447,7 @@ fn parse_xml_request(body: &[u8]) -> Result<DavXmlRequest, Response> {
                     let mut end_value = None;
                     for attribute in start.attributes().flatten() {
                         let attribute_name = local_name(attribute.key.as_ref());
-                        let value = String::from_utf8_lossy(attribute.value.as_ref()).into_owned();
+                        let value = attribute.value.into_owned();
                         let value = quick_xml::escape::unescape(&value)
                             .map(|value| value.into_owned())
                             .unwrap_or(value);
@@ -461,10 +464,7 @@ fn parse_xml_request(body: &[u8]) -> Result<DavXmlRequest, Response> {
                 current = name;
             }
             Ok(Event::Text(text)) => {
-                let value = text
-                    .decode()
-                    .map(|value| value.into_owned())
-                    .unwrap_or_default();
+                let value = text.into_inner().into_owned();
                 let value = quick_xml::escape::unescape(&value)
                     .map(|value| value.into_owned())
                     .unwrap_or(value);

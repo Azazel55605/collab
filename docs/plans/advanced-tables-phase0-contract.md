@@ -20,20 +20,20 @@ in Phase 1.
 
 ## Decisions
 
-| Decision                 | Outcome                                                                                                                |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Extension                | `.sheet`                                                                                                               |
-| Media type               | `application/vnd.collab.sheet+json`                                                                                    |
-| Document kind            | `collab-sheet`                                                                                                         |
-| Initial schema version   | `1`                                                                                                                    |
-| Schema ownership         | Collab-owned in `src/types/sheet.ts`; no engine type may appear in stored documents                                    |
-| Formula engine           | [`formualizer`](https://github.com/psu3d0/formualizer) 0.7.x (MIT OR Apache-2.0), Rust, behind `collab_sheet::formula` |
-| Where formulas run       | Native Rust, reached over typed IPC — the same crate serves desktop and Android                                        |
-| Grid renderer            | First-party canvas grid with a DOM overlay; no third-party grid dependency                                             |
-| Domain location          | `src/lib/sheet/` and `src/types/sheet.ts`, not a workspace package                                                     |
-| Date/time storage        | ISO-8601 strings with an explicit `valueType`; serials exist only at the engine boundary                               |
-| Canonical formula syntax | English function names, `,` argument separator, `.` decimal separator — locale affects display only                    |
-| Collaboration model      | Semantic cell/range/structure operations over stable IDs (designed in Phase 6)                                         |
+| Decision                 | Outcome                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Extension                | `.sheet`                                                                                                                |
+| Media type               | `application/vnd.collab.sheet+json`                                                                                     |
+| Document kind            | `collab-sheet`                                                                                                          |
+| Initial schema version   | `1`                                                                                                                     |
+| Schema ownership         | Collab-owned in `src/types/sheet.ts`; no engine type may appear in stored documents                                     |
+| Formula engine           | [`formualizer`](https://github.com/psu3d0/formualizer) 0.10.1 (MIT OR Apache-2.0), Rust, behind `collab_sheet::formula` |
+| Where formulas run       | Native Rust, reached over typed IPC — the same crate serves desktop and Android                                         |
+| Grid renderer            | First-party canvas grid with a DOM overlay; no third-party grid dependency                                              |
+| Domain location          | `src/lib/sheet/` and `src/types/sheet.ts`, not a workspace package                                                      |
+| Date/time storage        | ISO-8601 strings with an explicit `valueType`; serials exist only at the engine boundary                                |
+| Canonical formula syntax | English function names, `,` argument separator, `.` decimal separator — locale affects display only                     |
+| Collaboration model      | Semantic cell/range/structure operations over stable IDs (designed in Phase 6)                                          |
 
 ### Why `.sheet` and not a spreadsheet library's own format
 
@@ -228,7 +228,7 @@ WASM functions, and by test.
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | formualizer is a young 0.x dependency with low adoption              | Everything engine-specific lives in `crates/collab-sheet/src/formula.rs` behind Collab-owned value, error, and reference types. The proof suite is engine-agnostic, so a replacement is scoped to one file. Pin the exact version and review each upgrade. |
 | Span evaluation is documented upstream as experimental               | Required for acceptable range performance today. If it proves incorrect, `with_span_evaluation(false)` restores stable semantics at a large cost on wide ranges — that trade would need a Phase 3 decision, not a silent flip.                             |
-| `TEXTJOIN`/`CONCAT` over a range collapse to the first cell in 0.7.1 | Pinned by `known_upstream_gap_range_text_aggregation`, which fails loudly when upstream fixes it. Phase 3 must report it upstream or implement the range form in the adapter.                                                                              |
+| `TEXTJOIN`/`CONCAT` over a range collapse to the first cell in 0.7.1 | Fixed by the 0.10.1 migration; `range_text_aggregation_preserves_every_cell` now asserts complete `TEXTJOIN` and `CONCAT` results.                                                                                                                         |
 | The Arrow-backed dependency tree is large (~125 crates)              | Adds build time and audit surface. `cargo audit` must cover it before the first `.sheet` release, and the ignore list plus `docs/build/security-advisories.md` must stay in sync per the repo's advisory policy.                                           |
 | IPC chattiness between the editor and a native engine                | Recalculation is dependency-scoped and measured in single-digit milliseconds; the editor batches edits per commit rather than per keystroke. Phase 3 must keep a batched command surface instead of one call per cell.                                     |
 | Spilled array results are not modelled by schema version 1           | The adapter returns `#SPILL!` rather than collapsing an array to its top-left cell. Dynamic arrays need a schema addition, so they are explicitly out of scope until then.                                                                                 |

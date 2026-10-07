@@ -90,7 +90,7 @@ mod tests {
     fn shipped_calendar_migration_checksum_is_stable() {
         let digest = Sha384::digest(include_bytes!("../migrations/0019_user_calendars.sql"));
         assert_eq!(
-            format!("{digest:x}"),
+            hex::encode(digest),
             CALENDAR_MIGRATION_19_CANONICAL_CHECKSUM
         );
     }
