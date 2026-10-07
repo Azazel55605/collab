@@ -71,3 +71,27 @@ revision storage totals. The cache adds at most 64 KiB per previewed file.
 See [the account/preview contract](../archive/accounts-and-previews-plan.md) and
 [the teams, chat, and library draft](../plans/teams-chat-and-file-sharing-plan.md)
 for current fidelity limits, validation, and future scope.
+
+## Vault Chat Contract
+
+`GET /api/v1/vaults/{id}/chat/page?limit=50` returns a chronological page with
+`nextBefore`, `nextAfter` and `hasMore`. Use `before` for older history or `after`
+for reconnect catch-up; they are mutually exclusive. Limits are 1–100. Sequences
+are decimal strings, not JavaScript numbers. Advance catch-up to the last
+returned sequence; never jump to an unseen head when more pages remain. The
+legacy `/chat?limit=...` array response remains available to existing clients.
+
+Migration 0035 preserves deterministic historical order and indexes cursor
+queries. Per-vault locking serializes append cursors through commit. Send
+requires active-vault `vault.read` and `chat.send`. Built-in editor/admin
+permissions gain sending; custom grants must opt in explicitly. Viewer history
+access does not imply sending. Requests supply UUID/content; the server stamps
+identity/time. An identical retry returns 200; first send returns 201. Reusing
+an ID with different sender, vault or content returns 409. Mention delivery runs
+only on the original insert.
+
+Android now consumes this contract with a native encrypted retry outbox. Offline
+chat history, conversation inboxes, teams/channels and browser libraries remain
+separate work in the [collaboration plan](../plans/teams-chat-and-file-sharing-plan.md).
+Only server admins will create teams; users may create group chats. Permission
+groups are not teams, and account identity never crosses server boundaries.

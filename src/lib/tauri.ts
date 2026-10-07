@@ -17,6 +17,7 @@ import type {
   CalendarSubscription,
   CalendarSyncState,
 } from '../types/calendar';
+import type { PendingChatMessage } from '../types/chat';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -1019,7 +1020,25 @@ export const tauriCommands = {
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
-  ) => invoke<T>('hosted_vault_request', { serverUrl, method, path, body: body ?? null }),
+    expectedUserId?: string,
+  ) =>
+    invoke<T>('hosted_vault_request', {
+      serverUrl,
+      method,
+      path,
+      body: body ?? null,
+      ...(expectedUserId ? { expectedUserId } : {}),
+    }),
+  hostedChatOutbox: (serverUrl: string, vaultId: string, accountId: string) =>
+    invoke<PendingChatMessage[]>('hosted_chat_outbox', { serverUrl, vaultId, accountId }),
+  hostedChatQueue: (
+    serverUrl: string,
+    vaultId: string,
+    accountId: string,
+    message: PendingChatMessage,
+  ) => invoke<void>('hosted_chat_queue', { serverUrl, vaultId, accountId, message }),
+  hostedChatDiscard: (serverUrl: string, vaultId: string, accountId: string, messageId: string) =>
+    invoke<void>('hosted_chat_discard', { serverUrl, vaultId, accountId, messageId }),
   hostedAccountRequest: <T>(
     serverUrl: string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',

@@ -314,6 +314,10 @@ pub fn build_router(state: AppState) -> Router {
             get(api::export_vault_zip),
         )
         .route(
+            "/api/v1/vaults/{vault_id}/chat/page",
+            get(api::list_chat_page),
+        )
+        .route(
             "/api/v1/vaults/{vault_id}/chat",
             get(api::list_chat_messages).post(api::send_chat_message),
         )

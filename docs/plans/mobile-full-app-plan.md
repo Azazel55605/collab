@@ -30,7 +30,8 @@ A full mobile product means:
 - Receive and share files through Android, support accessible touch and keyboard
   input, and remain usable on small phones and larger tablets.
 
-Text chats and teams are a later milestone governed by the existing
+The teams/chat/library program is scheduled before this overhaul so the mobile
+app consumes its shared contracts. Its mobile integration is governed by the
 [Teams, Chats, And Shared File Libraries Plan](./teams-chat-and-file-sharing-plan.md).
 Live voice/video calls remain deferred. A SharePoint-like browser portal is a
 separate product stream, not a prerequisite for standalone mobile delivery.
@@ -224,10 +225,10 @@ supports. Desktop scientific/export semantics stay in shared domain logic.
 complete against an explicit support matrix, rather than a claim of unlimited
 desktop parity.
 
-### Phase 5 — Collaboration Breadth
+### Phase 5 — Integrate Shared Collaboration
 
-Implement vault text chat first, then direct/group conversations and teams using
-the shared server conversation/membership model. Specify pagination, unread
+Consume vault chat, direct/group conversations and teams delivered through the
+shared teams/chat program; do not rebuild their server model in this overhaul. Specify pagination, unread
 state, notification routing, offline send/retry deduplication, attachment
 permissions, retention and permission changes before mobile UI implementation.
 Integrate shared file libraries only once their server ownership and access

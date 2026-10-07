@@ -16,11 +16,13 @@ import {
   Home,
   Info,
   ListChecks,
+  MessageCircle,
   RefreshCw,
   Upload,
   X,
 } from 'lucide-react';
 
+import { Button } from '../../../../src/components/ui/button';
 import {
   Banner,
   CacheBadge,
@@ -53,6 +55,7 @@ import type { HostedFileEntry } from '../mobileTauri';
 import { createHostedDocument } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
 
+import { ChatScreen } from './ChatScreen';
 import { DeckScreen } from './DeckScreen';
 import { InkScreen } from './InkScreen';
 import { KanbanScreen } from './KanbanScreen';
@@ -325,7 +328,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   }, [visibleEntries, refreshCacheStatus]);
 
   const activeFile = useMemo(() => {
-    if (!activeSheet || activeSheet.kind === 'removeOffline') return null;
+    if (!activeSheet || activeSheet.kind === 'removeOffline' || activeSheet.kind === 'chat')
+      return null;
     return files.find((file) => file.id === activeSheet.fileId) ?? null;
   }, [activeSheet, files]);
   const detailFile = activeSheet?.kind === 'fileDetail' ? activeFile : null;
@@ -335,6 +339,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const drawingFile = activeSheet?.kind === 'drawing' ? activeFile : null;
   const presentationFile = activeSheet?.kind === 'presentation' ? activeFile : null;
   const viewerFile = activeSheet?.kind === 'viewer' ? activeFile : null;
+
+  if (selected && activeSheet?.kind === 'chat') return <ChatScreen />;
 
   if (!selected) {
     return (
@@ -404,6 +410,17 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
           </p>
         </div>
         <div className="header-side">
+          {!selectionMode && selected.vault.capabilities.includes('vault.read') ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="icon-button"
+              aria-label="Open vault chat"
+              onClick={() => openSheet({ kind: 'chat' })}
+            >
+              <MessageCircle aria-hidden />
+            </Button>
+          ) : null}
           {selectionMode ? (
             <>
               <button

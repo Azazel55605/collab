@@ -36,6 +36,7 @@ const hostedVault: HostedVaultMeta = {
   lastOpened: 1,
   isEncrypted: false,
   role: 'admin',
+  capabilities: ['vault.read', 'chat.send'],
 };
 
 describe('ChatPanel', () => {
@@ -63,6 +64,15 @@ describe('ChatPanel', () => {
     render(<ChatPanel />);
     expect(screen.getByPlaceholderText(/Message/)).not.toBeNull();
     expect(screen.queryByText(/Chat isn't available for hosted vaults/)).toBeNull();
+  });
+
+  it('allows history without enabling the hosted viewer composer', () => {
+    useVaultStore.setState({
+      vault: { ...hostedVault, role: 'viewer', capabilities: ['vault.read'] },
+    } as never);
+    render(<ChatPanel />);
+    expect(screen.getByPlaceholderText('Read-only chat')).toHaveProperty('disabled', true);
+    expect(tauriCommands.hostedVaultRequest).not.toHaveBeenCalled();
   });
 
   it('sends hosted chat through the authenticated vault gateway', async () => {

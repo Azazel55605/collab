@@ -88,6 +88,8 @@ export function ChatPanel() {
   const contextTransport = useCollabContext();
   const transport = contextTransport ?? (vault ? createCollabTransport(vault) : null);
   const supportsChat = !!transport && !!vault;
+  const canSend =
+    supportsChat && (vault.kind !== 'hosted' || (vault.capabilities ?? []).includes('chat.send'));
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [typingNow, setTypingNow] = useState(() => Date.now());
@@ -132,7 +134,7 @@ export function ChatPanel() {
 
   const send = useCallback(async () => {
     const content = text.trim();
-    if (!content || !vault || sending || !supportsChat || !transport) return;
+    if (!content || !vault || sending || !canSend || !transport) return;
     setText('');
     publishTypingState('', true);
     setSending(true);
@@ -161,7 +163,7 @@ export function ChatPanel() {
     identity.userName,
     identity.userColor,
     sending,
-    supportsChat,
+    canSend,
     transport,
   ]);
 
@@ -202,7 +204,7 @@ export function ChatPanel() {
         <Textarea
           ref={inputRef}
           className="flex-1 min-h-[36px] max-h-[120px] resize-none bg-muted border-transparent px-3 py-2"
-          placeholder="Message... (Enter to send)"
+          placeholder={canSend ? 'Message... (Enter to send)' : 'Read-only chat'}
           rows={1}
           value={text}
           onChange={(e) => {
@@ -212,11 +214,11 @@ export function ChatPanel() {
           onKeyDown={handleKeyDown}
           onBlur={() => publishTypingState('', true)}
           onFocus={() => publishTypingState(text, true)}
-          disabled={sending || !vault}
+          disabled={sending || !canSend}
         />
         <Button
           onClick={send}
-          disabled={!text.trim() || sending || !vault}
+          disabled={!text.trim() || sending || !canSend}
           size="icon"
           className="h-9 w-9 rounded-lg flex-shrink-0"
         >

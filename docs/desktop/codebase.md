@@ -36,6 +36,23 @@ See [Accounts And Document Previews](../archive/accounts-and-previews-plan.md)
 for rendering limits and [the collaboration expansion draft](../plans/teams-chat-and-file-sharing-plan.md)
 for chats, teams, and shared libraries.
 
+## Shared Vault Chat Boundary
+
+`types/chat.ts`, `lib/hostedChat.ts` and `lib/useHostedChat.ts` define account-scoped
+requests, string sequence cursors, bounded history and explicit retries shared
+with Android `ChatScreen`. Native `commands/chat.rs` owns a bounded encrypted
+unsent outbox under app configuration, keyed by server/account/vault; tokens and
+keys remain native. `hosted_vault_request` accepts an optional expected user ID
+for chat requests and rejects account drift. Authenticated user-avatar GETs are
+strictly UUID-scoped; self-service mutations remain restricted. Android Vite and
+Vitest resolve shared UI aliases to `src/` so existing controls can be reused.
+
+Server migration 0035 adds chronological message cursors and `chat.send` for
+built-in writers. Read remains `vault.read`; sending requires both permissions
+and an active vault. Native drafts are not an offline history cache. Desktop
+chat composer actions enforce the same sending capability. Direct/group inboxes
+and teams/library ownership remain planned.
+
 ## Server Account Settings
 
 Desktop Settings → Profile includes `ServerAccountProfile` alongside the local
@@ -1315,6 +1332,7 @@ materialization scheduling remain adapter responsibilities.
 | `commands/index.rs`               | Frontmatter extraction, wikilink parsing, fuzzy search (fuzzy-matcher crate)                                                                                                                                                                                                                                                   |
 | `commands/templates.rs`           | Kanban template CRUD plus vault/app note snippet CRUD and scope-aware persistence                                                                                                                                                                                                                                              |
 | `commands/watcher.rs`             | notify-debouncer-mini → Tauri events vault:file-{created,deleted,renamed,modified}                                                                                                                                                                                                                                             |
+| `commands/chat.rs`                | Native encrypted account-scoped chat outbox, bounded persistence and UUID-preserving retries                                                                                                                                                                                                                                   |
 | `commands/collab.rs`              | Presence JSON, vault config R/W with role checks, chat files, activity log, snapshot manifest                                                                                                                                                                                                                                  |
 | `commands/crypto.rs`              | AES-GCM encryption, Argon2 key derivation                                                                                                                                                                                                                                                                                      |
 | `commands/ui.rs`                  | GTK zoom (Linux), AppImage detection                                                                                                                                                                                                                                                                                           |

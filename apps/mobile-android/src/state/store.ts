@@ -77,6 +77,7 @@ export interface Crumb {
 /** A dismissible overlay tracked centrally so the Android back button can close
  * it before navigating folders or tabs. */
 export type ActiveSheet =
+  | { kind: 'chat' }
   | { kind: 'fileDetail'; fileId: string }
   | { kind: 'note'; fileId: string }
   | { kind: 'kanban'; fileId: string; cardId?: string }

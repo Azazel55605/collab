@@ -395,6 +395,7 @@ export const CAPABILITY_GROUPS: Array<{
     domain: 'Vault',
     capabilities: [
       { token: 'vault.read', label: 'Read' },
+      { token: 'chat.send', label: 'Send chat messages' },
       { token: 'vault.search', label: 'Search' },
       { token: 'vault.viewHistory', label: 'View history' },
       { token: 'vault.viewActivity', label: 'View activity' },

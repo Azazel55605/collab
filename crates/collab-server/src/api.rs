@@ -28,14 +28,14 @@ use collab_protocol::{
     AdminMaintenanceMode, AdminOverview, AdminRuntimeSetting, AdminRuntimeSettings,
     AdminServerSettings, ApiError, AuditEvent, BootstrapStatus, BrowserSession, Capability,
     CreatedInvitation, DataResponse, ErrorCode, ErrorResponse, HealthState, HostedChatMessage,
-    HostedDocumentType, HostedFileEntry, HostedFileKind, HostedFileReference, HostedFileRevision,
-    HostedFileState, HostedPdfAnnotations, HostedPresenceEntry, HostedReferenceImpact,
-    HostedRevisionContent, HostedSearchResult, HostedSnapshot, HostedStructuralOperationPreview,
-    HostedStructuralOperationResult, HostedStructuralOperationType, HostedTextDocument,
-    HostedVault, HostedVaultActivityEvent, HostedVaultAdminDetail, HostedVaultImportResult,
-    HostedVaultManifest, HostedVaultManifestDelta, HostedVaultMember, HostedVaultRole,
-    HostedVaultStatus, HostedVaultStorage, HostedVaultSummary, Invitation,
-    LiveCollaborationMetrics, MaintenanceReport, NativeSession, OperationalWarning,
+    HostedChatPage, HostedChatPageMessage, HostedDocumentType, HostedFileEntry, HostedFileKind,
+    HostedFileReference, HostedFileRevision, HostedFileState, HostedPdfAnnotations,
+    HostedPresenceEntry, HostedReferenceImpact, HostedRevisionContent, HostedSearchResult,
+    HostedSnapshot, HostedStructuralOperationPreview, HostedStructuralOperationResult,
+    HostedStructuralOperationType, HostedTextDocument, HostedVault, HostedVaultActivityEvent,
+    HostedVaultAdminDetail, HostedVaultImportResult, HostedVaultManifest, HostedVaultManifestDelta,
+    HostedVaultMember, HostedVaultRole, HostedVaultStatus, HostedVaultStorage, HostedVaultSummary,
+    Invitation, LiveCollaborationMetrics, MaintenanceReport, NativeSession, OperationalWarning,
     PermissionTemplate, ServerUser, ServerUserRole, StorageSummary,
     UpsertActivePresentationRequest, UserDirectoryEntry, UserGroup, UserGroupMember, VaultGrant,
     WritePdfAnnotationsRequest, WsTicket, WsTicketRequest,
@@ -337,6 +337,30 @@ pub struct VaultSearchQuery {
 #[serde(rename_all = "camelCase")]
 pub struct ChatQuery {
     pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPageQuery {
+    pub limit: Option<i64>,
+    pub before: Option<i64>,
+    pub after: Option<i64>,
+}
+
+impl ChatPageQuery {
+    fn validate(&self, request_id: &str) -> Result<(), ApiFailure> {
+        if self.before.is_some() && self.after.is_some()
+            || self.before.is_some_and(|cursor| cursor <= 0)
+            || self.after.is_some_and(|cursor| cursor < 0)
+            || self.limit.is_some_and(|limit| !(1..=100).contains(&limit))
+        {
+            return Err(ApiFailure::validation(
+                "Use one nonnegative chat cursor and a limit between 1 and 100.",
+                request_id.to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1764,6 +1788,85 @@ pub async fn list_chat_messages(
     )))
 }
 
+pub async fn list_chat_page(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(vault_id): Path<Uuid>,
+    Query(query): Query<ChatPageQuery>,
+) -> Result<Json<DataResponse<HostedChatPage>>, ApiFailure> {
+    let actor = require_authenticated_user(&state, &headers, &request_id).await?;
+    require_capability(
+        &state.database,
+        vault_id,
+        user_uuid(&actor.user),
+        Capability::VaultRead,
+        &request_id,
+    )
+    .await?;
+    query.validate(&request_id)?;
+    let limit = query.limit.unwrap_or(50);
+    let forward = query.after.is_some();
+    let statement = if forward {
+        r#"SELECT m.id, m.content, m.created_at, m.sequence,
+                  u.id AS user_id, COALESCE(u.display_name, 'Deleted user') AS user_name,
+                  u.avatar_bytes IS NOT NULL AS has_avatar, u.avatar_updated_at
+           FROM hosted_chat_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+           WHERE m.vault_id=$1 AND ($2::bigint IS NULL OR m.sequence < $2)
+             AND ($3::bigint IS NULL OR m.sequence > $3)
+           ORDER BY m.sequence ASC
+           LIMIT $4"#
+    } else {
+        r#"SELECT m.id, m.content, m.created_at, m.sequence,
+                  u.id AS user_id, COALESCE(u.display_name, 'Deleted user') AS user_name,
+                  u.avatar_bytes IS NOT NULL AS has_avatar, u.avatar_updated_at
+           FROM hosted_chat_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+           WHERE m.vault_id=$1 AND ($2::bigint IS NULL OR m.sequence < $2)
+             AND ($3::bigint IS NULL OR m.sequence > $3)
+           ORDER BY m.sequence DESC
+           LIMIT $4"#
+    };
+    let rows = sqlx::query(statement)
+        .bind(vault_id)
+        .bind(query.before)
+        .bind(query.after)
+        .bind(limit + 1)
+        .fetch_all(&state.database)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let has_more = rows.len() > limit as usize;
+    let mut messages = rows
+        .iter()
+        .take(limit as usize)
+        .map(|row| HostedChatPageMessage {
+            message: chat_message_from_row(row),
+            sequence: row.get::<i64, _>("sequence").to_string(),
+            has_avatar: row.get("has_avatar"),
+            avatar_updated_at: row
+                .get::<Option<chrono::DateTime<Utc>>, _>("avatar_updated_at")
+                .map(|time| time.to_rfc3339()),
+        })
+        .collect::<Vec<_>>();
+    if !forward {
+        messages.reverse();
+    }
+    let next_before = if !forward && has_more {
+        messages.first().map(|message| message.sequence.clone())
+    } else {
+        None
+    };
+    let next_after = messages
+        .last()
+        .map(|message| message.sequence.clone())
+        .or_else(|| query.after.map(|cursor| cursor.to_string()));
+    Ok(Json(DataResponse::new(HostedChatPage {
+        messages,
+        next_before,
+        next_after,
+        has_more,
+    })))
+}
+
 pub async fn list_presence(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
@@ -1874,6 +1977,14 @@ pub async fn send_chat_message(
         &request_id,
     )
     .await?;
+    require_active_capability(
+        &state.database,
+        vault_id,
+        &actor.user,
+        Capability::ChatSend,
+        &request_id,
+    )
+    .await?;
     let content = payload.content.trim();
     if content.is_empty() || content.chars().count() > 4000 {
         return Err(ApiFailure::validation(
@@ -1887,7 +1998,14 @@ pub async fn send_chat_message(
         .begin()
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    sqlx::query(
+    // Serialize cursor allocation until commit within this vault. Sequence values
+    // may have gaps, but an after-cursor cannot miss a slower earlier commit.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 35))")
+        .bind(vault_id.to_string())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let inserted = sqlx::query(
         r#"
         INSERT INTO hosted_chat_messages (id, vault_id, sender_user_id, content)
         VALUES ($1, $2, $3, $4)
@@ -1900,8 +2018,34 @@ pub async fn send_chat_message(
     .bind(content)
     .execute(&mut *transaction)
     .await
-    .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    let mentions = mentioned_usernames(content);
+    .map_err(|_| ApiFailure::server(request_id.clone()))?
+    .rows_affected()
+        == 1;
+    if !inserted {
+        let previous = sqlx::query(
+            "SELECT vault_id, sender_user_id, content FROM hosted_chat_messages WHERE id=$1",
+        )
+        .bind(payload.id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+        if previous.get::<Uuid, _>("vault_id") != vault_id
+            || previous.get::<Option<Uuid>, _>("sender_user_id") != Some(actor_id)
+            || previous.get::<String, _>("content") != content
+        {
+            return Err(ApiFailure::new(
+                StatusCode::CONFLICT,
+                ErrorCode::OperationConflict,
+                "That message ID has already been used.",
+                request_id,
+            ));
+        }
+    }
+    let mentions = if inserted {
+        mentioned_usernames(content)
+    } else {
+        Vec::new()
+    };
     if !mentions.is_empty() {
         let rows = sqlx::query(
             r#"SELECT user_account.id
@@ -1961,7 +2105,11 @@ pub async fn send_chat_message(
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
     Ok((
-        StatusCode::CREATED,
+        if inserted {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
         Json(DataResponse::new(
             load_chat_message(&state.database, vault_id, payload.id, &request_id).await?,
         )),
@@ -10341,7 +10489,7 @@ async fn load_chat_messages(
         FROM hosted_chat_messages m
         LEFT JOIN users u ON u.id = m.sender_user_id
         WHERE m.vault_id = $1
-        ORDER BY m.created_at DESC, m.id DESC
+        ORDER BY m.sequence DESC
         LIMIT $2
         "#,
     )
@@ -12716,6 +12864,313 @@ mod tests {
     };
     use tower::ServiceExt;
     use uuid::Uuid;
+
+    #[test]
+    fn chat_cursors_reject_ambiguous_negative_and_unbounded_queries() {
+        assert!(super::ChatPageQuery::default().validate("test").is_ok());
+        for query in [
+            super::ChatPageQuery {
+                before: Some(2),
+                after: Some(1),
+                limit: None,
+            },
+            super::ChatPageQuery {
+                after: Some(-1),
+                ..Default::default()
+            },
+            super::ChatPageQuery {
+                before: Some(0),
+                ..Default::default()
+            },
+            super::ChatPageQuery {
+                limit: Some(101),
+                ..Default::default()
+            },
+        ] {
+            assert!(query.validate("test").is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn chat_pages_retries_and_revocation_use_server_authority() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users, hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let directory = tempfile::tempdir().unwrap();
+        let storage = Arc::new(FileSystemBlobStorage::new(directory.path()).await.unwrap());
+        let app = build_router(AppState::new(
+            ServerConfig::default(),
+            pool.clone(),
+            storage,
+        ));
+        let bootstrap = request(
+            &app,
+            "POST",
+            "/api/v1/auth/bootstrap",
+            json!({
+                "username":"admin", "displayName":"Admin", "password":"correct horse battery staple"
+            }),
+            None,
+            None,
+        )
+        .await;
+        let (cookie, csrf) = session_cookies(&bootstrap);
+        let vault = request(
+            &app,
+            "POST",
+            "/api/v1/vaults",
+            json!({"name":"Chat test"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        let vault_id = json_body(vault).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let path = format!("/api/v1/vaults/{vault_id}/chat");
+        let member = request(&app, "POST", "/api/v1/admin/users", json!({
+            "username":"reader", "displayName":"Reader", "password":"a long enough reader password", "role":"member"
+        }), Some(&cookie), Some(&csrf)).await;
+        let member_id = json_body(member).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let membership = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/members"),
+            json!({"userId":member_id,"role":"viewer"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(membership.status(), StatusCode::CREATED);
+        let login = request(
+            &app,
+            "POST",
+            "/api/v1/auth/login",
+            json!({"username":"reader","password":"a long enough reader password"}),
+            None,
+            None,
+        )
+        .await;
+        let (reader_cookie, reader_csrf) = session_cookies(&login);
+        let denied = request(
+            &app,
+            "POST",
+            &path,
+            json!({"id":Uuid::now_v7(),"content":"not allowed"}),
+            Some(&reader_cookie),
+            Some(&reader_csrf),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let mut ids = Vec::new();
+        for index in 0..5 {
+            let id = Uuid::now_v7();
+            ids.push(id);
+            let sent = request(
+                &app,
+                "POST",
+                &path,
+                json!({"id":id,"content":format!("Message {index}")}),
+                Some(&cookie),
+                Some(&csrf),
+            )
+            .await;
+            assert_eq!(sent.status(), StatusCode::CREATED);
+        }
+        let retry = request(
+            &app,
+            "POST",
+            &path,
+            json!({"id":ids[0],"content":"Message 0"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(retry.status(), StatusCode::OK);
+        let collision = request(
+            &app,
+            "POST",
+            &path,
+            json!({"id":ids[0],"content":"changed"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(collision.status(), StatusCode::CONFLICT);
+        let page = request(
+            &app,
+            "GET",
+            &format!("{path}/page?limit=2"),
+            json!({}),
+            Some(&reader_cookie),
+            None,
+        )
+        .await;
+        assert_eq!(page.status(), StatusCode::OK);
+        let page = json_body(page).await["data"].clone();
+        assert_eq!(page["messages"][0]["id"], ids[3].to_string());
+        assert_eq!(page["messages"][1]["id"], ids[4].to_string());
+        assert_eq!(page["hasMore"], true);
+        let before = page["nextBefore"].as_str().unwrap();
+        let older = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{path}/page?limit=2&before={before}"),
+                json!({}),
+                Some(&cookie),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(older["data"]["messages"][0]["id"], ids[1].to_string());
+        assert_eq!(older["data"]["messages"][1]["id"], ids[2].to_string());
+        let forward = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{path}/page?limit=2&after=0"),
+                json!({}),
+                Some(&cookie),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(forward["data"]["messages"][0]["id"], ids[0].to_string());
+        assert_eq!(forward["data"]["hasMore"], true);
+        let after = forward["data"]["nextAfter"].as_str().unwrap();
+        let catchup = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{path}/page?limit=2&after={after}"),
+                json!({}),
+                Some(&cookie),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(catchup["data"]["messages"][0]["id"], ids[2].to_string());
+        let malformed = request(
+            &app,
+            "GET",
+            &format!("{path}/page?before=2&after=1"),
+            json!({}),
+            Some(&cookie),
+            None,
+        )
+        .await;
+        assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM hosted_chat_messages WHERE vault_id=$1::uuid"
+            )
+            .bind(&vault_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            5
+        );
+        // A later send must not publish a cursor ahead of an earlier
+        // uncommitted append. Verify the same lock used by the HTTP adapter.
+        let last = page["nextAfter"].as_str().unwrap();
+        let held_id = Uuid::now_v7();
+        let mut held = pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 35))")
+            .bind(&vault_id)
+            .execute(&mut *held)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO hosted_chat_messages(id,vault_id,content) VALUES($1,$2::uuid,'Held commit')")
+            .bind(held_id).bind(&vault_id).execute(&mut *held).await.unwrap();
+        let later_id = Uuid::now_v7();
+        let sender_app = app.clone();
+        let sender_cookie = cookie.clone();
+        let sender_csrf = csrf.clone();
+        let sender_path = path.clone();
+        let later = tokio::spawn(async move {
+            request(
+                &sender_app,
+                "POST",
+                &sender_path,
+                json!({"id":later_id,"content":"Later commit"}),
+                Some(&sender_cookie),
+                Some(&sender_csrf),
+            )
+            .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!later.is_finished());
+        let during = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{path}/page?after={last}"),
+                json!({}),
+                Some(&cookie),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(during["data"]["messages"].as_array().unwrap().is_empty());
+        held.commit().await.unwrap();
+        assert_eq!(later.await.unwrap().status(), StatusCode::CREATED);
+        let committed = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{path}/page?after={last}"),
+                json!({}),
+                Some(&cookie),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(committed["data"]["messages"][0]["id"], held_id.to_string());
+        assert_eq!(committed["data"]["messages"][1]["id"], later_id.to_string());
+
+        let removed = request(
+            &app,
+            "DELETE",
+            &format!("/api/v1/vaults/{vault_id}/members/{member_id}"),
+            json!({}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(removed.status(), StatusCode::NO_CONTENT);
+        let revoked = request(
+            &app,
+            "GET",
+            &format!("{path}/page"),
+            json!({}),
+            Some(&reader_cookie),
+            None,
+        )
+        .await;
+        assert_eq!(revoked.status(), StatusCode::NOT_FOUND);
+    }
 
     #[test]
     fn chat_mentions_are_bounded_deduplicated_and_not_parsed_from_email_addresses() {

@@ -362,6 +362,9 @@ pub fn run() {
             // collab — chat
             commands::collab::send_chat_message,
             commands::collab::read_chat_messages,
+            commands::chat::hosted_chat_outbox,
+            commands::chat::hosted_chat_queue,
+            commands::chat::hosted_chat_discard,
             // collab — history
             commands::collab::create_snapshot,
             commands::collab::list_snapshots,

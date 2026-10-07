@@ -43,6 +43,12 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
   offline edits, reconnect replay and supported live sessions. Rich-file viewing
   includes PDF, image, canvas and logic; logic also has bounded circuit-property
   and analysis editing. Decks support viewing, presenting and remote control.
+- Vault chat supports bounded earlier history, reconnect catch-up, read-only
+  chat and deliberate retry/discard of native encrypted pending sends. History
+  requires online authorization; unsent drafts are private to the original
+  server account and can be recovered after reconnect. Teams, group inboxes
+  and browser libraries are still planned in the
+  [shared collaboration program](../plans/teams-chat-and-file-sharing-plan.md).
 - Settings includes server-specific profile, username, password and picture
   editing with a connected-server switch. Local use in the new roadmap must
   remain independent of those accounts.
@@ -68,7 +74,8 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
 
 ## Roadmap Ownership
 
-The full-app plan replaces the companion plan's deferred expansion bucket.
+The teams/chat/library program comes first and supplies shared contracts for
+the mobile overhaul. The full-app plan replaces the companion plan's deferred expansion bucket.
 Device lifecycle and release checks remain open or recurring in their existing
 matrices. The completed [accounts/previews plan](../archive/accounts-and-previews-plan.md)
 is archived; optional preview expansion is tracked in

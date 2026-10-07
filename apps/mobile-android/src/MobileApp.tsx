@@ -413,12 +413,20 @@ export function MobileApp() {
         }, 0);
       } else if (destination.kind === 'vault-chat') {
         const state = useMobileStore.getState();
-        const match = Object.entries(state.vaults)
+        const sourceServer = record.envelope.serverUrl;
+        if (sourceServer) await state.loadVaults(sourceServer);
+        const matches = Object.entries(useMobileStore.getState().vaults)
           .flatMap(([serverUrl, vaults]) => vaults.map((vault) => ({ serverUrl, vault })))
-          .find(({ vault }) => vault.id === destination.vaultId);
+          .filter(
+            ({ serverUrl, vault }) =>
+              vault.id === destination.vaultId && (!sourceServer || serverUrl === sourceServer),
+          );
+        // Legacy notifications without provenance are safe only when unambiguous.
+        const match = matches.length === 1 ? matches[0] : null;
         if (match) {
           await state.selectVault(match.serverUrl, match.vault);
           setTab('files');
+          useMobileStore.getState().openSheet({ kind: 'chat' });
         } else {
           setTab('settings');
           window.setTimeout(() => {
