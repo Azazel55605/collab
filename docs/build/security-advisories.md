@@ -177,16 +177,18 @@ multiple edits, repeated lines, Unicode, and trailing-newline changes.
 - **Remove this entry when:** both direct and Mermaid paths resolve to a
   patched release after that migration.
 
-## Dependabot PR review (2026-10-07)
+## Initial Dependabot PR review (2026-10-07)
 
-These are review results, not merge approvals. No dependency PR was merged.
+The table preserves the initial review, before the compatibility repairs in
+#76 and #78. Current remediation is described above and in those PRs.
+Compatible Rust updates merged separately as #80.
 
 | PR                                                                            | Local evidence                                                                                                                                                                                      | Recommendation                                                                                                |
 | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | [#75](https://github.com/Azazel55605/collab/pull/75), Rust compatible updates | Workspace compilation passed. Its older container scan reported 29 fixable OS findings; PR #79's later container scan passed with the same Dockerfile.                                              | Rebase/rebuild against the security fixes and require fresh security checks before merge.                     |
 | [#76](https://github.com/Azazel55605/collab/pull/76), Rust major updates      | `cargo check --workspace --locked` fails: quick-xml 0.42 changes `local_name()` from bytes to text, breaking SVG validation in `collab-documents`. Further native/API migrations remain unverified. | Split into reviewed migrations; do not merge as-is. Frontend/boundary CI does not establish Rust compilation. |
 | [#77](https://github.com/Azazel55605/collab/pull/77), npm compatible updates  | TypeScript 5.9 rejects the inferred `Uint8Array<ArrayBuffer>` assignment in `src/lib/ink/transaction.test.ts:193`. Its failed dependency job was interrupted while installing cargo-audit.          | Fix the test type, rebase security fixes, then run all frontend surfaces and fresh scans.                     |
-| [#78](https://github.com/Azazel55605/collab/pull/78), npm major updates       | Migrated three-way text merging, MarkdownIt 15 types, Nerdamer 2 scalar/equation/solution APIs and dev prebundle, and DayPicker 10 props/classes across desktop and mobile.                         | Require fresh CI on the repaired head before merge; the KaTeX advisory remains.                               |
+| [#78](https://github.com/Azazel55605/collab/pull/78), npm major updates       | Type checks fail for removed `diff.merge`, MarkdownIt typing, Nerdamer parser APIs, and DayPicker props/class names. CI runs were cancelled.                                                        | Split tooling/editor/UI migrations; preserve three-way merge behavior before upgrading `diff`.                |
 
 ## Review cadence
 
