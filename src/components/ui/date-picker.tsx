@@ -56,7 +56,7 @@ export function DatePicker({ value, onChange, label, min, className }: Props) {
               onChange(format(date, 'yyyy-MM-dd'));
               setOpen(false);
             }}
-            initialFocus
+            autoFocus
           />
         </PopoverContent>
       </Popover>

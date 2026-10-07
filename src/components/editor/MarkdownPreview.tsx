@@ -13,7 +13,7 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import MarkdownIt from 'markdown-it';
+import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from 'markdown-it';
 import anchor from 'markdown-it-anchor';
 // @ts-ignore – no bundled types
 import container from 'markdown-it-container';
@@ -79,8 +79,8 @@ class PreviewErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
 // ─── markdown-it instance ─────────────────────────────────────────────────────
 
-function buildMd(): MarkdownIt {
-  const instance: MarkdownIt = new MarkdownIt({
+function buildMd(): MarkdownItInstance {
+  const instance: MarkdownItInstance = new MarkdownIt({
     html: true,
     linkify: true,
     typographer: true,
@@ -158,7 +158,7 @@ function buildMd(): MarkdownIt {
   return instance;
 }
 
-let md: MarkdownIt;
+let md: MarkdownItInstance;
 try {
   md = buildMd();
 } catch (e) {

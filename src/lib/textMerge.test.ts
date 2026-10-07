@@ -33,4 +33,18 @@ describe('mergeText', () => {
     const theirs = 'line1\nline2\nline3\nline4\n';
     expect(mergeText(base, ours, theirs)).toBe('line0\nline1\nline2\nline3\nline4\n');
   });
+  it.each([
+    ['a\nb\nc\n', 'A\nb\nc\n', 'a\nB\nc\n', 'A\nB\nc\n'],
+    ['a\nb\nc\n', 'a\nc\n', 'a\nB\nc\n', null],
+    ['a\nb\n', 'x\na\nb\n', 'y\na\nb\n', null],
+    ['a\nb\nc\n', 'a\nX\nb\nc\n', 'a\nc\n', 'a\nX\nc\n'],
+    ['a\nb\nc', 'A\nb\nc', 'a\nb\nc\n', 'A\nb\nc\n'],
+    ['é\n重复\nend', 'É\n重复\nend', 'é\n重复\nEND', 'É\n重复\nEND'],
+    ['a\nb\na\nb\n', 'A\nb\na\nb\n', 'a\nb\na\nB\n', 'A\nb\na\nB\n'],
+    ['a\nb\nc\nd\n', 'A\nb\nc\nD\n', 'a\nB\nc\nd\n', 'A\nB\nc\nD\n'],
+    ['', 'ours', 'theirs', null],
+  ])('reconciles line edits without losing content (%#)', (original, local, remote, expected) => {
+    expect(mergeText(original, local, remote)).toBe(expected);
+    expect(mergeText(original, remote, local)).toBe(expected);
+  });
 });

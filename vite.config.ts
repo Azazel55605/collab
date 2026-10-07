@@ -40,7 +40,7 @@ export default defineConfig(async () => ({
       "lucide-react",
       "three",
       "highlight.js",
-      "nerdamer/all",
+      "nerdamer",
       "pdfjs-dist",
       "pdfjs-dist/legacy/build/pdf.mjs",
       "katex",
