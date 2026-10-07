@@ -33,8 +33,8 @@ work from being mistaken for an active roadmap item.
 
 ### Accounts, Previews, And Collaboration Expansion
 
-- **Testing**: web member/admin self-service profiles, Android server-specific
-  profile editing, and shared internal content previews with server caching.
+- **Testing**: web member/admin self-service profiles, desktop and Android
+  server-specific profile editing, and shared internal content previews with server caching.
   See [Accounts And Document Previews](./accounts-and-previews-plan.md) for the
   implemented scope, thumbnail fidelity limits, and remaining validation.
 - **Planned**: Android vault chat, then direct/group conversations and teams.

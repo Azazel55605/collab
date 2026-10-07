@@ -35,9 +35,12 @@ errors, avatar limits, cross-server switching, late responses, and persistence
 through reconnect. Physical Android picture selection and process recreation
 remain device release checks; jsdom does not establish those behaviors.
 
-Desktop's existing local presence identity settings remain separate from server
-account management. A desktop native account editor is a follow-on surface;
-web self-service is available to desktop users now.
+Desktop Settings → Profile now also provides server account editing: username,
+display name, picture upload/removal, and password changes, with a switch between
+connected servers. It shares authenticated profile state and stale-response
+handling with Android through `src/lib/useServerProfile.ts`. Username updates
+preserve the selected server's certificate/session preferences and update its
+saved login. Local presence identity settings remain separate.
 
 ## Preview Contract
 
@@ -123,9 +126,21 @@ Validated on 2026-10-07:
 - Browser checks passed at 1,440 px and 390 px. A separately built live server
   also verified admin Dashboard/Profile routing, member Profile routing,
   persisted account edits, password changes, retained sessions, and reconnect.
-- Compose configuration passed. The isolated container smoke build failed
-  twice during Debian package-index verification (`Hash Sum mismatch`), before
-  application startup; the container smoke check remains unverified.
+- Compose configuration and the isolated container smoke test passed. Earlier
+  attempts failed during Debian package-index verification (`Hash Sum mismatch`);
+  the later rerun built the server image and verified live/ready health, bootstrap
+  status, the admin page, and writable storage/backup directories.
 
 Physical Android picture selection, process recreation, native desktop visual
 QA, measured preview performance, and the follow-on work above remain open.
+
+### Desktop Account Completion
+
+Desktop profile tests cover server switching, late responses, saved login
+preferences, password confirmation/clearing, picture upload/removal, and upload
+size limits. The shared Android profile tests and full mobile frontend build
+pass. Rendered browser checks at 1,440 px and 390 px verify saving, switching,
+password changes, and layout without horizontal overflow or runtime errors.
+These browser checks use mocked native IPC; server/native authentication is
+covered separately against disposable PostgreSQL. Physical native desktop and
+Android picture-picker/lifecycle checks remain release gates.

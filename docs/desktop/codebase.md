@@ -36,6 +36,16 @@ See [Accounts And Document Previews](../plans/accounts-and-previews-plan.md)
 for rendering limits and [the collaboration expansion draft](../plans/teams-chat-and-file-sharing-plan.md)
 for chats, teams, and shared libraries.
 
+## Server Account Settings
+
+Desktop Settings → Profile includes `ServerAccountProfile` alongside the local
+presence identity. Connected servers come from `serverStore`; each server has an
+isolated form for username, display name, avatar, and password changes. Successful
+profile edits update the saved username and refresh the native session identity.
+`src/lib/useServerProfile.ts` shares authenticated loading/mutations and response
+cleanup with Android's `ProfileSettingsSection`. Native tokens remain in Rust;
+account operations use the restricted `hosted_account_request` IPC adapter.
+
 ## Testing
 
 Frontend regression coverage uses Vitest + jsdom via `pnpm test`.
