@@ -1029,16 +1029,62 @@ export const tauriCommands = {
       body: body ?? null,
       ...(expectedUserId ? { expectedUserId } : {}),
     }),
-  hostedChatOutbox: (serverUrl: string, vaultId: string, accountId: string) =>
-    invoke<PendingChatMessage[]>('hosted_chat_outbox', { serverUrl, vaultId, accountId }),
+  hostedChatOutbox: (
+    serverUrl: string,
+    vaultId: string,
+    accountId: string,
+    scopeKind?: 'conversation',
+  ) =>
+    invoke<PendingChatMessage[]>('hosted_chat_outbox', {
+      serverUrl,
+      vaultId,
+      accountId,
+      ...(scopeKind ? { scopeKind } : {}),
+    }),
   hostedChatQueue: (
     serverUrl: string,
     vaultId: string,
     accountId: string,
     message: PendingChatMessage,
-  ) => invoke<void>('hosted_chat_queue', { serverUrl, vaultId, accountId, message }),
-  hostedChatDiscard: (serverUrl: string, vaultId: string, accountId: string, messageId: string) =>
-    invoke<void>('hosted_chat_discard', { serverUrl, vaultId, accountId, messageId }),
+    scopeKind?: 'conversation',
+  ) =>
+    invoke<void>('hosted_chat_queue', {
+      serverUrl,
+      vaultId,
+      accountId,
+      message,
+      ...(scopeKind ? { scopeKind } : {}),
+    }),
+  hostedChatDiscard: (
+    serverUrl: string,
+    vaultId: string,
+    accountId: string,
+    messageId: string,
+    scopeKind?: 'conversation',
+  ) =>
+    invoke<void>('hosted_chat_discard', {
+      serverUrl,
+      vaultId,
+      accountId,
+      messageId,
+      ...(scopeKind ? { scopeKind } : {}),
+    }),
+  hostedConversationRequest: <T>(
+    serverUrl: string,
+    expectedUserId: string,
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+    expectedNotificationAccountKey?: string,
+  ) =>
+    invoke<T>('hosted_conversation_request', {
+      serverUrl,
+      expectedUserId,
+      method,
+      path,
+      body: body ?? null,
+      ...(expectedNotificationAccountKey ? { expectedNotificationAccountKey } : {}),
+    }),
   hostedAccountRequest: <T>(
     serverUrl: string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -1059,8 +1105,12 @@ export const tauriCommands = {
     parentId: string | null,
     sourcePath: string,
   ) => invoke<T>('hosted_vault_upload_file', { serverUrl, vaultId, parentId, sourcePath }),
-  hostedUserDirectory: (serverUrl: string, query: string) =>
-    invoke<UserDirectoryEntry[]>('hosted_user_directory', { serverUrl, query }),
+  hostedUserDirectory: (serverUrl: string, query: string, expectedUserId?: string) =>
+    invoke<UserDirectoryEntry[]>('hosted_user_directory', {
+      serverUrl,
+      query,
+      ...(expectedUserId ? { expectedUserId } : {}),
+    }),
   hostedVaultExportZip: (serverUrl: string, vaultId: string, destinationPath: string) =>
     invoke<void>('hosted_vault_export_zip', { serverUrl, vaultId, destinationPath }),
   hostedWsTicket: (serverUrl: string, vaultId: string) =>

@@ -65,6 +65,8 @@ use uuid::Uuid;
 
 #[path = "api/archive.rs"]
 mod archive;
+#[path = "api/conversations.rs"]
+pub mod conversations;
 use archive::parse_vault_zip;
 
 #[derive(Debug, Deserialize)]
@@ -6718,6 +6720,9 @@ pub async fn update_user(
     Json(payload): Json<UpdateUserRequest>,
 ) -> Result<Json<DataResponse<ServerUser>>, ApiFailure> {
     let actor = require_admin_csrf(&state, &headers, &request_id).await?;
+    if payload.disabled == Some(true) {
+        conversations::ensure_account_not_last_owner(&state.database, user_id, &request_id).await?;
+    }
     if payload.disabled == Some(true)
         && is_primary_admin(&state.database, user_id, &request_id).await?
     {
@@ -6890,6 +6895,7 @@ pub async fn delete_user(
             request_id,
         ));
     }
+    conversations::ensure_account_not_last_owner(&state.database, user_id, &request_id).await?;
     let owns_vault = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM hosted_vaults WHERE owner_user_id = $1)",
     )
@@ -12889,6 +12895,579 @@ mod tests {
         ] {
             assert!(query.validate("test").is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn personal_conversations_enforce_join_history_ownership_and_unread() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(6)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users,hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let directory = tempfile::tempdir().unwrap();
+        let app = build_router(AppState::new(
+            ServerConfig::default(),
+            pool.clone(),
+            Arc::new(FileSystemBlobStorage::new(directory.path()).await.unwrap()),
+        ));
+        let bootstrap=request(&app,"POST","/api/v1/auth/bootstrap",json!({"username":"admin","displayName":"Admin","password":"correct horse battery staple"}),None,None).await;
+        let (admin_cookie, admin_csrf) = session_cookies(&bootstrap);
+        let mut ids = Vec::new();
+        let mut sessions = Vec::new();
+        for username in ["bob", "cara", "dave"] {
+            let response=request(&app,"POST","/api/v1/admin/users",json!({"username":username,"displayName":username,"password":"correct horse battery staple"}),Some(&admin_cookie),Some(&admin_csrf)).await;
+            assert_eq!(response.status(), StatusCode::CREATED);
+            ids.push(
+                json_body(response).await["data"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+            let response = request(
+                &app,
+                "POST",
+                "/api/v1/auth/login",
+                json!({"username":username,"password":"correct horse battery staple"}),
+                None,
+                None,
+            )
+            .await;
+            sessions.push(session_cookies(&response));
+        }
+        let (bob, bcsrf) = &sessions[0];
+        let (cara, ccsrf) = &sessions[1];
+        let (dave, dcsrf) = &sessions[2];
+        let direct = request(
+            &app,
+            "POST",
+            "/api/v1/conversations",
+            json!({"kind":"direct","members":[ids[1]]}),
+            Some(bob),
+            Some(bcsrf),
+        )
+        .await;
+        assert_eq!(direct.status(), StatusCode::OK);
+        let direct = json_body(direct).await["data"].as_str().unwrap().to_owned();
+        let reverse = request(
+            &app,
+            "POST",
+            "/api/v1/conversations",
+            json!({"kind":"direct","members":[ids[0]]}),
+            Some(cara),
+            Some(ccsrf),
+        )
+        .await;
+        assert_eq!(json_body(reverse).await["data"], direct);
+        let dm_id = Uuid::now_v7();
+        let dm_path = format!("/api/v1/conversations/{direct}/messages");
+        for (content, status) in [
+            ("hello", StatusCode::CREATED),
+            ("hello", StatusCode::OK),
+            ("changed", StatusCode::CONFLICT),
+        ] {
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &dm_path,
+                    json!({"id":dm_id,"content":content}),
+                    Some(bob),
+                    Some(bcsrf)
+                )
+                .await
+                .status(),
+                status
+            );
+        }
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &dm_path,
+                json!({"id":dm_id,"content":"hello"}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                &dm_path,
+                Value::Null,
+                Some(&admin_cookie),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            request(&app, "GET", &dm_path, Value::Null, Some(dave), None)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let notices=sqlx::query("SELECT envelope FROM notification_events WHERE user_id=$1 AND category='collaboration.message'")
+            .bind(Uuid::parse_str(&ids[1]).unwrap()).fetch_all(&pool).await.unwrap();
+        assert_eq!(notices.len(), 1);
+        let envelope: Value = notices[0].get("envelope");
+        assert_eq!(envelope["destination"]["kind"], "conversation");
+        assert_eq!(envelope["body"], "Open Collab to read it.");
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                "/api/v1/conversations",
+                json!({"kind":"direct","members":[ids[1]]}),
+                Some(bob),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let group = request(
+            &app,
+            "POST",
+            "/api/v1/conversations",
+            json!({"kind":"group","name":"Friends","members":[ids[1]]}),
+            Some(bob),
+            Some(bcsrf),
+        )
+        .await;
+        assert_eq!(group.status(), StatusCode::OK);
+        let group = json_body(group).await["data"].as_str().unwrap().to_owned();
+        let path = format!("/api/v1/conversations/{group}");
+        let messages = format!("{path}/messages");
+        let members = format!("{path}/members");
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":dm_id,"content":"hello"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        let old_id = Uuid::now_v7();
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":old_id,"content":"before join"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CREATED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &members,
+                json!({"userId":ids[2]}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &members,
+                json!({"userId":ids[2]}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let page =
+            json_body(request(&app, "GET", &messages, Value::Null, Some(dave), None).await).await;
+        assert_eq!(page["data"]["messages"], json!([]));
+        let new_id = Uuid::now_v7();
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":new_id,"content":"after join"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CREATED
+        );
+        let page = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{messages}?after=0"),
+                Value::Null,
+                Some(dave),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(page["data"]["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(page["data"]["messages"][0]["sequence"], "2");
+        let inbox = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations",
+                Value::Null,
+                Some(dave),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(inbox["data"][0]["unread"], 1);
+        for sequence in ["2", "0"] {
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &format!("{path}/read"),
+                    json!({"sequence":sequence}),
+                    Some(dave),
+                    Some(dcsrf)
+                )
+                .await
+                .status(),
+                StatusCode::NO_CONTENT
+            );
+        }
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &format!("{path}/read"),
+                json!({"sequence":"99"}),
+                Some(dave),
+                Some(dcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        let inbox = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations",
+                Value::Null,
+                Some(dave),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(inbox["data"][0]["unread"], 0);
+        assert_eq!(inbox["data"][0]["readSequence"], "2");
+        assert!(
+            sqlx::query("UPDATE users SET status='disabled' WHERE id=$1")
+                .bind(Uuid::parse_str(&ids[0]).unwrap())
+                .execute(&pool)
+                .await
+                .is_err(),
+            "database trigger protects the last owner outside the HTTP adapter"
+        );
+        let bob_member = format!("{members}/{}", ids[0]);
+        let cara_member = format!("{members}/{}", ids[1]);
+        let dave_member = format!("{members}/{}", ids[2]);
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &bob_member,
+                Value::Null,
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &bob_member,
+                json!({"userId":ids[0],"role":"member"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &dave_member,
+                Value::Null,
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            request(&app, "GET", &messages, Value::Null, Some(dave), None)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let events = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations/events?after=0",
+                Value::Null,
+                Some(dave),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(events["data"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["kind"] == "removed"));
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &members,
+                json!({"userId":ids[2]}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let page = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{messages}?after=0"),
+                Value::Null,
+                Some(dave),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(page["data"]["messages"], json!([]));
+        let events = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations/events?after=0",
+                Value::Null,
+                Some(dave),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(events["data"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["kind"] != "removed" && event["kind"] != "message"));
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &cara_member,
+                json!({"userId":ids[1],"role":"owner"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &bob_member,
+                Value::Null,
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            request(&app, "GET", &messages, Value::Null, Some(bob), None)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let cara_admin = format!("/api/v1/admin/users/{}", ids[1]);
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &cara_admin,
+                json!({"disabled":true}),
+                Some(&admin_cookie),
+                Some(&admin_csrf)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &cara_admin,
+                Value::Null,
+                Some(&admin_cookie),
+                Some(&admin_csrf)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &dave_member,
+                json!({"userId":ids[2],"role":"owner"}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":Uuid::now_v7(),"content":"retained after deletion"}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CREATED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &cara_admin,
+                json!({"disabled":true}),
+                Some(&admin_cookie),
+                Some(&admin_csrf)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            request(&app, "GET", &messages, Value::Null, Some(cara), None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &dm_path,
+                json!({"id":Uuid::now_v7(),"content":"unavailable"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &cara_admin,
+                Value::Null,
+                Some(&admin_cookie),
+                Some(&admin_csrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let page =
+            json_body(request(&app, "GET", &messages, Value::Null, Some(dave), None).await).await;
+        assert_eq!(page["data"]["messages"][0]["userName"], "Deleted user");
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &path,
+                json!({"name":"Friends renamed","picture":"data:image/png;base64,aGVsbG8="}),
+                Some(dave),
+                Some(dcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                &format!("{messages}?after=1&before=2"),
+                Value::Null,
+                Some(dave),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
     }
 
     #[tokio::test]

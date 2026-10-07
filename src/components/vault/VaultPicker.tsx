@@ -25,6 +25,7 @@ import {
   type ReplicaSummary,
 } from '../../lib/vaultReplica';
 import { isEffectivelyConnected, useServerStore } from '../../store/serverStore';
+import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import {
   hostedVaultMeta,
@@ -231,6 +232,13 @@ export default function VaultPicker() {
             aria-label="Vaults and servers"
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
           >
+            <Button
+              className="mb-3 w-full"
+              variant="outline"
+              onClick={() => useUiStore.getState().setActiveView('chats')}
+            >
+              Open chats
+            </Button>
             <div className="mb-3 flex items-center gap-2">
               <Separator className="flex-1 bg-border/40" />
               <span className="flex shrink-0 items-center gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">

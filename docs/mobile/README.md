@@ -46,8 +46,12 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
 - Vault chat supports bounded earlier history, reconnect catch-up, read-only
   chat and deliberate retry/discard of native encrypted pending sends. History
   requires online authorization; unsent drafts are private to the original
-  server account and can be recovered after reconnect. Teams, group inboxes
-  and browser libraries are still planned in the
+  server account and can be recovered after reconnect.
+- Chats includes server-specific direct/group inboxes independent of vaults,
+  bounded join-time history, unread/read reconciliation, group member/owner
+  management, optional group pictures and generic message notifications. The
+  shared native gateway checks account identity and notification provenance.
+  Teams and browser libraries are still planned in the
   [shared collaboration program](../plans/teams-chat-and-file-sharing-plan.md).
 - Settings includes server-specific profile, username, password and picture
   editing with a connected-server switch. Local use in the new roadmap must

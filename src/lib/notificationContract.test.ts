@@ -154,3 +154,27 @@ describe('notification contract', () => {
     ).toThrow(/opaque/);
   });
 });
+
+it('validates personal conversation destinations without conflating them with vault chat', () => {
+  const notice = reminder();
+  const identity = {
+    category: 'collaboration.message' as const,
+    accountKey: notice.accountKey,
+    sourceId: 'message',
+    deliveryKey: 'conversation',
+  };
+  const envelope: NotificationEnvelope = {
+    ...notice,
+    ...identity,
+    id: createNotificationId({ ...identity, occurrenceKey: notice.occurrenceKey }),
+    kind: 'collaboration.message',
+    channel: 'collaboration',
+    destination: { kind: 'conversation', conversationId: 'personal-id' },
+    actions: [{ kind: 'open' }, { kind: 'dismiss' }],
+  };
+  expect(validateNotificationEnvelope(envelope).destination).toEqual(envelope.destination);
+  expect(notificationDestinationKey(envelope.destination)).toBe('conversation:personal-id');
+  expect(notificationDestinationKey({ kind: 'vault-chat', vaultId: 'personal-id' })).not.toBe(
+    notificationDestinationKey(envelope.destination),
+  );
+});

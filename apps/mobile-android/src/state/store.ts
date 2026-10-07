@@ -66,8 +66,8 @@ export interface SelectedVault {
   vault: HostedVault;
 }
 
-export type Tab = 'servers' | 'vaults' | 'files' | 'calendar' | 'settings';
-export const TAB_ORDER: Tab[] = ['servers', 'vaults', 'files', 'calendar', 'settings'];
+export type Tab = 'servers' | 'vaults' | 'files' | 'chats' | 'calendar' | 'settings';
+export const TAB_ORDER: Tab[] = ['servers', 'vaults', 'files', 'chats', 'calendar', 'settings'];
 
 export interface Crumb {
   id: string | null;

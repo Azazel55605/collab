@@ -1,8 +1,8 @@
 # Teams, Chats, And Shared File Libraries
 
 Reviewed: 2026-10-07. Status: **In progress**. Shared vault-chat foundations and
-Android vault chat are implemented and under validation; direct/group chats,
-teams/channels and browser libraries remain planned. Voice/video calls are deferred.
+Android vault chat plus desktop/Android personal conversations are implemented
+and under validation; teams/channels and browser libraries remain planned. Voice/video calls are deferred.
 [Open Development Work](./open-development-work.md) owns consolidated status.
 
 This program precedes the standalone mobile overhaul. Build conversation,
@@ -12,15 +12,15 @@ Android-only collaboration model.
 
 ## Delivery Tracker
 
-| Work                                              | Status      | Remaining gate                                                                                              |
-| ------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| Shared vault-chat contract and Android chat       | Testing     | Physical Android process-death/Keystore/keyboard checks; automated/live server and browser checks completed |
-| Authenticated browser library portal              | Not started | Vault-wide access first; browse/upload/download/history/trash/previews                                      |
-| Direct/group conversations and unread             | Not started | Shared server model, desktop/Android inboxes, join-time history and notifications                           |
-| Teams/channels and library ownership              | Not started | Admin-only team creation, explicit team roles/private channels, ownership migration                         |
-| Folder/file ACLs                                  | Planned     | Same enforcement across every read/write, replica and metadata path                                         |
-| Authenticated share links                         | Planned     | Scoped expiry/revocation after ACL contracts                                                                |
-| Anonymous guests, document workflows, voice/video | Deferred    | Separate accepted scope required                                                                            |
+| Work                                              | Status      | Remaining gate                                                                                                                           |
+| ------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Shared vault-chat contract and Android chat       | Testing     | Physical Android process-death/Keystore/keyboard checks; automated/live server and browser checks completed                              |
+| Authenticated browser library portal              | Not started | Vault-wide access first; browse/upload/download/history/trash/previews                                                                   |
+| Direct/group conversations and unread             | Testing     | Physical Android/native lifecycle and multi-device release checks; shared APIs, inboxes, ownership, unread and notifications implemented |
+| Teams/channels and library ownership              | Not started | Admin-only team creation, explicit team roles/private channels, ownership migration                                                      |
+| Folder/file ACLs                                  | Planned     | Same enforcement across every read/write, replica and metadata path                                                                      |
+| Authenticated share links                         | Planned     | Scoped expiry/revocation after ACL contracts                                                                                             |
+| Anonymous guests, document workflows, voice/video | Deferred    | Separate accepted scope required                                                                                                         |
 
 ## Accepted Product Rules
 
@@ -43,7 +43,7 @@ Android-only collaboration model.
 - `hosted_chat_messages` and vault-scoped chat APIs already persist messages.
   The desktop `ChatPanel` uses the collaboration transport; admin-web can review
   vault chat. Android now has vault chat; a direct/group conversation inbox
-  remains planned.
+  is implemented on desktop and Android.
 - Shared notification delivery, native sessions, a user directory, and a
   multi-server connection registry exist. Keep server/account identifiers in
   every new cache, navigation destination, notification, and unread counter.
@@ -139,6 +139,51 @@ user deletion/disable, cursor ordering, and bounded offline queues. New group me
 see history from their join sequence; cursor/replay/unread queries enforce that
 boundary rather than merely hiding older messages in the UI.
 
+## Phase 2 Implementation
+
+Migration 0036 introduces server-local conversations, memberships, per-conversation
+message sequences, monotonic read positions and recipient-scoped conversation
+events. Direct pairs are canonical; ordinary active users create groups of up to
+50 people. Group owners add active accounts immediately, promote/demote existing
+members, remove members, rename the group and optionally set a bounded PNG picture.
+New and rejoining members start at the next message sequence. Earlier messages,
+replay events and unread counts enforce that boundary in PostgreSQL.
+
+Only active members can access conversation details/history or send. Server
+administration provides no membership bypass. The last active owner cannot leave,
+be demoted, be disabled or be deleted; transfer ownership first. Account deletion
+retains message content with a deleted-sender label. Direct sends stop while the
+other account is disabled or deleted.
+
+A transaction lock orders mutations through commit before allocating event cursors.
+UUID retries preserve one message and one notification; changed content/actor/
+conversation conflicts. Message/event cursors cross JSON and IPC as decimal strings.
+Read positions only advance and cannot exceed the committed conversation head.
+Inbox/history/event responses are bounded; no authorized conversation history is
+persisted offline. Explicit personal event polling and notifications are independent
+of vault WebSockets. Both inboxes reconcile on focus, online events and five-second
+polls while visible.
+
+Desktop Chats is available from the activity bar and vault picker, including without
+an open vault. Android has its own Chats tab. Both consume the same shared controls,
+requests, pagination and encrypted retry transport. Native outbox storage separates
+vault drafts from conversation drafts and scopes both by server/account/resource;
+existing vault outbox keys retain compatibility. Hardware Back unwinds Android group
+details, conversation and inbox. Unsubmitted composer text is transient; saved pending
+sends survive reopening through the native encrypted store.
+
+Message notifications use the existing collaboration category and privacy settings.
+They contain generic text and a conversation destination, with no message content,
+participant name or group name. Opening requires native source-server/account-key
+validation plus current membership, including destinations beyond the first inbox
+page. Per-conversation mute, notification collapsing and attachment storage remain
+follow-on notification/attachment work below.
+
+Automated live PostgreSQL, shared-client, full mobile and browser checks cover the
+implemented boundaries. Physical Android Keystore/process-death/keyboard and actual
+multi-device notification delivery remain release gates; mocked browser IPC does not
+replace them.
+
 ## Phase 3: Teams And Channels
 
 Introduce teams, team roles, channels, and channel membership. Start with public
@@ -203,9 +248,8 @@ revocation, and backup/restore. Never test migrations against real user data.
 Recommended delivery order:
 
 1. Accounts and revision-bound previews (complete and archived).
-2. Shared chat pagination/identity/retry/permission foundations, Android vault
-   chat, and authenticated browser file browsing as focused deliveries.
-3. Direct/group conversations and unread/notification semantics.
+2. Shared chat pagination/identity/retry/permission foundations and Android vault chat (implemented; device validation remains).
+3. Direct/group conversations and unread/notification semantics (implemented; device validation remains), then authenticated browser file browsing.
 4. Teams/channels with shared library ownership.
 5. Folder/file ACLs, then optional external sharing.
 

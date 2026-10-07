@@ -5,6 +5,7 @@ import {
   Files,
   GitFork,
   LayoutGrid,
+  MessageCircle,
   PanelLeft,
   PanelLeftClose,
   Settings,
@@ -22,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = [
   { view: 'editor', icon: <Files size={18} />, label: 'Files' },
   { view: 'graph', icon: <GitFork size={18} />, label: 'Graph View' },
+  { view: 'chats', icon: <MessageCircle size={18} />, label: 'Chats' },
   { view: 'calendar', icon: <CalendarDays size={18} />, label: 'Calendar' },
   { view: 'grid', icon: <LayoutGrid size={18} />, label: 'Grid View' },
 ];

@@ -41,11 +41,32 @@ function initial(key: string): ChatState {
   };
 }
 
-export function useHostedChat(scope: HostedChatScope, connected: boolean) {
-  const key = chatScopeKey(scope);
+export interface ChatTransport {
+  kind: string;
+  read: typeof readChatPage;
+  outbox: typeof chatOutbox;
+  queue: typeof queueChat;
+  discard: typeof discardChat;
+  send: typeof sendChat;
+}
+const vaultTransport: ChatTransport = {
+  kind: 'vault',
+  read: readChatPage,
+  outbox: chatOutbox,
+  queue: queueChat,
+  discard: discardChat,
+  send: sendChat,
+};
+
+export function useHostedChat(
+  scope: HostedChatScope,
+  connected: boolean,
+  transport: ChatTransport = vaultTransport,
+) {
+  const key = transport.kind + chatScopeKey(scope);
   const [state, setState] = useState(() => initial(key));
-  const current = useRef({ scope, key, connected });
-  current.current = { scope, key, connected };
+  const current = useRef({ scope, key, connected, transport });
+  current.current = { scope, key, connected, transport };
   const generation = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -61,7 +82,7 @@ export function useHostedChat(scope: HostedChatScope, connected: boolean) {
     loading.current = true;
     setState((value) => ({ ...value, busy: true, error: null }));
     try {
-      const page = await readChatPage(
+      const page = await request.transport.read(
         request.scope,
         mode === 'older'
           ? { before: previous.before! }
@@ -101,7 +122,8 @@ export function useHostedChat(scope: HostedChatScope, connected: boolean) {
         [...previous.messages, ...page.messages].map((message) => message.id),
       );
       for (const message of previous.pending) {
-        if (acknowledged.has(message.id)) await discardChat(request.scope, message.id);
+        if (acknowledged.has(message.id))
+          await request.transport.discard(request.scope, message.id);
       }
       if (current.current.key === request.key && ticket === generation.current) {
         setState((value) => ({
@@ -135,7 +157,8 @@ export function useHostedChat(scope: HostedChatScope, connected: boolean) {
     loading.current = false;
     sending.current = false;
     setState(initial(key));
-    void chatOutbox(scope)
+    void transport
+      .outbox(scope)
       .then((pending) => {
         if (generation.current === ticket) setState((value) => ({ ...value, pending }));
       })
@@ -180,13 +203,13 @@ export function useHostedChat(scope: HostedChatScope, connected: boolean) {
     setState((value) => ({ ...value, sending: message.id, error: null }));
     try {
       if (create) {
-        await queueChat(request.scope, message);
+        await request.transport.queue(request.scope, message);
         queued = true;
         if (ticket !== generation.current) return false;
         setState((value) => ({ ...value, pending: [...value.pending, message] }));
       }
-      await sendChat(request.scope, message);
-      await discardChat(request.scope, message.id);
+      await request.transport.send(request.scope, message);
+      await request.transport.discard(request.scope, message.id);
       if (ticket !== generation.current) return true;
       setState((value) => ({
         ...value,
@@ -209,7 +232,7 @@ export function useHostedChat(scope: HostedChatScope, connected: boolean) {
     const request = current.current;
     const ticket = generation.current;
     try {
-      await discardChat(request.scope, id);
+      await request.transport.discard(request.scope, id);
       if (ticket === generation.current)
         setState((value) => ({
           ...value,

@@ -297,6 +297,7 @@ pub fn run() {
             commands::server::server_has_saved_session,
             commands::server::hosted_vault_request,
             commands::server::hosted_account_request,
+            commands::server::hosted_conversation_request,
             commands::server::hosted_calendar_request,
             commands::server::hosted_vault_asset_data_url,
             commands::server::hosted_vault_upload_file,

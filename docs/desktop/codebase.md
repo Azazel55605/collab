@@ -1514,3 +1514,28 @@ Located in `src/components/ui/`. Install new ones with `pnpm dlx shadcn@latest a
 | Command             | `command.tsx`            | CommandPalette, note/card pickers                                                                    |
 | Sonner              | `sonner.tsx`             | Toast notifications                                                                                  |
 | ResizablePanelGroup | `resizable.tsx`          | AppShell sidebar resize                                                                              |
+
+## Personal Conversation Boundary
+
+`crates/collab-protocol/src/conversation.rs` owns portable DTOs and owner/content/
+join-sequence policy; `collab-server/src/api/conversations.rs` is the PostgreSQL/
+Axum adapter. Migration 0036 separates personal conversations from hosted vaults.
+Administration never substitutes for membership, and user disable/delete guards
+protect the last active group owner. Per-conversation message and global event
+cursors are decimal strings; transactions order commit-visible allocation.
+
+`src/types/conversation.ts`, `src/lib/conversations.ts` and
+`src/lib/useConversationInbox.ts` own the shared client contract and bounded inbox.
+`useHostedChat` accepts a transport adapter so personal messages retain the same
+identity guards, bounded history and persist-before-send semantics as vault chat.
+`src/components/conversations/` supplies shared inbox/thread/group controls and
+scoped CSS. `ChatsPage` is a page-level `chats` view embedded in AppShell for unlocked vaults
+and available standalone without a vault or while a vault is locked;
+`ConversationsScreen` adapts Android accounts and Back-stack registration.
+
+`conversationNavigation.ts` stores only a transient, server/account-scoped
+notification destination. `hosted_conversation_request` restricts path/method,
+retains native tokens and checks expected user plus optional notice account key.
+The directory wrapper also accepts an expected user. `commands/chat.rs` adds an
+explicit conversation outbox namespace, preserving existing vault file/key names.
+Personal message notices contain generic text and revalidate membership on open.
