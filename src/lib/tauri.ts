@@ -565,8 +565,18 @@ export const tauriCommands = {
     invoke<void>('write_pdf_sidecar_state', { vaultPath, pdfRelativePath, state }),
   readCachedDocumentPreviewDataUrl: (vaultPath: string, relativePath: string) =>
     invoke<string | null>('read_cached_document_preview_data_url', { vaultPath, relativePath }),
-  writeCachedDocumentPreviewDataUrl: (vaultPath: string, relativePath: string, dataUrl: string) =>
-    invoke<void>('write_cached_document_preview_data_url', { vaultPath, relativePath, dataUrl }),
+  writeCachedDocumentPreviewDataUrl: (
+    vaultPath: string,
+    relativePath: string,
+    dataUrl: string,
+    expectedHash?: string,
+  ) =>
+    invoke<void>('write_cached_document_preview_data_url', {
+      vaultPath,
+      relativePath,
+      dataUrl,
+      ...(expectedHash ? { expectedHash } : {}),
+    }),
   saveGeneratedImage: (
     vaultPath: string,
     sourceRelativePath: string,
@@ -1002,12 +1012,20 @@ export const tauriCommands = {
   serverConnectionStatuses: () => invoke<ServerConnectionStatus[]>('server_connection_statuses'),
   serverHasSavedSession: (serverUrl: string) =>
     invoke<boolean>('server_has_saved_session', { serverUrl }),
+  generateDocumentPreview: (relativePath: string, content: string) =>
+    invoke<string>('generate_document_preview', { relativePath, content }),
   hostedVaultRequest: <T>(
     serverUrl: string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
   ) => invoke<T>('hosted_vault_request', { serverUrl, method, path, body: body ?? null }),
+  hostedAccountRequest: <T>(
+    serverUrl: string,
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ) => invoke<T>('hosted_account_request', { serverUrl, method, path, body: body ?? null }),
   hostedCalendarRequest: <T>(
     serverUrl: string,
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',

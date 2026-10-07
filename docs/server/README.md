@@ -51,3 +51,23 @@ The server API and WebSocket modules remain the current adapters. Their internal
 modularization and the proposed shared domain crates are planned, not yet
 implemented. Follow the crate-boundary plan without changing routes, wire
 formats, database semantics, or authorization boundaries as a side effect.
+
+## Self-Service Accounts And Content Previews
+
+The web interface routes ordinary signed-in users to Profile; administrators
+keep their dashboard and have the same Profile tab. `/api/v1/users/me` supports
+browser and native authentication. Browser writes require CSRF; native writes
+use bearer sessions. Display name, username, preferences, avatar, and password
+operations are scoped to the authenticated account.
+
+`GET /api/v1/vaults/{vault_id}/files/{file_id}/preview` returns an authenticated,
+revision-bound SVG content thumbnail for internal documents. Migration 0033
+stores the latest derived preview per file; no manual deployment migration step
+is needed beyond the server's normal startup migrations. File purge cascades to
+its cache. Cache loss is harmless and triggers lazy regeneration. Preview bytes
+live in PostgreSQL and its backups, not the content-addressed blob store or file
+revision storage totals. The cache adds at most 64 KiB per previewed file.
+
+See [the account/preview contract](../plans/accounts-and-previews-plan.md) and
+[the teams, chat, and library draft](../plans/teams-chat-and-file-sharing-plan.md)
+for current fidelity limits, validation, and future scope.

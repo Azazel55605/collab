@@ -14,20 +14,22 @@ verifyDepsBeforeRun: false
 # carries browserslist and baseline-browser-mapping along with it.
 overrides:
   '@hono/node-server@>=1.0.0 <1.19.15': 1.19.15
+  '@modelcontextprotocol/sdk@>=1.12.0 <1.31.0': 1.31.0
   'body-parser@>=2.0.0 <2.3.0': 2.3.0
   'brace-expansion@>=3.0.0 <5.0.12': 5.0.12
   # mermaid declares ^3.3.3 and so already permits this; without the override
   # pnpm keeps a second, older copy alongside our direct dependency.
-  'dompurify@<3.4.13': 3.4.13
+  'dompurify@>=3.0.0 <3.4.16': 3.4.16
   'fast-uri@>=3.0.0 <3.1.8': 3.1.8
-  'hono@>=4.0.0 <4.13.5': 4.13.5
-  'ip-address@<=10.3.0': 10.4.0
+  'hono@>=4.0.0 <4.13.7': 4.13.7
+  'ip-address@>=10.0.0 <10.7.1': 10.7.1
   'js-yaml@>=4.0.0 <4.3.2': 4.3.2
   'linkify-it@<=5.0.1': 5.0.2
   'nanoid@<3.3.18': 3.3.18
   'postcss@<=8.5.22': 8.5.23
-  'postcss-selector-parser@>=7.0.0 <7.1.3': 7.1.3
+  'postcss-selector-parser@>=7.0.0 <7.1.6': 7.1.6
   'qs@>=6.0.0 <6.16.0': 6.16.0
+  'source-map-js@>=1.0.0 <1.2.2': 1.2.2
   'undici@>=7.0.0 <7.30.0': 7.30.0
 
 allowBuilds:

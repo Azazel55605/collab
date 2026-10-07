@@ -4,6 +4,8 @@ The progress trackers in these documents are the source of truth for
 implementation status. Start with
 [Open Development Work](./open-development-work.md) for the consolidated view.
 
+- [Accounts And Document Previews](./accounts-and-previews-plan.md)
+- [Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md)
 - [Android Companion App](./android-companion-app-plan.md)
 - [Advanced Tables](./advanced-tables-plan.md)
 - [Digital Ink And Annotation](./digital-ink-and-annotation-plan.md)

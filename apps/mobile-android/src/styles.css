@@ -7185,3 +7185,33 @@ p {
     border-left: 1px solid var(--border);
   }
 }
+
+.profile-form form {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.profile-avatar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.profile-avatar-actions img {
+  border-radius: 50%;
+  object-fit: cover;
+}
+.profile-form {
+  overflow-wrap: anywhere;
+}
+
+.profile-avatar-actions .avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--muted);
+  color: var(--primary);
+  font-weight: 600;
+}

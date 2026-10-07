@@ -321,11 +321,13 @@ impl CalendarStore {
         .bind(LOCAL_STORE_SCHEMA_VERSION)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(&format!(
-            "PRAGMA user_version = {LOCAL_STORE_SCHEMA_VERSION}"
-        ))
-        .execute(&mut *tx)
-        .await?;
+        // SQLite PRAGMA assignments cannot use bind parameters. The only
+        // appended value is our integer schema constant, never external input.
+        sqlx::QueryBuilder::<sqlx::Sqlite>::new("PRAGMA user_version = ")
+            .push(LOCAL_STORE_SCHEMA_VERSION)
+            .build()
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }

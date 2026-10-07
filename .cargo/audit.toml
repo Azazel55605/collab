@@ -1,7 +1,4 @@
 [advisories]
-# sqlx-macros-core resolves all database backends for compile-time macros, but
-# Collab enables PostgreSQL only. The vulnerable RSA implementation is reachable
-# solely through sqlx-mysql and is not compiled into collab-server. No fixed rsa
-# release is currently available for RUSTSEC-2023-0071.
-#
-ignore = ["RUSTSEC-2023-0071"]
+# No ignored Rust advisories. Keep accepted-risk decisions synchronized with
+# docs/build/security-advisories.md if an ignore is ever necessary again.
+ignore = []

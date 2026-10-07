@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner';
 
 import { newDeckContent } from '../../lib/deck/document';
+import { supportsDocumentPreview } from '../../lib/documentPreview';
 import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
@@ -1454,6 +1455,7 @@ const FileTreeNode = memo(function FileTreeNode({
   const isTaskAttached = !node.isFolder && attachmentRefs.length > 0;
   const isImageAsset = isImageFile(node);
   const isPdfAsset = isPdfFile(node);
+  const isInternalPreview = !node.isFolder && supportsDocumentPreview(node.relativePath);
   const isManagedFolder = isManagedPicturesFolder(node);
   const supportsVersionHistory = supportsVersionHistoryRelativePath(
     node.relativePath,
@@ -1546,7 +1548,11 @@ const FileTreeNode = memo(function FileTreeNode({
             }}
             onMouseEnter={(event) => {
               onHover(node.relativePath);
-              if (!fileTreeHoverPreviewsEnabled || (!isPdfAsset && !isImageAsset)) return;
+              if (
+                !fileTreeHoverPreviewsEnabled ||
+                (!isPdfAsset && !isImageAsset && !isInternalPreview)
+              )
+                return;
               setHoverPreviewAnchorRect(event.currentTarget.getBoundingClientRect());
             }}
             onMouseLeave={() => {
@@ -1728,9 +1734,15 @@ const FileTreeNode = memo(function FileTreeNode({
           </div>
           <FileTreeHoverPreviewPopover
             anchorRect={hoverPreviewAnchorRect}
-            relativePath={isPdfAsset || isImageAsset ? node.relativePath : null}
-            type={isPdfAsset ? 'pdf' : isImageAsset ? 'image' : null}
-            enabled={fileTreeHoverPreviewsEnabled && (isPdfAsset || isImageAsset)}
+            relativePath={
+              isPdfAsset || isImageAsset || isInternalPreview ? node.relativePath : null
+            }
+            type={
+              isPdfAsset ? 'pdf' : isImageAsset ? 'image' : isInternalPreview ? 'document' : null
+            }
+            enabled={
+              fileTreeHoverPreviewsEnabled && (isPdfAsset || isImageAsset || isInternalPreview)
+            }
           />
 
           {/* Children */}

@@ -80,25 +80,24 @@ pub async fn run_maintenance(
         "notification_events",
     )
     .await;
-    report.stale_presence = delete_count(
+    report.stale_presence = delete_count_with_interval(
         db,
-        &format!("DELETE FROM hosted_presence WHERE updated_at < NOW() - INTERVAL '{PRESENCE_STALE_AFTER}'"),
+        "DELETE FROM hosted_presence WHERE updated_at < NOW() - $1::text::interval",
+        PRESENCE_STALE_AFTER,
         "hosted_presence",
     )
     .await;
-    report.expired_calendar_operations = delete_count(
+    report.expired_calendar_operations = delete_count_with_interval(
         db,
-        &format!(
-            "DELETE FROM calendar_client_operations WHERE applied_at < NOW() - INTERVAL '{CALENDAR_OPERATION_RETENTION}'"
-        ),
+        "DELETE FROM calendar_client_operations WHERE applied_at < NOW() - $1::text::interval",
+        CALENDAR_OPERATION_RETENTION,
         "calendar_client_operations",
     )
     .await;
-    report.reclaimed_calendar_uploads = delete_count(
+    report.reclaimed_calendar_uploads = delete_count_with_interval(
         db,
-        &format!(
-            "DELETE FROM calendar_attachment_uploads upload WHERE upload.created_at < NOW() - INTERVAL '{ABANDONED_CALENDAR_UPLOAD_GRACE}' AND NOT EXISTS (SELECT 1 FROM calendar_attachments attachment WHERE attachment.upload_id=upload.id)"
-        ),
+        "DELETE FROM calendar_attachment_uploads upload WHERE upload.created_at < NOW() - $1::text::interval AND NOT EXISTS (SELECT 1 FROM calendar_attachments attachment WHERE attachment.upload_id=upload.id)",
+        ABANDONED_CALENDAR_UPLOAD_GRACE,
         "calendar_attachment_uploads",
     )
     .await;
@@ -127,7 +126,7 @@ pub async fn run_maintenance(
 
 /// Executes a parameterless `DELETE` and returns the affected row count, logging
 /// and swallowing errors so one failing step cannot abort the run.
-async fn delete_count(db: &PgPool, sql: &str, label: &str) -> u64 {
+async fn delete_count(db: &PgPool, sql: &'static str, label: &str) -> u64 {
     match sqlx::query(sql).execute(db).await {
         Ok(result) => result.rows_affected(),
         Err(error) => {
@@ -137,10 +136,30 @@ async fn delete_count(db: &PgPool, sql: &str, label: &str) -> u64 {
     }
 }
 
-async fn delete_count_older_than(db: &PgPool, table: &str, days: i64, label: &str) -> u64 {
-    // `table` is a fixed internal identifier, never user input.
-    let sql = format!("DELETE FROM {table} WHERE created_at < NOW() - make_interval(days => $1)");
-    match sqlx::query(&sql).bind(days as i32).execute(db).await {
+async fn delete_count_with_interval(
+    db: &PgPool,
+    sql: &'static str,
+    interval: &'static str,
+    label: &str,
+) -> u64 {
+    match sqlx::query(sql).bind(interval).execute(db).await {
+        Ok(result) => result.rows_affected(),
+        Err(error) => {
+            tracing::warn!(?error, label, "maintenance interval step failed");
+            0
+        }
+    }
+}
+
+async fn delete_count_older_than(db: &PgPool, table: &'static str, days: i64, label: &str) -> u64 {
+    // Both call sites supply fixed internal table names, never user input.
+    let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new("DELETE FROM ");
+    query
+        .push(table)
+        .push(" WHERE created_at < NOW() - make_interval(days => ")
+        .push_bind(days as i32)
+        .push(")");
+    match query.build().execute(db).await {
         Ok(result) => result.rows_affected(),
         Err(error) => {
             tracing::warn!(?error, label, "maintenance retention step failed");
@@ -254,13 +273,16 @@ async fn reclaim_revisions(db: &PgPool, history_limit: u32, storage_target_bytes
 /// period) from the database, then removes their on-disk content. Returns the
 /// number of blobs and the total bytes reclaimed.
 async fn garbage_collect_blobs(db: &PgPool, blobs: &dyn BlobStorage) -> (u64, u64) {
-    let sql = format!(
+    let rows = match sqlx::query_as::<_, (String, i64)>(
         "DELETE FROM hosted_blobs b \
-         WHERE b.created_at < NOW() - INTERVAL '{BLOB_GC_GRACE}' \
+         WHERE b.created_at < NOW() - $1::text::interval \
            AND NOT EXISTS (SELECT 1 FROM hosted_file_revisions r WHERE r.blob_digest = b.digest) \
-         RETURNING b.digest, b.size_bytes"
-    );
-    let rows = match sqlx::query_as::<_, (String, i64)>(&sql).fetch_all(db).await {
+         RETURNING b.digest, b.size_bytes",
+    )
+    .bind(BLOB_GC_GRACE)
+    .fetch_all(db)
+    .await
+    {
         Ok(rows) => rows,
         Err(error) => {
             tracing::warn!(?error, "blob garbage collection query failed");

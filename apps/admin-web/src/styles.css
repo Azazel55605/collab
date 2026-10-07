@@ -1844,3 +1844,17 @@ nav .active svg {
     grid-template-columns: 1fr;
   }
 }
+
+.account-page {
+  padding: 24px;
+  max-width: 760px;
+  display: grid;
+  gap: 16px;
+}
+.account-page .account-password {
+  display: grid;
+  gap: 12px;
+}
+.account-page .account-password button {
+  justify-self: start;
+}

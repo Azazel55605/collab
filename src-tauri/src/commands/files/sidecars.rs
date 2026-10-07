@@ -98,6 +98,8 @@ pub struct PdfSidecarState {
 struct DocumentPreviewCacheEntry {
     source_modified_at: u64,
     source_size: u64,
+    #[serde(default)]
+    renderer_version: i32,
     preview_mime: String,
     generated_at: u64,
 }
@@ -223,7 +225,8 @@ pub fn read_cached_document_preview_data_url(
     let cache_entry: DocumentPreviewCacheEntry =
         serde_json::from_slice(&metadata_bytes).map_err(|error| error.to_string())?;
 
-    if cache_entry.source_modified_at != source_modified_at
+    if cache_entry.renderer_version != collab_documents::preview::RENDERER_VERSION
+        || cache_entry.source_modified_at != source_modified_at
         || cache_entry.source_size != source_size
     {
         return Ok(None);
@@ -242,6 +245,7 @@ pub fn write_cached_document_preview_data_url(
     vault_path: String,
     relative_path: String,
     data_url: String,
+    expected_hash: Option<String>,
     state: State<AppState>,
 ) -> Result<(), String> {
     let source_path = resolve_vault_path(&vault_path, &relative_path)?;
@@ -254,7 +258,14 @@ pub fn write_cached_document_preview_data_url(
         .decode(encoded)
         .map_err(|error| format!("Failed to decode cached preview data: {error}"))?;
     let (source_modified_at, source_size) = read_source_file_cache_state(&source_path)?;
+    if let Some(expected) = expected_hash {
+        let bytes = read_vault_bytes(&source_path, *state.encryption_key.read())?;
+        if collab_core::sha256_bytes(&bytes) != expected {
+            return Err("Document changed while generating its preview.".into());
+        }
+    }
     let cache_entry = DocumentPreviewCacheEntry {
+        renderer_version: collab_documents::preview::RENDERER_VERSION,
         source_modified_at,
         source_size,
         preview_mime: mime.to_string(),
@@ -328,4 +339,13 @@ mod tests {
         assert_eq!(encoded["schemaVersion"], 2);
         assert_eq!(encoded["ink"]["kind"], "collab-annotations");
     }
+}
+
+#[tauri::command]
+pub fn generate_document_preview(relative_path: String, content: String) -> Result<String, String> {
+    let svg = collab_documents::preview::render(&relative_path, content.as_bytes())?;
+    Ok(format!(
+        "data:image/svg+xml;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(svg)
+    ))
 }

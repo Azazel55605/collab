@@ -53,23 +53,36 @@ patched, the patch and a regression test must be committed alongside it.
 - **Remove the ignore and patch when:** upstream publishes a fixed release and
   the `micromatch` dependency range resolves to it.
 
-The Rust entries below are listed in `ignore = [...]` in `.cargo/audit.toml`.
+There are currently no Rust advisory ignores. The RSA dependency was removed
+from the resolved graph by the SQLx upgrade described below.
 
-### RUSTSEC-2023-0071 — `rsa` 0.9.10 (Marvin timing side-channel)
+## Vulnerabilities resolved in the 2026-10-07 review
 
-- **Severity:** 5.9 (medium). Potential RSA private-key recovery via a timing
-  side channel (Marvin attack).
-- **Dependency path:** `rsa` is pulled in only through `sqlx-mysql`.
-- **Why it is not reachable here:** `sqlx-macros-core` resolves every database
-  backend for its compile-time macros, but collab-server enables the PostgreSQL
-  backend only. The vulnerable `rsa` code is reachable solely through the MySQL
-  backend, which is not compiled into the server binary. The desktop app does
-  not depend on `rsa` at all.
-- **Why it is not fixed:** there is no fixed **stable** `rsa` release. The fix
-  landed only in `0.10.0-rc.*` prereleases; the latest stable remains `0.9.10`.
-- **Remove the ignore when:** a stable `rsa` release (>= 0.10.0) is published and
-  `sqlx` depends on it — or `sqlx` stops pulling `rsa` into the resolved graph
-  for the PostgreSQL-only build.
+- **GHSA-68fv-2mgg-jv7q — `source-map-js` (high).** Raised from **1.2.1**
+  to **1.2.2**, within PostCSS and Tailwind's declared `^1.2.1` range.
+- **GHSA-6qxp-vccf-f47h — `@modelcontextprotocol/sdk` (high).** Raised from
+  **1.30.1** to **1.31.0**, within `shadcn`'s `^1.26.0` range. This corrects
+  OAuth authorization-server credential handling in the development CLI.
+- **DOMPurify's newly reported low advisories.** The old override forced
+  Mermaid's sanitizer to **3.4.13**, despite the direct dependency already
+  requesting **3.4.16**. Both paths now resolve to **3.4.16**.
+- **Moderate `hono`, `ip-address`, and `postcss-selector-parser` findings.**
+  Compatible overrides now resolve to **4.13.7**, **10.7.1**, and **7.1.6**
+  respectively. No parent dependency range is overridden with an unsupported
+  major version.
+- **RUSTSEC-2023-0071 — `rsa` (Marvin timing side-channel).** SQLx **0.9.0**
+  makes RSA authentication optional in `sqlx-mysql`. Collab uses PostgreSQL
+  and SQLite, so `rsa` is no longer in `Cargo.lock`. The corresponding audit
+  ignore was removed. The upgrade replaces the old combined
+  `runtime-tokio-rustls` feature with `runtime-tokio` and `tls-rustls-ring`.
+  SQLx 0.9 also requires literal SQL or a reviewed builder: calendar cleanup
+  now uses fixed statements, retention intervals use bound parameters, and
+  SQLite schema version assignment appends only the internal integer constant.
+  This is dependency removal, not a claim that RSA itself has been patched:
+  [RustSec](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) still lists
+  no patched version, including the prerelease line. The previous statement
+  that `0.10.0-rc.*` fixed the advisory was incorrect. If MySQL/RSA features
+  are ever enabled, reassess the advisory rather than restoring the ignore.
 
 ## Informational warnings (non-failing)
 
@@ -87,7 +100,7 @@ track the rest here.
 - **RUSTSEC-2026-0097 — `rand` (`unsound`).** The workspace resolves three `rand`
   versions; the advisory is fixed in `>= 0.8.6` / `>= 0.9.3` / `>= 0.10.1`.
   `rand` 0.8.5 was bumped to **0.8.6** and `rand` 0.9.4 is already patched (the
-  residual 0.7.3 instance is tracked below).
+  older 0.7.3 instance is not reported by the current advisory database).
 - **`unicode-segmentation` `yanked`.** Bumped from the yanked `1.13.1` to
   **1.13.3**.
 - **RUSTSEC-2026-0194 and RUSTSEC-2026-0195 — `quick-xml` (XML parsing DoS).**
@@ -95,56 +108,34 @@ track the rest here.
   `quick-xml` from **0.38.4** to **0.41.0** (patched in `>= 0.41.0`). The
   matching ignores were removed from `.cargo/audit.toml`.
 - **`spin` `yanked`.** Bumped from the yanked **0.9.8** to **0.9.9**.
+- **RUSTSEC-2026-0221 — `event-listener` (`unsound`).** Raised from
+  **5.4.1** to **5.4.2**, the first patched release. No ignore was added.
 
-### Remaining warnings with no upgrade path
+### Remaining warnings
 
-None of these fail the scan; none are in the ignore list. They persist because
-they are transitive dependencies pinned by upstream (mostly Tauri) with no
-maintained drop-in replacement.
+These are the warnings emitted by the refreshed advisory database and current
+lockfile. Earlier lists of GTK3/unic/rand warnings are not a substitute for a
+current scan.
 
-- **gtk-rs GTK3 binding crates (`unmaintained` + one `unsound`).** `atk`,
-  `atk-sys`, `gdk`, `gdk-sys`, `gdkwayland-sys`, `gdkx11`, `gdkx11-sys`, `gtk`,
-  `gtk-sys`, `gtk3-macros` (all 0.18.2; RUSTSEC-2024-0411 through
-  RUSTSEC-2024-0420) and `glib` 0.18.5 (`unsound`, RUSTSEC-2024-0429). These are
-  the real Linux WebKitGTK webview runtime and are only in the Linux build graph.
-  - **No upgrade exists.** gtk-rs `0.18` is the final GTK3 binding line; upstream
-    gtk-rs has moved to GTK4, so there is no maintained newer GTK3 binding to
-    move to.
-  - **It is upstream-bound.** The bindings are pulled by `tao` (windowing),
-    `muda` (menus), and `tauri-runtime`, all locked to GTK3 because Tauri 2
-    stable targets `webkit2gtk-4.1` (GTK3). Clearing them requires Tauri/`wry`
-    to migrate to `webkitgtk-6.0` (GTK4), which is not in a stable release. We
-    are already on the latest compatible Tauri/`wry` (`tauri` 2.10.3, `wry`
-    0.54.4 — `cargo update` finds nothing newer), so there is nothing to pull in.
-  - **Collab also depends on `gtk`/`webkit2gtk`/`gtk-sys` directly**
-    (`src-tauri/Cargo.toml`), used in `src-tauri/src/lib.rs` to force WebKit
-    hardware acceleration and install a pinch-to-zoom `GestureZoom` handler on
-    Linux. This is pinned to the same `0.18` line as Tauri, so removing our
-    direct dependency would neither clear the advisories (`tao`/`muda` still
-    pull `0.18`) nor be desirable (we would lose the gesture/HW-accel behavior).
-  - `glib`'s unsound advisory is specifically about the `VariantStrIter`
-    iterator impls, which Collab does not use (we only call
-    `glib::translate::from_glib_none`).
-  - **Clears when:** a stable Tauri release adds GTK4/`webkitgtk-6.0` support and
-    we upgrade (also bumping our direct `gtk`/`webkit2gtk` deps to the GTK4
-    line).
-- **Tauri build-time tooling (`unmaintained`).** `fxhash` 0.2.1
-  (RUSTSEC-2025-0057), `proc-macro-error` 1.0.4 (RUSTSEC-2024-0370), and the
-  `unic-*` 0.9.0 crates — `unic-char-property` (RUSTSEC-2025-0081),
-  `unic-char-range` (RUSTSEC-2025-0075), `unic-common` (RUSTSEC-2025-0080),
-  `unic-ucd-ident` (RUSTSEC-2025-0100), `unic-ucd-version` (RUSTSEC-2025-0098).
-  All are pulled by `tauri-build`/`tauri-utils`/`selectors` and run at build time
-  only; none have a maintained upgrade we can select without an upstream change.
-- **RUSTSEC-2026-0097 — `rand` 0.7.3 (`unsound`).** A second, older `rand`
-  remains via `phf_generator` 0.8.0 → `kuchikiki`/`selectors` → `tauri-utils`
-  (Tauri build tooling). It is pinned by `phf_generator 0.8.0`'s `rand = "^0.7"`
-  requirement and there is no patched 0.7 release. Build-time only, and it does
-  not exercise the affected custom-logger + `thread_rng` reseed pattern; it
-  clears once the upstream tooling moves to a newer `phf`.
-- **RUSTSEC-2025-0052 — `async-std` 1.13.2 (`unmaintained`).** Pulled only as a
-  **dev-dependency** through `httpmock` (test harness). It is not compiled into
-  any shipped artifact. It clears when `httpmock` drops `async-std` or is
-  replaced.
+- **RUSTSEC-2024-0429 — `glib` 0.18.5 (`unsound`).** The affected
+  `VariantStrIter` iterator is fixed in `>= 0.20.0`. Collab does not use that
+  iterator. Tauri's GTK3/WebKitGTK stack, and our Linux gesture/hardware
+  acceleration integration, require the 0.18 type family. Updating only our
+  direct dependency to `glib` 0.22 does not update GTK's types and cannot clear
+  the transitive 0.18 instance. A compatible upstream GTK runtime migration or
+  reviewed backport is needed.
+- **Tauri tooling (`unmaintained`).** `fxhash` 0.2.1
+  (RUSTSEC-2025-0057) and `proc-macro-error` 1.0.4 (RUSTSEC-2024-0370)
+  remain through upstream dependencies; there is no selectable compatible
+  maintained release of either crate.
+- **RUSTSEC-2026-0215 — `smallstr` 0.3.1 (`unmaintained`).** Pulled by `yrs`
+  0.27.2 in the shipped collaboration runtime. Replacing it requires upstream
+  `yrs` changes or a reviewed fork; `compact_str`/`smol_str` are different APIs,
+  not drop-in lockfile substitutions. This is not a build-time-only dependency.
+- **RUSTSEC-2025-0052 — `async-std` 1.13.2 (`unmaintained`).** Pulled through
+  the `httpmock` dev dependency and not shipped. `httpmock` 0.8 is a potential
+  migration, but the grouped Rust major-update PR does not compile and is not
+  accepted as a workaround for this warning.
 
 ## npm advisories below the failing threshold
 
@@ -160,19 +151,10 @@ a version its own parent's declared semver range **already permits** — that is
 forced dedupe, not an unsupported upgrade. An advisory whose fix falls outside
 the parent's range needs the parent upgraded instead, and does not belong there.
 
-### `shadcn` subtree — `ip-address` and earlier `hono`, `@hono/node-server`, `qs`, `body-parser` findings
-
-- **Severity:** moderate and low.
-- **Dependency path:** `shadcn` → `@modelcontextprotocol/sdk` → an Express/Hono
-  server the CLI ships.
-- **Why it is not reachable here:** `shadcn` is a **devDependency** and none of
-  it is bundled into any shipped artifact. Nothing in the repo invokes the local
-  binary — no script references it, and the documented workflow in `AGENTS.md` is
-  `pnpm dlx shadcn@latest add <component>`, which fetches the CLI on demand.
-- **Why it remains installed:** `src/App.css` imports `shadcn/tailwind.css`, so
-  the package is a build input as well as the generator for the primitives in
-  `src/components/ui/`. Remove it only after replacing that stylesheet contract;
-  otherwise take compatible parent upgrades and overrides as fixes ship.
+The previously documented moderate `shadcn` subtree findings and low
+`esbuild`/`@babel/core` findings are absent from the current scan. Compatible
+fixes remain in the lockfile/override policy. `shadcn` stays installed because
+`src/App.css` imports `shadcn/tailwind.css`; its CLI code is not shipped.
 
 ### `diff` — GHSA-73rr-hh4g-fpgx (ReDoS in `parsePatch`/`applyPatch`)
 
@@ -190,13 +172,29 @@ the parent's range needs the parent upgraded instead, and does not belong there.
 - **Remove this entry when:** `mergeText` is rewritten against the 8.x API (or
   onto another three-way merge), and `diff` is raised to >= 8.0.3.
 
-### `esbuild` and `@babel/core`
+### `katex` — GHSA-238p-pmpm-9mq7 (trust bypass after prototype pollution)
 
-- **Severity:** low, build-time only; neither ships in an artifact.
-- **Why they are not overridden:** `esbuild`'s fix is 0.28.1 but `vite` declares
-  `^0.27.0`; `@babel/core`'s fix exists only in 8.x but `@vitejs/plugin-react`
-  declares 7.x. Both fall outside what the parent supports, so they need `vite`
-  and `@vitejs/plugin-react` upgraded rather than a forced override.
+- **Severity:** low. Pre-existing prototype pollution can bypass KaTeX trust
+  restrictions; this advisory does not itself provide prototype pollution.
+- **Dependency paths:** direct `katex` **0.16.47** and `mermaid` **11.17.2**
+  → `katex` **0.16.47**.
+- **Fix:** `katex >= 0.18.2`. Mermaid 11's `^0.16.9` range does not permit
+  that release. Do not force an incompatible override; upgrade the parent and
+  validate Markdown/math/diagram behavior together. The grouped npm major PR
+  has unrelated compilation failures and is not ready to provide this fix.
+- **Remove this entry when:** both direct and Mermaid paths resolve to a
+  patched release after that migration.
+
+## Dependabot PR review (2026-10-07)
+
+These are review results, not merge approvals. No dependency PR was merged.
+
+| PR                                                                            | Local evidence                                                                                                                                                                                      | Recommendation                                                                                                |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [#75](https://github.com/Azazel55605/collab/pull/75), Rust compatible updates | Workspace compilation passed. Its older container scan reported 29 fixable OS findings; PR #79's later container scan passed with the same Dockerfile.                                              | Rebase/rebuild against the security fixes and require fresh security checks before merge.                     |
+| [#76](https://github.com/Azazel55605/collab/pull/76), Rust major updates      | `cargo check --workspace --locked` fails: quick-xml 0.42 changes `local_name()` from bytes to text, breaking SVG validation in `collab-documents`. Further native/API migrations remain unverified. | Split into reviewed migrations; do not merge as-is. Frontend/boundary CI does not establish Rust compilation. |
+| [#77](https://github.com/Azazel55605/collab/pull/77), npm compatible updates  | TypeScript 5.9 rejects the inferred `Uint8Array<ArrayBuffer>` assignment in `src/lib/ink/transaction.test.ts:193`. Its failed dependency job was interrupted while installing cargo-audit.          | Fix the test type, rebase security fixes, then run all frontend surfaces and fresh scans.                     |
+| [#78](https://github.com/Azazel55605/collab/pull/78), npm major updates       | Type checks fail for removed `diff.merge`, MarkdownIt typing, Nerdamer parser APIs, and DayPicker props/class names. CI runs were cancelled.                                                        | Split tooling/editor/UI migrations; preserve three-way merge behavior before upgrading `diff`.                |
 
 ## Review cadence
 
@@ -206,4 +204,4 @@ shipped, and delete the corresponding entry here. Also re-scan the non-failing
 warnings for newly available upgrades (e.g. a maintained fork or a Tauri release
 that moves off GTK3 / old `phf`).
 
-_Last reviewed: 2026-10-03._
+_Last reviewed: 2026-10-07._

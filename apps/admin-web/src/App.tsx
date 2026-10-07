@@ -90,7 +90,8 @@ import {
 } from './ui';
 import { useAutoRefresh } from './useAutoRefresh';
 
-type View = 'dashboard' | 'users' | 'vaults' | 'permissions' | 'backups' | 'audit' | 'settings';
+type View =
+  'dashboard' | 'users' | 'vaults' | 'permissions' | 'backups' | 'audit' | 'settings' | 'profile';
 
 export function isSelectedFile(value: FormDataEntryValue | null): value is File {
   return value instanceof globalThis.File && value.size > 0;
@@ -140,7 +141,6 @@ export function App() {
       />
     );
   if (!me) return <AuthScreen mode="login" onAuthenticated={setMe} />;
-  if (me.role !== 'admin') return <AccessDenied onLogout={() => setMe(null)} />;
   return <AdminShell me={me} onMeChange={setMe} onLogout={() => setMe(null)} />;
 }
 
@@ -186,25 +186,6 @@ function InvitationScreen({ token }: { token: string }) {
           )}
           <Button>Create account</Button>
         </form>
-      </Card>
-    </main>
-  );
-}
-
-function AccessDenied({ onLogout }: { onLogout: () => void }) {
-  async function logout() {
-    await serverApi.logout().catch(() => undefined);
-    onLogout();
-  }
-  return (
-    <main className="auth-page">
-      <Card className="auth-card">
-        <div className="logo-mark">
-          <ShieldCheck size={24} />
-        </div>
-        <h1>Administrator access required</h1>
-        <p className="subtle">This account can use Collab, but it cannot manage the server.</p>
-        <Button onClick={logout}>Sign out</Button>
       </Card>
     </main>
   );
@@ -288,7 +269,7 @@ function AdminShell({
   onMeChange: (user: ServerUser) => void;
   onLogout: () => void;
 }) {
-  const [view, setView] = useState<View>('dashboard');
+  const [view, setView] = useState<View>(me.role === 'admin' ? 'dashboard' : 'profile');
   const { appearance, setAppearance } = useAdminAppearance();
   const [accountOpen, setAccountOpen] = useState(false);
   // Seed appearance from the account's saved preferences once on mount, so a
@@ -333,51 +314,61 @@ function AdminShell({
           </span>
           <div>
             <strong>Collab</strong>
-            <small>Server admin</small>
+            <small>{me.role === 'admin' ? 'Server admin' : 'Your account'}</small>
           </div>
         </div>
-        <nav aria-label="Administration">
+        <nav aria-label={me.role === 'admin' ? 'Administration' : 'Account navigation'}>
+          {me.role === 'admin' && (
+            <>
+              <NavButton
+                active={view === 'dashboard'}
+                icon={<Gauge />}
+                label="Dashboard"
+                onClick={() => setView('dashboard')}
+              />
+              <NavButton
+                active={view === 'users'}
+                icon={<Users />}
+                label="Users"
+                onClick={() => setView('users')}
+              />
+              <NavButton
+                active={view === 'vaults'}
+                icon={<Boxes />}
+                label="Vaults"
+                onClick={() => setView('vaults')}
+              />
+              <NavButton
+                active={view === 'permissions'}
+                icon={<ShieldCheck />}
+                label="Permissions"
+                onClick={() => setView('permissions')}
+              />
+              <NavButton
+                active={view === 'backups'}
+                icon={<Archive />}
+                label="Backups"
+                onClick={() => setView('backups')}
+              />
+              <NavButton
+                active={view === 'audit'}
+                icon={<Activity />}
+                label="Audit log"
+                onClick={() => setView('audit')}
+              />
+              <NavButton
+                active={view === 'settings'}
+                icon={<Settings />}
+                label="Settings"
+                onClick={() => setView('settings')}
+              />
+            </>
+          )}
           <NavButton
-            active={view === 'dashboard'}
-            icon={<Gauge />}
-            label="Dashboard"
-            onClick={() => setView('dashboard')}
-          />
-          <NavButton
-            active={view === 'users'}
-            icon={<Users />}
-            label="Users"
-            onClick={() => setView('users')}
-          />
-          <NavButton
-            active={view === 'vaults'}
-            icon={<Boxes />}
-            label="Vaults"
-            onClick={() => setView('vaults')}
-          />
-          <NavButton
-            active={view === 'permissions'}
-            icon={<ShieldCheck />}
-            label="Permissions"
-            onClick={() => setView('permissions')}
-          />
-          <NavButton
-            active={view === 'backups'}
-            icon={<Archive />}
-            label="Backups"
-            onClick={() => setView('backups')}
-          />
-          <NavButton
-            active={view === 'audit'}
-            icon={<Activity />}
-            label="Audit log"
-            onClick={() => setView('audit')}
-          />
-          <NavButton
-            active={view === 'settings'}
-            icon={<Settings />}
-            label="Settings"
-            onClick={() => setView('settings')}
+            active={view === 'profile'}
+            icon={<UserCog />}
+            label="Profile"
+            onClick={() => setView('profile')}
           />
         </nav>
         <div className="profile">
@@ -399,6 +390,16 @@ function AdminShell({
         </div>
       </aside>
       <main className="content">
+        {view === 'profile' && (
+          <AccountDialog
+            inline
+            me={me}
+            appearance={appearance}
+            onAppearanceChange={persistAppearance}
+            onClose={() => {}}
+            onUpdated={onMeChange}
+          />
+        )}
         {view === 'dashboard' && <Dashboard />}
         {view === 'users' && <UsersPage currentUser={me} />}
         {view === 'vaults' && <VaultsPage />}
@@ -5732,12 +5733,14 @@ function EditUserDialog({
 }
 
 function AccountDialog({
+  inline = false,
   me,
   appearance,
   onAppearanceChange,
   onClose,
   onUpdated,
 }: {
+  inline?: boolean;
   me: ServerUser;
   appearance: ReturnType<typeof useAdminAppearance>['appearance'];
   onAppearanceChange: ReturnType<typeof useAdminAppearance>['setAppearance'];
@@ -5748,18 +5751,23 @@ function AccountDialog({
   const [username, setUsername] = useState(me.username);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const accents: AdminAccent[] = ['violet', 'blue', 'emerald', 'rose', 'orange', 'cyan'];
 
   async function run(action: () => Promise<ServerUser | void>, message: string) {
+    if (busy) return;
     setError('');
     setStatus('');
+    setBusy(true);
     try {
       const result = await action();
       if (result) onUpdated(result);
       setStatus(message);
     } catch (reason) {
       setError(String(reason));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -5783,33 +5791,29 @@ function AccountDialog({
       setError('Avatars must be 1 MB or smaller.');
       return;
     }
-    const base64 = await fileToBase64(file);
-    await run(() => serverApi.uploadOwnAvatar(file.type, base64), 'Avatar updated.');
+    await run(
+      async () => serverApi.uploadOwnAvatar(file.type, await fileToBase64(file)),
+      'Avatar updated.',
+    );
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setError('');
-    setStatus('');
-    try {
-      await serverApi.changeOwnPassword(
-        String(form.get('current') ?? ''),
-        String(form.get('next') ?? ''),
-      );
-      (event.currentTarget as HTMLFormElement).reset();
-      setStatus('Password changed.');
-    } catch (reason) {
-      setError(String(reason));
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const next = String(form.get('next') ?? '');
+    if (next !== String(form.get('confirm') ?? '')) {
+      setError('New passwords do not match.');
+      return;
     }
+    await run(async () => {
+      await serverApi.changeOwnPassword(String(form.get('current') ?? ''), next);
+      formElement.reset();
+    }, 'Password changed. Other sessions have been signed out.');
   }
 
-  return (
-    <DialogShell
-      title="Your account"
-      description="Manage your profile, avatar, password, and appearance."
-      onClose={onClose}
-    >
+  const content = (
+    <>
       {error && (
         <div className="error-banner" role="alert">
           <CircleAlert size={16} />
@@ -5825,11 +5829,17 @@ function AccountDialog({
       <div className="account-identity">
         <Avatar user={me} size={56} />
         <div className="account-avatar-actions">
-          <Button variant="outline" size="sm" onClick={() => avatarInputRef.current?.click()}>
+          <Button
+            disabled={busy}
+            variant="outline"
+            size="sm"
+            onClick={() => avatarInputRef.current?.click()}
+          >
             Upload avatar
           </Button>
           {me.hasAvatar && (
             <Button
+              disabled={busy}
               variant="outline"
               size="sm"
               onClick={() => void run(() => serverApi.deleteOwnAvatar(), 'Avatar removed.')}
@@ -5856,7 +5866,7 @@ function AccountDialog({
         <Input value={username} onChange={(event) => setUsername(event.target.value)} />
       </label>
       <div className="ui-dialog-actions">
-        <Button size="sm" onClick={() => void saveProfile()}>
+        <Button disabled={busy} size="sm" onClick={() => void saveProfile()}>
           Save profile
         </Button>
       </div>
@@ -5922,9 +5932,36 @@ function AccountDialog({
           minLength={12}
           required
         />
-        <Button size="sm">Change password</Button>
+        <Field
+          label="Confirm new password"
+          name="confirm"
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          required
+        />
+        <Button disabled={busy} size="sm">
+          Change password
+        </Button>
       </form>
-
+    </>
+  );
+  return inline ? (
+    <>
+      <PageHeader
+        eyebrow="Your account"
+        title="Profile"
+        subtitle="Manage your account on this server."
+      />
+      <Card className="account-page">{content}</Card>
+    </>
+  ) : (
+    <DialogShell
+      title="Your account"
+      description="Manage your profile, avatar, password, and appearance."
+      onClose={onClose}
+    >
+      {content}
       <div className="ui-dialog-actions">
         <Button variant="outline" onClick={onClose}>
           Close

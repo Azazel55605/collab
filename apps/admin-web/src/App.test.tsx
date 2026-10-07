@@ -1040,10 +1040,57 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue({ ...admin, role: 'member' });
     render(<App />);
-    expect(
-      await screen.findByRole('heading', { name: 'Administrator access required' }),
-    ).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Server dashboard' })).toBeNull();
+  });
+
+  it('lets a member edit their profile without loading any admin data', async () => {
+    const member = { ...admin, role: 'member' as const };
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue(member);
+    vi.mocked(serverApi.updateSelf).mockResolvedValue({ ...member, username: 'new-name' });
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Profile' });
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'new-name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    await screen.findByText('Profile updated.');
+    expect(serverApi.updateSelf).toHaveBeenCalledWith({ username: 'new-name' });
+    expect(serverApi.overview).not.toHaveBeenCalled();
+    expect(serverApi.users).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Dashboard' })).toBeNull();
+  });
+
+  it('checks password confirmation and clears password fields after a successful change', async () => {
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue({ ...admin, role: 'member' });
+    vi.mocked(serverApi.changeOwnPassword).mockResolvedValue();
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Profile' });
+    fireEvent.change(screen.getByLabelText('Current password'), {
+      target: { value: 'current password' },
+    });
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'new password long enough' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'different password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'New passwords do not match.',
+    );
+    expect(serverApi.changeOwnPassword).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'new password long enough' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    await screen.findByText('Password changed. Other sessions have been signed out.');
+    expect(serverApi.changeOwnPassword).toHaveBeenCalledWith(
+      'current password',
+      'new password long enough',
+    );
+    expect(screen.getByLabelText('Current password')).toHaveProperty('value', '');
   });
 
   it('exposes labelled navigation and keyboard-focusable administration controls', async () => {
