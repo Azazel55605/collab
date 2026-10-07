@@ -3,6 +3,7 @@
 These plans have no open tracked phases. They are retained as implementation
 and architectural history.
 
+- [User Accounts And Document Previews](./accounts-and-previews-plan.md)
 - [Document Session And Collaboration Stability](./document-session-collaboration-plan.md)
 - [Background Running](./background-running-plan.md)
 - [Background Running Phase 0 Contract](./background-running-phase0-contract.md)

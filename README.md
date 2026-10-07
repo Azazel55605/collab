@@ -660,7 +660,8 @@ kept out of the ignore list. Keep the tracking doc in sync whenever
 ### Packaging And Installation
 
 - [Versioning and releases](./docs/build/versioning-and-releases.md)
-- [Mobile companion docs](./docs/mobile/README.md)
+- [Mobile app docs](./docs/mobile/README.md)
+- [Full mobile app roadmap](./docs/plans/mobile-full-app-plan.md) — planned standalone Android and touch-authoring expansion
 - [Linux installation](./docs/build/linux-install.md)
 - [macOS installation](./docs/build/macos-install.md) - unsigned Intel and Apple Silicon builds and the Gatekeeper workaround
 - [Flatpak guide](./docs/build/flatpak.md)

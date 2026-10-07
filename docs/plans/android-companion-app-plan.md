@@ -1,5 +1,15 @@
 # Android Companion App Plan
 
+## Roadmap Ownership
+
+The hosted companion baseline is implemented. The
+[Full Mobile App Overhaul](./mobile-full-app-plan.md) now owns standalone vaults
+and richer mobile authoring; the original product exclusions below describe the
+companion delivery, not the new roadmap. Remaining Phase 7 physical-device and
+release checks carry into the new plan's release gates. Phase 8's expansion
+bucket is superseded by that plan; iOS remains a separate discovery decision.
+[Open Development Work](./open-development-work.md) owns consolidated status.
+
 ## Summary
 
 Build an Android-first companion app for hosted Collab vaults. The mobile app is
@@ -136,7 +146,7 @@ Do not reuse directly:
 | 5. Kanban MVP                         | Complete    | View and edit boards/cards through a mobile-first Kanban workflow.                                |
 | 6. Viewer-only rich files             | Complete    | Add PDF, image, canvas, and logic diagram viewers without edit affordances.                       |
 | 7. Android hardening and release prep | In progress | Device QA, lifecycle handling, signing, release packaging, and operational docs.                  |
-| 8. Later expansion                    | Assessed    | Standalone local-vault and full-editor expansion is scoped; implementation remains deferred.      |
+| 8. Later expansion                    | Superseded  | Full Mobile App Overhaul owns the planned expansion; iOS remains separate discovery.              |
 
 ## Phase Details
 
@@ -686,22 +696,14 @@ not unrestricted routine WorkManager jobs. Delivery history and architecture
 are retained in the
 [Background Running Plan](../archive/background-running-plan.md).
 
-### Phase 8: Later Expansion
+### Phase 8: Later Expansion — Superseded
 
-The server-independent/full-app direction has been evaluated in
-[Standalone Full Mobile App Assessment](../mobile/standalone-full-app-assessment.md).
-Implementation remains deferred until the local-vault core is approved as a
-separate milestone.
-
-Candidates:
-
-- App-private local vaults behind a shared local/hosted mobile client boundary.
-- Broader editing for rich file types if mobile authoring demand justifies it.
-- iOS feasibility and build pipeline.
-- Better PDF search/annotations.
-- Lightweight canvas or logic editing, only if mobile usage justifies it.
-- Share-to-vault and camera capture beyond the existing quick note/file capture
-  flows.
+The [Full Mobile App Overhaul](./mobile-full-app-plan.md) now owns independent
+local vaults, richer authoring, file intake and platform integration. The
+[assessment](../mobile/standalone-full-app-assessment.md) records the reuse
+boundary. Those phases are planned and have not started; iOS remains a separate
+discovery decision. Do not count this old expansion bucket as another active
+implementation stream.
 
 ## Major Risks
 

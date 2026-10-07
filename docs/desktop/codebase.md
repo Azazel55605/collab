@@ -32,7 +32,7 @@ For the app's visual language, interaction patterns, and UI rules, see the
   hash/name/renderer version. Retrieval checks current `vault.read` and active
   file state before cache access. No preview is an authoritative document.
 
-See [Accounts And Document Previews](../plans/accounts-and-previews-plan.md)
+See [Accounts And Document Previews](../archive/accounts-and-previews-plan.md)
 for rendering limits and [the collaboration expansion draft](../plans/teams-chat-and-file-sharing-plan.md)
 for chats, teams, and shared libraries.
 

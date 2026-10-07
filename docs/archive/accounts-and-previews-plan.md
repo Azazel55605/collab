@@ -1,8 +1,9 @@
 # User Accounts And Document Previews
 
-Reviewed: 2026-10-07. Scope: web self-service accounts, Android profiles, and
-internal-document thumbnails. Teams, chats, and shared libraries have separate
-[draft plans](./teams-chat-and-file-sharing-plan.md).
+Archived: 2026-10-07, after the completed desktop-account and password-reset
+changes were merged. The delivered scope is complete. Scope: web self-service
+accounts, desktop and Android profiles, and internal-document thumbnails.
+Teams, chats, and shared libraries have separate [draft plans](../plans/teams-chat-and-file-sharing-plan.md).
 
 ## Account Delivery
 
@@ -94,23 +95,18 @@ one load scoped by server/account/vault/path. Hosted authorization errors never
 fall back to offline content. Connectivity failures may regenerate from an
 already available offline replica; pending local edits preview their draft.
 
-## Follow-On Preview Work
+## Follow-On Work Ownership
 
-1. Measure cold-generation, warm-cache, transfer, memory, and Android timings
-   against maintained real fixtures before setting production latency budgets.
-   The current change removes repeated server rendering by construction; no
-   measured speedup is claimed without those timings.
-2. Add scene-faithful thumbnails using the existing deck/ink renderers and a
-   worksheet renderer in an isolated bounded worker. Keep summaries as the
-   fallback. Do not execute document-provided scripts or load arbitrary URLs.
-3. Introduce server PDF and resized-image generation with explicit decoder
-   dependencies, process isolation, time/memory limits, and deployment checks.
-   Do not assume a browser PDF renderer exists in the server image.
-4. Add conditional thumbnail responses and an account-scoped bounded client
-   cache, checking authorization on every retrieval. Durable offline previews
-   must follow `vault.offlineCopy`, logout, and replica removal policies.
-5. Add Android file-list preview affordances and optional background generation
-   after revisions commit. Avoid generating the entire vault on login or hover.
+Optional preview expansion is tracked in
+[Open Development Work](../plans/open-development-work.md#document-preview-expansion).
+Android preview integration is part of the
+[Full Mobile App Overhaul](../plans/mobile-full-app-plan.md). These additions are
+outside the completed delivery recorded here. Physical native picker/lifecycle
+checks remain recurring release gates, not unfinished account implementation.
+
+Admin-issued password reset links were delivered as a subsequent change using
+the existing invite delivery infrastructure and a separate expiring reset token.
+See the [server documentation](../server/README.md) for the current contract.
 
 ## Validation Evidence
 
@@ -132,7 +128,7 @@ Validated on 2026-10-07:
   status, the admin page, and writable storage/backup directories.
 
 Physical Android picture selection, process recreation, native desktop visual
-QA, measured preview performance, and the follow-on work above remain open.
+QA, measured preview performance, and optional preview expansion remain follow-on release/planning work.
 
 ### Desktop Account Completion
 

@@ -1,16 +1,18 @@
-# Mobile Companion Docs
+# Mobile App Docs
 
 The Android companion is a hosted-vault companion client. It shares the native
 hosted session, replica, and sync boundaries with the desktop client, but uses a
-separate mobile React shell under `apps/mobile-android`.
+separate mobile React shell under `apps/mobile-android`. The standalone Android
+expansion is planned; local vaults and full rich-file authoring are not shipped.
 
 ## Start Here
 
+- [Full mobile app overhaul](../plans/mobile-full-app-plan.md) — audited gaps,
+  local storage architecture, staged editor expansion and acceptance gates.
 - [Android companion plan](../plans/android-companion-app-plan.md) — product scope,
-  phase status, implementation notes, and remaining mobile work.
+  the implemented hosted baseline and outstanding device/release evidence.
 - [Standalone full app assessment](./standalone-full-app-assessment.md) — current
-  reuse boundary, required local-vault architecture, feature-parity gaps, risks,
-  and staged effort for making Android independent of a server.
+  reuse boundary, local-vault architecture, feature gaps and storage risks.
 - [Presentation companion](./presentation-companion.md) — viewing, presenting, and
   remote-controlling `.deck` presentations on Android, and its physical-device
   release gate.
@@ -37,8 +39,18 @@ separate mobile React shell under `apps/mobile-android`.
 ## Current Boundaries
 
 - Mobile supports hosted server login/session restore, hosted vault browsing,
-  offline copies, notes, Kanban, queued offline edits, reconnect sync replay, and
-  mobile live-session plumbing for supported text documents.
+  offline copies, editable notes/Kanban, bounded sheet/ink editing, queued
+  offline edits, reconnect replay and supported live sessions. Rich-file viewing
+  includes PDF, image, canvas and logic; logic also has bounded circuit-property
+  and analysis editing. Decks support viewing, presenting and remote control.
+- Settings includes server-specific profile, username, password and picture
+  editing with a connected-server switch. Local use in the new roadmap must
+  remain independent of those accounts.
+- Local calendars already exist alongside hosted calendars, notifications,
+  widgets and background jobs. Document attachments still need the planned
+  local/hosted identity boundary. Hosted file upload/download exists today;
+  standalone local vault import/export and general Android share/open routing
+  are separate planned additions.
 - Hosted CalDAV clients write through the server's normal calendar operation
   log, so external changes reach Android through the existing hosted-calendar
   delta sync. Android does not store CalDAV app passwords; credential setup and
@@ -53,3 +65,12 @@ separate mobile React shell under `apps/mobile-android`.
   in [Android companion build](./android-companion-build.md), including
   `MainActivity.kt`, Android Keystore-backed token/replica secret storage, and
   Play signing/version wiring.
+
+## Roadmap Ownership
+
+The full-app plan replaces the companion plan's deferred expansion bucket.
+Device lifecycle and release checks remain open or recurring in their existing
+matrices. The completed [accounts/previews plan](../archive/accounts-and-previews-plan.md)
+is archived; optional preview expansion is tracked in
+[Open Development Work](../plans/open-development-work.md#document-preview-expansion).
+Android comes first; iOS discovery and live voice/video are deferred.

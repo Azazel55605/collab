@@ -68,6 +68,6 @@ its cache. Cache loss is harmless and triggers lazy regeneration. Preview bytes
 live in PostgreSQL and its backups, not the content-addressed blob store or file
 revision storage totals. The cache adds at most 64 KiB per previewed file.
 
-See [the account/preview contract](../plans/accounts-and-previews-plan.md) and
+See [the account/preview contract](../archive/accounts-and-previews-plan.md) and
 [the teams, chat, and library draft](../plans/teams-chat-and-file-sharing-plan.md)
 for current fidelity limits, validation, and future scope.
