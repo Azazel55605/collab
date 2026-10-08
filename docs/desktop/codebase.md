@@ -1555,8 +1555,15 @@ update without reloading history. Only senders may edit or delete; deletion
 keeps the row (sequence, read position and replies stay stable) and drops its
 text and reactions. Replies are validated against the reader's visible history
 and survive outbox retries through `PendingChatMessage.replyTo`.
-`ConversationPreferences` stores the device-local combined/separate sidebar setting;
-change it from **Chat layout** beside the Chats heading. `TeamSidebar` polls the
+`src/store/chatPreferences.ts` is the persisted, sanitized device-local chat
+preference store shared with Android (it migrates the earlier `collab.chat-layout`
+key); the workspace exposes the choices as `data-*` attributes that
+`conversations.css` styles. `SettingsChatsSection` and the Android
+`ChatSettingsSection` edit it alongside `ChatStylePreview`. Pins are per-member
+`pinned_at` columns (migration 0039) behind `PUT /conversations/{id}/pin` and
+`PUT /teams/{id}/pin`, capped at 20 each; the inbox loads `?pinned=true`
+separately so pins show regardless of paging. `ConversationPreferences` keeps
+only recent people. `TeamSidebar` polls the
 bounded team page and channels of one expanded team only, with visibility, identity
 and stale-response guards. Team management opens in the content pane, and group
 creation has removable recipient chips and a fixed action footer.

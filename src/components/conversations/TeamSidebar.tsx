@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 
-import { ChevronDown, ChevronRight, Hash, Settings2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Hash, Pin, Settings2 } from 'lucide-react';
 
 import { nativeTeamRequest } from '../../lib/teams';
 import type { TeamChannel, TeamSummary } from '../../types/team';
 import { Button } from '../ui/button';
 
+import { PinnableRow } from './ConversationList';
 import type { ChatAccount } from './ConversationToolbar';
 import { NameAvatar } from './ConversationVisuals';
 
@@ -32,6 +33,24 @@ export function TeamSidebar({
   const [error, setError] = useState('');
   // Polls refresh quietly; only the first load shows a loading line.
   const [loaded, setLoaded] = useState(false);
+  // Bumped after a pin change to refresh at once instead of on the next poll.
+  const [version, setVersion] = useState(0);
+  async function togglePin(team: TeamSummary) {
+    setError('');
+    try {
+      await nativeTeamRequest({ serverUrl: account.serverUrl, accountId: account.accountId })(
+        'PUT',
+        `/${team.id}/pin`,
+        { pinned: !team.pinned },
+      );
+      setTeams((list) =>
+        list.map((entry) => (entry.id === team.id ? { ...entry, pinned: !team.pinned } : entry)),
+      );
+      setVersion((value) => value + 1);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  }
   useEffect(() => {
     let alive = true;
     let running = false;
@@ -84,7 +103,7 @@ export function TeamSidebar({
       window.removeEventListener('focus', wake);
       window.removeEventListener('online', wake);
     };
-  }, [account.serverUrl, account.accountId, account.connected, expanded, after]);
+  }, [account.serverUrl, account.accountId, account.connected, expanded, after, version]);
   return (
     <nav className="conversation-team-nav" aria-label="Teams and channels">
       <header>
@@ -117,17 +136,30 @@ export function TeamSidebar({
       {!collapsed &&
         teams
           .filter((team) => !team.archived)
+          // Pinned teams first; the server order is kept within each group.
+          .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
           .map((team) => (
             <div key={team.id}>
-              <Button
-                variant="ghost"
-                className="conversation-team-row"
-                aria-expanded={expanded === team.id}
-                onClick={() => setExpanded((value) => (value === team.id ? null : team.id))}
+              <PinnableRow
+                pinned={!!team.pinned}
+                label={team.name}
+                togglePin={() => void togglePin(team)}
+                disabled={!account.connected}
+                describedBy={`conversation-team-name-${team.id}`}
               >
-                <NameAvatar name={team.name} size="sm" square />
-                <span>{team.name}</span>
-              </Button>
+                <Button
+                  variant="ghost"
+                  className="conversation-team-row"
+                  aria-expanded={expanded === team.id}
+                  onClick={() => setExpanded((value) => (value === team.id ? null : team.id))}
+                >
+                  <NameAvatar name={team.name} size="sm" square />
+                  <span id={`conversation-team-name-${team.id}`}>{team.name}</span>
+                  {team.pinned && (
+                    <Pin size={12} className="conversation-pin-mark" aria-label="Pinned" />
+                  )}
+                </Button>
+              </PinnableRow>
               {expanded === team.id &&
                 channels
                   .filter((channel) => !channel.archived)

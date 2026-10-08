@@ -192,7 +192,7 @@ pub async fn list(
             .await?
             .user,
     );
-    let rows=sqlx::query("SELECT t.id,t.name,t.archived,m.role FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 AND ($2::uuid IS NULL OR t.id>$2) ORDER BY t.id LIMIT 100").bind(user).bind(page.after).fetch_all(&state.database).await.map_err(|_|fail(&id))?;
+    let rows=sqlx::query("SELECT t.id,t.name,t.archived,m.role,(m.pinned_at IS NOT NULL) AS pinned FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 AND ($2::uuid IS NULL OR t.id>$2) ORDER BY t.id LIMIT 100").bind(user).bind(page.after).fetch_all(&state.database).await.map_err(|_|fail(&id))?;
     Ok(Json(DataResponse::new(
         rows.iter()
             .map(|r| TeamSummary {
@@ -200,10 +200,51 @@ pub async fn list(
                 name: r.get("name"),
                 role: r.get("role"),
                 archived: r.get("archived"),
+                pinned: r.get("pinned"),
             })
             .collect(),
     )))
 }
+pub async fn pin(
+    State(state): State<AppState>,
+    Extension(id): Extension<String>,
+    headers: HeaderMap,
+    Path(team): Path<Uuid>,
+    Json(payload): Json<super::conversations::PinChange>,
+) -> Result<StatusCode, ApiFailure> {
+    let user = user_uuid(&require_any_user(&state, &headers, &id).await?.user);
+    if payload.pinned {
+        let pins = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM team_members WHERE user_id=$1 AND pinned_at IS NOT NULL AND team_id<>$2",
+        )
+        .bind(user)
+        .bind(team)
+        .fetch_one(&state.database)
+        .await
+        .map_err(|_| fail(&id))?;
+        if pins >= collab_protocol::conversation::MAX_PINS {
+            return Err(ApiFailure::validation(
+                "You can pin at most 20 teams. Unpin one first.",
+                id,
+            ));
+        }
+    }
+    let changed = sqlx::query(
+        "UPDATE team_members SET pinned_at=CASE WHEN $3 THEN COALESCE(pinned_at,NOW()) END WHERE team_id=$1 AND user_id=$2",
+    )
+    .bind(team)
+    .bind(user)
+    .bind(payload.pinned)
+    .execute(&state.database)
+    .await
+    .map_err(|_| fail(&id))?
+    .rows_affected();
+    if changed == 0 {
+        return Err(ApiFailure::not_found(id));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn create(
     State(state): State<AppState>,
     Extension(id): Extension<String>,

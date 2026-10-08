@@ -10,6 +10,7 @@ import {
   Code2,
   LayoutDashboard,
   type LucideIcon,
+  MessageCircle,
   Palette,
   RefreshCw,
   Search,
@@ -19,6 +20,7 @@ import {
   UserRound,
 } from 'lucide-react';
 
+import { ChatSettingsSection } from '../components/ChatSettingsSection';
 import { NotificationSettingsSection } from '../components/NotificationSettingsSection';
 import { ProfileSettingsSection } from '../components/ProfileSettingsSection';
 import { TimeField } from '../components/TimeField';
@@ -73,6 +75,7 @@ type SettingsCategory =
   | 'appearance'
   | 'editor'
   | 'calendar'
+  | 'chats'
   | 'logic'
   | 'account';
 
@@ -131,6 +134,13 @@ const SETTINGS_CATEGORIES: Array<{
     description: 'Dates, time, reminders, and working hours',
     keywords: 'date time week reminder duration timezone weekend',
     Icon: CalendarDays,
+  },
+  {
+    id: 'chats',
+    label: 'Chats',
+    description: 'Chat list layout, density, message style, and pins',
+    keywords: 'chat message teams group compact density bubble flat pin enter send preview',
+    Icon: MessageCircle,
   },
   {
     id: 'logic',
@@ -935,6 +945,8 @@ export function SettingsScreen({
           </section>
         </>
       ) : null}
+
+      {activeCategory === 'chats' ? <ChatSettingsSection /> : null}
 
       {activeCategory === 'logic' ? (
         <section className="card">

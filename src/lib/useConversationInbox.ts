@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { ConversationAccount, ConversationSummary } from '../types/conversation';
 
-import { conversationEvents, listConversations } from './conversations';
+import { conversationEvents, listConversations, listPinnedConversations } from './conversations';
 
 export function useConversationInbox(account: ConversationAccount, connected: boolean) {
   const key = JSON.stringify([account.serverUrl, account.accountId]);
   const [state, setState] = useState({
     key,
     rows: [] as ConversationSummary[],
+    /** Pinned rows load separately so they show regardless of paging. */
+    pinned: [] as ConversationSummary[],
     older: false,
     busy: true,
     error: null as string | null,
@@ -28,7 +30,11 @@ export function useConversationInbox(account: ConversationAccount, connected: bo
     const ticket = ++loadTicket.current;
     setState((value) => ({ ...value, busy: true, error: null }));
     try {
-      const rows = await listConversations(request.account, before);
+      const [rows, pinned] = await Promise.all([
+        listConversations(request.account, before),
+        // Servers without pins ignore the filter; the flag check keeps them empty.
+        listPinnedConversations(request.account).then((list) => list.filter((row) => row.pinned)),
+      ]);
       if (
         generation.current !== gen ||
         current.current.key !== request.key ||
@@ -40,13 +46,20 @@ export function useConversationInbox(account: ConversationAccount, connected: bo
         ...value,
         key: request.key,
         rows,
+        pinned,
         older: !!before,
         busy: false,
         error: null,
       }));
     } catch (reason) {
       if (generation.current === gen && ticket === loadTicket.current)
-        setState((value) => ({ ...value, rows: [], busy: false, error: String(reason) }));
+        setState((value) => ({
+          ...value,
+          rows: [],
+          pinned: [],
+          busy: false,
+          error: String(reason),
+        }));
     }
   }
   const refreshRef = useRef(refresh);
@@ -56,7 +69,15 @@ export function useConversationInbox(account: ConversationAccount, connected: bo
     cursor.current = '0';
     polling.current = false;
     older.current = false;
-    setState({ key, rows: [], older: false, busy: connected, error: null, removed: [] });
+    setState({
+      key,
+      rows: [],
+      pinned: [],
+      older: false,
+      busy: connected,
+      error: null,
+      removed: [],
+    });
     if (!connected)
       return () => {
         generation.current = gen + 1;
@@ -77,12 +98,13 @@ export function useConversationInbox(account: ConversationAccount, connected: bo
             ...value,
             removed,
             rows: value.rows.filter((row) => !removed.includes(row.id)),
+            pinned: value.pinned.filter((row) => !removed.includes(row.id)),
           }));
         // Inbox snapshots reconcile unread even after another device marks read.
         if (!older.current) await refreshRef.current();
       } catch (reason) {
         if (generation.current === gen)
-          setState((value) => ({ ...value, rows: [], error: String(reason) }));
+          setState((value) => ({ ...value, rows: [], pinned: [], error: String(reason) }));
       } finally {
         if (generation.current === gen) polling.current = false;
       }
@@ -104,7 +126,7 @@ export function useConversationInbox(account: ConversationAccount, connected: bo
   return {
     ...(state.key === key && connected
       ? state
-      : { key, rows: [], older: false, busy: false, error: null, removed: [] }),
+      : { key, rows: [], pinned: [], older: false, busy: false, error: null, removed: [] }),
     refresh,
   };
 }

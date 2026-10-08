@@ -1,6 +1,9 @@
 import DOMPurify from 'dompurify';
 import MarkdownIt from 'markdown-it';
 
+import type { ChatPreferences } from '../../store/chatPreferences';
+import type { ConversationSummary } from '../../types/conversation';
+
 /** Pure chat formatting helpers shared by the conversation components. */
 
 export type Edit = { text: string; start: number; end: number };
@@ -100,4 +103,14 @@ export function messageTime(timestamp: number, now = Date.now()) {
   return startOfDay(at) === startOfDay(new Date(now))
     ? clock
     : `${listTime(timestamp, now)} ${clock}`;
+}
+
+/** Stable sort: unread conversations first when the preference asks for it. */
+export function sortConversations(
+  rows: ConversationSummary[],
+  order: ChatPreferences['sortOrder'],
+) {
+  return order === 'unread'
+    ? [...rows].sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0))
+    : rows;
 }

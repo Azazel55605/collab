@@ -7,6 +7,8 @@ pub struct TeamSummary {
     pub name: String,
     pub role: String,
     pub archived: bool,
+    #[serde(default)]
+    pub pinned: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

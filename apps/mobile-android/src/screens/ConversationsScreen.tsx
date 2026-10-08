@@ -10,6 +10,15 @@ export function ConversationsScreen() {
       <ConversationAccounts
         registerBack={pushBackDismiss}
         openAccountSettings={() => setTab('settings')}
+        openChatSettings={() => {
+          setTab('settings');
+          // The settings screen listens for this once it has mounted.
+          window.setTimeout(() =>
+            window.dispatchEvent(
+              new CustomEvent('collab-settings-open-category', { detail: { category: 'chats' } }),
+            ),
+          );
+        }}
         accounts={Object.entries(statuses).flatMap(([serverUrl, status]) =>
           status.user
             ? [

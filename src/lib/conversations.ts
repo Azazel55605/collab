@@ -41,6 +41,10 @@ export const listConversations = (account: ConversationAccount, before?: string)
     'GET',
     `?limit=50${before ? `&before=${before}` : ''}`,
   );
+export const listPinnedConversations = (account: ConversationAccount) =>
+  conversationRequest<ConversationSummary[]>(account, 'GET', '?limit=50&pinned=true');
+export const pinConversation = (account: ConversationAccount, id: string, pinned: boolean) =>
+  conversationRequest<void>(account, 'PUT', `/${id}/pin`, { pinned });
 export const conversationEvents = (account: ConversationAccount, after: string) =>
   conversationRequest<ConversationEventPage>(account, 'GET', `/events?limit=100&after=${after}`);
 export const conversationMembers = (account: ConversationAccount, id: string) =>

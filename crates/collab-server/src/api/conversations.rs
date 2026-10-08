@@ -59,6 +59,13 @@ pub struct InboxQuery {
     pub conversation: Option<Uuid>,
     pub before: Option<i64>,
     pub limit: Option<i64>,
+    /// `true` lists only pinned conversations, `false` only unpinned ones.
+    pub pinned: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PinChange {
+    pub pinned: bool,
 }
 
 fn fail(id: &str) -> ApiFailure {
@@ -175,7 +182,7 @@ pub async fn list(
     if !(1..=100).contains(&limit) || query.before.is_some_and(|v| v <= 0) {
         return Err(ApiFailure::validation("Invalid inbox cursor or limit.", id));
     }
-    let rows=sqlx::query(r#"SELECT c.id,c.kind,c.name,c.head,c.updated_cursor,c.picture,m.role,m.read_sequence,
+    let rows=sqlx::query(r#"SELECT c.id,c.kind,c.name,c.head,c.updated_cursor,c.picture,m.role,m.read_sequence,(m.pinned_at IS NOT NULL) AS pinned,
         (SELECT team_id FROM team_channels WHERE conversation_id=c.id) AS team_id,
         (SELECT t.name FROM teams t JOIN team_channels ch ON ch.team_id=t.id WHERE ch.conversation_id=c.id) AS team_name,
         (SELECT other.display_name FROM conversation_members peer JOIN users other ON other.id=peer.user_id
@@ -188,8 +195,9 @@ pub async fn list(
         LEFT JOIN LATERAL (SELECT CASE WHEN msg.deleted_at IS NULL THEN LEFT(msg.content,160) END AS preview,msg.created_at,msg.sender_user_id,(msg.deleted_at IS NOT NULL) AS deleted FROM conversation_messages msg
           WHERE msg.conversation_id=c.id AND msg.sequence>=m.joined_sequence ORDER BY msg.sequence DESC LIMIT 1) last ON true
         WHERE m.user_id=$1 AND NOT EXISTS(SELECT 1 FROM team_channels ch JOIN teams t ON t.id=ch.team_id WHERE ch.conversation_id=c.id AND (ch.archived OR t.archived OR NOT EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=$1))) AND ($2::bigint IS NULL OR c.updated_cursor<$2) AND ($4::uuid IS NULL OR c.id=$4)
+          AND ($5::boolean IS NULL OR (m.pinned_at IS NOT NULL)=$5)
         ORDER BY c.updated_cursor DESC LIMIT $3"#)
-        .bind(user).bind(query.before).bind(limit).bind(query.conversation).fetch_all(&state.database).await.map_err(|_|fail(&id))?;
+        .bind(user).bind(query.before).bind(limit).bind(query.conversation).bind(query.pinned).fetch_all(&state.database).await.map_err(|_|fail(&id))?;
     Ok(Json(DataResponse::new(
         rows.iter()
             .map(|r| ConversationSummary {
@@ -218,6 +226,7 @@ pub async fn list(
                 peer_user_id: r
                     .get::<Option<Uuid>, _>("peer_user_id")
                     .map(|v| v.to_string()),
+                pinned: r.get("pinned"),
             })
             .collect(),
     )))
@@ -808,6 +817,45 @@ pub async fn react(
     let value = one_message(&mut tx, message_id, user, joined, &id).await?;
     tx.commit().await.map_err(|_| fail(&id))?;
     Ok(Json(DataResponse::new(value)))
+}
+
+pub async fn pin(
+    State(state): State<AppState>,
+    Extension(id): Extension<String>,
+    headers: HeaderMap,
+    Path(conversation): Path<Uuid>,
+    Json(payload): Json<PinChange>,
+) -> Result<StatusCode, ApiFailure> {
+    let user = user_uuid(&require_any_user(&state, &headers, &id).await?.user);
+    let mut tx = begin(&state.database, &id).await?;
+    membership(&mut tx, conversation, user, &id).await?;
+    if payload.pinned {
+        let pins = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM conversation_members WHERE user_id=$1 AND pinned_at IS NOT NULL AND conversation_id<>$2",
+        )
+        .bind(user)
+        .bind(conversation)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| fail(&id))?;
+        if pins >= collab_protocol::conversation::MAX_PINS {
+            return Err(ApiFailure::validation(
+                "You can pin at most 20 chats. Unpin one first.",
+                id,
+            ));
+        }
+    }
+    sqlx::query(
+        "UPDATE conversation_members SET pinned_at=CASE WHEN $3 THEN COALESCE(pinned_at,NOW()) END WHERE conversation_id=$1 AND user_id=$2",
+    )
+    .bind(conversation)
+    .bind(user)
+    .bind(payload.pinned)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| fail(&id))?;
+    tx.commit().await.map_err(|_| fail(&id))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn read(

@@ -65,8 +65,11 @@ export function ConversationComposer({
   mode,
   cancelMode,
   submit,
+  enterToSend = true,
 }: {
   placeholder: string;
+  /** False: Enter adds a line and Ctrl/Cmd+Enter sends, as in the expanded editor. */
+  enterToSend?: boolean;
   disabled: boolean;
   sending: boolean;
   mode: ComposerMode | null;
@@ -167,7 +170,7 @@ export function ConversationComposer({
     if (event.key !== 'Enter' || event.shiftKey) return;
     // Like Teams: Enter sends, but in the expanded editor it starts a new
     // line and Ctrl/Cmd+Enter sends.
-    if (formatting && !modifier) return;
+    if ((formatting || !enterToSend) && !modifier) return;
     event.preventDefault();
     void send();
   }

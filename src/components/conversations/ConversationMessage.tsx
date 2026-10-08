@@ -32,11 +32,14 @@ export function ConversationMessageItem({
   continued,
   enabled,
   actions,
+  flat = false,
 }: {
   serverUrl: string;
   message: HostedChatPageMessage;
   own: boolean;
   continued: boolean;
+  /** Flat style lists every message left-aligned with its author, no bubbles. */
+  flat?: boolean;
   /** False while offline: history stays readable but cannot change. */
   enabled: boolean;
   actions: MessageActions;
@@ -46,7 +49,9 @@ export function ConversationMessageItem({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const deleted = !!message.deleted;
-  const name = own ? 'You' : message.userName;
+  // Flat style names the sender even for your own messages.
+  const name = own && !flat ? 'You' : message.userName;
+  const aligned = own && !flat;
   const reactions = message.reactions ?? [];
   const react = (emoji: string) => {
     const mine = reactions.some((reaction) => reaction.emoji === emoji && reaction.mine);
@@ -57,7 +62,8 @@ export function ConversationMessageItem({
       id={`conversation-message-${message.id}`}
       className={[
         'conversation-message',
-        own && 'own',
+        aligned && 'own',
+        own && 'mine',
         continued && 'continued',
         deleted && 'deleted',
         pinned && 'pinned',
@@ -65,12 +71,12 @@ export function ConversationMessageItem({
         .filter(Boolean)
         .join(' ')}
     >
-      {!own && !continued && (
+      {!aligned && !continued && (
         <UserAvatar serverUrl={serverUrl} userId={message.userId} name={message.userName} />
       )}
       <div className="conversation-message-body">
         <header className={continued ? 'conversation-visually-hidden' : undefined}>
-          <strong className={own ? 'conversation-visually-hidden' : undefined}>{name}</strong>
+          <strong className={aligned ? 'conversation-visually-hidden' : undefined}>{name}</strong>
           <time dateTime={new Date(message.timestamp).toISOString()}>
             {messageTime(message.timestamp)}
           </time>
@@ -147,7 +153,7 @@ export function ConversationMessageItem({
             <EmojiPicker
               label="More reactions"
               side="top"
-              align={own ? 'end' : 'start'}
+              align={aligned ? 'end' : 'start'}
               open={pinned === 'emoji'}
               onOpenChange={(open) => setPinned(open ? 'emoji' : null)}
               onPick={(emoji) => {

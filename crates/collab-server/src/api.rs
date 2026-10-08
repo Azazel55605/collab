@@ -13933,6 +13933,102 @@ mod tests {
         .await;
         assert_eq!(inbox["data"][0]["peerUserId"], ids[0]);
         assert_eq!(inbox["data"][0]["lastMessage"], "hi back");
+        assert_eq!(inbox["data"][0]["pinned"], false);
+        // Pins are per member and filterable; other members are unaffected.
+        assert_eq!(
+            request(
+                &app,
+                "PUT",
+                &format!("/api/v1/conversations/{direct}/pin"),
+                json!({"pinned":true}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let pinned = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations?pinned=true",
+                Value::Null,
+                Some(cara),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(pinned["data"][0]["id"], direct);
+        assert_eq!(pinned["data"][0]["pinned"], true);
+        let unpinned = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations?pinned=false",
+                Value::Null,
+                Some(cara),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(unpinned["data"].as_array().unwrap().is_empty());
+        let bobs = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations?pinned=true",
+                Value::Null,
+                Some(bob),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(bobs["data"].as_array().unwrap().is_empty());
+        let team = request(
+            &app,
+            "POST",
+            "/api/v1/teams",
+            json!({"name":"Design","ownerId":ids[0]}),
+            Some(&admin_cookie),
+            Some(&admin_csrf),
+        )
+        .await;
+        let team = json_body(team).await["data"].as_str().unwrap().to_owned();
+        let team_pin = format!("/api/v1/teams/{team}/pin");
+        assert_eq!(
+            request(
+                &app,
+                "PUT",
+                &team_pin,
+                json!({"pinned":true}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            request(
+                &app,
+                "PUT",
+                &team_pin,
+                json!({"pinned":true}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let teams =
+            json_body(request(&app, "GET", "/api/v1/teams", Value::Null, Some(bob), None).await)
+                .await;
+        assert_eq!(teams["data"][0]["pinned"], true);
     }
 
     #[tokio::test]

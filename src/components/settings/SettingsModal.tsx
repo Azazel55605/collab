@@ -8,6 +8,7 @@ import {
   Keyboard,
   Languages,
   Layout,
+  MessageCircle,
   Monitor,
   MonitorPlay,
   Palette,
@@ -36,6 +37,7 @@ import SettingsAppearanceSection from './SettingsAppearanceSection';
 import SettingsBackgroundSection from './SettingsBackgroundSection';
 import SettingsCalendarSection from './SettingsCalendarSection';
 import SettingsCanvasSection from './SettingsCanvasSection';
+import SettingsChatsSection from './SettingsChatsSection';
 import SettingsDisplaySection from './SettingsDisplaySection';
 import SettingsEditorSection from './SettingsEditorSection';
 import SettingsGeneralSection from './SettingsGeneralSection';
@@ -92,6 +94,22 @@ const TABS = [
     label: 'Presentations',
     icon: <MonitorPlay size={15} />,
     keywords: ['slides', 'presenter', 'monitor', 'phone', 'remote', 'laser', 'webrtc'],
+  },
+  {
+    id: 'chats',
+    label: 'Chats',
+    icon: <MessageCircle size={15} />,
+    keywords: [
+      'chat',
+      'messages',
+      'teams',
+      'compact',
+      'density',
+      'bubbles',
+      'pin',
+      'groups',
+      'enter',
+    ],
   },
   {
     id: 'canvas',
@@ -470,6 +488,7 @@ export default function SettingsModal() {
             )}
 
             {/* ── Calendar ── */}
+            {activeTab === 'chats' && <SettingsChatsSection />}
             {activeTab === 'calendar' && (
               <SettingsCalendarSection
                 dateFormat={dateFormat}

@@ -490,7 +490,7 @@
   width: 100%;
 }
 
-.conversation-workspace .conversation-row[data-slot='button'] {
+.conversation-workspace button.conversation-row {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -508,11 +508,11 @@
   text-align: left;
   white-space: normal;
 }
-.conversation-workspace .conversation-row[data-slot='button']:hover:not(:disabled) {
+.conversation-workspace button.conversation-row:hover:not(:disabled) {
   background: var(--chat-hover);
 }
-.conversation-workspace .conversation-row[aria-pressed='true'],
-.conversation-workspace .conversation-row[aria-pressed='true']:hover:not(:disabled) {
+.conversation-workspace button.conversation-row[aria-pressed='true'],
+.conversation-workspace button.conversation-row[aria-pressed='true']:hover:not(:disabled) {
   background: var(--chat-selected);
 }
 .conversation-row .conversation-avatar {
@@ -614,8 +614,8 @@
   height: 32px;
   min-height: 32px;
 }
-.conversation-workspace .conversation-team-row[data-slot='button'],
-.conversation-workspace .conversation-channel-row[data-slot='button'] {
+.conversation-workspace button.conversation-team-row,
+.conversation-workspace button.conversation-channel-row[data-slot='button'] {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -633,10 +633,10 @@
   text-align: left;
   white-space: normal;
 }
-.conversation-workspace .conversation-team-row[data-slot='button'] {
+.conversation-workspace button.conversation-team-row {
   font-weight: 600;
 }
-.conversation-workspace .conversation-channel-row[data-slot='button'] {
+.conversation-workspace button.conversation-channel-row[data-slot='button'] {
   padding-left: 52px;
   min-height: 34px;
   color: color-mix(in oklch, var(--foreground) 82%, transparent);
@@ -645,11 +645,11 @@
   flex-shrink: 0;
   color: var(--muted-foreground);
 }
-.conversation-workspace .conversation-team-row[data-slot='button']:hover,
-.conversation-workspace .conversation-channel-row[data-slot='button']:hover {
+.conversation-workspace button.conversation-team-row:hover,
+.conversation-workspace button.conversation-channel-row[data-slot='button']:hover {
   background: var(--chat-hover);
 }
-.conversation-workspace .conversation-channel-row[aria-pressed='true'] {
+.conversation-workspace button.conversation-channel-row[aria-pressed='true'] {
   background: var(--chat-selected);
   color: var(--foreground);
 }
@@ -1396,7 +1396,7 @@
   min-height: 0;
   overflow: auto;
 }
-.conversation-workspace .conversation-candidates .conversation-row[data-slot='button'] {
+.conversation-workspace .conversation-candidates .conversation-row {
   min-height: 46px;
   justify-content: space-between;
 }
@@ -1590,15 +1590,15 @@
   height: 44px;
   min-height: 44px;
 }
-.mobile-conversations .conversation-workspace .conversation-row[data-slot='button'] {
+.mobile-conversations .conversation-workspace button.conversation-row {
   min-height: 68px;
   border-radius: 14px;
 }
-.mobile-conversations .conversation-workspace .conversation-row .conversation-avatar {
+.mobile-conversations .conversation-workspace button.conversation-row .conversation-avatar {
   --avatar-size: 48px;
 }
-.mobile-conversations .conversation-workspace .conversation-team-row[data-slot='button'],
-.mobile-conversations .conversation-workspace .conversation-channel-row[data-slot='button'],
+.mobile-conversations .conversation-workspace button.conversation-team-row,
+.mobile-conversations .conversation-workspace button.conversation-channel-row[data-slot='button'],
 .mobile-conversations .conversation-workspace .conversation-team-toggle[data-slot='button'],
 .mobile-conversations .conversation-workspace .conversation-person[data-slot='button'] {
   min-height: 44px;
@@ -1612,4 +1612,244 @@
   width: 44px;
   height: 44px;
   min-height: 44px;
+}
+
+/* ── Chat list sections, pins and row menus ──────────────────────────── */
+.conversation-list-section + .conversation-list-section {
+  margin-top: 6px;
+}
+.conversation-list-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.conversation-row-wrap {
+  position: relative;
+}
+.conversation-workspace .conversation-row-more[data-slot='button'],
+.conversation-workspace .conversation-row-more[data-slot='dropdown-menu-trigger'] {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  transform: translateY(-50%);
+}
+.conversation-row-wrap:hover .conversation-row-more,
+.conversation-row-wrap:focus-within .conversation-row-more,
+.conversation-workspace .conversation-row-more[data-state='open'] {
+  display: inline-flex;
+}
+/* Touch screens use long-press instead of a hover button. */
+@media (hover: none) {
+  .conversation-row-wrap .conversation-row-more {
+    display: none !important;
+  }
+}
+.conversation-pin-mark {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.conversation-layout-menu [data-slot='dropdown-menu-label'] {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted-foreground);
+}
+.conversation-layout-menu [data-slot='dropdown-menu-checkbox-item'],
+.conversation-layout-menu [data-slot='dropdown-menu-item'] {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 32px 9px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+.conversation-layout-menu [data-slot='dropdown-menu-checkbox-item-indicator'] {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  display: flex;
+  transform: translateY(-50%);
+}
+.conversation-message-menu [data-slot='context-menu-item'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+.conversation-message-menu[data-slot='context-menu-content'] {
+  z-index: 80;
+}
+
+/* ── Preferences: text size, density, previews, message style ────────── */
+.conversation-workspace {
+  --chat-text: 14px;
+}
+.conversation-workspace[data-text-size='small'] {
+  --chat-text: 13px;
+}
+.conversation-workspace[data-text-size='large'] {
+  --chat-text: 16px;
+}
+.conversation-workspace .conversation-bubble,
+.conversation-workspace .conversation-composer-row textarea,
+.conversation-workspace .conversation-row-name {
+  font-size: var(--chat-text);
+}
+.conversation-workspace .conversation-row-line small {
+  font-size: calc(var(--chat-text) - 1px);
+}
+
+.conversation-workspace[data-previews='hidden'] .conversation-row-body {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.conversation-workspace[data-previews='hidden'] .conversation-row-line:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.conversation-workspace[data-previews='hidden']
+  .conversation-row-line
+  + .conversation-row-line
+  small {
+  display: none;
+}
+
+.conversation-workspace[data-density='compact'] .conversation-row {
+  min-height: 44px;
+  gap: 10px;
+  padding: 4px 8px;
+}
+.conversation-workspace[data-density='compact'] .conversation-row .conversation-avatar {
+  --avatar-size: 30px;
+}
+.conversation-workspace[data-density='compact'] .conversation-row-body {
+  gap: 0;
+}
+.conversation-workspace[data-density='compact'] .conversation-message {
+  margin-top: 10px;
+}
+.conversation-workspace[data-density='compact'] .conversation-message.continued {
+  margin-top: 2px;
+}
+.conversation-workspace[data-density='compact'] .conversation-message .conversation-avatar {
+  --avatar-size: 30px;
+}
+.conversation-workspace[data-density='compact'] .conversation-message {
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 12px;
+}
+.conversation-workspace[data-density='compact'] .conversation-bubble {
+  padding: 6px 12px;
+}
+.conversation-workspace[data-density='compact'] .conversation-message-body header {
+  margin-bottom: 3px;
+}
+.mobile-conversations .conversation-workspace[data-density='compact'] .conversation-row {
+  min-height: 52px;
+}
+.mobile-conversations
+  .conversation-workspace[data-density='compact']
+  .conversation-row
+  .conversation-avatar {
+  --avatar-size: 36px;
+}
+
+.conversation-workspace[data-bubble-color='neutral'] {
+  --chat-own: color-mix(in srgb, var(--foreground) 10%, var(--card));
+}
+
+/* Flat: no bubbles, everyone left-aligned with their name, like a channel log. */
+.conversation-workspace[data-message-style='flat'] .conversation-bubble {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.conversation-workspace[data-message-style='flat'] .conversation-message-body {
+  width: auto;
+  max-width: min(760px, 100%);
+}
+.conversation-workspace[data-message-style='flat'] .conversation-message {
+  margin-top: 14px;
+}
+.conversation-workspace[data-message-style='flat'] .conversation-message.continued {
+  margin-top: 2px;
+}
+.conversation-workspace[data-message-style='flat']
+  .conversation-message.mine
+  .conversation-message-body
+  header
+  strong {
+  color: var(--primary);
+}
+.conversation-workspace[data-message-style='flat']
+  .conversation-message.deleted
+  .conversation-bubble {
+  padding: 4px 8px;
+}
+.conversation-workspace[data-message-style='flat'] .conversation-message:hover {
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+/* ── Settings preview ────────────────────────────────────────────────── */
+.conversation-style-preview {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 12px;
+  height: auto;
+  margin-bottom: 8px;
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  pointer-events: none;
+}
+.conversation-style-preview-list {
+  align-self: start;
+}
+.conversation-style-preview-messages {
+  padding-top: 4px;
+}
+.conversation-style-preview .conversation-message:first-child {
+  margin-top: 0;
+}
+@media (max-width: 560px) {
+  .conversation-style-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (hover: hover) {
+  /* The hover "More" button takes the timestamp's place, as in Teams. */
+  .conversation-row-wrap:hover .conversation-row-line time,
+  .conversation-row-wrap:focus-within .conversation-row-line time {
+    visibility: hidden;
+  }
 }

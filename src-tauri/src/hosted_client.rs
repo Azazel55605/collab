@@ -185,6 +185,7 @@ pub fn validate_hosted_conversation_request(method: &str, value: &str) -> Result
             method == "PUT"
         }
         [id, "read"] if uuid::Uuid::parse_str(id).is_ok() => method == "POST",
+        [id, "pin"] if uuid::Uuid::parse_str(id).is_ok() => method == "PUT",
         [id, "members"] if uuid::Uuid::parse_str(id).is_ok() => matches!(method, "GET" | "POST"),
         [id, "members", user]
             if uuid::Uuid::parse_str(id).is_ok() && uuid::Uuid::parse_str(user).is_ok() =>
@@ -221,6 +222,7 @@ pub fn validate_hosted_team_request(method: &str, value: &str) -> Result<(), Str
         [team] if uuid(team) => method == "PATCH",
         [team, "members" | "channels"] if uuid(team) => matches!(method, "GET" | "POST"),
         [team, "oversight"] if uuid(team) => method == "POST",
+        [team, "pin"] if uuid(team) => method == "PUT",
         [team, "members", user] if uuid(team) && uuid(user) => method == "DELETE",
         [team, "channels", channel] if uuid(team) && uuid(channel) => method == "PATCH",
         [team, "channels", channel, "members" | "library"] if uuid(team) && uuid(channel) => {
@@ -354,6 +356,8 @@ mod tests {
         .is_ok());
         assert!(validate("POST", &format!("/api/v1/teams/{t}/channels/{t}/library")).is_ok());
         assert!(validate("POST", &format!("/api/v1/teams/{t}/oversight")).is_ok());
+        assert!(validate("PUT", &format!("/api/v1/teams/{t}/pin")).is_ok());
+        assert!(validate("GET", &format!("/api/v1/teams/{t}/pin")).is_err());
         for path in [
             "/api/v1/teams-evil",
             "/api/v1/teams/../admin",
@@ -407,6 +411,8 @@ mod tests {
         )
         .is_ok());
         assert!(validate("GET", &format!("/api/v1/conversations/{id}/messages/{id}")).is_err());
+        assert!(validate("PUT", &format!("/api/v1/conversations/{id}/pin")).is_ok());
+        assert!(validate("POST", &format!("/api/v1/conversations/{id}/pin")).is_err());
         assert!(validate(
             "PUT",
             &format!("/api/v1/conversations/{id}/messages/x/reactions")

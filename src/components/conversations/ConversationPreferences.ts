@@ -1,19 +1,3 @@
-export type ChatLayout = 'combined' | 'separate';
-const layoutKey = 'collab.chat-layout';
-export function readChatLayout(): ChatLayout {
-  try {
-    return localStorage.getItem(layoutKey) === 'separate' ? 'separate' : 'combined';
-  } catch {
-    return 'combined';
-  }
-}
-export function saveChatLayout(layout: ChatLayout) {
-  try {
-    localStorage.setItem(layoutKey, layout);
-  } catch {
-    /* Storage may be unavailable. */
-  }
-}
 export interface RecentPerson {
   userId: string;
   username: string;

@@ -3,12 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { tauriCommands } from '../../lib/tauri';
 
-import {
-  readChatLayout,
-  readRecentPeople,
-  saveChatLayout,
-  saveRecentPeople,
-} from './ConversationPreferences';
+import { readRecentPeople, saveRecentPeople } from './ConversationPreferences';
 import { AccountSwitcher, PeopleSearch } from './ConversationToolbar';
 
 vi.mock('../../lib/tauri', () => ({
@@ -107,9 +102,7 @@ it('loads an authenticated avatar for the explicit server account and stops offl
   expect((screen.getByRole('combobox') as HTMLInputElement).disabled).toBe(true);
   expect(tauriCommands.hostedUserDirectory).not.toHaveBeenCalled();
 });
-it('persists the chat layout and safely bounds or discards malformed search storage', () => {
-  saveChatLayout('separate');
-  expect(readChatLayout()).toBe('separate');
+it('safely bounds or discards malformed recent-people storage', () => {
   saveRecentPeople(
     'server',
     'account',

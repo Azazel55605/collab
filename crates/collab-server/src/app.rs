@@ -103,6 +103,7 @@ pub fn build_router(state: AppState) -> Router {
             get(api::teams::list).post(api::teams::create),
         )
         .route("/api/v1/teams/{team_id}", patch(api::teams::update))
+        .route("/api/v1/teams/{team_id}/pin", put(api::teams::pin))
         .route(
             "/api/v1/teams/{team_id}/members",
             get(api::teams::members).post(api::teams::put_member),
@@ -154,6 +155,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/conversations/{conversation_id}/messages/{message_id}/reactions",
             put(api::conversations::react),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/pin",
+            put(api::conversations::pin),
         )
         .route(
             "/api/v1/conversations/{conversation_id}/read",

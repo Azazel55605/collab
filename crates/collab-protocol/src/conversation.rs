@@ -29,6 +29,8 @@ pub struct ConversationSummary {
     /// The other participant of a direct conversation, for avatar lookup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_user_id: Option<String>,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -131,6 +133,9 @@ pub fn valid_reaction(emoji: &str) -> bool {
             c.is_control() || c.is_whitespace() || c.is_ascii_alphabetic() || "<>&\"'`".contains(c)
         })
 }
+
+/// Pins are a shortcut list, not a second inbox.
+pub const MAX_PINS: i64 = 20;
 
 pub fn visible_sequence(sequence: i64, joined_sequence: i64) -> bool {
     sequence >= joined_sequence

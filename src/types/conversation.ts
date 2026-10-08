@@ -17,6 +17,8 @@ export interface ConversationSummary {
   lastMessageDeleted?: boolean;
   /** The other participant of a direct chat, used for avatar lookup. */
   peerUserId?: string;
+  /** Pinned by this account; synced across its devices. */
+  pinned?: boolean;
 }
 export interface ConversationMember {
   userId: string;

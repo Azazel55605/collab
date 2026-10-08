@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ArrowLeft, Hash, Users, X } from 'lucide-react';
+import { ArrowLeft, Hash, Pin, PinOff, Users, X } from 'lucide-react';
 
 import {
   chatMessage,
@@ -14,6 +14,7 @@ import {
 } from '../../lib/conversations';
 import { tauriCommands } from '../../lib/tauri';
 import { useHostedChat } from '../../lib/useHostedChat';
+import { type ChatPreferences, DEFAULT_CHAT_PREFERENCES } from '../../store/chatPreferences';
 import type {
   ConversationAccount,
   ConversationMember,
@@ -186,13 +187,18 @@ export function ConversationThread({
   conversation,
   close,
   registerBack,
+  togglePin,
+  messagePreferences = DEFAULT_CHAT_PREFERENCES,
 }: {
   account: ConversationAccount;
   connected: boolean;
   conversation: ConversationSummary;
   close: () => void;
   registerBack?: (dismiss: () => void) => () => void;
+  togglePin?: () => void;
+  messagePreferences?: Pick<ChatPreferences, 'messageStyle' | 'groupMessages' | 'enterToSend'>;
 }) {
+  const flat = messagePreferences.messageStyle === 'flat';
   const scope = { ...account, vaultId: conversation.id };
   const chat = useHostedChat(scope, connected, conversationTransport);
   const [manage, setManage] = useState(false);
@@ -339,6 +345,18 @@ export function ConversationThread({
             {!connected ? ' · offline' : ''}
           </small>
         </div>
+        {togglePin && (
+          <Button
+            variant="ghost"
+            aria-label={conversation.pinned ? 'Unpin chat' : 'Pin chat'}
+            aria-pressed={!!conversation.pinned}
+            title={conversation.pinned ? 'Unpin chat' : 'Pin chat'}
+            disabled={!connected}
+            onClick={togglePin}
+          >
+            {conversation.pinned ? <PinOff size={18} /> : <Pin size={18} />}
+          </Button>
+        )}
         {conversation.kind === 'group' && (
           <Button variant="ghost" aria-label="Manage group" onClick={() => setManage(true)}>
             <Users size={18} />
@@ -370,7 +388,9 @@ export function ConversationThread({
               serverUrl={account.serverUrl}
               message={message}
               own={message.userId === account.accountId}
+              flat={flat}
               continued={
+                messagePreferences.groupMessages &&
                 !!previous &&
                 !previous.deleted &&
                 previous.userId === message.userId &&
@@ -415,6 +435,7 @@ export function ConversationThread({
       <ConversationComposer
         placeholder={`Message ${conversation.kind === 'channel' ? '#' : ''}${conversation.name}…`}
         disabled={!enabled}
+        enterToSend={messagePreferences.enterToSend}
         sending={!!chat.sending}
         mode={mode}
         cancelMode={() => setMode(null)}

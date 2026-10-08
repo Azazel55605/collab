@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useConversationNavigation } from '../../store/conversationNavigation';
@@ -376,4 +376,46 @@ it('reacts, replies, edits and deletes messages and applies changes from other d
   changed = [{ ...other, content: 'Edited elsewhere', editedAt: Date.now() }];
   fireEvent(window, new Event('focus'));
   await screen.findByText('Edited elsewhere');
+});
+it('lists pinned chats first, splits group chats on request and pins from the row menu and header', async () => {
+  const { useChatPreferences } = await import('../../store/chatPreferences');
+  useChatPreferences.getState().setChatPreference('groupChats', 'separate');
+  const direct = { ...summary, id: 'direct', kind: 'direct', name: 'Sam', unread: 0 };
+  let pinned = [{ ...summary, pinned: true }];
+  api.hostedConversationRequest.mockImplementation(
+    async (_s: string, _u: string, method: string, path: string) => {
+      if (path.startsWith('/api/v1/teams')) return [];
+      if (path.includes('/events')) return { events: [], nextAfter: '0', hasMore: false };
+      if (path.endsWith('/pin') && method === 'PUT') {
+        pinned = [];
+        return null;
+      }
+      if (path.includes('pinned=true')) return pinned;
+      if (path.includes('conversation=group')) return pinned.length ? pinned : [summary];
+      if (path.includes('/messages')) return page;
+      if (path.endsWith('/read')) return null;
+      if (path.startsWith('/api/v1/conversations?')) return [summary, direct];
+    },
+  );
+  render(<ConversationAccounts accounts={accounts} />);
+  const pinnedSection = await screen.findByRole('region', { name: 'Pinned' });
+  expect(within(pinnedSection).getByRole('button', { name: /Friends/ })).not.toBeNull();
+  expect(screen.getByRole('region', { name: 'Chats' }).textContent).toContain('Sam');
+  // A pinned chat is not repeated in its regular section.
+  expect(screen.queryByRole('region', { name: 'Group chats' })).toBeNull();
+
+  fireEvent.click(within(pinnedSection).getByRole('button', { name: /Friends/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Unpin chat' }));
+  await waitFor(() =>
+    expect(api.hostedConversationRequest).toHaveBeenCalledWith(
+      'https://one.test',
+      'me',
+      'PUT',
+      '/api/v1/conversations/group/pin',
+      { pinned: false },
+    ),
+  );
+  await screen.findByRole('region', { name: 'Group chats' });
+  expect(screen.queryByRole('region', { name: 'Pinned' })).toBeNull();
+  useChatPreferences.getState().resetChatPreferences();
 });

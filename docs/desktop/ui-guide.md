@@ -399,6 +399,17 @@ Copy text. Replies quote the original and jump to it; edits are marked
 Markdown allows no raw HTML or images, and links open in the system browser.
 Attachments are deferred to the extended file-sharing work.
 
+**Settings → Chats** (desktop) and **Settings → Chats** (Android) hold the
+device-local chat preferences with a live preview: chats and teams together or on
+separate tabs; group chats mixed or in their own section; most-recent or
+unread-first sort; comfortable or compact density; message previews; bubble or
+flat message style; accent or neutral own-message colour; text size; grouping of
+consecutive messages; and Enter-to-send. The sliders menu beside the Chats heading
+offers the common ones plus **All chat settings…**. Chats, group chats and teams
+can be pinned from a row's right-click (long-press on touch) or hover **⋯** menu,
+and chats from the conversation header; pins sync with the server account and
+appear in a **Pinned** section above the other chats.
+
 Keep a secondary conversation sidebar visible beside desktop threads. Its
 **Chat layout** menu persists a device-local preference: chats and teams together,
 or separate Chats/Teams sidebar tabs. Expand a team to reveal channels; put team
