@@ -739,14 +739,12 @@ pub async fn oversight(
     .map_err(|_| fail(&id))?;
     for ch in channels {
         join(&mut tx, ch, user, "owner", &id).await?;
-        sqlx::query(
-            "UPDATE conversation_members SET role='owner' WHERE conversation_id=$1 AND user_id=$2",
-        )
-        .bind(ch)
-        .bind(user)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| fail(&id))?;
+    }
+    // Promote existing channel memberships only. In particular, never insert
+    // a private membership through administrative oversight.
+    let changed=sqlx::query_scalar::<_,Uuid>("UPDATE conversation_members SET role='owner' WHERE user_id=$2 AND role<>'owner' AND conversation_id IN (SELECT conversation_id FROM team_channels WHERE team_id=$1) RETURNING conversation_id").bind(team).bind(user).fetch_all(&mut *tx).await.map_err(|_|fail(&id))?;
+    for channel in changed {
+        conversations::event(&mut tx, channel, "members", None, &id).await?;
     }
     log(
         &mut tx,

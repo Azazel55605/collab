@@ -13640,6 +13640,40 @@ mod tests {
             .status(),
             StatusCode::OK
         );
+        // An oversight claim promotes an already invited private member, while
+        // the earlier nonmember claim above remains unable to enter it.
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[0],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/members"),
+                json!({"userId":ids[0],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("POST", &format!("{base}/oversight"), Value::Null, 0).status(),
+            StatusCode::NO_CONTENT
+        );
+        let promoted = json_body(call!(
+            "GET",
+            &format!("/api/v1/conversations?conversation={private}"),
+            Value::Null,
+            0
+        ))
+        .await;
+        assert_eq!(promoted["data"][0]["role"], "owner");
         let login=request(&app,"POST","/api/v1/auth/native/login",json!({"username":"admin","password":"correct horse battery staple","clientName":"Team test"}),None,None).await;
         let token = json_body(login).await["data"]["accessToken"]
             .as_str()
