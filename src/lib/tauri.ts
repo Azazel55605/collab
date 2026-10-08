@@ -145,6 +145,8 @@ export interface ServerConnectionStatus {
     displayName: string;
     role: 'member' | 'admin';
     status: 'active' | 'disabled';
+    hasAvatar?: boolean;
+    avatarUpdatedAt?: string | null;
   } | null;
   accessExpiresAt: string | null;
 }

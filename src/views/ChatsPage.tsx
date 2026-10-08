@@ -1,27 +1,32 @@
-import { ArrowLeft } from 'lucide-react';
-
 import { ConversationAccounts } from '../components/conversations/ConversationAccounts';
-import { Button } from '../components/ui/button';
 import { useServerStore } from '../store/serverStore';
 import { useUiStore } from '../store/uiStore';
+
+function openAccountSettings() {
+  useUiStore.getState().openSettings();
+  // The modal mounts its tab listener on open, so request the tab afterwards.
+  window.setTimeout(() =>
+    window.dispatchEvent(new CustomEvent('settings:open-tab', { detail: { tab: 'profile' } })),
+  );
+}
 
 export default function ChatsPage({ standalone = true }: { standalone?: boolean } = {}) {
   const connections = useServerStore((state) => state.connections);
   return (
     <main className={`desktop-conversations ${standalone ? '' : 'embedded'}`}>
-      <header className="conversation-header">
-        <Button onClick={() => useUiStore.getState().setActiveView('editor')}>
-          <ArrowLeft size={18} /> Back to files
-        </Button>
-        <h1>Chats</h1>
-      </header>
       <ConversationAccounts
+        openAccountSettings={openAccountSettings}
         accounts={Object.entries(connections).flatMap(([serverUrl, connection]) =>
           connection.status.user
             ? [
                 {
                   serverUrl,
                   accountId: connection.status.user.id,
+                  displayName:
+                    connection.status.user.displayName || connection.status.user.username,
+                  username: connection.status.user.username,
+                  hasAvatar: connection.status.user.hasAvatar,
+                  avatarUpdatedAt: connection.status.user.avatarUpdatedAt,
                   label: connection.status.user.displayName + ' · ' + serverUrl,
                   connected: connection.status.connected,
                   serverAdmin: connection.status.user.role === 'admin',

@@ -10,6 +10,10 @@ export interface ConversationSummary {
   picture: string | null;
   teamId?: string;
   teamName?: string;
+  /** Newest visible message, truncated by the server; absent on older servers. */
+  lastMessage?: string;
+  lastMessageAt?: number;
+  lastMessageOwn?: boolean;
 }
 export interface ConversationMember {
   userId: string;

@@ -13951,6 +13951,9 @@ mod tests {
         )
         .await;
         assert_eq!(inbox["data"][0]["unread"], 1);
+        assert_eq!(inbox["data"][0]["lastMessage"], "after join");
+        assert_eq!(inbox["data"][0]["lastMessageOwn"], false);
+        assert!(inbox["data"][0]["lastMessageAt"].as_u64().unwrap() > 0);
         for sequence in ["2", "0"] {
             assert_eq!(
                 request(

@@ -49,6 +49,7 @@ const page = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   useConversationNavigation.getState().clear();
   HTMLElement.prototype.scrollIntoView = vi.fn();
   api.hostedChatOutbox.mockResolvedValue([]);
@@ -59,6 +60,7 @@ beforeEach(() => {
   ]);
   api.hostedConversationRequest.mockImplementation(
     async (server: string, _user: string, method: string, path: string) => {
+      if (path.startsWith('/api/v1/teams')) return [];
       if (path.includes('/events')) return { events: [], nextAfter: '0', hasMore: false };
       if (path.includes('/messages')) {
         if (method === 'POST') throw new Error('Network interrupted');
@@ -119,7 +121,11 @@ describe('shared personal inbox', () => {
     render(<ConversationAccounts accounts={accounts} />);
     fireEvent.click(await screen.findByRole('button', { name: /Friends/ }));
     await screen.findByText('Private message');
-    fireEvent.click(screen.getByRole('button', { name: 'Second server' }));
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Switch server account' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Second server/ }));
     expect(screen.queryByText('Private message')).toBeNull();
     await screen.findByRole('button', { name: /Second account chat/ });
     expect(api.hostedConversationRequest).toHaveBeenCalledWith(
@@ -132,8 +138,7 @@ describe('shared personal inbox', () => {
   });
   it('ordinary users create groups through the conversation API and ownership errors are shown', async () => {
     render(<ConversationAccounts accounts={accounts} />);
-    fireEvent.click(screen.getByRole('button', { name: /New chat/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New group chat' }));
     fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Friends' } });
     fireEvent.click(await screen.findByRole('button', { name: /Other/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create conversation' }));
@@ -178,6 +183,7 @@ it('consumes a removal once so a rejoining member can open the conversation agai
   let removed = false;
   api.hostedConversationRequest.mockImplementation(
     async (_s: string, _u: string, _m: string, path: string) => {
+      if (path.startsWith('/api/v1/teams')) return [];
       if (path.includes('/events'))
         return {
           events: removed ? [{ sequence: '2', conversationId: 'group', kind: 'removed' }] : [],
@@ -202,4 +208,82 @@ it('consumes a removal once so a rejoining member can open the conversation agai
   fireEvent(window, new Event('focus'));
   fireEvent.click(await screen.findByRole('button', { name: /Friends/ }));
   await screen.findByText('Private message');
+});
+
+it('opens the canonical direct chat from top search and keeps the conversation sidebar mounted', async () => {
+  render(<ConversationAccounts accounts={accounts} />);
+  fireEvent.focus(screen.getByRole('combobox'));
+  fireEvent.click(await screen.findByRole('option', { name: /Other/ }));
+  await screen.findByText('Private message');
+  expect(api.hostedConversationRequest).toHaveBeenCalledWith(
+    'https://one.test',
+    'me',
+    'POST',
+    '/api/v1/conversations',
+    { kind: 'direct', members: ['other'] },
+  );
+  expect(screen.getByRole('navigation', { name: 'Conversations' })).not.toBeNull();
+  expect(screen.getByRole('button', { name: /Friends/ })).not.toBeNull();
+});
+it('does not create a duplicate group when opening the newly created group fails', async () => {
+  const implementation = api.hostedConversationRequest.getMockImplementation()!;
+  let fail = true;
+  api.hostedConversationRequest.mockImplementation(async (...args: unknown[]) => {
+    if (String(args[3]).includes('conversation=') && fail)
+      throw new Error('Temporarily unavailable');
+    return implementation(...args);
+  });
+  render(<ConversationAccounts accounts={accounts} />);
+  fireEvent.click(screen.getByRole('button', { name: 'New group chat' }));
+  fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Friends' } });
+  fireEvent.click(await screen.findByRole('button', { name: /Other/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create conversation' }));
+  await screen.findByRole('button', { name: 'Open conversation' });
+  fail = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Open conversation' }));
+  await screen.findByText('Private message');
+  expect(
+    api.hostedConversationRequest.mock.calls.filter(
+      (call) => call[2] === 'POST' && call[3] === '/api/v1/conversations',
+    ),
+  ).toHaveLength(1);
+});
+it('persists separate chat and team navigation across account workspace remounts', async () => {
+  const first = render(<ConversationAccounts accounts={accounts} />);
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Chat layout' }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Separate chats and teams' }));
+  await screen.findByRole('button', { name: /^Teams$/ });
+  first.unmount();
+  render(<ConversationAccounts accounts={accounts} />);
+  expect(screen.getByRole('button', { name: /^Teams$/ })).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /^Teams$/ }));
+  expect(screen.queryByRole('navigation', { name: 'Conversations' })).toBeNull();
+  expect(screen.getByRole('navigation', { name: 'Teams and channels' })).not.toBeNull();
+});
+it('shows the newest message preview and sends on Enter but not Shift+Enter', async () => {
+  const implementation = api.hostedConversationRequest.getMockImplementation()!;
+  api.hostedConversationRequest.mockImplementation(async (...args: unknown[]) =>
+    String(args[3]).startsWith('/api/v1/conversations?limit=50')
+      ? [
+          {
+            ...summary,
+            lastMessage: 'See you soon',
+            lastMessageAt: Date.now(),
+            lastMessageOwn: true,
+          },
+        ]
+      : implementation(...args),
+  );
+  render(<ConversationAccounts accounts={accounts} />);
+  fireEvent.click(await screen.findByRole('button', { name: /You: See you soon/ }));
+  const field = await screen.findByLabelText('Message');
+  await waitFor(() => expect((field as HTMLTextAreaElement).disabled).toBe(false));
+  fireEvent.change(field, { target: { value: 'Draft' } });
+  fireEvent.keyDown(field, { key: 'Enter', shiftKey: true });
+  expect(api.hostedChatQueue).not.toHaveBeenCalled();
+  fireEvent.keyDown(field, { key: 'Enter' });
+  await waitFor(() => expect(api.hostedChatQueue).toHaveBeenCalled());
 });

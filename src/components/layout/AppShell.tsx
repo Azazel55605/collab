@@ -381,6 +381,7 @@ export default function AppShell() {
     return <EmptyEditor />;
   };
 
+  const showSidebar = isSidebarOpen && activeView !== 'chats';
   return (
     <CollabProvider>
       <CalendarSyncCoordinator />
@@ -389,15 +390,15 @@ export default function AppShell() {
           {/* Activity bar */}
           <ActivityBar />
 
-          {/* Sidebar + resize handle */}
+          {/* Sidebar + resize handle; Chats brings its own list, so the vault sidebar steps aside */}
           <div
             className={cn(
               'relative flex shrink-0 overflow-hidden',
               !isResizingSidebar && 'transition-[width,opacity] app-motion-base',
-              isSidebarOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
+              showSidebar ? 'opacity-100' : 'pointer-events-none opacity-0',
             )}
-            style={{ width: isSidebarOpen ? sidebarWidth : 0 }}
-            aria-hidden={!isSidebarOpen}
+            style={{ width: showSidebar ? sidebarWidth : 0 }}
+            aria-hidden={!showSidebar}
           >
             <div
               className="flex-1 overflow-hidden"
@@ -406,7 +407,7 @@ export default function AppShell() {
               <Sidebar />
             </div>
             {/* Resize handle */}
-            {isSidebarOpen && (
+            {showSidebar && (
               <div
                 onMouseDown={onResizeStart}
                 className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors app-motion-fast z-10 group"

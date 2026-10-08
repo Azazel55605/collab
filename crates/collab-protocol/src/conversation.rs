@@ -17,6 +17,13 @@ pub struct ConversationSummary {
     pub team_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
+    /// Preview of the newest message visible to the caller, truncated server-side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message_at: Option<u64>,
+    #[serde(default)]
+    pub last_message_own: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

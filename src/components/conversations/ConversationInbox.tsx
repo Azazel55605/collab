@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ArrowLeft, MessageCircle, Plus, RefreshCw, Send, Users } from 'lucide-react';
+import { ArrowLeft, Hash, RefreshCw, SendHorizontal, Users, X } from 'lucide-react';
 
 import {
   conversationMembers,
   conversationRequest,
   conversationTransport,
-  getConversation,
   markConversationRead,
 } from '../../lib/conversations';
 import { tauriCommands } from '../../lib/tauri';
-import { useConversationInbox } from '../../lib/useConversationInbox';
 import { useHostedChat } from '../../lib/useHostedChat';
-import { useConversationNavigation } from '../../store/conversationNavigation';
 import type {
   ConversationAccount,
   ConversationMember,
@@ -24,152 +21,12 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 
-export function ConversationInbox({
-  account,
-  connected,
-  registerBack,
-  initialConversationId,
-}: {
-  account: ConversationAccount;
-  connected: boolean;
-  registerBack?: (dismiss: () => void) => () => void;
-  initialConversationId?: string;
-}) {
-  const inbox = useConversationInbox(account, connected);
-  const [selected, setSelected] = useState<ConversationSummary | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [destinationError, setDestinationError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!connected || !initialConversationId) return;
-    let alive = true;
-    void getConversation(account, initialConversationId)
-      .then((row) => {
-        if (alive) {
-          setSelected(row);
-          setDestinationError(null);
-        }
-      })
-      .catch((reason) => {
-        if (alive) {
-          setSelected(null);
-          setDestinationError(String(reason));
-        }
-      });
-    return () => {
-      alive = false;
-    };
-  }, [initialConversationId, connected, account]);
-  useEffect(() => {
-    if (creating) return registerBack?.(() => setCreating(false));
-    if (selected)
-      return registerBack?.(() => {
-        setSelected(null);
-        useConversationNavigation.getState().clear();
-      });
-  }, [selected, creating, registerBack]);
-  useEffect(() => {
-    setSelected((current) => (current && inbox.removed.includes(current.id) ? null : current));
-  }, [inbox.removed]);
-  const close = () => {
-    setSelected(null);
-    useConversationNavigation.getState().clear();
-    void inbox.refresh();
-  };
-  const latest = selected ? (inbox.rows.find((row) => row.id === selected.id) ?? selected) : null;
-  if (creating)
-    return (
-      <NewConversation
-        account={account}
-        connected={connected}
-        close={() => setCreating(false)}
-        created={async (id) => {
-          const [row] = await Promise.all([getConversation(account, id), inbox.refresh()]);
-          setSelected(row);
-          setCreating(false);
-        }}
-      />
-    );
-  if (latest)
-    return (
-      <ConversationThread
-        key={latest.id}
-        account={account}
-        connected={connected}
-        conversation={latest}
-        close={close}
-        registerBack={registerBack}
-      />
-    );
-  return (
-    <section className="conversation-inbox" aria-label="Chat inbox">
-      <header className="conversation-header">
-        <h2>
-          <MessageCircle size={20} /> Chats
-        </h2>
-        <Button
-          aria-label="Refresh chats"
-          disabled={!connected || inbox.busy}
-          onClick={() => void inbox.refresh()}
-        >
-          <RefreshCw size={18} />
-        </Button>
-        <Button disabled={!connected} onClick={() => setCreating(true)}>
-          <Plus size={16} /> New chat
-        </Button>
-      </header>
-      {!connected && <p role="status">Reconnect this server to read conversations.</p>}
-      {(inbox.error || destinationError) && <p role="alert">{inbox.error || destinationError}</p>}
-      <div className="conversation-scroll">
-        {!inbox.busy && !inbox.rows.length && connected && (
-          <p>No conversations yet. Start a chat with someone on this server.</p>
-        )}
-        {inbox.rows.map((row) => (
-          <Button
-            className="conversation-row"
-            variant="ghost"
-            key={row.id}
-            onClick={() => setSelected(row)}
-          >
-            <Avatar>
-              <AvatarImage src={row.picture ?? undefined} />
-              <AvatarFallback>
-                {row.kind === 'group' ? <Users size={18} /> : row.name.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span className="conversation-row-name">
-              {row.name}
-              <small>
-                {row.kind === 'channel'
-                  ? 'Team channel'
-                  : row.kind === 'group'
-                    ? 'Group conversation'
-                    : 'Direct conversation'}
-              </small>
-            </span>
-            {row.unread > 0 && (
-              <span className="conversation-unread" aria-label={`${row.unread} unread messages`}>
-                {row.unread}
-              </span>
-            )}
-          </Button>
-        ))}
-        {inbox.busy && <p role="status">Loading conversations…</p>}
-        <div className="conversation-actions">
-          {inbox.older && <Button onClick={() => void inbox.refresh()}>Latest chats</Button>}
-          {inbox.rows.length === 50 && (
-            <Button
-              onClick={() => void inbox.refresh(inbox.rows[inbox.rows.length - 1].updatedCursor)}
-            >
-              Earlier chats
-            </Button>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
+import { messageTime, NameAvatar } from './ConversationVisuals';
 
-function NewConversation({
+/** Consecutive messages from one sender within this window share a header. */
+const GROUP_WINDOW = 5 * 60_000;
+
+export function NewConversation({
   account,
   connected,
   close,
@@ -180,7 +37,6 @@ function NewConversation({
   close: () => void;
   created: (id: string) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<'direct' | 'group'>('direct');
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [people, setPeople] = useState<UserDirectoryEntry[]>([]);
@@ -188,6 +44,13 @@ function NewConversation({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
   useEffect(() => {
     let alive = true;
     const timer = setTimeout(() => {
@@ -216,16 +79,17 @@ function NewConversation({
       const id =
         createdId ??
         (await conversationRequest<string>(account, 'POST', '', {
-          kind,
-          name: kind === 'group' ? name : undefined,
+          kind: 'group',
+          name,
           members: chosen.map((person) => person.userId),
         }));
+      if (!active.current) return;
       setCreatedId(id);
       await created(id);
     } catch (reason) {
-      setError(String(reason));
+      if (active.current) setError(String(reason));
     } finally {
-      setBusy(false);
+      if (active.current) setBusy(false);
     }
   }
   return (
@@ -234,42 +98,18 @@ function NewConversation({
         <Button onClick={close} aria-label="Back to chats">
           <ArrowLeft size={18} />
         </Button>
-        <h2>New chat</h2>
+        <h2>New group chat</h2>
       </header>
       <div className="conversation-scroll conversation-form">
-        <div className="conversation-actions">
-          <Button
+        <label>
+          Group name
+          <Input
             disabled={busy || !!createdId}
-            aria-pressed={kind === 'direct'}
-            onClick={() => {
-              setKind('direct');
-              setChosen([]);
-            }}
-          >
-            Direct
-          </Button>
-          <Button
-            disabled={busy || !!createdId}
-            aria-pressed={kind === 'group'}
-            onClick={() => {
-              setKind('group');
-              setChosen([]);
-            }}
-          >
-            Group
-          </Button>
-        </div>
-        {kind === 'group' && (
-          <label>
-            Group name
-            <Input
-              disabled={busy || !!createdId}
-              value={name}
-              maxLength={100}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-        )}
+            value={name}
+            maxLength={100}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
         <label>
           Find people
           <Input
@@ -281,38 +121,55 @@ function NewConversation({
           />
         </label>
         {!!chosen.length && (
-          <p>Selected: {chosen.map((person) => person.displayName).join(', ')}</p>
+          <div className="conversation-chosen" aria-label="Selected people">
+            {chosen.map((person) => (
+              <Button
+                key={person.userId}
+                variant="outline"
+                disabled={busy || !!createdId}
+                aria-label={`Remove ${person.displayName}`}
+                onClick={() =>
+                  setChosen((values) => values.filter((value) => value.userId !== person.userId))
+                }
+              >
+                {person.displayName}
+                <X size={14} />
+              </Button>
+            ))}
+          </div>
         )}
-        {people.map((person) => (
-          <Button
-            className="conversation-row"
-            disabled={busy || !!createdId}
-            key={person.userId}
-            aria-pressed={chosen.some((value) => value.userId === person.userId)}
-            onClick={() =>
-              setChosen((values) =>
-                values.some((value) => value.userId === person.userId)
-                  ? values.filter((value) => value.userId !== person.userId)
-                  : kind === 'direct'
-                    ? [person]
+        <div className="conversation-candidates">
+          {people.map((person) => (
+            <Button
+              className="conversation-row"
+              disabled={busy || !!createdId}
+              key={person.userId}
+              aria-pressed={chosen.some((value) => value.userId === person.userId)}
+              onClick={() =>
+                setChosen((values) =>
+                  values.some((value) => value.userId === person.userId)
+                    ? values.filter((value) => value.userId !== person.userId)
                     : values.length < 49
                       ? [...values, person]
                       : values,
-              )
-            }
-          >
-            {person.displayName}
-            <small>@{person.username}</small>
-          </Button>
-        ))}
+                )
+              }
+            >
+              {person.displayName}
+              <small>@{person.username}</small>
+            </Button>
+          ))}
+        </div>
+      </div>
+      <footer className="conversation-create-footer">
         {error && <p role="alert">{error}</p>}
         <Button
-          disabled={busy || !connected || !chosen.length || (kind === 'group' && !name.trim())}
+          disabled={busy || !connected || !chosen.length || !name.trim()}
           onClick={() => void submit()}
         >
           {busy ? 'Opening…' : createdId ? 'Open conversation' : 'Create conversation'}
         </Button>
-      </div>
+      </footer>
     </section>
   );
 }
@@ -340,6 +197,13 @@ export function ConversationThread({
   const [readError, setReadError] = useState<string | null>(null);
   const marked = useRef('0');
   const tail = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const element = field.current;
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }, [text]);
   const last = chat.messages[chat.messages.length - 1]?.sequence;
   useEffect(() => {
     if (chat.earlier || !last || !chat.authorized || !connected) return;
@@ -385,24 +249,41 @@ export function ConversationThread({
     );
   return (
     <section className="conversation-inbox" aria-label={`Conversation with ${conversation.name}`}>
-      <header className="conversation-header">
+      <header className="conversation-header conversation-thread-header">
         <Button
+          className="conversation-thread-back"
+          variant="ghost"
           aria-label={conversation.kind === 'channel' ? 'Back to teams' : 'Back to chats'}
           onClick={close}
         >
           <ArrowLeft size={18} />
         </Button>
-        <h2>
-          {conversation.teamName ? `${conversation.teamName} / ` : ''}
-          {conversation.name}
-        </h2>
+        <NameAvatar name={conversation.name} picture={conversation.picture} size="lg">
+          {conversation.kind === 'group' ? (
+            <Users size={20} />
+          ) : conversation.kind === 'channel' ? (
+            <Hash size={20} />
+          ) : undefined}
+        </NameAvatar>
+        <div className="conversation-title">
+          <h2>{conversation.name}</h2>
+          <small>
+            {conversation.kind === 'channel'
+              ? `${conversation.teamName ?? 'Team'} channel`
+              : conversation.kind === 'group'
+                ? 'Group chat'
+                : 'Direct chat'}
+            {!connected ? ' · offline' : ''}
+          </small>
+        </div>
         {conversation.kind === 'group' && (
-          <Button aria-label="Manage group" onClick={() => setManage(true)}>
+          <Button variant="ghost" aria-label="Manage group" onClick={() => setManage(true)}>
             <Users size={18} />
           </Button>
         )}
         <Button
           aria-label="Refresh messages"
+          variant="ghost"
           disabled={!connected || chat.busy}
           onClick={() => void chat.refresh()}
         >
@@ -424,37 +305,56 @@ export function ConversationThread({
           )}
           {chat.earlier && <Button onClick={() => void chat.refresh()}>Latest messages</Button>}
         </div>
-        {chat.messages.map((message) => (
-          <article
-            className={`conversation-message ${message.userId === account.accountId ? 'own' : ''}`}
-            key={message.id}
-          >
-            <strong>{message.userName}</strong>
-            <time dateTime={new Date(message.timestamp).toISOString()}>
-              {new Date(message.timestamp).toLocaleString()}
-            </time>
-            <p>{message.content}</p>
-          </article>
-        ))}
+        {chat.messages.map((message, index) => {
+          const own = message.userId === account.accountId;
+          const previous = chat.messages[index - 1];
+          const continued =
+            !!previous &&
+            previous.userId === message.userId &&
+            message.timestamp - previous.timestamp < GROUP_WINDOW;
+          return (
+            <article
+              className={`conversation-message ${own ? 'own' : ''} ${continued ? 'continued' : ''}`}
+              key={message.id}
+            >
+              {!own && !continued && <NameAvatar name={message.userName} />}
+              <div className="conversation-message-body">
+                <header className={continued ? 'conversation-visually-hidden' : undefined}>
+                  <strong className={own ? 'conversation-visually-hidden' : undefined}>
+                    {own ? 'You' : message.userName}
+                  </strong>
+                  <time dateTime={new Date(message.timestamp).toISOString()}>
+                    {messageTime(message.timestamp)}
+                  </time>
+                </header>
+                <p>{message.content}</p>
+              </div>
+            </article>
+          );
+        })}
         {chat.busy && <p role="status">Loading messages…</p>}
         {!!chat.pending.length && (
           <section aria-label="Unsent messages">
             <h3>Unsent messages</h3>
             {chat.pending.map((message) => (
-              <article className="conversation-message" key={message.id}>
-                <p>{message.content}</p>
-                <Button
-                  disabled={!connected || !chat.authorized || !!chat.sending}
-                  onClick={() => void chat.retry(message)}
-                >
-                  Retry
-                </Button>
-                <Button
-                  disabled={chat.sending === message.id}
-                  onClick={() => void chat.discard(message.id)}
-                >
-                  Discard
-                </Button>
+              <article className="conversation-message own pending" key={message.id}>
+                <div className="conversation-message-body">
+                  <p>{message.content}</p>
+                </div>
+                <div className="conversation-actions">
+                  <Button
+                    disabled={!connected || !chat.authorized || !!chat.sending}
+                    onClick={() => void chat.retry(message)}
+                  >
+                    Retry
+                  </Button>
+                  <Button
+                    disabled={chat.sending === message.id}
+                    onClick={() => void chat.discard(message.id)}
+                  >
+                    Discard
+                  </Button>
+                </div>
               </article>
             ))}
           </section>
@@ -468,20 +368,31 @@ export function ConversationThread({
           void submit();
         }}
       >
-        <Textarea
-          aria-label="Message"
-          placeholder="Write a message"
-          value={text}
-          maxLength={8000}
-          disabled={!connected || !chat.authorized}
-          onChange={(event) => setText(event.target.value)}
-        />
+        <div className="conversation-composer-field">
+          <Textarea
+            ref={field}
+            rows={1}
+            aria-label="Message"
+            placeholder={`Message ${conversation.kind === 'channel' ? '#' : ''}${conversation.name}…`}
+            value={text}
+            maxLength={8000}
+            disabled={!connected || !chat.authorized}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter sends, Shift+Enter keeps writing; never interrupt IME composition.
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              if (text.trim() && !chat.sending) void submit();
+            }}
+          />
+        </div>
         <Button
           type="submit"
+          className="conversation-send"
           aria-label="Send message"
           disabled={!connected || !chat.authorized || !text.trim() || !!chat.sending}
         >
-          <Send size={18} />
+          <SendHorizontal size={20} />
         </Button>
       </form>
     </section>

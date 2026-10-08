@@ -51,7 +51,13 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
   bounded join-time history, unread/read reconciliation, group member/owner
   management, optional group pictures and generic message notifications. The
   shared native gateway checks account identity and notification provenance.
-  Chats → Teams adds public/private channels, shared member/owner management,
+  The top account dropdown includes the account picture and server hostname.
+  People search opens existing/new direct chats and offers live suggestions plus
+  five account-scoped recent queries. **Chat layout** selects combined chat/team
+  navigation or separate tabs; the preference persists on this device. Phone-sized
+  layouts show the list or selected conversation; Back returns to the list.
+  **New group chat** has recipient chips and a fixed creation action.
+  The team sidebar adds public/private channels, shared member/owner management,
   archive/restore and opt-in library association. Channel history and pending
   sends reuse the conversation contract. Only server admins create teams.
   Browser libraries and finer file sharing remain planned in the

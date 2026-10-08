@@ -1529,8 +1529,27 @@ cursors are decimal strings; transactions order commit-visible allocation.
 `src/lib/useConversationInbox.ts` own the shared client contract and bounded inbox.
 `useHostedChat` accepts a transport adapter so personal messages retain the same
 identity guards, bounded history and persist-before-send semantics as vault chat.
-`src/components/conversations/` supplies shared inbox/thread/group controls and
-scoped CSS. `ChatsPage` is a page-level `chats` view embedded in AppShell for unlocked vaults
+`src/components/conversations/` supplies the shared collaboration workspace and
+scoped CSS. `ConversationAccounts` owns account-keyed selection, the bounded inbox,
+notification destinations and a persistent secondary sidebar beside the thread.
+`ConversationToolbar` provides server/account switching with authenticated account
+avatars and debounced, identity-bound people search. Selecting a person calls the
+canonical direct-conversation endpoint, so an existing DM is reused. Suggestions
+come from the live bounded directory; only the last five opened people (user ID,
+username and display name) are stored locally, separately for each server/account,
+and may be removed or cleared. Reopening one still goes through the canonical
+direct-conversation endpoint. Inbox summaries carry an optional server-truncated
+`lastMessage` preview with `lastMessageAt`/`lastMessageOwn`, limited to messages
+visible since the caller joined. `ConversationVisuals` holds the shared
+name-tinted avatars and list/message time formatting.
+`ConversationPreferences` stores the device-local combined/separate sidebar setting;
+change it from **Chat layout** beside the Chats heading. `TeamSidebar` polls the
+bounded team page and channels of one expanded team only, with visibility, identity
+and stale-response guards. Team management opens in the content pane, and group
+creation has removable recipient chips and a fixed action footer.
+On narrow screens the list and content become separate panes; the thread Back
+control returns to the list. Desktop navigation back to files uses the activity rail.
+Account switches unmount directory, thread and creation state. `ChatsPage` is a page-level `chats` view embedded in AppShell for unlocked vaults
 and available standalone without a vault or while a vault is locked;
 `ConversationsScreen` adapts Android accounts and Back-stack registration.
 
@@ -1552,8 +1571,8 @@ is explicit. Channel conversation access additionally checks active team/channel
 state. Group mutation endpoints reject channels, which must use team APIs.
 
 `src/types/team.ts`, `src/lib/teams.ts`, and `src/components/teams/TeamWorkspace.tsx`
-provide shared request contracts and controls. `ConversationAccounts` adds Chats/
-Teams sections and adapts native requests/directory lookup; account-keyed mounts
+provide shared request contracts and controls. `ConversationAccounts` adapts native
+requests/directory lookup and team sidebar/management navigation; account-keyed mounts
 prevent cross-server state reuse. The same controls are imported by admin-web's
 `TeamsPage.tsx`; its HTTP adapter supplies cookie/CSRF authentication and bounded
 browser channel history with transient pending sends. The web Vite/TypeScript

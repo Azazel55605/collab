@@ -164,8 +164,11 @@ pub async fn list(
         (SELECT other.display_name FROM conversation_members peer JOIN users other ON other.id=peer.user_id
           WHERE peer.conversation_id=c.id AND peer.user_id<>$1 LIMIT 1) AS peer_name,
         (SELECT COUNT(*) FROM conversation_messages msg WHERE msg.conversation_id=c.id
-          AND msg.sequence>=m.joined_sequence AND msg.sequence>m.read_sequence AND msg.sender_user_id IS DISTINCT FROM $1) AS unread
+          AND msg.sequence>=m.joined_sequence AND msg.sequence>m.read_sequence AND msg.sender_user_id IS DISTINCT FROM $1) AS unread,
+        last.preview AS last_message,last.created_at AS last_message_at,last.sender_user_id AS last_sender
         FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id
+        LEFT JOIN LATERAL (SELECT LEFT(msg.content,160) AS preview,msg.created_at,msg.sender_user_id FROM conversation_messages msg
+          WHERE msg.conversation_id=c.id AND msg.sequence>=m.joined_sequence ORDER BY msg.sequence DESC LIMIT 1) last ON true
         WHERE m.user_id=$1 AND NOT EXISTS(SELECT 1 FROM team_channels ch JOIN teams t ON t.id=ch.team_id WHERE ch.conversation_id=c.id AND (ch.archived OR t.archived OR NOT EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=$1))) AND ($2::bigint IS NULL OR c.updated_cursor<$2) AND ($4::uuid IS NULL OR c.id=$4)
         ORDER BY c.updated_cursor DESC LIMIT $3"#)
         .bind(user).bind(query.before).bind(limit).bind(query.conversation).fetch_all(&state.database).await.map_err(|_|fail(&id))?;
@@ -188,6 +191,11 @@ pub async fn list(
                 picture: r.get("picture"),
                 team_id: r.get::<Option<Uuid>, _>("team_id").map(|v| v.to_string()),
                 team_name: r.get("team_name"),
+                last_message: r.get("last_message"),
+                last_message_at: r
+                    .get::<Option<DateTime<Utc>>, _>("last_message_at")
+                    .map(|at| at.timestamp_millis().max(0) as u64),
+                last_message_own: r.get::<Option<Uuid>, _>("last_sender") == Some(user),
             })
             .collect(),
     )))

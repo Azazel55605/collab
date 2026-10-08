@@ -151,9 +151,16 @@ describe('AppShell document remounting', () => {
     act(() => useUiStore.getState().setActiveView('chats'));
     expect((await screen.findByTestId('personal-chats')).textContent).toBe('false');
     expect(screen.queryByTestId('tab-bar')).toBeNull();
+    expect(
+      screen.getByTestId('sidebar').closest('[aria-hidden]')?.getAttribute('aria-hidden'),
+    ).toBe('true');
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
     act(() => useUiStore.getState().setActiveView('editor'));
     await screen.findByTestId('note-view');
+    expect(useUiStore.getState().isSidebarOpen).toBe(true);
+    expect(
+      screen.getByTestId('sidebar').closest('[aria-hidden]')?.getAttribute('aria-hidden'),
+    ).toBe('false');
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
   });
 });

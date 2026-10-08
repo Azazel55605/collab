@@ -520,6 +520,8 @@ export function hostedCalendarRequest<T>(
 }
 
 export interface ServerUser {
+  hasAvatar?: boolean;
+  avatarUpdatedAt?: string | null;
   role?: 'admin' | 'member';
   id: string;
   username: string;
