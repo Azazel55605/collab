@@ -32,6 +32,7 @@ beforeEach(() => {
     if (command === 'hosted_chat_outbox') return [];
     if (command === 'hosted_conversation_request') {
       const path = String(args.path);
+      if (path.startsWith('/api/v1/teams')) return [];
       if (path.includes('/events')) return { events: [], nextAfter: '0', hasMore: false };
       if (path.includes('/messages'))
         return {

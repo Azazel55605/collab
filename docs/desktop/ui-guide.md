@@ -372,3 +372,21 @@ When making UI changes:
 - Structural reference: [Codebase Reference](./codebase.md)
 - Agent/project implementation rules: `AGENTS.md`
 - Additional model-facing guidance: `CLAUDE.md`
+
+## Conversation Workspace
+
+Chats uses the existing app activity rail for navigation back to files. A toolbar
+places server-scoped people search at the top and the account/server dropdown at
+the top right, showing the account avatar or initials. Use live directory
+suggestions and account-scoped recent search terms; selecting a person opens the
+canonical direct chat immediately. Group composition is a separate named-group
+flow with removable recipient chips and an always-reachable creation action.
+
+Keep a secondary conversation sidebar visible beside desktop threads. Its
+**Chat layout** menu persists a device-local preference: chats and teams together,
+or separate Chats/Teams sidebar tabs. Expand a team to reveal channels; put team
+membership and channel management in the main content area. At widths up to
+700px, show either navigation or the selected content, with a visible Back
+control and Android hardware Back support. Preserve independent scrolling,
+keyboard navigation, readable server hostnames and theme tokens. Android also
+needs explicit scoped styles because it does not load desktop Tailwind utilities.

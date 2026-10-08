@@ -7,10 +7,10 @@ including retained vault custodians and explicit library association.
 
 ## Automated Evidence
 
-- Full desktop frontend suite: 2199 passed, one existing skip, and one sandbox
+- Full desktop frontend suite: 2208 passed, one existing skip, and one sandbox
   Node subprocess failure. The affected update-manifest file passed all seven
   tests outside the sandbox. Final shared team, notification and conversation
-  changes received focused regression runs.
+  changes received focused regression runs; the chat UI follow-up passed 14 focused tests.
 - Android frontend: 255 tests passed. Admin-web: 81 tests passed.
 - Workspace Rust tests and checks passed with a disposable PostgreSQL database.
   The live team test additionally covers admin-only creation and browser CSRF,
@@ -58,3 +58,25 @@ Use disposable accounts, teams and vaults; never point database tests at real da
 
 Browser library browsing, organization-owned custodian transfer, folder/file ACLs,
 authenticated share links and calling remain separate delivery work.
+
+## Chat Navigation Follow-up
+
+The desktop/Android follow-up replaces the centered inbox and server chips with
+an account/avatar dropdown, server-scoped people search, a persistent desktop
+conversation sidebar, and a device-local combined/separate chat/team preference.
+The redundant desktop Back to files action is removed. People selection reuses
+canonical DMs; group composition uses recipient chips and a fixed action footer.
+Recent searches retain at most five terms per server/account, with a clear action;
+directory suggestions are always fetched live.
+
+Browser QA uses the production shared components and both desktop and Android
+stylesheets with a mock native transport, covering search, suggestions, recents,
+server switching, layout selection, team expansion and group selection. Phone
+(390×844), short phone (390×480), tablet and desktop sizes verify pane switching,
+no horizontal overflow, and reachable group/message actions. This does not replace
+the physical device and live multi-server checks above.
+
+Repeat these checks on the native build: verify real account pictures after profile
+changes, search a person with an existing DM, switch servers while search/opening
+is pending, clear recent queries, reopen the app with separate navigation selected,
+and exercise Android Back with group management open and the keyboard visible.
