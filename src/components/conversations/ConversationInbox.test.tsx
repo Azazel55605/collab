@@ -263,3 +263,27 @@ it('persists separate chat and team navigation across account workspace remounts
   expect(screen.queryByRole('navigation', { name: 'Conversations' })).toBeNull();
   expect(screen.getByRole('navigation', { name: 'Teams and channels' })).not.toBeNull();
 });
+it('shows the newest message preview and sends on Enter but not Shift+Enter', async () => {
+  const implementation = api.hostedConversationRequest.getMockImplementation()!;
+  api.hostedConversationRequest.mockImplementation(async (...args: unknown[]) =>
+    String(args[3]).startsWith('/api/v1/conversations?limit=50')
+      ? [
+          {
+            ...summary,
+            lastMessage: 'See you soon',
+            lastMessageAt: Date.now(),
+            lastMessageOwn: true,
+          },
+        ]
+      : implementation(...args),
+  );
+  render(<ConversationAccounts accounts={accounts} />);
+  fireEvent.click(await screen.findByRole('button', { name: /You: See you soon/ }));
+  const field = await screen.findByLabelText('Message');
+  await waitFor(() => expect((field as HTMLTextAreaElement).disabled).toBe(false));
+  fireEvent.change(field, { target: { value: 'Draft' } });
+  fireEvent.keyDown(field, { key: 'Enter', shiftKey: true });
+  expect(api.hostedChatQueue).not.toHaveBeenCalled();
+  fireEvent.keyDown(field, { key: 'Enter' });
+  await waitFor(() => expect(api.hostedChatQueue).toHaveBeenCalled());
+});

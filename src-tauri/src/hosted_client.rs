@@ -297,15 +297,36 @@ pub async fn decode_hosted_json_response(response: reqwest::Response) -> Result<
 }
 
 pub async fn decode_hosted_error(response: reqwest::Response) -> String {
+    let status = response.status();
     response
         .json::<ErrorResponse>()
         .await
         .map(|body| body.error.message)
-        .unwrap_or_else(|_| "The hosted-vault request failed.".into())
+        .unwrap_or_else(|_| fallback_hosted_error(status))
+}
+
+/// Routes the server does not know answer with a bare 404, which means the
+/// server predates the feature rather than that the request was wrong.
+fn fallback_hosted_error(status: reqwest::StatusCode) -> String {
+    if status == reqwest::StatusCode::NOT_FOUND {
+        "This server does not support this feature yet. Update the server to use it.".into()
+    } else {
+        "The hosted-vault request failed.".into()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bare_not_found_reports_an_outdated_server() {
+        assert!(super::fallback_hosted_error(reqwest::StatusCode::NOT_FOUND)
+            .contains("Update the server"));
+        assert_eq!(
+            super::fallback_hosted_error(reqwest::StatusCode::BAD_GATEWAY),
+            "The hosted-vault request failed."
+        );
+    }
+
     use super::{
         hosted_request_method, server_request_error, validate_hosted_account_request,
         validate_hosted_calendar_path, validate_hosted_vault_path, validate_identifier,

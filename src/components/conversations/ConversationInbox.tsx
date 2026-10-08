@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ArrowLeft, RefreshCw, Send, Users, X } from 'lucide-react';
+import { ArrowLeft, Hash, RefreshCw, SendHorizontal, Users, X } from 'lucide-react';
 
 import {
   conversationMembers,
@@ -20,6 +20,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
+
+import { messageTime, NameAvatar } from './ConversationVisuals';
+
+/** Consecutive messages from one sender within this window share a header. */
+const GROUP_WINDOW = 5 * 60_000;
 
 export function NewConversation({
   account,
@@ -192,6 +197,13 @@ export function ConversationThread({
   const [readError, setReadError] = useState<string | null>(null);
   const marked = useRef('0');
   const tail = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const element = field.current;
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }, [text]);
   const last = chat.messages[chat.messages.length - 1]?.sequence;
   useEffect(() => {
     if (chat.earlier || !last || !chat.authorized || !connected) return;
@@ -237,7 +249,7 @@ export function ConversationThread({
     );
   return (
     <section className="conversation-inbox" aria-label={`Conversation with ${conversation.name}`}>
-      <header className="conversation-header">
+      <header className="conversation-header conversation-thread-header">
         <Button
           className="conversation-thread-back"
           variant="ghost"
@@ -246,20 +258,24 @@ export function ConversationThread({
         >
           <ArrowLeft size={18} />
         </Button>
-        <Avatar>
-          <AvatarImage src={conversation.picture ?? undefined} />
-          <AvatarFallback>
-            {conversation.kind === 'group' ? (
-              <Users size={18} />
-            ) : (
-              conversation.name.slice(0, 2).toUpperCase()
-            )}
-          </AvatarFallback>
-        </Avatar>
-        <h2>
-          {conversation.teamName ? `${conversation.teamName} / ` : ''}
-          {conversation.name}
-        </h2>
+        <NameAvatar name={conversation.name} picture={conversation.picture} size="lg">
+          {conversation.kind === 'group' ? (
+            <Users size={20} />
+          ) : conversation.kind === 'channel' ? (
+            <Hash size={20} />
+          ) : undefined}
+        </NameAvatar>
+        <div className="conversation-title">
+          <h2>{conversation.name}</h2>
+          <small>
+            {conversation.kind === 'channel'
+              ? `${conversation.teamName ?? 'Team'} channel`
+              : conversation.kind === 'group'
+                ? 'Group chat'
+                : 'Direct chat'}
+            {!connected ? ' · offline' : ''}
+          </small>
+        </div>
         {conversation.kind === 'group' && (
           <Button variant="ghost" aria-label="Manage group" onClick={() => setManage(true)}>
             <Users size={18} />
@@ -289,37 +305,56 @@ export function ConversationThread({
           )}
           {chat.earlier && <Button onClick={() => void chat.refresh()}>Latest messages</Button>}
         </div>
-        {chat.messages.map((message) => (
-          <article
-            className={`conversation-message ${message.userId === account.accountId ? 'own' : ''}`}
-            key={message.id}
-          >
-            <strong>{message.userName}</strong>
-            <time dateTime={new Date(message.timestamp).toISOString()}>
-              {new Date(message.timestamp).toLocaleString()}
-            </time>
-            <p>{message.content}</p>
-          </article>
-        ))}
+        {chat.messages.map((message, index) => {
+          const own = message.userId === account.accountId;
+          const previous = chat.messages[index - 1];
+          const continued =
+            !!previous &&
+            previous.userId === message.userId &&
+            message.timestamp - previous.timestamp < GROUP_WINDOW;
+          return (
+            <article
+              className={`conversation-message ${own ? 'own' : ''} ${continued ? 'continued' : ''}`}
+              key={message.id}
+            >
+              {!own && !continued && <NameAvatar name={message.userName} />}
+              <div className="conversation-message-body">
+                <header className={continued ? 'conversation-visually-hidden' : undefined}>
+                  <strong className={own ? 'conversation-visually-hidden' : undefined}>
+                    {own ? 'You' : message.userName}
+                  </strong>
+                  <time dateTime={new Date(message.timestamp).toISOString()}>
+                    {messageTime(message.timestamp)}
+                  </time>
+                </header>
+                <p>{message.content}</p>
+              </div>
+            </article>
+          );
+        })}
         {chat.busy && <p role="status">Loading messages…</p>}
         {!!chat.pending.length && (
           <section aria-label="Unsent messages">
             <h3>Unsent messages</h3>
             {chat.pending.map((message) => (
-              <article className="conversation-message" key={message.id}>
-                <p>{message.content}</p>
-                <Button
-                  disabled={!connected || !chat.authorized || !!chat.sending}
-                  onClick={() => void chat.retry(message)}
-                >
-                  Retry
-                </Button>
-                <Button
-                  disabled={chat.sending === message.id}
-                  onClick={() => void chat.discard(message.id)}
-                >
-                  Discard
-                </Button>
+              <article className="conversation-message own pending" key={message.id}>
+                <div className="conversation-message-body">
+                  <p>{message.content}</p>
+                </div>
+                <div className="conversation-actions">
+                  <Button
+                    disabled={!connected || !chat.authorized || !!chat.sending}
+                    onClick={() => void chat.retry(message)}
+                  >
+                    Retry
+                  </Button>
+                  <Button
+                    disabled={chat.sending === message.id}
+                    onClick={() => void chat.discard(message.id)}
+                  >
+                    Discard
+                  </Button>
+                </div>
               </article>
             ))}
           </section>
@@ -333,20 +368,31 @@ export function ConversationThread({
           void submit();
         }}
       >
-        <Textarea
-          aria-label="Message"
-          placeholder="Write a message"
-          value={text}
-          maxLength={8000}
-          disabled={!connected || !chat.authorized}
-          onChange={(event) => setText(event.target.value)}
-        />
+        <div className="conversation-composer-field">
+          <Textarea
+            ref={field}
+            rows={1}
+            aria-label="Message"
+            placeholder={`Message ${conversation.kind === 'channel' ? '#' : ''}${conversation.name}…`}
+            value={text}
+            maxLength={8000}
+            disabled={!connected || !chat.authorized}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter sends, Shift+Enter keeps writing; never interrupt IME composition.
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              if (text.trim() && !chat.sending) void submit();
+            }}
+          />
+        </div>
         <Button
           type="submit"
+          className="conversation-send"
           aria-label="Send message"
           disabled={!connected || !chat.authorized || !text.trim() || !!chat.sending}
         >
-          <Send size={18} />
+          <SendHorizontal size={20} />
         </Button>
       </form>
     </section>

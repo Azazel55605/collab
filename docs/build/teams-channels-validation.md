@@ -66,8 +66,8 @@ an account/avatar dropdown, server-scoped people search, a persistent desktop
 conversation sidebar, and a device-local combined/separate chat/team preference.
 The redundant desktop Back to files action is removed. People selection reuses
 canonical DMs; group composition uses recipient chips and a fixed action footer.
-Recent searches retain at most five terms per server/account, with a clear action;
-directory suggestions are always fetched live.
+Recent searches retain at most five people per server/account, each removable and
+with a clear-all action; directory suggestions are always fetched live.
 
 Browser QA uses the production shared components and both desktop and Android
 stylesheets with a mock native transport, covering search, suggestions, recents,

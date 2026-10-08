@@ -1535,9 +1535,13 @@ notification destinations and a persistent secondary sidebar beside the thread.
 `ConversationToolbar` provides server/account switching with authenticated account
 avatars and debounced, identity-bound people search. Selecting a person calls the
 canonical direct-conversation endpoint, so an existing DM is reused. Suggestions
-come from the live bounded directory; only the last five search terms are stored
-locally, separately for each server/account, and may be cleared. They are queries,
-not cached directory profiles or message history.
+come from the live bounded directory; only the last five opened people (user ID,
+username and display name) are stored locally, separately for each server/account,
+and may be removed or cleared. Reopening one still goes through the canonical
+direct-conversation endpoint. Inbox summaries carry an optional server-truncated
+`lastMessage` preview with `lastMessageAt`/`lastMessageOwn`, limited to messages
+visible since the caller joined. `ConversationVisuals` holds the shared
+name-tinted avatars and list/message time formatting.
 `ConversationPreferences` stores the device-local combined/separate sidebar setting;
 change it from **Chat layout** beside the Chats heading. `TeamSidebar` polls the
 bounded team page and channels of one expanded team only, with visibility, identity

@@ -5,9 +5,9 @@ import { tauriCommands } from '../../lib/tauri';
 
 import {
   readChatLayout,
-  readRecentSearches,
+  readRecentPeople,
   saveChatLayout,
-  saveRecentSearches,
+  saveRecentPeople,
 } from './ConversationPreferences';
 import { AccountSwitcher, PeopleSearch } from './ConversationToolbar';
 
@@ -27,7 +27,7 @@ beforeEach(() => {
   vi.mocked(tauriCommands.hostedUserDirectory).mockResolvedValue([person]);
   vi.mocked(tauriCommands.hostedAccountRequest).mockResolvedValue('data:image/png;base64,YWJj');
 });
-it('opens a suggested person using the keyboard and records a scoped recent search', async () => {
+it('opens a suggested person using the keyboard and records a scoped recent person', async () => {
   const open = vi.fn().mockResolvedValue(undefined);
   render(<PeopleSearch account={account} openPerson={open} />);
   const input = screen.getByRole('combobox');
@@ -38,23 +38,25 @@ it('opens a suggested person using the keyboard and records a scoped recent sear
   fireEvent.keyDown(input, { key: 'Enter' });
   await waitFor(() => expect(open).toHaveBeenCalledWith(person));
   await waitFor(() => expect(input.getAttribute('aria-expanded')).toBe('false'));
-  expect(readRecentSearches('https://one.test', 'me')).toEqual(['Other']);
-  expect(readRecentSearches('https://two.test', 'me')).toEqual([]);
-  expect(readRecentSearches('https://one.test', 'another')).toEqual([]);
+  expect(readRecentPeople('https://one.test', 'me')).toEqual([person]);
+  expect(readRecentPeople('https://two.test', 'me')).toEqual([]);
+  expect(readRecentPeople('https://one.test', 'another')).toEqual([]);
 });
-it('re-runs recent queries against the server rather than persisting stale directory results', async () => {
-  saveRecentSearches(account.serverUrl, account.accountId, ['someone']);
-  render(<PeopleSearch account={account} openPerson={vi.fn()} />);
+it('reopens, removes and clears recent people without listing them twice', async () => {
+  const recent = { userId: 'recent', username: 'recent', displayName: 'Recent Person' };
+  saveRecentPeople(account.serverUrl, account.accountId, [recent, person]);
+  const open = vi.fn().mockResolvedValue(undefined);
+  render(<PeopleSearch account={account} openPerson={open} />);
   fireEvent.focus(screen.getByRole('combobox'));
-  fireEvent.click(screen.getByRole('button', { name: 'someone' }));
-  await waitFor(() =>
-    expect(tauriCommands.hostedUserDirectory).toHaveBeenCalledWith(
-      'https://one.test',
-      'someone',
-      'me',
-    ),
-  );
-  expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe('someone');
+  await waitFor(() => expect(tauriCommands.hostedUserDirectory).toHaveBeenCalled());
+  expect(screen.getAllByRole('option', { name: /Other/ })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Other from recent searches' }));
+  expect(readRecentPeople(account.serverUrl, account.accountId)).toEqual([recent]);
+  fireEvent.click(screen.getByRole('option', { name: /Recent Person/ }));
+  await waitFor(() => expect(open).toHaveBeenCalledWith(recent));
+  fireEvent.focus(screen.getByRole('combobox'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Clear all' }));
+  expect(readRecentPeople(account.serverUrl, account.accountId)).toEqual([]);
 });
 it('ignores a late directory response after the search changes', async () => {
   let resolve!: (people: (typeof person)[]) => void;
@@ -86,7 +88,7 @@ it('keeps search failures visible and does not record a failed chat opening', as
   fireEvent.click(await screen.findByRole('option', { name: /Other/ }));
   await screen.findByRole('alert');
   expect(screen.getByRole('alert').textContent).toContain('Membership unavailable');
-  expect(readRecentSearches(account.serverUrl, account.accountId)).toEqual([]);
+  expect(readRecentPeople(account.serverUrl, account.accountId)).toEqual([]);
 });
 it('loads an authenticated avatar for the explicit server account and stops offline searches', async () => {
   render(
@@ -108,8 +110,14 @@ it('loads an authenticated avatar for the explicit server account and stops offl
 it('persists the chat layout and safely bounds or discards malformed search storage', () => {
   saveChatLayout('separate');
   expect(readChatLayout()).toBe('separate');
-  saveRecentSearches('server', 'account', ['1', '2', '3', '4', '5', '6']);
-  expect(readRecentSearches('server', 'account')).toHaveLength(5);
-  localStorage.setItem('collab.people-search:["server","account"]', 'broken');
-  expect(readRecentSearches('server', 'account')).toEqual([]);
+  saveRecentPeople(
+    'server',
+    'account',
+    ['1', '2', '3', '4', '5', '6'].map((id) => ({ ...person, userId: id })),
+  );
+  expect(readRecentPeople('server', 'account')).toHaveLength(5);
+  localStorage.setItem('collab.people-recent:["server","account"]', '[{"userId":1},"x",null]');
+  expect(readRecentPeople('server', 'account')).toEqual([]);
+  localStorage.setItem('collab.people-recent:["server","account"]', 'broken');
+  expect(readRecentPeople('server', 'account')).toEqual([]);
 });

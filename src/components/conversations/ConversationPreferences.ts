@@ -14,25 +14,40 @@ export function saveChatLayout(layout: ChatLayout) {
     /* Storage may be unavailable. */
   }
 }
+export interface RecentPerson {
+  userId: string;
+  username: string;
+  displayName: string;
+}
 const recentKey = (serverUrl: string, accountId: string) =>
-  `collab.people-search:${JSON.stringify([serverUrl, accountId])}`;
-export function readRecentSearches(serverUrl: string, accountId: string): string[] {
+  `collab.people-recent:${JSON.stringify([serverUrl, accountId])}`;
+const short = (value: unknown) => typeof value === 'string' && value.length <= 200;
+/** People recently opened from search, scoped to one server account. */
+export function readRecentPeople(serverUrl: string, accountId: string): RecentPerson[] {
   try {
     const value: unknown = JSON.parse(
       localStorage.getItem(recentKey(serverUrl, accountId)) ?? '[]',
     );
     return Array.isArray(value)
       ? value
-          .filter((item): item is string => typeof item === 'string' && item.length <= 200)
+          .filter(
+            (item): item is RecentPerson =>
+              !!item &&
+              typeof item === 'object' &&
+              short(item.userId) &&
+              short(item.username) &&
+              short(item.displayName),
+          )
+          .map(({ userId, username, displayName }) => ({ userId, username, displayName }))
           .slice(0, 5)
       : [];
   } catch {
     return [];
   }
 }
-export function saveRecentSearches(serverUrl: string, accountId: string, searches: string[]) {
+export function saveRecentPeople(serverUrl: string, accountId: string, people: RecentPerson[]) {
   try {
-    localStorage.setItem(recentKey(serverUrl, accountId), JSON.stringify(searches.slice(0, 5)));
+    localStorage.setItem(recentKey(serverUrl, accountId), JSON.stringify(people.slice(0, 5)));
   } catch {
     /* Search remains usable without storage. */
   }

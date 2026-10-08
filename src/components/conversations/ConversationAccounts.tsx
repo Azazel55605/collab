@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { MessageCircle, Settings2, Users, UsersRound } from 'lucide-react';
+import { MessageCircle, SlidersHorizontal, UserPlus, Users } from 'lucide-react';
 
 import { conversationMembers, conversationRequest, getConversation } from '../../lib/conversations';
 import { tauriCommands } from '../../lib/tauri';
@@ -9,7 +9,6 @@ import { useConversationInbox } from '../../lib/useConversationInbox';
 import { useConversationNavigation } from '../../store/conversationNavigation';
 import type { ConversationSummary } from '../../types/conversation';
 import { TeamWorkspace } from '../teams/TeamWorkspace';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Button } from '../ui/button';
 import {
   DropdownMenu,
@@ -23,14 +22,17 @@ import { ConversationThread, NewConversation } from './ConversationInbox';
 import { type ChatLayout, readChatLayout, saveChatLayout } from './ConversationPreferences';
 import './conversations.css';
 import { AccountSwitcher, type ChatAccount, PeopleSearch } from './ConversationToolbar';
+import { listTime, NameAvatar } from './ConversationVisuals';
 import { TeamSidebar } from './TeamSidebar';
 
 export function ConversationAccounts({
   accounts,
   registerBack,
+  openAccountSettings,
 }: {
   accounts: ChatAccount[];
   registerBack?: (dismiss: () => void) => () => void;
+  openAccountSettings?: () => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const destination = useConversationNavigation((state) => state.destination);
@@ -48,6 +50,7 @@ export function ConversationAccounts({
           account={selected}
           accounts={accounts}
           registerBack={registerBack}
+          openAccountSettings={openAccountSettings}
           selectAccount={(account) => {
             setChosen(account.serverUrl);
             useConversationNavigation.getState().clear();
@@ -64,11 +67,13 @@ function AccountWorkspace({
   accounts,
   selectAccount,
   registerBack,
+  openAccountSettings,
 }: {
   account: ChatAccount;
   accounts: ChatAccount[];
   selectAccount: (account: ChatAccount) => void;
   registerBack?: (dismiss: () => void) => () => void;
+  openAccountSettings?: () => void;
 }) {
   const inbox = useConversationInbox(account, account.connected);
   const [selected, setSelected] = useState<ConversationSummary | null>(null);
@@ -164,7 +169,12 @@ function AccountWorkspace({
             void inbox.refresh();
           }}
         />
-        <AccountSwitcher accounts={accounts} selected={account} select={selectAccount} />
+        <AccountSwitcher
+          accounts={accounts}
+          selected={account}
+          select={selectAccount}
+          openSettings={openAccountSettings}
+        />
       </header>
       <div className={`conversation-split ${hasContent ? 'has-content' : ''}`}>
         <aside className="conversation-sidebar" aria-label="Chats and teams">
@@ -180,12 +190,12 @@ function AccountWorkspace({
                 setPanel('group');
               }}
             >
-              <UsersRound size={18} />
+              <UserPlus size={18} />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label="Chat layout">
-                  <Settings2 size={18} />
+                  <SlidersHorizontal size={18} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="conversation-layout-menu">
@@ -242,28 +252,36 @@ function AccountWorkspace({
                       disabled={!account.connected}
                       onClick={() => void open(row.id)}
                     >
-                      <Avatar>
-                        <AvatarImage src={row.picture ?? undefined} />
-                        <AvatarFallback>
-                          {row.kind === 'group' ? (
-                            <Users size={18} />
-                          ) : (
-                            row.name.slice(0, 2).toUpperCase()
+                      <NameAvatar name={row.name} picture={row.picture}>
+                        {row.kind === 'group' ? <Users size={18} /> : undefined}
+                      </NameAvatar>
+                      <span className="conversation-row-body">
+                        <span className="conversation-row-line">
+                          <span className="conversation-row-name">{row.name}</span>
+                          {row.lastMessageAt && (
+                            <time dateTime={new Date(row.lastMessageAt).toISOString()}>
+                              {listTime(row.lastMessageAt)}
+                            </time>
                           )}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="conversation-row-name">
-                        {row.name}
-                        <small>{row.kind === 'group' ? 'Group chat' : 'Direct chat'}</small>
-                      </span>
-                      {row.unread > 0 && (
-                        <span
-                          className="conversation-unread"
-                          aria-label={`${row.unread} unread messages`}
-                        >
-                          {row.unread}
                         </span>
-                      )}
+                        <span className="conversation-row-line">
+                          <small>
+                            {row.lastMessage
+                              ? `${row.lastMessageOwn ? 'You: ' : ''}${row.lastMessage}`
+                              : row.kind === 'group'
+                                ? 'Group chat'
+                                : 'Direct chat'}
+                          </small>
+                          {row.unread > 0 && (
+                            <span
+                              className="conversation-unread"
+                              aria-label={`${row.unread} unread messages`}
+                            >
+                              {row.unread > 99 ? '99+' : row.unread}
+                            </span>
+                          )}
+                        </span>
+                      </span>
                     </Button>
                   ))}
                 {inbox.busy && <p role="status">Loading conversations…</p>}
@@ -292,6 +310,7 @@ function AccountWorkspace({
             {(layout === 'combined' || section === 'teams') && (
               <TeamSidebar
                 account={account}
+                collapsible={layout === 'combined'}
                 selected={selected?.id}
                 open={(id) => void open(id)}
                 manage={() => {

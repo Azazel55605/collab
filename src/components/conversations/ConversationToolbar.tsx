@@ -1,25 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Check, ChevronDown, Clock, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Search, Settings, UserPlus, X } from 'lucide-react';
 
 import { tauriCommands } from '../../lib/tauri';
 import type { ConversationAccount } from '../../types/conversation';
 import type { UserDirectoryEntry } from '../../types/vault';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Button } from '../ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
 
-import { readRecentSearches, saveRecentSearches } from './ConversationPreferences';
+import { readRecentPeople, type RecentPerson, saveRecentPeople } from './ConversationPreferences';
+import { NameAvatar } from './ConversationVisuals';
 
 export type ChatAccount = ConversationAccount & {
   label: string;
   displayName?: string;
+  username?: string;
   connected: boolean;
   serverAdmin?: boolean;
   hasAvatar?: boolean;
@@ -35,7 +37,11 @@ function serverName(url: string) {
     return url;
   }
 }
-function AccountAvatar({ account }: { account: ChatAccount }) {
+function accountAddress(account: ChatAccount) {
+  const host = serverName(account.serverUrl);
+  return account.username ? `${account.username}@${host}` : host;
+}
+function AccountAvatar({ account, size }: { account: ChatAccount; size?: 'md' | 'lg' }) {
   const [image, setImage] = useState<string>();
   useEffect(() => {
     let alive = true;
@@ -61,21 +67,18 @@ function AccountAvatar({ account }: { account: ChatAccount }) {
     account.hasAvatar,
     account.avatarUpdatedAt,
   ]);
-  return (
-    <Avatar>
-      <AvatarImage src={image} alt="" />
-      <AvatarFallback>{accountName(account).slice(0, 2).toUpperCase()}</AvatarFallback>
-    </Avatar>
-  );
+  return <NameAvatar name={accountName(account)} picture={image} size={size} />;
 }
 export function AccountSwitcher({
   accounts,
   selected,
   select,
+  openSettings,
 }: {
   accounts: ChatAccount[];
   selected: ChatAccount;
   select: (account: ChatAccount) => void;
+  openSettings?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -84,6 +87,7 @@ export function AccountSwitcher({
           <AccountAvatar
             key={JSON.stringify([selected.serverUrl, selected.accountId])}
             account={selected}
+            size="lg"
           />
           <span>
             <strong>{accountName(selected)}</strong>
@@ -96,23 +100,36 @@ export function AccountSwitcher({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="conversation-account-menu">
-        {accounts.map((account) => (
-          <DropdownMenuItem
-            key={JSON.stringify([account.serverUrl, account.accountId])}
-            onSelect={() => select(account)}
-          >
-            <AccountAvatar account={account} />
-            <span>
-              <strong>{accountName(account)}</strong>
-              <small>
-                {serverName(account.serverUrl)}
-                {!account.connected ? ' · offline' : ''}
-              </small>
-            </span>
-            {account.serverUrl === selected.serverUrl &&
-              account.accountId === selected.accountId && <Check size={16} />}
-          </DropdownMenuItem>
-        ))}
+        {accounts.map((account) => {
+          const current =
+            account.serverUrl === selected.serverUrl && account.accountId === selected.accountId;
+          return (
+            <DropdownMenuItem
+              key={JSON.stringify([account.serverUrl, account.accountId])}
+              data-current={current || undefined}
+              onSelect={() => select(account)}
+            >
+              <AccountAvatar account={account} size="lg" />
+              <span>
+                <strong>{accountName(account)}</strong>
+                <small>
+                  {accountAddress(account)}
+                  {!account.connected ? ' · offline' : ''}
+                </small>
+              </span>
+              {current && <Check size={16} aria-label="Current account" />}
+            </DropdownMenuItem>
+          );
+        })}
+        {openSettings && (
+          <>
+            <DropdownMenuSeparator className="conversation-menu-separator" />
+            <DropdownMenuItem className="conversation-account-settings" onSelect={openSettings}>
+              <Settings size={18} />
+              Account settings
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -128,7 +145,7 @@ export function PeopleSearch({
   const [focused, setFocused] = useState(false);
   const [rows, setRows] = useState<UserDirectoryEntry[]>([]);
   const [recent, setRecent] = useState(() =>
-    readRecentSearches(account.serverUrl, account.accountId),
+    readRecentPeople(account.serverUrl, account.accountId),
   );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -170,18 +187,29 @@ export function PeopleSearch({
       clearTimeout(timer);
     };
   }, [query, focused, account.serverUrl, account.accountId, account.connected]);
-  async function choose(person: UserDirectoryEntry) {
+  const showRecent = !query && recent.length > 0;
+  const suggestions = showRecent
+    ? rows.filter((row) => !recent.some((person) => person.userId === row.userId))
+    : rows;
+  // Keyboard navigation walks recent people first, then directory results.
+  const options: RecentPerson[] = showRecent ? [...recent, ...suggestions] : suggestions;
+  function remember(next: RecentPerson[]) {
+    setRecent(next);
+    saveRecentPeople(account.serverUrl, account.accountId, next);
+  }
+  async function choose(person: RecentPerson) {
     if (opening) return;
     setOpening(true);
     setError('');
     try {
       await openPerson(person);
       if (!alive.current) return;
-      const next = [query.trim() || person.displayName || person.username, ...recent]
-        .filter((item, i, all) => all.indexOf(item) === i)
-        .slice(0, 5);
-      setRecent(next);
-      saveRecentSearches(account.serverUrl, account.accountId, next);
+      remember(
+        [
+          { userId: person.userId, username: person.username, displayName: person.displayName },
+          ...recent.filter((item) => item.userId !== person.userId),
+        ].slice(0, 5),
+      );
       setFocused(false);
       setQuery('');
       input.current?.blur();
@@ -190,6 +218,45 @@ export function PeopleSearch({
     } finally {
       if (alive.current) setOpening(false);
     }
+  }
+  function option(person: RecentPerson, index: number, isRecent: boolean) {
+    const name = person.displayName || person.username;
+    return (
+      <div
+        key={`${isRecent ? 'recent' : 'person'}-${person.userId}`}
+        className={`conversation-person-row ${isRecent ? 'recent' : ''}`}
+      >
+        <Button
+          id={`conversation-person-${index}`}
+          role="option"
+          aria-selected={active === index}
+          variant="ghost"
+          className="conversation-person"
+          disabled={opening}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => void choose(person)}
+        >
+          <NameAvatar name={name} size={isRecent ? 'sm' : 'md'} />
+          <span>
+            <strong>{name}</strong>
+            {!isRecent && <small>@{person.username}</small>}
+          </span>
+          {!isRecent && <UserPlus size={16} aria-hidden="true" />}
+        </Button>
+        {isRecent && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="conversation-person-remove"
+            aria-label={`Remove ${name} from recent searches`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => remember(recent.filter((item) => item.userId !== person.userId))}
+          >
+            <X size={14} />
+          </Button>
+        )}
+      </div>
+    );
   }
   return (
     <div
@@ -226,85 +293,54 @@ export function PeopleSearch({
             event.preventDefault();
             setFocused(true);
             setActive((value) =>
-              rows.length
+              options.length
                 ? ((value < 0 ? (event.key === 'ArrowDown' ? -1 : 0) : value) +
-                    (event.key === 'ArrowDown' ? 1 : rows.length - 1) +
-                    rows.length) %
-                  rows.length
+                    (event.key === 'ArrowDown' ? 1 : options.length - 1) +
+                    options.length) %
+                  options.length
                 : -1,
             );
           }
-          if (event.key === 'Enter' && rows[active]) {
+          if (event.key === 'Enter' && options[active]) {
             event.preventDefault();
-            void choose(rows[active]);
+            void choose(options[active]);
           }
         }}
       />
       {focused && (
-        <div className="conversation-search-results">
-          {!query && recent.length > 0 && (
-            <>
+        <div
+          className="conversation-search-results"
+          id="conversation-people"
+          role="listbox"
+          aria-label="People"
+        >
+          {showRecent && (
+            <div role="group" aria-label="Recent searches">
               <div className="conversation-search-heading">
                 <strong>Recent searches</strong>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  aria-label="Clear recent searches"
-                  onClick={() => {
-                    setRecent([]);
-                    saveRecentSearches(account.serverUrl, account.accountId, []);
-                  }}
+                  className="conversation-search-clear"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => remember([])}
                 >
-                  <X size={14} />
+                  Clear all
                 </Button>
               </div>
-              {recent.map((term) => (
-                <Button
-                  key={term}
-                  variant="ghost"
-                  className="conversation-search-recent"
-                  onClick={() => {
-                    setQuery(term);
-                    input.current?.focus();
-                  }}
-                >
-                  <Clock size={14} />
-                  {term}
-                </Button>
-              ))}
-            </>
+              {recent.map((person, index) => option(person, index, true))}
+            </div>
           )}
-          <strong className="conversation-search-heading">
-            {query ? 'People' : 'Suggestions'}
-          </strong>
-          {opening && <p role="status">Opening chat…</p>}
-          {loading && <p role="status">Searching…</p>}
-          {error && <p role="alert">{error}</p>}
-          {!loading && !error && !rows.length && <p>No people found.</p>}
-          <div id="conversation-people" role="listbox" aria-label="People">
-            {rows.map((person, index) => (
-              <Button
-                key={person.userId}
-                id={`conversation-person-${index}`}
-                role="option"
-                aria-selected={active === index}
-                variant="ghost"
-                className="conversation-person"
-                disabled={opening}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void choose(person)}
-              >
-                <Avatar>
-                  <AvatarFallback>
-                    {(person.displayName || person.username).slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <span>
-                  <strong>{person.displayName || person.username}</strong>
-                  <small>@{person.username}</small>
-                </span>
-              </Button>
-            ))}
+          <div role="group" aria-label={query ? 'People' : 'Suggestions'}>
+            <div className="conversation-search-heading">
+              <strong>{query ? 'People' : 'Suggestions'}</strong>
+            </div>
+            {opening && <p role="status">Opening chat…</p>}
+            {loading && <p role="status">Searching…</p>}
+            {error && <p role="alert">{error}</p>}
+            {!loading && !error && !suggestions.length && <p>No people found.</p>}
+            {suggestions.map((person, index) =>
+              option(person, (showRecent ? recent.length : 0) + index, false),
+            )}
           </div>
         </div>
       )}
