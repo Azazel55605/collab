@@ -99,7 +99,10 @@ fn picture(value: Option<String>, id: &str) -> Result<Option<String>, ApiFailure
     }
     Ok(Some(value))
 }
-async fn begin(pool: &PgPool, id: &str) -> Result<Transaction<'static, Postgres>, ApiFailure> {
+pub(super) async fn begin(
+    pool: &PgPool,
+    id: &str,
+) -> Result<Transaction<'static, Postgres>, ApiFailure> {
     let mut tx = pool.begin().await.map_err(|_| fail(id))?;
     sqlx::query("SELECT pg_advisory_xact_lock(3602026)")
         .execute(&mut *tx)
@@ -113,12 +116,12 @@ async fn membership(
     user: Uuid,
     id: &str,
 ) -> Result<(String, String, i64), ApiFailure> {
-    let row=sqlx::query("SELECT c.kind,m.role,m.joined_sequence FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id JOIN users u ON u.id=m.user_id WHERE c.id=$1 AND m.user_id=$2 AND u.status='active'")
+    let row=sqlx::query("SELECT c.kind,m.role,m.joined_sequence FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id JOIN users u ON u.id=m.user_id WHERE c.id=$1 AND m.user_id=$2 AND u.status='active' AND NOT EXISTS(SELECT 1 FROM team_channels ch JOIN teams t ON t.id=ch.team_id WHERE ch.conversation_id=c.id AND (ch.archived OR t.archived OR NOT EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=$2)))")
         .bind(conversation).bind(user).fetch_optional(&mut **tx).await.map_err(|_|fail(id))?
         .ok_or_else(||ApiFailure::not_found(id.to_owned()))?;
     Ok((row.get("kind"), row.get("role"), row.get("joined_sequence")))
 }
-async fn event(
+pub(super) async fn event(
     tx: &mut Transaction<'_, Postgres>,
     conversation: Uuid,
     kind: &str,
@@ -156,12 +159,14 @@ pub async fn list(
         return Err(ApiFailure::validation("Invalid inbox cursor or limit.", id));
     }
     let rows=sqlx::query(r#"SELECT c.id,c.kind,c.name,c.head,c.updated_cursor,c.picture,m.role,m.read_sequence,
+        (SELECT team_id FROM team_channels WHERE conversation_id=c.id) AS team_id,
+        (SELECT t.name FROM teams t JOIN team_channels ch ON ch.team_id=t.id WHERE ch.conversation_id=c.id) AS team_name,
         (SELECT other.display_name FROM conversation_members peer JOIN users other ON other.id=peer.user_id
           WHERE peer.conversation_id=c.id AND peer.user_id<>$1 LIMIT 1) AS peer_name,
         (SELECT COUNT(*) FROM conversation_messages msg WHERE msg.conversation_id=c.id
           AND msg.sequence>=m.joined_sequence AND msg.sequence>m.read_sequence AND msg.sender_user_id IS DISTINCT FROM $1) AS unread
         FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id
-        WHERE m.user_id=$1 AND ($2::bigint IS NULL OR c.updated_cursor<$2) AND ($4::uuid IS NULL OR c.id=$4)
+        WHERE m.user_id=$1 AND NOT EXISTS(SELECT 1 FROM team_channels ch JOIN teams t ON t.id=ch.team_id WHERE ch.conversation_id=c.id AND (ch.archived OR t.archived OR NOT EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=$1))) AND ($2::bigint IS NULL OR c.updated_cursor<$2) AND ($4::uuid IS NULL OR c.id=$4)
         ORDER BY c.updated_cursor DESC LIMIT $3"#)
         .bind(user).bind(query.before).bind(limit).bind(query.conversation).fetch_all(&state.database).await.map_err(|_|fail(&id))?;
     Ok(Json(DataResponse::new(
@@ -181,6 +186,8 @@ pub async fn list(
                 unread: r.get("unread"),
                 updated_cursor: r.get::<i64, _>("updated_cursor").to_string(),
                 picture: r.get("picture"),
+                team_id: r.get::<Option<Uuid>, _>("team_id").map(|v| v.to_string()),
+                team_name: r.get("team_name"),
             })
             .collect(),
     )))
@@ -392,6 +399,16 @@ pub async fn send(
         .bind(payload.id).bind(conversation).bind(user).bind(content).bind(sequence).fetch_one(&mut *tx).await.map_err(|_|fail(&id))?;
     let recipients=sqlx::query_scalar::<_,Uuid>("SELECT m.user_id FROM conversation_members m JOIN users u ON u.id=m.user_id WHERE m.conversation_id=$1 AND m.user_id<>$2 AND u.status='active'")
         .bind(conversation).bind(user).fetch_all(&mut *tx).await.map_err(|_|fail(&id))?;
+    let team_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT team_id FROM team_channels WHERE conversation_id=$1")
+            .bind(conversation)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| fail(&id))?;
+    let mut destination = json!({"kind":"conversation","conversationId":conversation});
+    if let Some(team) = team_id {
+        destination["teamId"] = json!(team);
+    }
     for recipient in recipients {
         let account_key = crate::notification_api::account_key(recipient);
         let source = payload.id.to_string();
@@ -403,7 +420,7 @@ pub async fn send(
             "category":"collaboration.message","kind":"collaboration.message","channel":"collaboration",
             "accountKey":account_key,"sourceId":source,"deliveryKey":delivery,"createdAt":Utc::now().to_rfc3339(),
             "expiresAt":crate::notification_api::expires_at(30),"title":"New chat message","body":"Open Collab to read it.",
-            "privacy":"title-only","priority":"normal","destination":{"kind":"conversation","conversationId":conversation},
+            "privacy":"title-only","priority":"normal","destination":destination,
             "actions":[{"kind":"open"},{"kind":"dismiss"}],"requiresInbox":true
         });
         crate::notification_api::insert_event(
@@ -690,6 +707,7 @@ pub async fn events(
         r#"SELECT e.sequence,e.conversation_id,e.kind FROM conversation_events e
         LEFT JOIN conversation_members m ON m.conversation_id=e.conversation_id AND m.user_id=$1
         WHERE e.recipients @> ARRAY[$1]::uuid[] AND e.sequence>$2
+          AND (e.kind='removed' OR NOT EXISTS(SELECT 1 FROM team_channels ch JOIN teams t ON t.id=ch.team_id WHERE ch.conversation_id=e.conversation_id AND (ch.archived OR t.archived OR NOT EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=$1))))
           AND ((e.kind='removed' AND m.user_id IS NULL) OR (m.user_id IS NOT NULL AND e.sequence>=m.joined_event))
         ORDER BY e.sequence LIMIT $3"#,
     )
@@ -728,6 +746,7 @@ pub async fn ensure_account_not_last_owner(
     let exists=sqlx::query_scalar::<_,bool>(r#"SELECT EXISTS(SELECT 1 FROM conversation_members m JOIN conversations c ON c.id=m.conversation_id WHERE m.user_id=$1 AND m.role='owner' AND c.kind='group'
         AND NOT EXISTS(SELECT 1 FROM conversation_members other JOIN users u ON u.id=other.user_id WHERE other.conversation_id=m.conversation_id AND other.user_id<>$1 AND other.role='owner' AND u.status='active'))"#)
         .bind(user).fetch_one(pool).await.map_err(|_|fail(id))?;
+    super::teams::ensure_account_not_last_owner(pool, user, id).await?;
     if exists {
         return Err(ApiFailure::validation(
             "Transfer group conversation ownership before disabling or deleting this account.",

@@ -263,6 +263,10 @@ Container Registry and run with a single production Compose file.
 - Admin-only bounded local-vault ZIP import and active-current-content ZIP
   export compatible with the normal local vault layout
 - Argon2id password hashing, one-time administrator bootstrap, CSRF protection, and login rate limiting
+- Server-local teams with admin-only creation, owner/member roles, public/private
+  channels, archive/restore, unread counts and opt-in library association. Shared
+  controls are available in desktop/Android Chats → Teams and the web Teams tab;
+  channel membership and existing vault grants both apply to linked file access.
 - Collab-style shadcn admin web interface served at `/admin/`, with persisted
   theme, accent, and density settings
 - Dashboard storage/warning summaries, user creation/invitations, password reset, disable/re-enable/delete controls, session revocation, activity inspection, and redacted audit views

@@ -7,6 +7,7 @@
 - [AUR Stable Package](./aur-stable.md)
 - [AUR Git Package](./aur-git.md)
 - [Security Advisory Tracking](./security-advisories.md)
+- [Teams And Channels Validation](./teams-channels-validation.md)
 - [Background Running Release Validation](./background-running-release-validation.md)
 - [Advanced Tables Release Validation](./advanced-tables-release-validation.md)
 - [Mobile Widgets Release Validation](./mobile-widgets-release-validation.md)

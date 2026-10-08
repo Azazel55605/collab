@@ -1,5 +1,6 @@
-import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
+
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 // Where `pnpm admin:dev` sends /api and /health. The default matches a server
@@ -14,6 +15,7 @@ export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: '/admin/',
   plugins: [react()],
+  resolve: { alias: { '@': fileURLToPath(new URL('../../src', import.meta.url)) } },
   server: {
     port: 1430,
     proxy: {

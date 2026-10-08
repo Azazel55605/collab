@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-08
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -23,7 +23,7 @@ work from being mistaken for an active roadmap item.
 | Project                           | Current status                     | Remaining work                                                                                                                                                                                                                                                                                                                                             | Canonical document                                                                                                                        |
 | --------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | Advanced Tables                   | Testing                            | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase.                                                                                                                                                                                              | [Advanced Tables Plan](./advanced-tables-plan.md)                                                                                         |
-| Teams, chats and shared libraries | In progress                        | Vault chat plus desktop/Android direct/group inboxes, join-time history, unread and notifications are under validation. Next: authenticated browser libraries, admin-created teams/channels and library ownership; ACLs/sharing follow.                                                                                                                    | [Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md)                                                          |
+| Teams, chats and shared libraries | In progress                        | Vault chat plus desktop/Android direct/group inboxes, join-time history, unread and notifications are under validation. Teams/channels and opt-in library association are implemented across desktop/web/Android and under validation. Next: authenticated browser libraries; ACLs/sharing follow.                                                         | [Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md)                                                          |
 | Full mobile app                   | Planned / baseline release testing | Deliver independent Android local vaults, common document adapters, touch authoring, file/preview workflows, platform integration and later text collaboration. Existing companion Phase 7 device/release checks remain prerequisites and recurring gates.                                                                                                 | [Full Mobile App Overhaul](./mobile-full-app-plan.md), [Companion Baseline](./android-companion-app-plan.md)                              |
 | Electronic circuit simulation     | In progress / planned              | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation.                                                                                                                                                                        | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md)                                                             |
 | Logic and circuit diagram editor  | In progress umbrella               | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream.                                                                                                                                                                                                                  | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md)                                                                  |
@@ -45,8 +45,11 @@ implemented. Native picker/lifecycle checks remain recurring release gates.
 - **Testing**: desktop/Android direct and group inboxes, join-time history,
   monotonic unread/read positions, ownership protection and message notices.
   Physical/native lifecycle and multi-device delivery checks remain.
-- **Not started**: authenticated browser libraries, admin-created teams and
-  channel/library ownership.
+- **Testing**: admin-created teams, public/private channels, explicit team roles,
+  archive/restore, audited oversight and opt-in library association across web,
+  desktop and Android. Physical multi-device/live-session release checks remain.
+- **Not started**: authenticated browser libraries and organization-owned vault
+  custodian transfer. Existing library associations retain their custodian and grants.
 - **Planned**: folder/file ACLs and authenticated share links. Anonymous guests,
   document workflows and voice/video remain **Deferred**.
 

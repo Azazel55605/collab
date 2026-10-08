@@ -1,0 +1,65 @@
+.team-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  gap: 12px;
+  padding: 12px;
+  color: inherit;
+}
+.team-workspace header,
+.team-actions,
+.team-member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.team-workspace h2 {
+  flex: 1;
+  margin: 0;
+}
+.team-scroll {
+  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.team-workspace label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.team-workspace input {
+  min-height: 44px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.team-workspace button {
+  min-height: 44px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.team-channel,
+.team-member {
+  border: 1px solid var(--border, #7775);
+  padding: 12px;
+  border-radius: 8px;
+}
+.team-member > span {
+  flex: 1;
+  min-width: 120px;
+}
+.team-workspace details > * {
+  margin-block: 8px;
+}
+.team-workspace code {
+  overflow-wrap: anywhere;
+}
+.team-workspace summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}

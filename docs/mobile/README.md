@@ -51,7 +51,10 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
   bounded join-time history, unread/read reconciliation, group member/owner
   management, optional group pictures and generic message notifications. The
   shared native gateway checks account identity and notification provenance.
-  Teams and browser libraries are still planned in the
+  Chats → Teams adds public/private channels, shared member/owner management,
+  archive/restore and opt-in library association. Channel history and pending
+  sends reuse the conversation contract. Only server admins create teams.
+  Browser libraries and finer file sharing remain planned in the
   [shared collaboration program](../plans/teams-chat-and-file-sharing-plan.md).
 - Settings includes server-specific profile, username, password and picture
   editing with a connected-server switch. Local use in the new roadmap must

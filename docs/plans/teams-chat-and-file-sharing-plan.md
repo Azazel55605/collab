@@ -1,8 +1,9 @@
 # Teams, Chats, And Shared File Libraries
 
-Reviewed: 2026-10-07. Status: **In progress**. Shared vault-chat foundations and
+Reviewed: 2026-10-08. Status: **In progress**. Shared vault-chat foundations and
 Android vault chat plus desktop/Android personal conversations are implemented
-and under validation; teams/channels and browser libraries remain planned. Voice/video calls are deferred.
+and under validation. Teams/channels and library association are implemented; the
+authenticated browser file portal remains planned. Voice/video calls are deferred.
 [Open Development Work](./open-development-work.md) owns consolidated status.
 
 This program precedes the standalone mobile overhaul. Build conversation,
@@ -17,7 +18,7 @@ Android-only collaboration model.
 | Shared vault-chat contract and Android chat       | Testing     | Physical Android process-death/Keystore/keyboard checks; automated/live server and browser checks completed                              |
 | Authenticated browser library portal              | Not started | Vault-wide access first; browse/upload/download/history/trash/previews                                                                   |
 | Direct/group conversations and unread             | Testing     | Physical Android/native lifecycle and multi-device release checks; shared APIs, inboxes, ownership, unread and notifications implemented |
-| Teams/channels and library ownership              | Not started | Admin-only team creation, explicit team roles/private channels, ownership migration                                                      |
+| Teams/channels and library ownership              | Testing     | Desktop/web/Android teams, private channels and opt-in library association; physical multi-device validation                             |
 | Folder/file ACLs                                  | Planned     | Same enforcement across every read/write, replica and metadata path                                                                      |
 | Authenticated share links                         | Planned     | Scoped expiry/revocation after ACL contracts                                                                                             |
 | Anonymous guests, document workflows, voice/video | Deferred    | Separate accepted scope required                                                                                                         |
@@ -197,6 +198,60 @@ notification destinations, channel archive, audit history, and consistent
 web/desktop/mobile affordances. Implement administrative oversight as an
 explicit capability with audit records, not an implicit bypass.
 
+## Phase 3 Implementation
+
+Migration 0037 adds teams, owner/member roles and public/private channels backed
+by the existing conversation sequences, read positions, recipient events, message
+idempotency and native encrypted outbox. Only server admins create teams; creation
+assigns one explicitly selected active account as owner, without implicitly joining
+the administrator. Owners add active accounts immediately (no pending invitation
+acceptance state), change roles, remove members and rename/archive/restore teams.
+Teams are capped at 500 members and 100 channels; team lists use UUID pages of 100.
+Public channel membership follows the team. Private channels initially contain the
+creator and selected active team members. Visibility is fixed at creation; converting
+private/public history is deliberately unsupported. Channel administration requires
+both team ownership and channel membership. The last active team owner and last
+active owner inside each private channel must transfer ownership before leaving,
+demotion, account disable or deletion. Database account triggers close direct-SQL
+and concurrent account lifecycle bypasses.
+
+The shared `TeamWorkspace` supplies desktop and Android Chats → Teams and the web
+portal's Teams navigation. All clients expose member/role/channel management and
+archive/restore against the same server APIs. Channel threads reuse conversation
+history/unread on native clients; web threads use bounded online pages and stable
+UUID retries within the open tab. Browser pending messages are transient. Hardware
+Back dismisses a native channel and team selection. Generic channel notifications
+carry a team ID plus conversation/channel ID, with current account/team/channel
+validation on open and a team/channel breadcrumb. Private history never becomes
+available merely because an account is a server administrator.
+
+Administrative oversight is the explicit server-admin-only
+`POST /api/v1/teams/{id}/oversight` ownership claim. It requires browser CSRF or a
+native bearer session, records `team.oversight.claimed` with the capability
+`team.oversight`, and joins public channels at the current join boundary. It grants
+no private-channel membership. Normal team changes also record transactional
+`team.*` audit events; permission groups remain unrelated to team membership.
+
+**Library migration policy:** existing vaults remain unchanged until their current
+custodian, also a channel/team owner, explicitly links one to a channel. A vault may
+be linked to only one channel. No content is copied, no file grants are broadened,
+and the custodian remains responsible for the vault's existing ownership lifecycle.
+The central capability resolver adds active team/channel membership before existing
+vault grants, including for vault owners and server admins. This covers direct
+file/history/preview/search/manifest/replica requests and live collaboration access;
+revocation and archive deny subsequent access even through a remembered vault URL.
+Only the same custodian can replace or detach that association. Detaching is an
+explicit audited return to the vault's previous access rules. Server operational
+vault administration remains separate from channel content access. Organization-owned
+custodian transfer, automatic team file grants and a browser library file picker are
+follow-on library work; they are not silently inferred from chat roles.
+
+Automated database and shared UI coverage verifies isolation, join-time history,
+ownership, revocation, archives and the extra file boundary. Browser rendering uses
+real components with mocked HTTP/native transports; physical Android lifecycle,
+multi-device notifications and active live-session revocation remain release gates.
+See the [teams/channels validation matrix](../build/teams-channels-validation.md).
+
 ## Notifications And Attachments
 
 Integrate existing notification infrastructure after unread/read-position
@@ -249,9 +304,9 @@ Recommended delivery order:
 
 1. Accounts and revision-bound previews (complete and archived).
 2. Shared chat pagination/identity/retry/permission foundations and Android vault chat (implemented; device validation remains).
-3. Direct/group conversations and unread/notification semantics (implemented; device validation remains), then authenticated browser file browsing.
-4. Teams/channels with shared library ownership.
-5. Folder/file ACLs, then optional external sharing.
+3. Direct/group conversations and unread/notification semantics (implemented; device validation remains).
+4. Teams/channels and explicit library association with retained vault custodian (implemented; physical validation remains).
+5. Authenticated browser file browsing, then organization-owned custodian transfer, folder/file ACLs and authenticated sharing.
 
 Conversation history, team creation and the initial recipient policy are
 recorded above. Before their respective later phases, define attachment
@@ -259,3 +314,7 @@ retention, optional team/group synchronization and library ownership migration.
 These do not block vault chat; they must be resolved before corresponding
 storage or permission mutations are implemented. Calling can later use a separate signaling/media system without
 changing message persistence; no call UI or media permissions land now.
+
+Linked library vaults must be detached before soft or permanent vault deletion.
+Association and deletion lock the vault row to prevent a concurrent link from
+leaving a pending-delete library. Restore archived vaults before detaching them.

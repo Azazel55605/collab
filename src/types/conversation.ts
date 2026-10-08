@@ -1,6 +1,6 @@
 export interface ConversationSummary {
   id: string;
-  kind: 'direct' | 'group';
+  kind: 'direct' | 'group' | 'channel';
   name: string;
   role: 'owner' | 'member';
   lastSequence: string;
@@ -8,6 +8,8 @@ export interface ConversationSummary {
   unread: number;
   updatedCursor: string;
   picture: string | null;
+  teamId?: string;
+  teamName?: string;
 }
 export interface ConversationMember {
   userId: string;

@@ -24,6 +24,7 @@ export default function ChatsPage({ standalone = true }: { standalone?: boolean 
                   accountId: connection.status.user.id,
                   label: connection.status.user.displayName + ' · ' + serverUrl,
                   connected: connection.status.connected,
+                  serverAdmin: connection.status.user.role === 'admin',
                 },
               ]
             : [],

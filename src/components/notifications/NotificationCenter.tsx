@@ -143,7 +143,13 @@ export default function NotificationCenter() {
       if (serverUrl && status?.connected && status.user) {
         const account = { serverUrl, accountId: status.user.id };
         try {
-          await getConversation(account, destination.conversationId, record.envelope.accountKey);
+          const conversation = await getConversation(
+            account,
+            destination.conversationId,
+            record.envelope.accountKey,
+          );
+          if (destination.teamId && conversation.teamId !== destination.teamId)
+            throw new Error('The channel team changed.');
           useConversationNavigation
             .getState()
             .open({ ...account, conversationId: destination.conversationId });

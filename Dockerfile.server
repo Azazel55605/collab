@@ -56,6 +56,8 @@ RUN --mount=type=cache,id=collab-pnpm-store,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store \
     && pnpm install --frozen-lockfile --prefer-offline
 COPY apps/admin-web ./apps/admin-web
+# The portal consumes shared team controls, UI primitives and protocol types.
+COPY src ./src
 RUN pnpm admin:build
 
 FROM postgres:18-bookworm AS runtime

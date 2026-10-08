@@ -178,3 +178,23 @@ it('validates personal conversation destinations without conflating them with va
     notificationDestinationKey(envelope.destination),
   );
 });
+
+it('retains optional team context in a channel destination and rejects malformed team identifiers', () => {
+  const base = reminder();
+  const envelope = {
+    ...base,
+    category: 'collaboration.message',
+    kind: 'collaboration.message',
+    channel: 'collaboration',
+    actions: [{ kind: 'open' }],
+    destination: { kind: 'conversation', conversationId: 'channel', teamId: 'team' },
+  };
+  envelope.id = createNotificationId({ ...base, category: 'collaboration.message' });
+  expect(validateNotificationEnvelope(envelope).destination).toEqual(envelope.destination);
+  expect(() =>
+    validateNotificationEnvelope({
+      ...envelope,
+      destination: { ...envelope.destination, teamId: 123 },
+    }),
+  ).toThrow();
+});

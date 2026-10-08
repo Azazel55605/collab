@@ -152,8 +152,11 @@ pub fn validate_conversation_identity(
     Ok(())
 }
 
-/// Personal conversations cannot reach vault/admin/account routes.
+/// Conversations and teams cannot reach vault/admin/account routes.
 pub fn validate_hosted_conversation_request(method: &str, value: &str) -> Result<(), String> {
+    if value.starts_with("/api/v1/teams") {
+        return validate_hosted_team_request(method, value);
+    }
     let path = value.split('?').next().unwrap_or(value);
     let Some(suffix) = path.strip_prefix("/api/v1/conversations") else {
         return Err("Unsupported conversation operation.".into());
@@ -186,6 +189,42 @@ pub fn validate_hosted_conversation_request(method: &str, value: &str) -> Result
         || (method != "GET" && value.contains('?'))
     {
         return Err("Unsupported conversation operation.".into());
+    }
+    Ok(())
+}
+
+/// Team operations use the same account-bound native gateway, with a separate
+/// exact route/method allowlist. No admin/vault namespace can be reached.
+pub fn validate_hosted_team_request(method: &str, value: &str) -> Result<(), String> {
+    let path = value.split('?').next().unwrap_or(value);
+    let suffix = path
+        .strip_prefix("/api/v1/teams")
+        .ok_or("Unsupported team operation.")?;
+    let parts: Vec<_> = suffix
+        .strip_prefix('/')
+        .unwrap_or(suffix)
+        .split('/')
+        .collect();
+    let uuid = |id: &str| uuid::Uuid::parse_str(id).is_ok();
+    let valid = match parts.as_slice() {
+        [""] => matches!(method, "GET" | "POST"),
+        [team] if uuid(team) => method == "PATCH",
+        [team, "members" | "channels"] if uuid(team) => matches!(method, "GET" | "POST"),
+        [team, "oversight"] if uuid(team) => method == "POST",
+        [team, "members", user] if uuid(team) && uuid(user) => method == "DELETE",
+        [team, "channels", channel] if uuid(team) && uuid(channel) => method == "PATCH",
+        [team, "channels", channel, "members" | "library"] if uuid(team) && uuid(channel) => {
+            method == "POST"
+        }
+        _ => false,
+    };
+    if !valid
+        || (!suffix.is_empty() && !suffix.starts_with('/'))
+        || value.contains('#')
+        || value.contains("://")
+        || (method != "GET" && value.contains('?'))
+    {
+        return Err("Unsupported team operation.".into());
     }
     Ok(())
 }
@@ -272,6 +311,29 @@ mod tests {
         validate_hosted_calendar_path, validate_hosted_vault_path, validate_identifier,
         validate_server_url,
     };
+
+    #[test]
+    fn team_gateway_is_account_scoped_and_route_confined() {
+        use super::validate_hosted_conversation_request as validate;
+        let t = "10000000-0000-4000-8000-000000000001";
+        assert!(validate(
+            "GET",
+            "/api/v1/teams?after=10000000-0000-4000-8000-000000000001"
+        )
+        .is_ok());
+        assert!(validate("POST", &format!("/api/v1/teams/{t}/channels/{t}/library")).is_ok());
+        assert!(validate("POST", &format!("/api/v1/teams/{t}/oversight")).is_ok());
+        for path in [
+            "/api/v1/teams-evil",
+            "/api/v1/teams/../admin",
+            "/api/v1/teams/%2e%2e/members",
+            "/api/v1/teams#other",
+        ] {
+            assert!(validate("GET", path).is_err());
+        }
+        assert!(validate("DELETE", &format!("/api/v1/teams/{t}/channels/{t}")).is_err());
+        assert!(validate("POST", &format!("/api/v1/teams/{t}/members?ignored=1")).is_err());
+    }
 
     #[test]
     fn personal_notification_identity_is_bound_to_the_current_account() {

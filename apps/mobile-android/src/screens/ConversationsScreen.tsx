@@ -16,6 +16,7 @@ export function ConversationsScreen() {
                   accountId: status.user.id,
                   label: serverUrl + ' · ' + status.user.displayName,
                   connected: status.connected,
+                  serverAdmin: status.user.role === 'admin',
                 },
               ]
             : [],
