@@ -13698,6 +13698,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn user_avatars_are_readable_by_other_native_sessions() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(6)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users,hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let directory = tempfile::tempdir().unwrap();
+        let app = build_router(AppState::new(
+            ServerConfig::default(),
+            pool.clone(),
+            Arc::new(FileSystemBlobStorage::new(directory.path()).await.unwrap()),
+        ));
+        let bootstrap=request(&app,"POST","/api/v1/auth/bootstrap",json!({"username":"admin","displayName":"Admin","password":"correct horse battery staple"}),None,None).await;
+        let (admin_cookie, admin_csrf) = session_cookies(&bootstrap);
+        let mut tokens = Vec::new();
+        let mut ids = Vec::new();
+        for username in ["bob", "cara"] {
+            let response=request(&app,"POST","/api/v1/admin/users",json!({"username":username,"displayName":username,"password":"correct horse battery staple"}),Some(&admin_cookie),Some(&admin_csrf)).await;
+            ids.push(
+                json_body(response).await["data"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+            let login=request(&app,"POST","/api/v1/auth/native/login",json!({"username":username,"password":"correct horse battery staple","clientName":"Avatar test"}),None,None).await;
+            tokens.push(
+                json_body(login).await["data"]["accessToken"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
+        let png = STANDARD.encode(b"\x89PNG\r\n\x1a\nfake");
+        let uploaded = bearer_request(
+            &app,
+            "PUT",
+            "/api/v1/users/me/avatar",
+            json!({"mediaType":"image/png","contentBase64":png}),
+            &tokens[0],
+        )
+        .await;
+        assert_eq!(uploaded.status(), StatusCode::OK);
+        // The native client sends a body-less GET with only the bearer token.
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/v1/users/{}/avatar", ids[0]))
+                    .header(header::AUTHORIZATION, format!("Bearer {}", tokens[1]))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "image/png");
+    }
+
+    #[tokio::test]
     async fn conversation_messages_support_edits_deletes_replies_and_reactions() {
         let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
             return;

@@ -418,6 +418,10 @@ pub async fn hosted_account_request(
     }
     let response = request.send().await.map_err(server_request_error)?;
     if avatar {
+        // "No picture" is an answer, not a failure: callers cache it.
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(Value::Null);
+        }
         if !response.status().is_success() {
             return Err(decode_hosted_error(response).await);
         }

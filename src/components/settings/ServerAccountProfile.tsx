@@ -7,9 +7,17 @@ import { isEffectivelyConnected, useServerStore } from '../../store/serverStore'
 import { Button } from '../ui/button';
 import { Field, FieldGroup, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 import { SectionLabel } from './settingsControls';
+
+function serverHost(url: string) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 export default function ServerAccountProfile() {
   const connections = useServerStore((s) => s.connections);
@@ -22,20 +30,26 @@ export default function ServerAccountProfile() {
     <section className="flex flex-col gap-4 mt-6">
       <SectionLabel>Server account</SectionLabel>
       {connected.length > 1 ? (
-        <Tabs value={serverUrl} onValueChange={setChosen}>
-          <TabsList className="flex flex-wrap h-auto" aria-label="Profile server">
-            {connected.map(({ status }) => (
-              <TabsTrigger key={status.serverUrl} value={status.serverUrl!}>
-                {status.serverUrl}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          {connected.map(({ status }) => (
-            <TabsContent key={status.serverUrl} value={status.serverUrl!}>
-              <AccountForm serverUrl={status.serverUrl!} />
-            </TabsContent>
-          ))}
-        </Tabs>
+        <>
+          <Select value={serverUrl} onValueChange={setChosen}>
+            <SelectTrigger aria-label="Profile server" className="w-full max-w-md">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {connected.map(({ status }) => (
+                <SelectItem key={status.serverUrl} value={status.serverUrl!}>
+                  <span className="flex flex-col items-start">
+                    <span>{status.user?.displayName ?? serverHost(status.serverUrl!)}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {serverHost(status.serverUrl!)}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <AccountForm key={serverUrl} serverUrl={serverUrl} />
+        </>
       ) : serverUrl ? (
         <AccountForm key={serverUrl} serverUrl={serverUrl} />
       ) : (

@@ -54,14 +54,26 @@ beforeEach(() => {
   );
 });
 
+async function chooseServer(url: string) {
+  // jsdom lacks pointer capture, which Radix Select uses while opening.
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.releasePointerCapture ??= () => {};
+  fireEvent.pointerDown(screen.getByRole('combobox', { name: 'Profile server' }), {
+    button: 0,
+    ctrlKey: false,
+    pointerType: 'mouse',
+  });
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(new URL(url).host) }));
+}
+
 describe('desktop server profile', () => {
   it('edits only the selected server and persists its username', async () => {
     render(<ServerAccountProfile />);
     await screen.findByDisplayValue('first-user');
-    fireEvent.mouseDown(screen.getByRole('tab', { name: second }), { button: 0, ctrlKey: false });
+    await chooseServer(second);
     await screen.findByDisplayValue('second-user');
-    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(
-      screen.getByRole('tab', { name: second }).id,
+    expect(screen.getByRole('combobox', { name: 'Profile server' }).textContent).toContain(
+      new URL(second).host,
     );
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'renamed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
@@ -85,7 +97,7 @@ describe('desktop server profile', () => {
         : Promise.resolve(profile('second-user')),
     );
     render(<ServerAccountProfile />);
-    fireEvent.mouseDown(screen.getByRole('tab', { name: second }), { button: 0, ctrlKey: false });
+    await chooseServer(second);
     await screen.findByDisplayValue('second-user');
     resolve(profile('stale'));
     await waitFor(() =>
