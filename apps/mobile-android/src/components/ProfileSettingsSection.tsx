@@ -73,6 +73,7 @@ function ServerProfile({
     name,
     setName,
     avatar,
+    avatarError,
     currentPassword,
     setCurrentPassword,
     newPassword,
@@ -96,6 +97,11 @@ function ServerProfile({
           {error}
         </div>
       )}
+      {avatarError && (
+        <div className="banner banner-error" role="alert">
+          {avatarError}
+        </div>
+      )}
       {message && <p role="status">{message}</p>}
       {!profile ? (
         <p>Loading profile…</p>
@@ -114,7 +120,7 @@ function ServerProfile({
             >
               Change picture
             </button>
-            {profile.hasAvatar && (
+            {(profile.hasAvatar || avatar) && (
               <button
                 className="ghost-button"
                 disabled={busy}

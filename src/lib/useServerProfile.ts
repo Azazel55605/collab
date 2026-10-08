@@ -46,20 +46,27 @@ export function useServerProfile(
     };
   }, [serverUrl]);
 
+  const [avatarError, setAvatarError] = useState('');
+  const profileId = profile?.id;
   useEffect(() => {
     let cancelled = false;
     setAvatar(null);
-    if (profile?.hasAvatar)
-      void tauriCommands
-        .hostedAccountRequest<string>(serverUrl, 'GET', '/api/v1/users/me/avatar')
-        .then((data) => {
-          if (!cancelled) setAvatar(data);
-        })
-        .catch(() => {});
+    setAvatarError('');
+    if (!profileId) return;
+    // Ask even when `hasAvatar` is false: the native client answers a 404 with
+    // null, so a stale or wrong flag can no longer hide an uploaded picture.
+    void tauriCommands
+      .hostedAccountRequest<string | null>(serverUrl, 'GET', '/api/v1/users/me/avatar')
+      .then((data) => {
+        if (!cancelled) setAvatar(typeof data === 'string' ? data : null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setAvatarError(`Your picture could not be loaded: ${String(reason)}`);
+      });
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, profile?.hasAvatar, profile?.avatarUpdatedAt]);
+  }, [serverUrl, profileId, profile?.hasAvatar, profile?.avatarUpdatedAt]);
 
   async function mutate(action: () => Promise<ServerProfile | void>, success: string) {
     setBusy(true);
@@ -89,6 +96,7 @@ export function useServerProfile(
     name,
     setName,
     avatar,
+    avatarError,
     currentPassword,
     setCurrentPassword,
     newPassword,

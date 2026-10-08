@@ -169,3 +169,25 @@ describe('desktop server profile', () => {
     );
   });
 });
+
+describe('profile picture', () => {
+  it('loads the picture even when the profile reports no avatar', async () => {
+    vi.mocked(tauriCommands.hostedAccountRequest).mockImplementation(async (_server, _m, path) =>
+      path === '/api/v1/users/me/avatar' ? 'data:image/png;base64,YWJj' : profile('first-user'),
+    );
+    render(<ServerAccountProfile />);
+    const picture = await screen.findByRole('img', { name: 'Your profile picture' });
+    expect(picture.getAttribute('src')).toBe('data:image/png;base64,YWJj');
+    expect(screen.getByRole('button', { name: 'Remove picture' })).not.toBeNull();
+  });
+  it('shows why a picture could not be loaded instead of hiding it silently', async () => {
+    vi.mocked(tauriCommands.hostedAccountRequest).mockImplementation(async (_server, _m, path) => {
+      if (path === '/api/v1/users/me/avatar') throw new Error('Request timed out');
+      return profile('first-user');
+    });
+    render(<ServerAccountProfile />);
+    expect((await screen.findByText(/picture could not be loaded/)).textContent).toContain(
+      'Request timed out',
+    );
+  });
+});

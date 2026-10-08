@@ -38,12 +38,8 @@ export default function ServerAccountProfile() {
             <SelectContent>
               {connected.map(({ status }) => (
                 <SelectItem key={status.serverUrl} value={status.serverUrl!}>
-                  <span className="flex flex-col items-start">
-                    <span>{status.user?.displayName ?? serverHost(status.serverUrl!)}</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {serverHost(status.serverUrl!)}
-                    </span>
-                  </span>
+                  {status.user?.displayName ?? serverHost(status.serverUrl!)}
+                  <span className="text-muted-foreground">{serverHost(status.serverUrl!)}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -75,6 +71,11 @@ function AccountForm({ serverUrl }: { serverUrl: string }) {
           {p.error}
         </p>
       )}
+      {p.avatarError && (
+        <p role="alert" className="text-sm text-destructive break-all">
+          {p.avatarError}
+        </p>
+      )}
       {p.message && (
         <p role="status" className="text-sm">
           {p.message}
@@ -104,7 +105,7 @@ function AccountForm({ serverUrl }: { serverUrl: string }) {
             >
               Change picture
             </Button>
-            {p.profile.hasAvatar && (
+            {(p.profile.hasAvatar || p.avatar) && (
               <Button
                 variant="outline"
                 size="sm"
