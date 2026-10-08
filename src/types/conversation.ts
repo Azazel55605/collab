@@ -14,6 +14,9 @@ export interface ConversationSummary {
   lastMessage?: string;
   lastMessageAt?: number;
   lastMessageOwn?: boolean;
+  lastMessageDeleted?: boolean;
+  /** The other participant of a direct chat, used for avatar lookup. */
+  peerUserId?: string;
 }
 export interface ConversationMember {
   userId: string;
@@ -42,10 +45,28 @@ export interface ConversationMessage {
   content: string;
   timestamp: number;
   sequence: string;
+  editedAt?: number;
+  deleted?: boolean;
+  replyTo?: ConversationReplyPreview;
+  reactions?: ConversationReaction[];
+}
+/** `content` is absent when the original was deleted or predates joining. */
+export interface ConversationReplyPreview {
+  id: string;
+  userName: string;
+  content?: string;
+}
+export interface ConversationReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
 }
 export interface ConversationPage {
   messages: ConversationMessage[];
   nextBefore: string | null;
   nextAfter: string | null;
   hasMore: boolean;
+  /** Held messages edited, deleted or reacted to since the `changes` cursor. */
+  changed?: ConversationMessage[];
+  revision?: string;
 }

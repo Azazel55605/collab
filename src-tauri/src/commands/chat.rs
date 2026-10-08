@@ -24,6 +24,9 @@ pub struct PendingChatMessage {
     pub id: Uuid,
     pub content: String,
     pub created_at: u64,
+    /// Conversation replies keep their quoted message across retries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<Uuid>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -229,6 +232,7 @@ mod tests {
             id: Uuid::now_v7(),
             content: "private unsent text".into(),
             created_at: 1,
+            reply_to: Some(Uuid::now_v7()),
         };
         write(&path, &key, &[message.clone()]).unwrap();
         assert_eq!(read(&path, &key).unwrap(), vec![message]);

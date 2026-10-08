@@ -24,6 +24,8 @@ interface ChatState {
   authorized: boolean;
   error: string | null;
   sending: string | null;
+  /** Conversation change cursor for messages already in the window. */
+  revision: string | null;
 }
 
 function initial(key: string): ChatState {
@@ -38,6 +40,7 @@ function initial(key: string): ChatState {
     authorized: false,
     error: null,
     sending: null,
+    revision: null,
   };
 }
 
@@ -48,6 +51,8 @@ export interface ChatTransport {
   queue: typeof queueChat;
   discard: typeof discardChat;
   send: typeof sendChat;
+  /** The transport reports edits, deletions and reactions through `changed`. */
+  revisions?: boolean;
 }
 const vaultTransport: ChatTransport = {
   kind: 'vault',
@@ -87,7 +92,12 @@ export function useHostedChat(
         mode === 'older'
           ? { before: previous.before! }
           : mode === 'new' && previous.after
-            ? { after: previous.after }
+            ? {
+                after: previous.after,
+                ...(request.transport.revisions && previous.revision
+                  ? { changes: previous.revision }
+                  : {}),
+              }
             : {},
       );
       if (current.current.key !== request.key || ticket !== generation.current) return;
@@ -98,6 +108,9 @@ export function useHostedChat(
         if (!(mode === 'new' && value.earlier)) {
           for (const message of page.messages) map.set(message.id, message);
         }
+        // Changes only replace messages this window already holds.
+        for (const message of page.changed ?? [])
+          if (map.has(message.id)) map.set(message.id, message);
         const ordered = [...map.values()].sort((a, b) =>
           compareChatSequence(a.sequence, b.sequence),
         );
@@ -114,6 +127,8 @@ export function useHostedChat(
           after: mode === 'older' ? value.after : page.nextAfter,
           earlier: mode === 'older' || (mode === 'new' && value.earlier),
           error: null,
+          // Older pages must not skip changes the window has not fetched yet.
+          revision: mode === 'older' ? value.revision : (page.revision ?? value.revision),
         };
       });
       // A lost acknowledgement is reconciled by UUID, preserving deliberate
@@ -143,6 +158,7 @@ export function useHostedChat(
         earlier: false,
         authorized: false,
         busy: false,
+        revision: null,
         error: String(reason),
       }));
     } finally {
@@ -249,8 +265,28 @@ export function useHostedChat(
       : initial(key)),
     refresh: () => load('latest'),
     older: () => load('older'),
-    submit: (content: string) =>
-      transmit({ id: crypto.randomUUID(), content: content.trim(), createdAt: Date.now() }, true),
+    /** Pull new messages and changes now, e.g. after an edit elsewhere. */
+    poll: () => load('new'),
+    /** Apply a server-confirmed message change without waiting for a poll. */
+    patch: (message: HostedChatPageMessage) =>
+      setState((value) =>
+        value.key === key
+          ? {
+              ...value,
+              messages: value.messages.map((entry) => (entry.id === message.id ? message : entry)),
+            }
+          : value,
+      ),
+    submit: (content: string, replyTo?: string) =>
+      transmit(
+        {
+          id: crypto.randomUUID(),
+          content: content.trim(),
+          createdAt: Date.now(),
+          ...(replyTo ? { replyTo } : {}),
+        },
+        true,
+      ),
     retry: (message: PendingChatMessage) => transmit(message, false),
     discard,
   };

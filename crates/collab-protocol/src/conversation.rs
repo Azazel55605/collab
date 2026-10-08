@@ -24,6 +24,11 @@ pub struct ConversationSummary {
     pub last_message_at: Option<u64>,
     #[serde(default)]
     pub last_message_own: bool,
+    #[serde(default)]
+    pub last_message_deleted: bool,
+    /// The other participant of a direct conversation, for avatar lookup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -44,6 +49,34 @@ pub struct ConversationMessage {
     pub content: String,
     pub timestamp: u64,
     pub sequence: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<u64>,
+    /// Deleted messages keep their place in history with empty content.
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ConversationReplyPreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<ConversationReaction>,
+}
+
+/// Quoted context for a reply. `content` is absent when the original was
+/// deleted or predates the reader joining the conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationReplyPreview {
+    pub id: String,
+    pub user_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationReaction {
+    pub emoji: String,
+    pub count: i64,
+    pub mine: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,6 +86,12 @@ pub struct ConversationPage {
     pub next_before: Option<String>,
     pub next_after: Option<String>,
     pub has_more: bool,
+    /// Already-delivered messages edited, deleted or reacted to since the
+    /// caller's `changes` revision.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<ConversationMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -82,6 +121,17 @@ pub fn valid_message(content: &str) -> bool {
     (1..=4000).contains(&size)
 }
 
+/// One emoji (including ZWJ and keycap sequences), never words or markup.
+pub fn valid_reaction(emoji: &str) -> bool {
+    let count = emoji.chars().count();
+    (1..=16).contains(&count)
+        && emoji.len() <= 64
+        && !emoji.is_ascii()
+        && !emoji.chars().any(|c| {
+            c.is_control() || c.is_whitespace() || c.is_ascii_alphabetic() || "<>&\"'`".contains(c)
+        })
+}
+
 pub fn visible_sequence(sequence: i64, joined_sequence: i64) -> bool {
     sequence >= joined_sequence
 }
@@ -97,6 +147,13 @@ mod tests {
         assert!(!visible_sequence(99, 100));
         assert!(visible_sequence(100, 100));
         assert!(!valid_message(" \n "));
+        assert!(valid_reaction("👍"));
+        assert!(valid_reaction("👨‍👩‍👧‍👦"));
+        assert!(valid_reaction("1️⃣"));
+        assert!(!valid_reaction("ok"));
+        assert!(!valid_reaction("👍 nice"));
+        assert!(!valid_reaction("<b>👍"));
+        assert!(!valid_reaction(""));
         assert!(valid_message(&"é".repeat(4000)));
         assert!(!valid_message(&"é".repeat(4001)));
     }

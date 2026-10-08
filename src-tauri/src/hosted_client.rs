@@ -174,6 +174,16 @@ pub fn validate_hosted_conversation_request(method: &str, value: &str) -> Result
         ["events"] => method == "GET",
         [id] if uuid::Uuid::parse_str(id).is_ok() => method == "PATCH",
         [id, "messages"] if uuid::Uuid::parse_str(id).is_ok() => matches!(method, "GET" | "POST"),
+        [id, "messages", message]
+            if uuid::Uuid::parse_str(id).is_ok() && uuid::Uuid::parse_str(message).is_ok() =>
+        {
+            matches!(method, "PATCH" | "DELETE")
+        }
+        [id, "messages", message, "reactions"]
+            if uuid::Uuid::parse_str(id).is_ok() && uuid::Uuid::parse_str(message).is_ok() =>
+        {
+            method == "PUT"
+        }
         [id, "read"] if uuid::Uuid::parse_str(id).is_ok() => method == "POST",
         [id, "members"] if uuid::Uuid::parse_str(id).is_ok() => matches!(method, "GET" | "POST"),
         [id, "members", user]
@@ -381,6 +391,27 @@ mod tests {
         ] {
             assert!(validate("GET", path).is_err(), "{path}");
         }
+        assert!(validate(
+            "PATCH",
+            &format!("/api/v1/conversations/{id}/messages/{id}")
+        )
+        .is_ok());
+        assert!(validate(
+            "DELETE",
+            &format!("/api/v1/conversations/{id}/messages/{id}")
+        )
+        .is_ok());
+        assert!(validate(
+            "PUT",
+            &format!("/api/v1/conversations/{id}/messages/{id}/reactions")
+        )
+        .is_ok());
+        assert!(validate("GET", &format!("/api/v1/conversations/{id}/messages/{id}")).is_err());
+        assert!(validate(
+            "PUT",
+            &format!("/api/v1/conversations/{id}/messages/x/reactions")
+        )
+        .is_err());
         assert!(validate("DELETE", &format!("/api/v1/conversations/{id}/messages")).is_err());
         assert!(validate("POST", "/api/v1/conversations/events").is_err());
         assert!(validate("PATCH", &format!("/api/v1/conversations/{id}?ignored=1")).is_err());

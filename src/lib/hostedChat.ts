@@ -15,9 +15,11 @@ export function compareChatSequence(left: string, right: string): number {
   return left.length - right.length || left.localeCompare(right);
 }
 
+/** `changes` is a conversation revision; vault chat ignores it. */
+export type ChatPageCursor = { before?: string; after?: string; changes?: string };
 export function readChatPage(
   scope: HostedChatScope,
-  cursor: { before?: string; after?: string } = {},
+  cursor: ChatPageCursor = {},
 ): Promise<HostedChatPage> {
   const query = new URLSearchParams({ limit: String(CHAT_PAGE_SIZE), ...cursor });
   return tauriCommands.hostedVaultRequest(

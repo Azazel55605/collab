@@ -2,10 +2,11 @@
 //! acquire one commit-order lock before membership snapshots and event cursors.
 use super::*;
 use collab_protocol::{
-    conversation::{can_remove_owner, valid_message},
+    conversation::{can_remove_owner, valid_message, valid_reaction},
     ConversationEvent, ConversationEvents, ConversationMember, ConversationMessage,
-    ConversationPage, ConversationSummary,
+    ConversationPage, ConversationReaction, ConversationReplyPreview, ConversationSummary,
 };
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -19,6 +20,22 @@ pub struct CreateConversation {
 pub struct SendMessage {
     pub id: Uuid,
     pub content: String,
+    pub reply_to: Option<Uuid>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EditMessage {
+    pub content: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReactionChange {
+    pub emoji: String,
+    pub reacted: bool,
+}
+#[derive(Deserialize, Default)]
+pub struct ChangesQuery {
+    pub changes: Option<i64>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -165,9 +182,10 @@ pub async fn list(
           WHERE peer.conversation_id=c.id AND peer.user_id<>$1 LIMIT 1) AS peer_name,
         (SELECT COUNT(*) FROM conversation_messages msg WHERE msg.conversation_id=c.id
           AND msg.sequence>=m.joined_sequence AND msg.sequence>m.read_sequence AND msg.sender_user_id IS DISTINCT FROM $1) AS unread,
-        last.preview AS last_message,last.created_at AS last_message_at,last.sender_user_id AS last_sender
+        (SELECT peer.user_id FROM conversation_members peer WHERE c.kind='direct' AND peer.conversation_id=c.id AND peer.user_id<>$1 LIMIT 1) AS peer_user_id,
+        last.preview AS last_message,last.created_at AS last_message_at,last.sender_user_id AS last_sender,last.deleted AS last_deleted
         FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id
-        LEFT JOIN LATERAL (SELECT LEFT(msg.content,160) AS preview,msg.created_at,msg.sender_user_id FROM conversation_messages msg
+        LEFT JOIN LATERAL (SELECT CASE WHEN msg.deleted_at IS NULL THEN LEFT(msg.content,160) END AS preview,msg.created_at,msg.sender_user_id,(msg.deleted_at IS NOT NULL) AS deleted FROM conversation_messages msg
           WHERE msg.conversation_id=c.id AND msg.sequence>=m.joined_sequence ORDER BY msg.sequence DESC LIMIT 1) last ON true
         WHERE m.user_id=$1 AND NOT EXISTS(SELECT 1 FROM team_channels ch JOIN teams t ON t.id=ch.team_id WHERE ch.conversation_id=c.id AND (ch.archived OR t.archived OR NOT EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=$1))) AND ($2::bigint IS NULL OR c.updated_cursor<$2) AND ($4::uuid IS NULL OR c.id=$4)
         ORDER BY c.updated_cursor DESC LIMIT $3"#)
@@ -196,6 +214,10 @@ pub async fn list(
                     .get::<Option<DateTime<Utc>>, _>("last_message_at")
                     .map(|at| at.timestamp_millis().max(0) as u64),
                 last_message_own: r.get::<Option<Uuid>, _>("last_sender") == Some(user),
+                last_message_deleted: r.get::<Option<bool>, _>("last_deleted").unwrap_or(false),
+                peer_user_id: r
+                    .get::<Option<Uuid>, _>("peer_user_id")
+                    .map(|v| v.to_string()),
             })
             .collect(),
     )))
@@ -285,7 +307,45 @@ pub async fn create(
     Ok(Json(DataResponse::new(conversation.to_string())))
 }
 
-fn message(row: &sqlx::postgres::PgRow) -> ConversationMessage {
+/// Message rows joined with sender and quoted-reply context, followed by the
+/// caller's literal WHERE/ORDER clause; `concat!` keeps every query static.
+macro_rules! message_select {
+    ($tail:literal) => {
+        concat!(
+            "SELECT msg.*,u.display_name,parent.id AS reply_id,parent.sequence AS reply_sequence,",
+            "(parent.deleted_at IS NOT NULL) AS reply_deleted,LEFT(parent.content,140) AS reply_content,",
+            "pu.display_name AS reply_name FROM conversation_messages msg ",
+            "LEFT JOIN users u ON u.id=msg.sender_user_id ",
+            "LEFT JOIN conversation_messages parent ON parent.id=msg.reply_to ",
+            "LEFT JOIN users pu ON pu.id=parent.sender_user_id ",
+            $tail
+        )
+    };
+}
+
+fn millis(value: DateTime<Utc>) -> u64 {
+    value.timestamp_millis().max(0) as u64
+}
+
+fn message(row: &sqlx::postgres::PgRow, joined: i64) -> ConversationMessage {
+    let deleted = row.get::<Option<DateTime<Utc>>, _>("deleted_at").is_some();
+    let reply_to = row
+        .get::<Option<Uuid>, _>("reply_id")
+        .filter(|_| !deleted)
+        .map(|id| {
+            // Context from before the reader joined stays private, like history.
+            let visible = row.get::<Option<i64>, _>("reply_sequence").unwrap_or(0) >= joined
+                && !row.get::<Option<bool>, _>("reply_deleted").unwrap_or(false);
+            ConversationReplyPreview {
+                id: id.to_string(),
+                user_name: row
+                    .get::<Option<String>, _>("reply_name")
+                    .unwrap_or("Deleted user".into()),
+                content: visible
+                    .then(|| row.get::<Option<String>, _>("reply_content"))
+                    .flatten(),
+            }
+        });
     ConversationMessage {
         id: row.get::<Uuid, _>("id").to_string(),
         user_id: row
@@ -295,13 +355,80 @@ fn message(row: &sqlx::postgres::PgRow) -> ConversationMessage {
         user_name: row
             .get::<Option<String>, _>("display_name")
             .unwrap_or("Deleted user".into()),
-        content: row.get("content"),
-        timestamp: row
-            .get::<DateTime<Utc>, _>("created_at")
-            .timestamp_millis()
-            .max(0) as u64,
+        content: if deleted {
+            String::new()
+        } else {
+            row.get("content")
+        },
+        timestamp: millis(row.get::<DateTime<Utc>, _>("created_at")),
         sequence: row.get::<i64, _>("sequence").to_string(),
+        edited_at: row
+            .get::<Option<DateTime<Utc>>, _>("edited_at")
+            .filter(|_| !deleted)
+            .map(millis),
+        deleted,
+        reply_to,
+        reactions: Vec::new(),
     }
+}
+
+/// Maps rows and attaches grouped reactions in one extra query.
+async fn hydrate(
+    tx: &mut Transaction<'_, Postgres>,
+    rows: &[sqlx::postgres::PgRow],
+    user: Uuid,
+    joined: i64,
+    id: &str,
+) -> Result<Vec<ConversationMessage>, ApiFailure> {
+    let mut messages: Vec<_> = rows.iter().map(|row| message(row, joined)).collect();
+    let ids: Vec<Uuid> = rows.iter().map(|row| row.get::<Uuid, _>("id")).collect();
+    if ids.is_empty() {
+        return Ok(messages);
+    }
+    let reactions = sqlx::query(
+        "SELECT message_id,emoji,COUNT(*) AS count,bool_or(user_id=$2) AS mine,MIN(created_at) AS first
+         FROM conversation_reactions WHERE message_id=ANY($1) GROUP BY message_id,emoji ORDER BY first",
+    )
+    .bind(&ids)
+    .bind(user)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|_| fail(id))?;
+    let mut grouped: HashMap<String, Vec<ConversationReaction>> = HashMap::new();
+    for row in reactions {
+        grouped
+            .entry(row.get::<Uuid, _>("message_id").to_string())
+            .or_default()
+            .push(ConversationReaction {
+                emoji: row.get("emoji"),
+                count: row.get("count"),
+                mine: row.get("mine"),
+            });
+    }
+    for message in &mut messages {
+        if !message.deleted {
+            message.reactions = grouped.remove(&message.id).unwrap_or_default();
+        }
+    }
+    Ok(messages)
+}
+
+async fn one_message(
+    tx: &mut Transaction<'_, Postgres>,
+    message_id: Uuid,
+    user: Uuid,
+    joined: i64,
+    id: &str,
+) -> Result<ConversationMessage, ApiFailure> {
+    let rows = sqlx::query(message_select!("WHERE msg.id=$1"))
+        .bind(message_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|_| fail(id))?;
+    hydrate(tx, &rows, user, joined, id)
+        .await?
+        .pop()
+        .ok_or_else(|| fail(id))
 }
 
 pub async fn messages(
@@ -310,6 +437,7 @@ pub async fn messages(
     headers: HeaderMap,
     Path(conversation): Path<Uuid>,
     Query(query): Query<ChatPageQuery>,
+    Query(changes): Query<ChangesQuery>,
 ) -> Result<Json<DataResponse<ConversationPage>>, ApiFailure> {
     let user = user_uuid(
         &require_authenticated_user(&state, &headers, &id)
@@ -317,6 +445,9 @@ pub async fn messages(
             .user,
     );
     query.validate(&id)?;
+    if changes.changes.is_some_and(|v| v < 0) {
+        return Err(ApiFailure::validation("Invalid change revision.", id));
+    }
     // Consistent authorization and content snapshot; removal serializes before
     // or after this request rather than exposing a partially revoked page.
     let mut tx = begin(&state.database, &id).await?;
@@ -324,9 +455,9 @@ pub async fn messages(
     let forward = query.after.is_some();
     let limit = query.limit.unwrap_or(50);
     let statement = if forward {
-        "SELECT msg.*,u.display_name FROM conversation_messages msg LEFT JOIN users u ON u.id=msg.sender_user_id WHERE msg.conversation_id=$1 AND msg.sequence>=$2 AND ($3::bigint IS NULL OR msg.sequence<$3) AND ($4::bigint IS NULL OR msg.sequence>$4) ORDER BY msg.sequence ASC LIMIT $5"
+        message_select!("WHERE msg.conversation_id=$1 AND msg.sequence>=$2 AND ($3::bigint IS NULL OR msg.sequence<$3) AND ($4::bigint IS NULL OR msg.sequence>$4) ORDER BY msg.sequence ASC LIMIT $5")
     } else {
-        "SELECT msg.*,u.display_name FROM conversation_messages msg LEFT JOIN users u ON u.id=msg.sender_user_id WHERE msg.conversation_id=$1 AND msg.sequence>=$2 AND ($3::bigint IS NULL OR msg.sequence<$3) AND ($4::bigint IS NULL OR msg.sequence>$4) ORDER BY msg.sequence DESC LIMIT $5"
+        message_select!("WHERE msg.conversation_id=$1 AND msg.sequence>=$2 AND ($3::bigint IS NULL OR msg.sequence<$3) AND ($4::bigint IS NULL OR msg.sequence>$4) ORDER BY msg.sequence DESC LIMIT $5")
     };
     let rows = sqlx::query(statement)
         .bind(conversation)
@@ -338,11 +469,14 @@ pub async fn messages(
         .await
         .map_err(|_| fail(&id))?;
     let has_more = rows.len() > limit as usize;
-    let mut messages = rows
-        .iter()
-        .take(limit as usize)
-        .map(message)
-        .collect::<Vec<_>>();
+    let mut messages = hydrate(
+        &mut tx,
+        &rows[..rows.len().min(limit as usize)],
+        user,
+        joined,
+        &id,
+    )
+    .await?;
     if !forward {
         messages.reverse();
     }
@@ -355,12 +489,42 @@ pub async fn messages(
         .last()
         .map(|v| v.sequence.clone())
         .or_else(|| query.after.map(|v| v.to_string()));
+    let mut revision =
+        sqlx::query_scalar::<_, i64>("SELECT revision FROM conversations WHERE id=$1")
+            .bind(conversation)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| fail(&id))?;
+    // Changes are only for messages the client already holds (at or before
+    // its `after` cursor); newer ones arrive through the page itself.
+    let changed = match (changes.changes, query.after) {
+        (Some(since), Some(after)) if since < revision => {
+            let rows = sqlx::query(message_select!(
+                "WHERE msg.conversation_id=$1 AND msg.sequence>=$2 AND msg.sequence<=$3 AND msg.revision>$4 ORDER BY msg.revision LIMIT 200"
+            ))
+            .bind(conversation)
+            .bind(joined)
+            .bind(after)
+            .bind(since)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_| fail(&id))?;
+            // A capped batch only advances the cursor to its last change.
+            if rows.len() == 200 {
+                revision = rows[199].get("revision");
+            }
+            hydrate(&mut tx, &rows, user, joined, &id).await?
+        }
+        _ => Vec::new(),
+    };
     tx.commit().await.map_err(|_| fail(&id))?;
     Ok(Json(DataResponse::new(ConversationPage {
         messages,
         next_before,
         next_after,
         has_more,
+        changed,
+        revision: Some(revision.to_string()),
     })))
 }
 
@@ -388,13 +552,44 @@ pub async fn send(
             return Err(conflict("The other account is unavailable.", &id));
         }
     }
-    if let Some(row)=sqlx::query("SELECT msg.*,u.display_name FROM conversation_messages msg LEFT JOIN users u ON u.id=msg.sender_user_id WHERE msg.id=$1")
-        .bind(payload.id).fetch_optional(&mut *tx).await.map_err(|_|fail(&id))? {
-        if row.get::<Uuid,_>("conversation_id")!=conversation || row.get::<Option<Uuid>,_>("sender_user_id")!=Some(user) || row.get::<String,_>("content")!=content || row.get::<i64,_>("sequence")<joined {
-            return Err(conflict("That message ID has already been used.",&id));
+    if let Some(row) = sqlx::query("SELECT * FROM conversation_messages WHERE id=$1")
+        .bind(payload.id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| fail(&id))?
+    {
+        // An edited or deleted original no longer matches, so compare the
+        // first-sent identity only: same conversation, sender and position.
+        let original = row.get::<Option<DateTime<Utc>>, _>("edited_at").is_some()
+            || row.get::<Option<DateTime<Utc>>, _>("deleted_at").is_some()
+            || row.get::<String, _>("content") == content;
+        if row.get::<Uuid, _>("conversation_id") != conversation
+            || row.get::<Option<Uuid>, _>("sender_user_id") != Some(user)
+            || !original
+            || row.get::<i64, _>("sequence") < joined
+        {
+            return Err(conflict("That message ID has already been used.", &id));
         }
-        let value=message(&row); tx.commit().await.map_err(|_|fail(&id))?;
-        return Ok((StatusCode::OK,Json(DataResponse::new(value))));
+        let value = one_message(&mut tx, payload.id, user, joined, &id).await?;
+        tx.commit().await.map_err(|_| fail(&id))?;
+        return Ok((StatusCode::OK, Json(DataResponse::new(value))));
+    }
+    if let Some(parent) = payload.reply_to {
+        let visible = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM conversation_messages WHERE id=$1 AND conversation_id=$2 AND sequence>=$3 AND deleted_at IS NULL",
+        )
+        .bind(parent)
+        .bind(conversation)
+        .bind(joined)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| fail(&id))?;
+        if visible == 0 {
+            return Err(ApiFailure::validation(
+                "The message you are replying to is no longer available.",
+                id,
+            ));
+        }
     }
     let sequence = sqlx::query_scalar::<_, i64>(
         "UPDATE conversations SET head=head+1 WHERE id=$1 RETURNING head",
@@ -403,8 +598,9 @@ pub async fn send(
     .fetch_one(&mut *tx)
     .await
     .map_err(|_| fail(&id))?;
-    let row=sqlx::query("WITH inserted AS (INSERT INTO conversation_messages(id,conversation_id,sender_user_id,content,sequence) VALUES($1,$2,$3,$4,$5) RETURNING *) SELECT inserted.*,u.display_name FROM inserted JOIN users u ON u.id=inserted.sender_user_id")
-        .bind(payload.id).bind(conversation).bind(user).bind(content).bind(sequence).fetch_one(&mut *tx).await.map_err(|_|fail(&id))?;
+    sqlx::query("INSERT INTO conversation_messages(id,conversation_id,sender_user_id,content,sequence,reply_to) VALUES($1,$2,$3,$4,$5,$6)")
+        .bind(payload.id).bind(conversation).bind(user).bind(content).bind(sequence).bind(payload.reply_to).execute(&mut *tx).await.map_err(|_|fail(&id))?;
+    let sent = one_message(&mut tx, payload.id, user, joined, &id).await?;
     let recipients=sqlx::query_scalar::<_,Uuid>("SELECT m.user_id FROM conversation_members m JOIN users u ON u.id=m.user_id WHERE m.conversation_id=$1 AND m.user_id<>$2 AND u.status='active'")
         .bind(conversation).bind(user).fetch_all(&mut *tx).await.map_err(|_|fail(&id))?;
     let team_id =
@@ -443,7 +639,175 @@ pub async fn send(
     }
     event(&mut tx, conversation, "message", None, &id).await?;
     tx.commit().await.map_err(|_| fail(&id))?;
-    Ok((StatusCode::CREATED, Json(DataResponse::new(message(&row)))))
+    Ok((StatusCode::CREATED, Json(DataResponse::new(sent))))
+}
+
+/// Locks a visible, undeleted message for a change and returns its sender.
+async fn changeable(
+    tx: &mut Transaction<'_, Postgres>,
+    conversation: Uuid,
+    message_id: Uuid,
+    joined: i64,
+    id: &str,
+) -> Result<Option<Uuid>, ApiFailure> {
+    let row = sqlx::query(
+        "SELECT sender_user_id FROM conversation_messages WHERE id=$1 AND conversation_id=$2 AND sequence>=$3 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(message_id)
+    .bind(conversation)
+    .bind(joined)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| fail(id))?
+    .ok_or_else(|| ApiFailure::not_found(id.to_owned()))?;
+    Ok(row.get("sender_user_id"))
+}
+async fn bump_revision(
+    tx: &mut Transaction<'_, Postgres>,
+    conversation: Uuid,
+    message_id: Uuid,
+    id: &str,
+) -> Result<(), ApiFailure> {
+    let revision = sqlx::query_scalar::<_, i64>(
+        "UPDATE conversations SET revision=revision+1 WHERE id=$1 RETURNING revision",
+    )
+    .bind(conversation)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| fail(id))?;
+    sqlx::query("UPDATE conversation_messages SET revision=$2 WHERE id=$1")
+        .bind(message_id)
+        .bind(revision)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| fail(id))?;
+    Ok(())
+}
+fn sender_only(id: &str) -> ApiFailure {
+    ApiFailure::new(
+        StatusCode::FORBIDDEN,
+        ErrorCode::ConversationPermissionDenied,
+        "Only the sender can change this message.",
+        id.to_owned(),
+    )
+}
+
+pub async fn edit_message(
+    State(state): State<AppState>,
+    Extension(id): Extension<String>,
+    headers: HeaderMap,
+    Path((conversation, message_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<EditMessage>,
+) -> Result<Json<DataResponse<ConversationMessage>>, ApiFailure> {
+    let user = user_uuid(&require_any_user(&state, &headers, &id).await?.user);
+    let content = payload.content.trim();
+    if !valid_message(content) {
+        return Err(ApiFailure::validation(
+            "Messages must contain 1 to 4000 characters.",
+            id,
+        ));
+    }
+    let mut tx = begin(&state.database, &id).await?;
+    let (_, _, joined) = membership(&mut tx, conversation, user, &id).await?;
+    if changeable(&mut tx, conversation, message_id, joined, &id).await? != Some(user) {
+        return Err(sender_only(&id));
+    }
+    let changed = sqlx::query(
+        "UPDATE conversation_messages SET content=$2,edited_at=NOW() WHERE id=$1 AND content<>$2",
+    )
+    .bind(message_id)
+    .bind(content)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| fail(&id))?
+    .rows_affected()
+        > 0;
+    if changed {
+        bump_revision(&mut tx, conversation, message_id, &id).await?;
+    }
+    let value = one_message(&mut tx, message_id, user, joined, &id).await?;
+    tx.commit().await.map_err(|_| fail(&id))?;
+    Ok(Json(DataResponse::new(value)))
+}
+
+pub async fn delete_message(
+    State(state): State<AppState>,
+    Extension(id): Extension<String>,
+    headers: HeaderMap,
+    Path((conversation, message_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ApiFailure> {
+    let user = user_uuid(&require_any_user(&state, &headers, &id).await?.user);
+    let mut tx = begin(&state.database, &id).await?;
+    let (_, _, joined) = membership(&mut tx, conversation, user, &id).await?;
+    if changeable(&mut tx, conversation, message_id, joined, &id).await? != Some(user) {
+        return Err(sender_only(&id));
+    }
+    // The row stays so sequences, read positions and replies remain stable;
+    // its text and reactions are removed.
+    sqlx::query("UPDATE conversation_messages SET content='',deleted_at=NOW() WHERE id=$1")
+        .bind(message_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| fail(&id))?;
+    sqlx::query("DELETE FROM conversation_reactions WHERE message_id=$1")
+        .bind(message_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| fail(&id))?;
+    bump_revision(&mut tx, conversation, message_id, &id).await?;
+    tx.commit().await.map_err(|_| fail(&id))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn react(
+    State(state): State<AppState>,
+    Extension(id): Extension<String>,
+    headers: HeaderMap,
+    Path((conversation, message_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<ReactionChange>,
+) -> Result<Json<DataResponse<ConversationMessage>>, ApiFailure> {
+    let user = user_uuid(&require_any_user(&state, &headers, &id).await?.user);
+    if !valid_reaction(&payload.emoji) {
+        return Err(ApiFailure::validation("Reactions must be one emoji.", id));
+    }
+    let mut tx = begin(&state.database, &id).await?;
+    let (_, _, joined) = membership(&mut tx, conversation, user, &id).await?;
+    changeable(&mut tx, conversation, message_id, joined, &id).await?;
+    let changed = if payload.reacted {
+        let mine = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM conversation_reactions WHERE message_id=$1 AND user_id=$2",
+        )
+        .bind(message_id)
+        .bind(user)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| fail(&id))?;
+        if mine >= 20 {
+            return Err(ApiFailure::validation(
+                "You can add at most 20 reactions to one message.",
+                id,
+            ));
+        }
+        sqlx::query("INSERT INTO conversation_reactions(message_id,user_id,emoji) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
+    } else {
+        sqlx::query(
+            "DELETE FROM conversation_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3",
+        )
+    }
+    .bind(message_id)
+    .bind(user)
+    .bind(&payload.emoji)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| fail(&id))?
+    .rows_affected()
+        > 0;
+    if changed {
+        bump_revision(&mut tx, conversation, message_id, &id).await?;
+    }
+    let value = one_message(&mut tx, message_id, user, joined, &id).await?;
+    tx.commit().await.map_err(|_| fail(&id))?;
+    Ok(Json(DataResponse::new(value)))
 }
 
 pub async fn read(

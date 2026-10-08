@@ -18,12 +18,20 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 
+import { chatPlainText, listTime } from './chatFormat';
 import { ConversationThread, NewConversation } from './ConversationInbox';
 import { type ChatLayout, readChatLayout, saveChatLayout } from './ConversationPreferences';
 import './conversations.css';
 import { AccountSwitcher, type ChatAccount, PeopleSearch } from './ConversationToolbar';
-import { listTime, NameAvatar } from './ConversationVisuals';
+import { UserAvatar } from './ConversationVisuals';
 import { TeamSidebar } from './TeamSidebar';
+
+function rowPreview(row: ConversationSummary) {
+  const prefix = row.lastMessageOwn ? 'You: ' : '';
+  if (row.lastMessageDeleted) return `${prefix}This message was deleted.`;
+  if (row.lastMessage) return prefix + chatPlainText(row.lastMessage);
+  return row.kind === 'group' ? 'Group chat' : 'Direct chat';
+}
 
 export function ConversationAccounts({
   accounts,
@@ -252,9 +260,14 @@ function AccountWorkspace({
                       disabled={!account.connected}
                       onClick={() => void open(row.id)}
                     >
-                      <NameAvatar name={row.name} picture={row.picture}>
+                      <UserAvatar
+                        serverUrl={account.serverUrl}
+                        userId={row.kind === 'direct' ? row.peerUserId : undefined}
+                        name={row.name}
+                        picture={row.picture}
+                      >
                         {row.kind === 'group' ? <Users size={18} /> : undefined}
-                      </NameAvatar>
+                      </UserAvatar>
                       <span className="conversation-row-body">
                         <span className="conversation-row-line">
                           <span className="conversation-row-name">{row.name}</span>
@@ -265,13 +278,7 @@ function AccountWorkspace({
                           )}
                         </span>
                         <span className="conversation-row-line">
-                          <small>
-                            {row.lastMessage
-                              ? `${row.lastMessageOwn ? 'You: ' : ''}${row.lastMessage}`
-                              : row.kind === 'group'
-                                ? 'Group chat'
-                                : 'Direct chat'}
-                          </small>
+                          <small>{rowPreview(row)}</small>
                           {row.unread > 0 && (
                             <span
                               className="conversation-unread"

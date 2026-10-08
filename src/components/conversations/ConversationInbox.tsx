@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ArrowLeft, Hash, RefreshCw, SendHorizontal, Users, X } from 'lucide-react';
+import { ArrowLeft, Hash, Users, X } from 'lucide-react';
 
 import {
+  chatMessage,
   conversationMembers,
   conversationRequest,
   conversationTransport,
+  deleteConversationMessage,
+  editConversationMessage,
   markConversationRead,
+  reactToConversationMessage,
 } from '../../lib/conversations';
 import { tauriCommands } from '../../lib/tauri';
 import { useHostedChat } from '../../lib/useHostedChat';
@@ -19,9 +23,11 @@ import type { UserDirectoryEntry } from '../../types/vault';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Textarea } from '../ui/textarea';
 
-import { messageTime, NameAvatar } from './ConversationVisuals';
+import { type ComposerMode, ConversationComposer } from './ConversationComposer';
+import { ConversationMarkdown } from './ConversationMarkdown';
+import { ConversationMessageItem, type MessageActions } from './ConversationMessage';
+import { UserAvatar } from './ConversationVisuals';
 
 /** Consecutive messages from one sender within this window share a header. */
 const GROUP_WINDOW = 5 * 60_000;
@@ -189,21 +195,18 @@ export function ConversationThread({
 }) {
   const scope = { ...account, vaultId: conversation.id };
   const chat = useHostedChat(scope, connected, conversationTransport);
-  const [text, setText] = useState('');
   const [manage, setManage] = useState(false);
+  const [mode, setMode] = useState<ComposerMode | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   useEffect(() => {
     if (manage) return registerBack?.(() => setManage(false));
   }, [manage, registerBack]);
+  useEffect(() => {
+    if (mode) return registerBack?.(() => setMode(null));
+  }, [mode, registerBack]);
   const [readError, setReadError] = useState<string | null>(null);
   const marked = useRef('0');
   const tail = useRef<HTMLDivElement>(null);
-  const field = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const element = field.current;
-    if (!element) return;
-    element.style.height = 'auto';
-    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
-  }, [text]);
   const last = chat.messages[chat.messages.length - 1]?.sequence;
   useEffect(() => {
     if (chat.earlier || !last || !chat.authorized || !connected) return;
@@ -233,9 +236,63 @@ export function ConversationThread({
   useEffect(() => {
     if (!chat.earlier) tail.current?.scrollIntoView({ block: 'end' });
   }, [last, chat.earlier]);
-  async function submit() {
-    const value = text;
-    if (await chat.submit(value)) setText((current) => (current === value ? '' : current));
+  const enabled = connected && chat.authorized;
+  async function change(action: () => Promise<void>) {
+    setActionError(null);
+    try {
+      await action();
+    } catch (reason) {
+      setActionError(String(reason));
+      // Resynchronise: the message may have changed or gone elsewhere.
+      void chat.poll();
+    }
+  }
+  const actions: MessageActions = {
+    react: (message, emoji, reacted) =>
+      void change(async () =>
+        chat.patch(
+          chatMessage(
+            await reactToConversationMessage(account, conversation.id, message.id, emoji, reacted),
+          ),
+        ),
+      ),
+    reply: (message) =>
+      setMode({
+        kind: 'reply',
+        id: message.id,
+        userName: message.userId === account.accountId ? 'yourself' : message.userName,
+        content: message.content,
+      }),
+    edit: (message) => setMode({ kind: 'edit', id: message.id, content: message.content }),
+    remove: (message) =>
+      change(async () => {
+        await deleteConversationMessage(account, conversation.id, message.id);
+        chat.patch({ ...message, content: '', deleted: true, reactions: [], replyTo: undefined });
+        if (mode?.id === message.id) setMode(null);
+      }),
+    jump: (id) => {
+      const target = document.getElementById(`conversation-message-${id}`);
+      if (!target) return;
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target.classList.add('flash');
+      window.setTimeout(() => target.classList.remove('flash'), 1200);
+    },
+  };
+  async function submit(text: string) {
+    if (mode?.kind === 'edit') {
+      let saved = false;
+      await change(async () => {
+        chat.patch(
+          chatMessage(await editConversationMessage(account, conversation.id, mode.id, text)),
+        );
+        saved = true;
+        setMode(null);
+      });
+      return saved;
+    }
+    const sent = await chat.submit(text, mode?.kind === 'reply' ? mode.id : undefined);
+    if (sent) setMode(null);
+    return sent;
   }
   if (manage)
     return (
@@ -258,13 +315,19 @@ export function ConversationThread({
         >
           <ArrowLeft size={18} />
         </Button>
-        <NameAvatar name={conversation.name} picture={conversation.picture} size="lg">
+        <UserAvatar
+          serverUrl={account.serverUrl}
+          userId={conversation.kind === 'direct' ? conversation.peerUserId : undefined}
+          name={conversation.name}
+          picture={conversation.picture}
+          size="lg"
+        >
           {conversation.kind === 'group' ? (
             <Users size={20} />
           ) : conversation.kind === 'channel' ? (
             <Hash size={20} />
           ) : undefined}
-        </NameAvatar>
+        </UserAvatar>
         <div className="conversation-title">
           <h2>{conversation.name}</h2>
           <small>
@@ -281,14 +344,6 @@ export function ConversationThread({
             <Users size={18} />
           </Button>
         )}
-        <Button
-          aria-label="Refresh messages"
-          variant="ghost"
-          disabled={!connected || chat.busy}
-          onClick={() => void chat.refresh()}
-        >
-          <RefreshCw size={18} />
-        </Button>
       </header>
       <div className="conversation-scroll" aria-label="Messages">
         {!connected && (
@@ -296,7 +351,9 @@ export function ConversationThread({
             Reconnect to read and send messages. Saved unsent messages stay private to your account.
           </p>
         )}
-        {(chat.error || readError) && <p role="alert">{chat.error || readError}</p>}
+        {(chat.error || readError || actionError) && (
+          <p role="alert">{chat.error || readError || actionError}</p>
+        )}
         <div className="conversation-actions">
           {chat.before && (
             <Button disabled={chat.busy} onClick={() => void chat.older()}>
@@ -306,40 +363,34 @@ export function ConversationThread({
           {chat.earlier && <Button onClick={() => void chat.refresh()}>Latest messages</Button>}
         </div>
         {chat.messages.map((message, index) => {
-          const own = message.userId === account.accountId;
           const previous = chat.messages[index - 1];
-          const continued =
-            !!previous &&
-            previous.userId === message.userId &&
-            message.timestamp - previous.timestamp < GROUP_WINDOW;
           return (
-            <article
-              className={`conversation-message ${own ? 'own' : ''} ${continued ? 'continued' : ''}`}
+            <ConversationMessageItem
               key={message.id}
-            >
-              {!own && !continued && <NameAvatar name={message.userName} />}
-              <div className="conversation-message-body">
-                <header className={continued ? 'conversation-visually-hidden' : undefined}>
-                  <strong className={own ? 'conversation-visually-hidden' : undefined}>
-                    {own ? 'You' : message.userName}
-                  </strong>
-                  <time dateTime={new Date(message.timestamp).toISOString()}>
-                    {messageTime(message.timestamp)}
-                  </time>
-                </header>
-                <p>{message.content}</p>
-              </div>
-            </article>
+              serverUrl={account.serverUrl}
+              message={message}
+              own={message.userId === account.accountId}
+              continued={
+                !!previous &&
+                !previous.deleted &&
+                previous.userId === message.userId &&
+                message.timestamp - previous.timestamp < GROUP_WINDOW
+              }
+              enabled={enabled}
+              actions={actions}
+            />
           );
         })}
-        {chat.busy && <p role="status">Loading messages…</p>}
+        {chat.busy && !chat.messages.length && <p role="status">Loading messages…</p>}
         {!!chat.pending.length && (
           <section aria-label="Unsent messages">
             <h3>Unsent messages</h3>
             {chat.pending.map((message) => (
               <article className="conversation-message own pending" key={message.id}>
                 <div className="conversation-message-body">
-                  <p>{message.content}</p>
+                  <div className="conversation-bubble">
+                    <ConversationMarkdown content={message.content} />
+                  </div>
                 </div>
                 <div className="conversation-actions">
                   <Button
@@ -361,40 +412,14 @@ export function ConversationThread({
         )}
         <div ref={tail} />
       </div>
-      <form
-        className="conversation-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <div className="conversation-composer-field">
-          <Textarea
-            ref={field}
-            rows={1}
-            aria-label="Message"
-            placeholder={`Message ${conversation.kind === 'channel' ? '#' : ''}${conversation.name}…`}
-            value={text}
-            maxLength={8000}
-            disabled={!connected || !chat.authorized}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              // Enter sends, Shift+Enter keeps writing; never interrupt IME composition.
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              if (text.trim() && !chat.sending) void submit();
-            }}
-          />
-        </div>
-        <Button
-          type="submit"
-          className="conversation-send"
-          aria-label="Send message"
-          disabled={!connected || !chat.authorized || !text.trim() || !!chat.sending}
-        >
-          <SendHorizontal size={20} />
-        </Button>
-      </form>
+      <ConversationComposer
+        placeholder={`Message ${conversation.kind === 'channel' ? '#' : ''}${conversation.name}…`}
+        disabled={!enabled}
+        sending={!!chat.sending}
+        mode={mode}
+        cancelMode={() => setMode(null)}
+        submit={submit}
+      />
     </section>
   );
 }

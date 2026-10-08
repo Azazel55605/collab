@@ -1074,7 +1074,7 @@ export const tauriCommands = {
   hostedConversationRequest: <T>(
     serverUrl: string,
     expectedUserId: string,
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     expectedNotificationAccountKey?: string,

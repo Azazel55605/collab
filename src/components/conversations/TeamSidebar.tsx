@@ -30,7 +30,8 @@ export function TeamSidebar({
   const [channels, setChannels] = useState<TeamChannel[]>([]);
   const [after, setAfter] = useState<string>();
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  // Polls refresh quietly; only the first load shows a loading line.
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
     let running = false;
@@ -47,7 +48,6 @@ export function TeamSidebar({
     async function refresh() {
       if (running || document.visibilityState === 'hidden') return;
       running = true;
-      setBusy(true);
       try {
         const list = await request<TeamSummary[]>(
           'GET',
@@ -61,6 +61,7 @@ export function TeamSidebar({
           setTeams(list);
           setChannels(children);
           setError('');
+          setLoaded(true);
         }
       } catch (reason) {
         if (alive) {
@@ -70,7 +71,6 @@ export function TeamSidebar({
         }
       } finally {
         running = false;
-        if (alive) setBusy(false);
       }
     }
     void refresh();
@@ -151,8 +151,8 @@ export function TeamSidebar({
                   ))}
             </div>
           ))}
-      {!collapsed && busy && !teams.length && !error && <p role="status">Loading teams…</p>}
-      {!collapsed && !busy && !teams.length && !error && (
+      {!collapsed && !loaded && !error && <p role="status">Loading teams…</p>}
+      {!collapsed && loaded && !teams.length && !error && (
         <p className="conversation-sidebar-hint">No teams yet.</p>
       )}
       {after && (

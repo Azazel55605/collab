@@ -386,7 +386,18 @@ flow with removable recipient chips and an always-reachable creation action.
 Chat rows show a name-tinted avatar, the newest message preview, a Teams-style
 time (clock today, then Yesterday, weekday, date) and an unread badge. Threads
 group consecutive messages from one sender within five minutes, right-align the
-account's own bubbles, and send on Enter (Shift+Enter for a new line).
+account's own bubbles, and send on Enter (Shift+Enter for a new line). Avatars
+come from the server for every person shown and fall back to tinted initials.
+
+Messages are Markdown. The composer's **Format** button expands a toolbar (bold,
+italic, strikethrough, lists, quote, link, inline code, code block; Ctrl+B/I/E/K)
+in which Enter adds a line and Ctrl+Enter sends; the emoji button inserts from a
+local, searchable set. Hovering, focusing or tapping a bubble shows quick
+reactions, more reactions, Reply and a menu with Edit/Delete (own messages) and
+Copy text. Replies quote the original and jump to it; edits are marked
+**Edited**; deletions leave "This message was deleted." in place. Rendered
+Markdown allows no raw HTML or images, and links open in the system browser.
+Attachments are deferred to the extended file-sharing work.
 
 Keep a secondary conversation sidebar visible beside desktop threads. Its
 **Chat layout** menu persists a device-local preference: chats and teams together,

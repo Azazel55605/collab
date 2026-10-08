@@ -1541,7 +1541,20 @@ and may be removed or cleared. Reopening one still goes through the canonical
 direct-conversation endpoint. Inbox summaries carry an optional server-truncated
 `lastMessage` preview with `lastMessageAt`/`lastMessageOwn`, limited to messages
 visible since the caller joined. `ConversationVisuals` holds the shared
-name-tinted avatars and list/message time formatting.
+name-tinted avatars; `chatFormat` holds the pure helpers (Markdown rendering via
+markdown-it with HTML disabled plus DOMPurify, plain-text previews, toolbar
+selection edits, list/message times). `src/lib/userAvatars.ts` caches
+authenticated avatar data URLs per server/user for five minutes, including
+misses, rather than trusting a session's `hasAvatar` flag.
+`ConversationComposer`, `ConversationMessage` and `EmojiPicker` implement the
+formatting toolbar, message actions and curated emoji set. Message edits,
+deletions and reactions bump a per-conversation `revision` (migration 0038);
+`useHostedChat` sends its last revision as `changes` on each poll and the server
+returns `changed` messages at or before the `after` cursor, so held messages
+update without reloading history. Only senders may edit or delete; deletion
+keeps the row (sequence, read position and replies stay stable) and drops its
+text and reactions. Replies are validated against the reader's visible history
+and survive outbox retries through `PendingChatMessage.replyTo`.
 `ConversationPreferences` stores the device-local combined/separate sidebar setting;
 change it from **Chat layout** beside the Chats heading. `TeamSidebar` polls the
 bounded team page and channels of one expanded team only, with visibility, identity

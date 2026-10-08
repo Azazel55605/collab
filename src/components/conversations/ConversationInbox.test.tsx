@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   hostedChatQueue: vi.fn(),
   hostedChatDiscard: vi.fn(),
   hostedUserDirectory: vi.fn(),
+  hostedAccountRequest: vi.fn(),
 }));
 vi.mock('../../lib/tauri', () => ({ tauriCommands: api }));
 const accounts = [
@@ -53,6 +54,7 @@ beforeEach(() => {
   useConversationNavigation.getState().clear();
   HTMLElement.prototype.scrollIntoView = vi.fn();
   api.hostedChatOutbox.mockResolvedValue([]);
+  api.hostedAccountRequest.mockRejectedValue(new Error('No avatar'));
   api.hostedChatQueue.mockResolvedValue(undefined);
   api.hostedChatDiscard.mockResolvedValue(undefined);
   api.hostedUserDirectory.mockResolvedValue([
@@ -286,4 +288,92 @@ it('shows the newest message preview and sends on Enter but not Shift+Enter', as
   expect(api.hostedChatQueue).not.toHaveBeenCalled();
   fireEvent.keyDown(field, { key: 'Enter' });
   await waitFor(() => expect(api.hostedChatQueue).toHaveBeenCalled());
+});
+it('reacts, replies, edits and deletes messages and applies changes from other devices', async () => {
+  const own = {
+    id: 'own',
+    userId: 'me',
+    userName: 'Me',
+    content: 'my **plan**',
+    timestamp: Date.now() - 60_000,
+    sequence: '2',
+  };
+  const other = {
+    ...page.messages[0],
+    sequence: '1',
+    timestamp: Date.now() - 120_000,
+    reactions: [{ emoji: '👍', count: 2, mine: false }],
+  };
+  let changed: unknown[] = [];
+  api.hostedConversationRequest.mockImplementation(
+    async (_s: string, _u: string, method: string, path: string, body?: { emoji?: string }) => {
+      if (path.startsWith('/api/v1/teams')) return [];
+      if (path.includes('/events')) return { events: [], nextAfter: '0', hasMore: false };
+      if (path.endsWith('/reactions'))
+        return { ...other, reactions: [{ emoji: body!.emoji, count: 3, mine: true }] };
+      if (path.endsWith('/messages/own') && method === 'PATCH')
+        return { ...own, content: 'new plan', editedAt: Date.now() };
+      if (path.endsWith('/messages/own') && method === 'DELETE') return null;
+      if (path.endsWith('/messages') && method === 'POST') return { ...own, id: 'reply' };
+      if (path.includes('/messages?'))
+        return {
+          messages: [other, own],
+          nextBefore: null,
+          nextAfter: '2',
+          hasMore: false,
+          revision: '4',
+          changed: path.includes('changes=4') ? changed : [],
+        };
+      if (path.endsWith('/read')) return null;
+      return [summary];
+    },
+  );
+  render(<ConversationAccounts accounts={accounts} />);
+  fireEvent.click(await screen.findByRole('button', { name: /Friends/ }));
+  await screen.findByText('Private message');
+  expect(screen.getByText('plan').tagName).toBe('STRONG');
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'React with 👍' })[0]);
+  await screen.findByRole('button', { name: '👍 3, including you' });
+  expect(api.hostedConversationRequest).toHaveBeenCalledWith(
+    'https://one.test',
+    'me',
+    'PUT',
+    '/api/v1/conversations/group/messages/m1/reactions',
+    { emoji: '👍', reacted: true },
+  );
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Reply' })[0]);
+  expect(screen.getByText('Replying to Other')).not.toBeNull();
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Agreed' } });
+  fireEvent.keyDown(screen.getByLabelText('Message'), { key: 'Enter' });
+  await waitFor(() =>
+    expect(api.hostedChatQueue.mock.calls[0][3]).toMatchObject({
+      content: 'Agreed',
+      replyTo: 'm1',
+    }),
+  );
+  await waitFor(() => expect(screen.queryByText('Replying to Other')).toBeNull());
+
+  const ownActions = screen.getAllByRole('button', { name: 'More message actions' })[1];
+  fireEvent.pointerDown(ownActions, { button: 0, ctrlKey: false });
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+  const field = screen.getByLabelText('Message') as HTMLTextAreaElement;
+  expect(field.value).toBe('my **plan**');
+  fireEvent.change(field, { target: { value: 'new plan' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+  await screen.findByText('new plan');
+  expect(screen.getByText('Edited')).not.toBeNull();
+
+  fireEvent.pointerDown(screen.getAllByRole('button', { name: 'More message actions' })[1], {
+    button: 0,
+    ctrlKey: false,
+  });
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  await screen.findByText('This message was deleted.');
+
+  changed = [{ ...other, content: 'Edited elsewhere', editedAt: Date.now() }];
+  fireEvent(window, new Event('focus'));
+  await screen.findByText('Edited elsewhere');
 });

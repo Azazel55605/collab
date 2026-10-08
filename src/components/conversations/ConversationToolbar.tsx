@@ -16,7 +16,7 @@ import {
 import { Input } from '../ui/input';
 
 import { readRecentPeople, type RecentPerson, saveRecentPeople } from './ConversationPreferences';
-import { NameAvatar } from './ConversationVisuals';
+import { UserAvatar } from './ConversationVisuals';
 
 export type ChatAccount = ConversationAccount & {
   label: string;
@@ -42,32 +42,16 @@ function accountAddress(account: ChatAccount) {
   return account.username ? `${account.username}@${host}` : host;
 }
 function AccountAvatar({ account, size }: { account: ChatAccount; size?: 'md' | 'lg' }) {
-  const [image, setImage] = useState<string>();
-  useEffect(() => {
-    let alive = true;
-    setImage(undefined);
-    if (account.connected && account.hasAvatar)
-      void tauriCommands
-        .hostedAccountRequest<string>(
-          account.serverUrl,
-          'GET',
-          `/api/v1/users/${account.accountId}/avatar`,
-        )
-        .then((data) => {
-          if (alive) setImage(data);
-        })
-        .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [
-    account.serverUrl,
-    account.accountId,
-    account.connected,
-    account.hasAvatar,
-    account.avatarUpdatedAt,
-  ]);
-  return <NameAvatar name={accountName(account)} picture={image} size={size} />;
+  // Connected accounts always ask: a session's `hasAvatar` can predate an upload.
+  return (
+    <UserAvatar
+      serverUrl={account.serverUrl}
+      userId={account.connected ? account.accountId : undefined}
+      name={accountName(account)}
+      size={size}
+      version={account.avatarUpdatedAt}
+    />
+  );
 }
 export function AccountSwitcher({
   accounts,
@@ -87,7 +71,6 @@ export function AccountSwitcher({
           <AccountAvatar
             key={JSON.stringify([selected.serverUrl, selected.accountId])}
             account={selected}
-            size="lg"
           />
           <span>
             <strong>{accountName(selected)}</strong>
@@ -109,7 +92,7 @@ export function AccountSwitcher({
               data-current={current || undefined}
               onSelect={() => select(account)}
             >
-              <AccountAvatar account={account} size="lg" />
+              <AccountAvatar account={account} />
               <span>
                 <strong>{accountName(account)}</strong>
                 <small>
@@ -236,7 +219,12 @@ export function PeopleSearch({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => void choose(person)}
         >
-          <NameAvatar name={name} size={isRecent ? 'sm' : 'md'} />
+          <UserAvatar
+            serverUrl={account.serverUrl}
+            userId={person.userId}
+            name={name}
+            size={isRecent ? 'sm' : 'md'}
+          />
           <span>
             <strong>{name}</strong>
             {!isRecent && <small>@{person.username}</small>}

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 
-import { listTime, nameHue } from './ConversationVisuals';
+import { listTime, nameHue } from './chatFormat';
 
 it('formats list times like Teams: clock today, then yesterday, weekday and date', () => {
   const now = new Date(2026, 9, 8, 12, 0).getTime();

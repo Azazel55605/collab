@@ -13698,6 +13698,244 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn conversation_messages_support_edits_deletes_replies_and_reactions() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(6)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users,hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let directory = tempfile::tempdir().unwrap();
+        let app = build_router(AppState::new(
+            ServerConfig::default(),
+            pool.clone(),
+            Arc::new(FileSystemBlobStorage::new(directory.path()).await.unwrap()),
+        ));
+        let bootstrap=request(&app,"POST","/api/v1/auth/bootstrap",json!({"username":"admin","displayName":"Admin","password":"correct horse battery staple"}),None,None).await;
+        let (admin_cookie, admin_csrf) = session_cookies(&bootstrap);
+        let mut ids = Vec::new();
+        let mut sessions = Vec::new();
+        for username in ["bob", "cara"] {
+            let response=request(&app,"POST","/api/v1/admin/users",json!({"username":username,"displayName":username,"password":"correct horse battery staple"}),Some(&admin_cookie),Some(&admin_csrf)).await;
+            ids.push(
+                json_body(response).await["data"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+            let response = request(
+                &app,
+                "POST",
+                "/api/v1/auth/login",
+                json!({"username":username,"password":"correct horse battery staple"}),
+                None,
+                None,
+            )
+            .await;
+            sessions.push(session_cookies(&response));
+        }
+        let (bob, bcsrf) = &sessions[0];
+        let (cara, ccsrf) = &sessions[1];
+        let direct = request(
+            &app,
+            "POST",
+            "/api/v1/conversations",
+            json!({"kind":"direct","members":[ids[1]]}),
+            Some(bob),
+            Some(bcsrf),
+        )
+        .await;
+        let direct = json_body(direct).await["data"].as_str().unwrap().to_owned();
+        let messages = format!("/api/v1/conversations/{direct}/messages");
+        let first = Uuid::now_v7();
+        let reply = Uuid::now_v7();
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":first,"content":"**hello**"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::CREATED
+        );
+        let sent = json_body(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":reply,"content":"hi back","replyTo":first}),
+                Some(cara),
+                Some(ccsrf),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(sent["data"]["replyTo"]["id"], first.to_string());
+        assert_eq!(sent["data"]["replyTo"]["content"], "**hello**");
+        let page = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{messages}?limit=50"),
+                Value::Null,
+                Some(bob),
+                None,
+            )
+            .await,
+        )
+        .await;
+        let revision = page["data"]["revision"].as_str().unwrap().to_owned();
+        assert_eq!(revision, "0");
+        // Only the sender may edit or delete; anyone in the chat may react.
+        let first_path = format!("{messages}/{first}");
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &first_path,
+                json!({"content":"stolen"}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let edited = json_body(
+            request(
+                &app,
+                "PATCH",
+                &first_path,
+                json!({"content":"hello there"}),
+                Some(bob),
+                Some(bcsrf),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(edited["data"]["content"], "hello there");
+        assert!(edited["data"]["editedAt"].as_u64().is_some());
+        for (emoji, status) in [("👍", StatusCode::OK), ("nope", StatusCode::BAD_REQUEST)] {
+            assert_eq!(
+                request(
+                    &app,
+                    "PUT",
+                    &format!("{first_path}/reactions"),
+                    json!({"emoji":emoji,"reacted":true}),
+                    Some(cara),
+                    Some(ccsrf)
+                )
+                .await
+                .status(),
+                status
+            );
+        }
+        let changes = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{messages}?after=2&changes={revision}"),
+                Value::Null,
+                Some(bob),
+                None,
+            )
+            .await,
+        )
+        .await;
+        let changed = changes["data"]["changed"].as_array().unwrap();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0]["content"], "hello there");
+        assert_eq!(changed[0]["reactions"][0]["emoji"], "👍");
+        assert_eq!(changed[0]["reactions"][0]["count"], 1);
+        assert_eq!(changed[0]["reactions"][0]["mine"], false);
+        assert_eq!(changes["data"]["revision"], "2");
+        assert_eq!(
+            request(
+                &app,
+                "DELETE",
+                &first_path,
+                Value::Null,
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let page = json_body(
+            request(
+                &app,
+                "GET",
+                &format!("{messages}?limit=50"),
+                Value::Null,
+                Some(cara),
+                None,
+            )
+            .await,
+        )
+        .await;
+        let rows = page["data"]["messages"].as_array().unwrap();
+        assert_eq!(rows[0]["deleted"], true);
+        assert_eq!(rows[0]["content"], "");
+        assert!(rows[0].get("reactions").is_none());
+        assert!(rows[1]["replyTo"].get("content").is_none());
+        // Deleted messages accept no further changes or replies.
+        assert_eq!(
+            request(
+                &app,
+                "PATCH",
+                &first_path,
+                json!({"content":"again"}),
+                Some(bob),
+                Some(bcsrf)
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &messages,
+                json!({"id":Uuid::now_v7(),"content":"late","replyTo":first}),
+                Some(cara),
+                Some(ccsrf)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        let inbox = json_body(
+            request(
+                &app,
+                "GET",
+                "/api/v1/conversations",
+                Value::Null,
+                Some(cara),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(inbox["data"][0]["peerUserId"], ids[0]);
+        assert_eq!(inbox["data"][0]["lastMessage"], "hi back");
+    }
+
+    #[tokio::test]
     async fn personal_conversations_enforce_join_history_ownership_and_unread() {
         let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
             return;

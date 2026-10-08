@@ -148,6 +148,14 @@ pub fn build_router(state: AppState) -> Router {
             get(api::conversations::messages).post(api::conversations::send),
         )
         .route(
+            "/api/v1/conversations/{conversation_id}/messages/{message_id}",
+            patch(api::conversations::edit_message).delete(api::conversations::delete_message),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/messages/{message_id}/reactions",
+            put(api::conversations::react),
+        )
+        .route(
             "/api/v1/conversations/{conversation_id}/read",
             post(api::conversations::read),
         )
