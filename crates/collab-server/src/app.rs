@@ -99,6 +99,39 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/users/{user_id}/avatar", get(api::get_user_avatar))
         .route(
+            "/api/v1/teams",
+            get(api::teams::list).post(api::teams::create),
+        )
+        .route("/api/v1/teams/{team_id}", patch(api::teams::update))
+        .route(
+            "/api/v1/teams/{team_id}/members",
+            get(api::teams::members).post(api::teams::put_member),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/members/{user_id}",
+            axum::routing::delete(api::teams::remove_member),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/channels",
+            get(api::teams::channels).post(api::teams::create_channel),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/channels/{channel_id}",
+            patch(api::teams::update_channel),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/channels/{channel_id}/members",
+            post(api::teams::channel_member),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/channels/{channel_id}/library",
+            post(api::teams::library),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/oversight",
+            post(api::teams::oversight),
+        )
+        .route(
             "/api/v1/conversations",
             get(api::conversations::list).post(api::conversations::create),
         )

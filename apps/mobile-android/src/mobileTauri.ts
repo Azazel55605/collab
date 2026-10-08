@@ -520,6 +520,7 @@ export function hostedCalendarRequest<T>(
 }
 
 export interface ServerUser {
+  role?: 'admin' | 'member';
   id: string;
   username: string;
   displayName: string | null;

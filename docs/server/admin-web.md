@@ -33,10 +33,22 @@ creating administrator the vault owner. Member mutations are disabled while a
 vault is pending deletion. The vault detail view also exposes detailed logical
 storage accounting plus bounded ZIP import for empty active vaults and ZIP
 export. Server administrators have implicit operator access to every hosted
-vault without being added as vault members. The vault detail view includes a
+vault without being added as vault members. A linked channel library adds
+active team/channel membership before content access, including for server admins;
+operational inventory and lifecycle administration remain separate. The vault detail view includes a
 file browser with path, kind, size, modified time, and state information plus
 single-file download, move, document revision history, and restore-as-new-
 revision actions.
+
+Teams is available to ordinary signed-in users and administrators. It reuses the
+browser-safe shared `TeamWorkspace` controls, backed by cookie/CSRF adapters.
+Only server admins can create a team; the selected initial owner and subsequent
+team owners manage membership, public/private channels, archive/restore and library
+associations. Channel history uses bounded online pages and stable UUID retries;
+pending browser messages remain only in the open tab. Server role never bypasses
+private-channel membership. Administrative ownership claims are explicit and audited,
+and do not grant private access. The separate member file-library portal remains
+planned; channel libraries currently open through the desktop/Android file surfaces.
 
 ## Purpose
 
@@ -80,7 +92,8 @@ shared UI primitives without coupling the browser bundle to Tauri APIs.
 
 Production builds emit static assets served on the same origin as the server API
 through the gateway. Client-side routing lives below `/admin/`; API calls remain
-under `/api/v1/admin/`.
+under `/api/v1/admin/` for administration and the shared authenticated
+`/api/v1/teams` / `/api/v1/conversations` APIs for member collaboration.
 
 Initial routes:
 

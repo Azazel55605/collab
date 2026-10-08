@@ -91,9 +91,9 @@ an ID with different sender, vault or content returns 409. Mention delivery runs
 only on the original insert.
 
 Android now consumes this contract with a native encrypted retry outbox. Offline
-chat history, conversation inboxes, teams/channels and browser libraries remain
+chat history caching and browser libraries remain
 separate work in the [collaboration plan](../plans/teams-chat-and-file-sharing-plan.md).
-Only server admins will create teams; users may create group chats. Permission
+Only server admins create teams; users may create group chats. Permission
 groups are not teams, and account identity never crosses server boundaries.
 
 ## Personal Direct And Group Conversations
@@ -131,3 +131,50 @@ and disclose no chat content or participant/group names. Native opening validate
 source-server/account identity and current membership. History is online-authorized;
 only private unsent drafts are persisted encrypted in native clients. Fine-grained
 conversation mute/collapsing and attachments remain planned.
+
+## Teams, Channels And Linked Libraries
+
+Migration 0037 builds channels on the conversation history/unread/events contract.
+Teams are independent of permission groups; server-admin status is independent of
+team owner/member roles. Active membership and non-archived team/channel state are
+required for channel history, sends, read positions, notifications and linked files.
+
+- `GET /api/v1/teams?after={uuid}`: membership-only pages of 100 ordered by UUID.
+- `POST /api/v1/teams`: server-admin-only `{name, ownerId}`; the selected active
+  account becomes owner. Creation does not join the administrator automatically.
+- `PATCH /api/v1/teams/{id}`: owner `{name, archived}` rename/archive/restore.
+- `GET/POST .../{id}/members`: team roster or owner add/role `{userId, role}`.
+  `DELETE .../{id}/members/{userId}` removes a member or leaves the team.
+- `GET/POST .../{id}/channels`: visible channels or owner create
+  `{name, private, members}`. Public membership follows the team; private joins
+  require an active team account. New/rejoining members start after the current head.
+- `PATCH .../{id}/channels/{channelId}`: channel/team owner `{name, archived}`.
+- `POST .../{id}/channels/{channelId}/members`: private-channel add/remove
+  `{userId, role: "member" | "remove"}`. Team roles determine channel roles.
+- `POST .../{id}/channels/{channelId}/library`: `{vaultId}` links a library;
+  `null` explicitly detaches it. Requires both channel ownership and vault custodian
+  identity, including for the previous vault when replacing a link.
+- `POST .../{id}/oversight`: explicit server-admin ownership claim, audited as
+  `team.oversight.claimed` with `team.oversight`. Grants public access at join time,
+  never private access. Normal membership/history routes have no admin bypass.
+
+Team changes are transactional and audited. Browser mutations enforce CSRF; native
+bearer requests use the same APIs. Limits are 500 team members and 100 channels.
+The last active owner of the team and each private channel is protected from
+removal/demotion and account disable/delete, including database account triggers.
+Restore archived teams before changing their channels. Archives retain history;
+restoring preserves members' existing join boundaries.
+
+An existing vault opts into one channel association without copying content or
+changing its custodian/file grants. The central capability resolver requires active
+team/channel membership **and** existing file permissions, before owner/admin
+shortcuts. This applies to previews, history, search, manifests, replicas and live
+access as well as direct file URLs. Only the custodian may detach; this explicitly
+restores the vault's previous access rules and creates an audit event. Existing
+server operational administration is separate from private channel content access.
+Browser Files, organization-owned custodian transfer, folder/file ACLs and share
+links remain separate work in the [collaboration plan](../plans/teams-chat-and-file-sharing-plan.md).
+
+Linked library vaults must be detached before soft or permanent vault deletion.
+Association and deletion lock the vault row to prevent a concurrent link from
+leaving a pending-delete library. Restore archived vaults before detaching them.

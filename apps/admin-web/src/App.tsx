@@ -50,6 +50,7 @@ import {
 } from './compatibility';
 import { PasswordResetLinkDialog, PasswordResetScreen } from './PasswordReset';
 import { truncatePathForDisplay } from './paths';
+import { TeamsPage } from './TeamsPage';
 import { type AdminAccent, type AdminTheme, useAdminAppearance } from './theme';
 import type { TransferProgress } from './transfer';
 import type {
@@ -92,7 +93,15 @@ import {
 import { useAutoRefresh } from './useAutoRefresh';
 
 type View =
-  'dashboard' | 'users' | 'vaults' | 'permissions' | 'backups' | 'audit' | 'settings' | 'profile';
+  | 'dashboard'
+  | 'users'
+  | 'vaults'
+  | 'permissions'
+  | 'backups'
+  | 'audit'
+  | 'settings'
+  | 'profile'
+  | 'teams';
 
 export function isSelectedFile(value: FormDataEntryValue | null): value is File {
   return value instanceof globalThis.File && value.size > 0;
@@ -370,6 +379,12 @@ function AdminShell({
             </>
           )}
           <NavButton
+            active={view === 'teams'}
+            icon={<Users />}
+            label="Teams"
+            onClick={() => setView('teams')}
+          />
+          <NavButton
             active={view === 'profile'}
             icon={<UserCog />}
             label="Profile"
@@ -405,6 +420,7 @@ function AdminShell({
             onUpdated={onMeChange}
           />
         )}
+        {view === 'teams' && <TeamsPage key={me.id} me={me} />}
         {view === 'dashboard' && <Dashboard />}
         {view === 'users' && <UsersPage currentUser={me} />}
         {view === 'vaults' && <VaultsPage />}

@@ -1858,3 +1858,37 @@ nav .active svg {
 .account-page .account-password button {
   justify-self: start;
 }
+
+/* Shared team controls use the web portal's existing theme tokens. */
+.browser-teams {
+  min-height: 70vh;
+  height: calc(100dvh - 60px);
+  display: flex;
+  flex-direction: column;
+}
+.browser-teams .team-workspace button {
+  font: inherit;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.browser-teams .team-workspace button[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.browser-teams .team-workspace button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.browser-teams .team-workspace input,
+.browser-teams .team-workspace textarea {
+  font: inherit;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+}

@@ -50,8 +50,9 @@ Vitest resolve shared UI aliases to `src/` so existing controls can be reused.
 Server migration 0035 adds chronological message cursors and `chat.send` for
 built-in writers. Read remains `vault.read`; sending requires both permissions
 and an active vault. Native drafts are not an offline history cache. Desktop
-chat composer actions enforce the same sending capability. Direct/group inboxes
-and teams/library ownership remain planned.
+chat composer actions enforce the same sending capability. Direct/group inboxes,
+teams/channels and opt-in library association are implemented; browser library
+browsing and organization-owned custodian transfer remain planned.
 
 ## Server Account Settings
 
@@ -1539,3 +1540,38 @@ retains native tokens and checks expected user plus optional notice account key.
 The directory wrapper also accepts an expected user. `commands/chat.rs` adds an
 explicit conversation outbox namespace, preserving existing vault file/key names.
 Personal message notices contain generic text and revalidate membership on open.
+
+## Teams And Channel Libraries
+
+`collab-protocol/src/team.rs` owns portable team/member/channel DTOs and owner
+policy. `collab-server/src/api/teams.rs` is the PostgreSQL/Axum adapter; migration
+0037 adds teams, memberships and channel-to-conversation/library associations.
+Team mutations use the same commit-order advisory lock as personal conversations.
+Public membership is materialized into conversation membership; private membership
+is explicit. Channel conversation access additionally checks active team/channel
+state. Group mutation endpoints reject channels, which must use team APIs.
+
+`src/types/team.ts`, `src/lib/teams.ts`, and `src/components/teams/TeamWorkspace.tsx`
+provide shared request contracts and controls. `ConversationAccounts` adds Chats/
+Teams sections and adapts native requests/directory lookup; account-keyed mounts
+prevent cross-server state reuse. The same controls are imported by admin-web's
+`TeamsPage.tsx`; its HTTP adapter supplies cookie/CSRF authentication and bounded
+browser channel history with transient pending sends. The web Vite/TypeScript
+aliases resolve shared UI imports to root `src/`. Android's native `ServerUser`
+shape includes optional server role for backwards-compatible cached statuses.
+
+`hosted_conversation_request` now has separate exact conversation/team route and
+method allowlists; expected native account identity remains mandatory. Tokens stay
+native. Channel notifications retain the conversation destination plus optional
+team context, validated against current membership before opening. Native channel
+threads use the existing encrypted conversation outbox namespace.
+
+`resolve_vault_capabilities` first checks any linked channel's active membership,
+before owner/admin shortcuts and existing grant composition. REST, preview, replica
+and WebSocket paths consuming that resolver share this added boundary. Library
+association retains the existing vault custodian and grants; detachment is explicit
+and audited. Team ownership does not automatically grant file permissions.
+
+Linked library vaults must be detached before soft or permanent vault deletion.
+Association and deletion lock the vault row to prevent a concurrent link from
+leaving a pending-delete library. Restore archived vaults before detaching them.

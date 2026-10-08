@@ -1,4 +1,5 @@
 pub mod conversation;
+pub mod team;
 pub use conversation::*;
 
 use serde::{Deserialize, Serialize};

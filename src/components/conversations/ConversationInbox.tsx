@@ -138,7 +138,13 @@ export function ConversationInbox({
             </Avatar>
             <span className="conversation-row-name">
               {row.name}
-              <small>{row.kind === 'group' ? 'Group conversation' : 'Direct conversation'}</small>
+              <small>
+                {row.kind === 'channel'
+                  ? 'Team channel'
+                  : row.kind === 'group'
+                    ? 'Group conversation'
+                    : 'Direct conversation'}
+              </small>
             </span>
             {row.unread > 0 && (
               <span className="conversation-unread" aria-label={`${row.unread} unread messages`}>
@@ -311,7 +317,7 @@ function NewConversation({
   );
 }
 
-function ConversationThread({
+export function ConversationThread({
   account,
   connected,
   conversation,
@@ -380,10 +386,16 @@ function ConversationThread({
   return (
     <section className="conversation-inbox" aria-label={`Conversation with ${conversation.name}`}>
       <header className="conversation-header">
-        <Button aria-label="Back to chats" onClick={close}>
+        <Button
+          aria-label={conversation.kind === 'channel' ? 'Back to teams' : 'Back to chats'}
+          onClick={close}
+        >
           <ArrowLeft size={18} />
         </Button>
-        <h2>{conversation.name}</h2>
+        <h2>
+          {conversation.teamName ? `${conversation.teamName} / ` : ''}
+          {conversation.name}
+        </h2>
         {conversation.kind === 'group' && (
           <Button aria-label="Manage group" onClick={() => setManage(true)}>
             <Users size={18} />

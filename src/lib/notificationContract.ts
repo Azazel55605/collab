@@ -214,6 +214,9 @@ function validateDestination(value: unknown): NotificationDestination {
       return {
         kind: 'conversation',
         conversationId: requireString(destination.conversationId, 'Conversation ID', 160),
+        ...(optionalString(destination.teamId, 'Team ID', 160)
+          ? { teamId: destination.teamId as string }
+          : {}),
       };
     case 'vault-chat':
       return {

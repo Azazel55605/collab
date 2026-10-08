@@ -67,6 +67,8 @@ use uuid::Uuid;
 mod archive;
 #[path = "api/conversations.rs"]
 pub mod conversations;
+#[path = "api/teams.rs"]
+pub mod teams;
 use archive::parse_vault_zip;
 
 #[derive(Debug, Deserialize)]
@@ -1241,7 +1243,13 @@ pub async fn list_vaults(
         let mut vault = vault_from_row_without_role(row);
         let vault_uuid: Uuid = row.get("id");
         let access =
-            resolve_vault_capabilities(&state.database, vault_uuid, actor_id, &request_id).await?;
+            match resolve_vault_capabilities(&state.database, vault_uuid, actor_id, &request_id)
+                .await
+            {
+                Ok(access) => access,
+                Err(error) if error.status == StatusCode::NOT_FOUND => continue,
+                Err(error) => return Err(error),
+            };
         vault.role = access.derived_role();
         vault.capabilities = access.capability_tokens();
         vaults.push(vault);
@@ -1450,6 +1458,7 @@ pub async fn delete_vault(
         .begin()
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    teams::require_unlinked_library(&mut transaction, vault_id, &request_id).await?;
     sqlx::query(
         "UPDATE hosted_vaults SET status = 'pending_delete', pending_delete_at = NOW(), updated_at = NOW() WHERE id = $1",
     )
@@ -2064,6 +2073,17 @@ pub async fn send_chat_message(
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
         for row in rows {
             let mentioned_user_id: Uuid = row.get("id");
+            if teams::require_library_membership(
+                &state.database,
+                vault_id,
+                mentioned_user_id,
+                &request_id,
+            )
+            .await
+            .is_err()
+            {
+                continue;
+            }
             let account_key = crate::notification_api::account_key(mentioned_user_id);
             let source_id = payload.id.to_string();
             let delivery_key = format!("mention-{mentioned_user_id}");
@@ -8152,6 +8172,7 @@ pub async fn admin_delete_vault(
         .begin()
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    teams::require_unlinked_library(&mut transaction, vault_id, &request_id).await?;
     let updated = sqlx::query(
         "UPDATE hosted_vaults SET status = 'pending_delete', pending_delete_at = NOW(), updated_at = NOW() WHERE id = $1",
     )
@@ -8218,6 +8239,7 @@ pub async fn admin_force_delete_vault(
         .begin()
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    teams::require_unlinked_library(&mut transaction, vault_id, &request_id).await?;
     let deleted = sqlx::query("DELETE FROM hosted_vaults WHERE id = $1")
         .bind(vault_id)
         .execute(&mut *transaction)
@@ -10088,6 +10110,7 @@ pub(crate) async fn resolve_vault_capabilities(
     user_id: Uuid,
     request_id: &str,
 ) -> Result<EffectiveAccess, ApiFailure> {
+    teams::require_library_membership(pool, vault_id, user_id, request_id).await?;
     let meta = sqlx::query(
         r#"
         SELECT v.status::text AS status,
@@ -12895,6 +12918,783 @@ mod tests {
         ] {
             assert!(query.validate("test").is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn teams_channels_enforce_roles_history_archive_and_library_boundaries() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(6)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users,hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = build_router(AppState::new(
+            ServerConfig::default(),
+            pool.clone(),
+            Arc::new(FileSystemBlobStorage::new(dir.path()).await.unwrap()),
+        ));
+        let bootstrap=request(&app,"POST","/api/v1/auth/bootstrap",json!({"username":"admin","displayName":"Admin","password":"correct horse battery staple"}),None,None).await;
+        let mut sessions = vec![session_cookies(&bootstrap)];
+        let mut ids = vec![json_body(bootstrap).await["data"]["user"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()];
+        for username in ["bob", "cara", "dave"] {
+            let response=request(&app,"POST","/api/v1/admin/users",json!({"username":username,"displayName":username,"password":"correct horse battery staple"}),Some(&sessions[0].0),Some(&sessions[0].1)).await;
+            assert_eq!(response.status(), StatusCode::CREATED);
+            ids.push(
+                json_body(response).await["data"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+            let login = request(
+                &app,
+                "POST",
+                "/api/v1/auth/login",
+                json!({"username":username,"password":"correct horse battery staple"}),
+                None,
+                None,
+            )
+            .await;
+            sessions.push(session_cookies(&login));
+        }
+        macro_rules! call {
+            ($method:expr,$path:expr,$body:expr,$who:expr) => {
+                request(
+                    &app,
+                    $method,
+                    $path,
+                    $body,
+                    Some(&sessions[$who].0),
+                    Some(&sessions[$who].1),
+                )
+                .await
+            };
+        }
+        assert_eq!(
+            call!(
+                "POST",
+                "/api/v1/teams",
+                json!({"name":"No","ownerId":ids[1]}),
+                1
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                "/api/v1/teams",
+                json!({"name":"No CSRF","ownerId":ids[1]}),
+                Some(&sessions[0].0),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let created = call!(
+            "POST",
+            "/api/v1/teams",
+            json!({"name":"Engineering","ownerId":ids[1]}),
+            0
+        );
+        assert_eq!(
+            created.status(),
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&[])
+        );
+        let team = json_body(created).await["data"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let base = format!("/api/v1/teams/{team}");
+        assert!(
+            json_body(call!("GET", "/api/v1/teams", Value::Null, 0)).await["data"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            call!("GET", &format!("{base}/members"), Value::Null, 0).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "DELETE",
+                &format!("{base}/members/{}", ids[1]),
+                Value::Null,
+                1
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[1],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[2],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[3],"role":"owner"}),
+                2
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let public = json_body(call!(
+            "POST",
+            &format!("{base}/channels"),
+            json!({"name":"General","private":false,"members":[]}),
+            1
+        ))
+        .await["data"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let private = json_body(call!(
+            "POST",
+            &format!("{base}/channels"),
+            json!({"name":"Secret","private":true,"members":[]}),
+            1
+        ))
+        .await["data"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let channel = format!("{base}/channels/{private}");
+        let messages = format!("/api/v1/conversations/{private}/messages");
+        let msg = Uuid::now_v7();
+        for status in [StatusCode::CREATED, StatusCode::OK] {
+            assert_eq!(
+                call!(
+                    "POST",
+                    &messages,
+                    json!({"id":msg,"content":"Before invitation"}),
+                    1
+                )
+                .status(),
+                status
+            );
+        }
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 2).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 0).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            json_body(call!("GET", &format!("{base}/channels"), Value::Null, 2)).await["data"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/members"),
+                json!({"userId":ids[3],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/members"),
+                json!({"userId":ids[2],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert!(
+            json_body(call!("GET", &messages, Value::Null, 2)).await["data"]["messages"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &messages,
+                json!({"id":Uuid::now_v7(),"content":"Visible after invitation"}),
+                1
+            )
+            .status(),
+            StatusCode::CREATED
+        );
+        let page = json_body(call!("GET", &messages, Value::Null, 2)).await;
+        assert_eq!(page["data"]["messages"].as_array().unwrap().len(), 1);
+        let inbox = json_body(call!("GET", "/api/v1/conversations", Value::Null, 2)).await;
+        let row = inbox["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == private)
+            .unwrap();
+        assert_eq!(row["kind"], "channel");
+        assert_eq!(row["unread"], 1);
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("/api/v1/conversations/{private}/members"),
+                json!({"userId":ids[3]}),
+                1
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call!(
+                "PATCH",
+                &format!("/api/v1/conversations/{private}"),
+                json!({"name":"Bypass","picture":null}),
+                1
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/channels/{public}/members"),
+                json!({"userId":ids[2],"role":"remove"}),
+                1
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        // A canonical vault and its existing grants must satisfy both boundaries.
+        let vault = json_body(call!(
+            "POST",
+            "/api/v1/vaults",
+            json!({"name":"Team library"}),
+            1
+        ))
+        .await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        for who in [2, 3] {
+            assert_eq!(
+                call!(
+                    "POST",
+                    &format!("/api/v1/vaults/{vault}/members"),
+                    json!({"userId":ids[who],"role":"viewer"}),
+                    1
+                )
+                .status(),
+                StatusCode::CREATED
+            );
+        }
+        let file = call!(
+            "POST",
+            &format!("/api/v1/vaults/{vault}/files"),
+            json!({"name":"secret.md","kind":"document","documentType":"note","content":"# Private library"}),
+            1
+        );
+        assert_eq!(file.status(), StatusCode::CREATED);
+        let file = json_body(file).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/library"),
+                json!({"vaultId":vault}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/vaults/{vault}/files"),
+                Value::Null,
+                2
+            )
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call!(
+                "DELETE",
+                &format!("/api/v1/vaults/{vault}/members/{}", ids[2]),
+                Value::Null,
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/vaults/{vault}/files/{file}"),
+                Value::Null,
+                2
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("/api/v1/vaults/{vault}/members"),
+                json!({"userId":ids[2],"role":"viewer"}),
+                1
+            )
+            .status(),
+            StatusCode::CREATED
+        );
+        let notices=sqlx::query_scalar::<_,Value>("SELECT envelope FROM notification_events WHERE user_id=$1 AND category='collaboration.message'").bind(Uuid::parse_str(&ids[2]).unwrap()).fetch_all(&pool).await.unwrap();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0]["destination"]["teamId"], team);
+        assert_eq!(notices[0]["destination"]["conversationId"], private);
+        assert_eq!(
+            call!("DELETE", &format!("/api/v1/vaults/{vault}"), Value::Null, 1).status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call!(
+                "DELETE",
+                &format!("/api/v1/admin/vaults/{vault}"),
+                Value::Null,
+                0
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        sqlx::query(
+            "UPDATE hosted_vaults SET status='pending_delete',pending_delete_at=NOW() WHERE id=$1",
+        )
+        .bind(Uuid::parse_str(&vault).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("/api/v1/admin/vaults/{vault}/force-delete"),
+                Value::Null,
+                0
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        sqlx::query("UPDATE hosted_vaults SET status='active',pending_delete_at=NULL WHERE id=$1")
+            .bind(Uuid::parse_str(&vault).unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        for who in [0, 3] {
+            for endpoint in [
+                format!("/api/v1/vaults/{vault}"),
+                format!("/api/v1/vaults/{vault}/files"),
+                format!("/api/v1/vaults/{vault}/manifest"),
+                format!("/api/v1/vaults/{vault}/search?q=Private"),
+                format!("/api/v1/vaults/{vault}/files/{file}"),
+                format!("/api/v1/vaults/{vault}/files/{file}/preview"),
+                format!("/api/v1/vaults/{vault}/files/{file}/revisions"),
+            ] {
+                assert_eq!(
+                    call!("GET", &endpoint, Value::Null, who).status(),
+                    StatusCode::NOT_FOUND,
+                    "{who}: {endpoint}"
+                );
+            }
+        }
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/library"),
+                json!({"vaultId":null}),
+                2
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        // An explicit oversight claim creates a public membership, never private access.
+        assert_eq!(
+            call!("POST", &format!("{base}/oversight"), Value::Null, 2).status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call!("POST", &format!("{base}/oversight"), Value::Null, 0).status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/conversations/{public}/messages"),
+                Value::Null,
+                0
+            )
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 0).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/vaults/{vault}/files"),
+                Value::Null,
+                0
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM audit_events WHERE action='team.oversight.claimed'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+        // Team ownership alone cannot strand a private channel's last owner.
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[1],"role":"member"}),
+                0
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/members"),
+                json!({"userId":ids[1],"role":"remove"}),
+                1
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call!(
+                "PATCH",
+                &format!("/api/v1/admin/users/{}", ids[1]),
+                json!({"disabled":true}),
+                0
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert!(
+            sqlx::query("UPDATE users SET status='disabled' WHERE id=$1")
+                .bind(Uuid::parse_str(&ids[1]).unwrap())
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+        // Member removal revokes messages, events, unread and every file read.
+        assert_eq!(
+            call!(
+                "DELETE",
+                &format!("{base}/members/{}", ids[2]),
+                Value::Null,
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 2).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &messages,
+                json!({"id":Uuid::now_v7(),"content":"Revoked"}),
+                2
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/vaults/{vault}/files/{file}/preview"),
+                Value::Null,
+                2
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        let replay = json_body(call!(
+            "GET",
+            "/api/v1/conversations/events?after=0",
+            Value::Null,
+            2
+        ))
+        .await;
+        assert!(replay["data"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["kind"] == "removed"));
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[2],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/members"),
+                json!({"userId":ids[2],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert!(
+            json_body(call!("GET", &messages, Value::Null, 2)).await["data"]["messages"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        // Archive hides history and blocks a vault's direct URL, including its custodian.
+        assert_eq!(
+            call!(
+                "PATCH",
+                &channel,
+                json!({"name":"Secret","archived":true}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 1).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/vaults/{vault}/files"),
+                Value::Null,
+                1
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "PATCH",
+                &channel,
+                json!({"name":"Secret","archived":false}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 1).status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call!(
+                "PATCH",
+                &base,
+                json!({"name":"Engineering","archived":true}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 1).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/channels"),
+                json!({"name":"No","private":false,"members":[]}),
+                1
+            )
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call!(
+                "PATCH",
+                &base,
+                json!({"name":"Engineering","archived":false}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("GET", &messages, Value::Null, 1).status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[2],"role":"owner"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[1],"role":"member"}),
+                2
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "PATCH",
+                &channel,
+                json!({"name":"Secret","archived":true}),
+                1
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[1],"role":"owner"}),
+                2
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/library"),
+                json!({"vaultId":null}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "GET",
+                &format!("/api/v1/vaults/{vault}/files"),
+                Value::Null,
+                3
+            )
+            .status(),
+            StatusCode::OK
+        );
+        // An oversight claim promotes an already invited private member, while
+        // the earlier nonmember claim above remains unable to enter it.
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{base}/members"),
+                json!({"userId":ids[0],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!(
+                "POST",
+                &format!("{channel}/members"),
+                json!({"userId":ids[0],"role":"member"}),
+                1
+            )
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call!("POST", &format!("{base}/oversight"), Value::Null, 0).status(),
+            StatusCode::NO_CONTENT
+        );
+        let promoted = json_body(call!(
+            "GET",
+            &format!("/api/v1/conversations?conversation={private}"),
+            Value::Null,
+            0
+        ))
+        .await;
+        assert_eq!(promoted["data"][0]["role"], "owner");
+        let login=request(&app,"POST","/api/v1/auth/native/login",json!({"username":"admin","password":"correct horse battery staple","clientName":"Team test"}),None,None).await;
+        let token = json_body(login).await["data"]["accessToken"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/teams")
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::from(
+                        json!({"name":"Native team","ownerId":ids[1]}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
