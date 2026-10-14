@@ -7,6 +7,9 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
 
 ## Start Here
 
+- [Android performance, memory and bug audit](../audits/mobile-performance-and-bugs-2026-10-14.md)
+  — source-backed correctness/resource backlog, controlled reproductions and
+  physical-device measurement targets; fix implementation has not started.
 - [Full mobile app overhaul](../plans/mobile-full-app-plan.md) — audited gaps,
   local storage architecture, staged editor expansion and acceptance gates.
 - [Android companion plan](../plans/android-companion-app-plan.md) — product scope,

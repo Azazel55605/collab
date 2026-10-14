@@ -8,6 +8,13 @@ its outstanding device and release gates.
 
 ## Product Direction
 
+The [2026-10-14 Android performance and bug audit](../audits/mobile-performance-and-bugs-2026-10-14.md)
+adds a correctness/resource backlog for the existing companion. Its save,
+identity, URI, lifecycle and memory findings should feed Phase 0 acceptance
+proofs and subsequent adapter/editor work. Fix implementation and physical
+profiling have not started; this audit does not change the overhaul's phase
+status or replace its release gates.
+
 Make Android a daily-use Collab application that works without a server and
 adds hosted collaboration when connected. Keep Tauri, the mobile React shell,
 shared Rust document models, and the existing native authentication/replica
