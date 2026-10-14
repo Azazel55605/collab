@@ -43,6 +43,18 @@ staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
 merge/index/asset work. Establish native measurements before claiming speedups.
 This is an audit backlog, not a replacement for the other product plans.
 
+### Web Interface Performance And Correctness Audit
+
+Reviewed separately on **2026-10-14**. The
+[web interface audit](../audits/web-interface-performance-and-bugs-2026-10-14.md)
+is complete: 9 bug entries, 8 investigation items and 45 optimization
+opportunities covering the browser account/admin interface and the server
+workloads it calls. **Fix implementation is not started.** Prioritize stale
+refreshes, truthful logout/permission errors, storage resilience, modal/select
+keyboard behavior, stable permission rows and unsaved backup settings. Then
+reduce polling fan-out and bound archive memory. Live browser, database and
+multi-client profiling remain required; this is not a full server product audit.
+
 ### Completed Accounts And Collaboration Expansion
 
 Accounts and the original internal-preview delivery are complete and
