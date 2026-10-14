@@ -8,6 +8,7 @@ Implementation references:
 
 - [Codebase Reference](./codebase.md)
 - [UI Guide](./ui-guide.md)
+- [Desktop Performance, Memory And Bug Audit (2026-10-14)](../audits/desktop-performance-and-bugs-2026-10-14.md)
 - [Circuit Simulation Engine](./circuit-engine.md)
 - [`.sheet` Workbook Reference](./sheet-reference.md)
 - [`.sheet` Conversion Support Matrix](./sheet-conversion.md)

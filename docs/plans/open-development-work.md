@@ -32,6 +32,17 @@ work from being mistaken for an active roadmap item.
 | Digital ink and annotation        | Phase 10 testing                   | Phase 10 code and automated hardening are implemented. Complete the physical platform/input/accessibility/resource matrix and multi-client release soak before sign-off.                                                                                                                                                                                                                                            | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Release Validation](../build/digital-ink-release-validation.md) |
 | Flatpak distribution              | Planned                            | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                                                                                                                                                                                                                          | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                               |
 
+### Desktop Performance And Correctness Audit
+
+Reviewed separately on **2026-10-14**. The
+[desktop audit](../audits/desktop-performance-and-bugs-2026-10-14.md) is complete:
+8 bug entries, 10 investigation items and 70 optimization opportunities with
+source references and validation targets. **Fix implementation is not started.**
+Prioritize pending-edit loss during navigation, Unicode search panics, native
+staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
+merge/index/asset work. Establish native measurements before claiming speedups.
+This is an audit backlog, not a replacement for the other product plans.
+
 ### Completed Accounts And Collaboration Expansion
 
 Accounts and the original internal-preview delivery are complete and

@@ -1,0 +1,683 @@
+# Desktop Performance, Memory And Bug Audit
+
+Reviewed: **2026-10-14**. Source baseline: `a5ecaccfac806005233b11c1a7a203fe2051f7ed`
+(`main`, desktop package `0.8.7`). This is an audit/backlog, not an implementation
+claim. Application code has not been changed by this review.
+
+The inventory contains **88 entries: 8 bugs, 10 investigation items, and 70
+performance opportunities**. It covers the desktop shell, editors, React stores,
+Tauri IPC, local files/indexing, rendering/media, collaboration/replicas,
+calendar/background work, build inputs and observability. Shared crates and
+hosted adapters are included where the desktop calls them. Independent Android,
+admin-web and server product audits are outside this first pass.
+
+“Every optimization” cannot mean proof that no other issue exists in a large
+codebase. This is a comprehensive source-backed first-pass inventory, including
+small and conditional improvements; native profiling must establish their actual
+cost. Source discovery inventoried 862 TS/TSX/Rust files and 244,405 lines under
+`src/` and `src-tauri/src/`, including tests, plus the relevant shared-crate paths.
+Hotspots and lifecycle boundaries received manual review; this is not a claim
+that every line or every platform was exercised.
+
+## Evidence And Interpretation
+
+- **Reproduced**: a focused probe exercised the current code or, for the Rust
+  excerpt helper, an exact extraction of it. Observational probes assert the
+  current bad behavior; they are not acceptance tests for a future fix.
+- **Source-confirmed**: a specific missing cleanup, colliding path or version
+  check is visible in code. Its production impact is not quantified here.
+- **Investigate**: a plausible fault or cost needs a controlled reproducer.
+- **Opportunity**: the implementation does identifiable work that may be reduced.
+  This does not establish a user-visible bottleneck or a memory leak.
+- **P1**: first delivery batch; data loss, crashes, major resource growth, or a
+  likely large desktop cost. **P2**: next batch. **P3**: conditional/measurement
+  work after the larger issues. Priorities are audit recommendations, not measured
+  speedup rankings. There are no invented percentage improvements.
+
+### Measured Production Artifacts
+
+A fresh Vite build wrote only to `/tmp/collab-desktop-audit-dist` and succeeded
+in the build-reported **3.12 seconds**. This is build duration, not app startup.
+
+| Artifact                  |  Raw bytes | Illustrative gzip bytes | Interpretation                                              |
+| ------------------------- | ---------: | ----------------------: | ----------------------------------------------------------- |
+| Initial `index-*.js`      |  6,926,495 |               2,040,748 | Large eagerly evaluated application graph                   |
+| `index-*.css`             |    363,836 |                  64,908 | CSS/font declarations; inspect active rules and styles      |
+| Mermaid browser bundle    |  5,493,176 |               1,565,532 | Separate asset, loaded on demand; not initial JS            |
+| Three.js chunk            |    722,503 |                 181,456 | Already dynamically loaded                                  |
+| PDF worker A              |  2,395,538 |                       — | Bundled worker asset                                        |
+| PDF worker B              |  2,228,489 |                       — | A second worker from another PDF import path                |
+| Pure Nerd Font WOFF2      |    973,228 |                       — | Distribution/font cost, not proof it loads at startup       |
+| English OCR language pack | 10,923,060 |                       — | Already compressed; packaged offline OCR input              |
+| All output files          | 40,187,522 |                       — | 232 files; excludes the Rust executable/native dependencies |
+
+Gzip is an offline comparison, not the measured Tauri asset transport. Packaged
+bytes, downloaded bytes, decoded images, JS heap, worker heap, GPU memory and
+native RSS are different metrics. No native RSS, cold startup, power or WebKitGTK
+frame-time measurements were performed in this pass. Build warnings identify
+ineffective dynamic imports for the opener, Tauri window API and OCR cache; the
+large-chunk warning was retained rather than hidden.
+
+## Bugs
+
+### B01 — P1 — Switching/closing an editor can discard a pending local edit
+
+**Reproduced, including the real `NoteView` with mocked storage/editor input.**
+[AppShell](../../src/components/layout/AppShell.tsx) renders an identity-keyed
+active document and unmounts it when the document/page changes.
+[DocumentSessionController](../../src/lib/documentSessionController.ts#L729),
+`dispose()`, cancels autosave and clears listeners without flushing or durably
+retaining the unsaved document. [TabBar](../../src/components/layout/TabBar.tsx)
+closes directly; [editorStore](../../src/store/editorStore.ts) retains tab/view
+metadata, not the unsaved body.
+
+The probe loaded a local note, changed it, immediately unmounted, waited past
+its debounce and reopened: **zero writes; the old saved body returned**. Local
+note behavior is reproduced. Ink/deck and other consumers of the same controller
+need their own acceptance cases; hosted live persistence has a different path.
+
+Fix with a document-session owner that survives navigation, or an awaited
+save/close transition plus durable draft recovery. Do not solve this by mounting
+all editors forever. Test tab switch, Chats/Grid navigation, close/middle-click,
+close-all, quit, write failure, conflict, locked vault and offline mode.
+
+### B02 — P1 — Local full-text search can panic on Unicode excerpts
+
+**Reproduced from the exact `make_excerpt` implementation** in
+[index.rs](../../src-tauri/src/commands/index.rs#L132). The helper gets byte offsets
+from lowercased text and slices the original text at `pos - 40`, the computed
+end, and `max_len`. Neither UTF-8 boundaries nor case-fold length changes are
+accounted for.
+
+Input `"中".repeat(30) + "needle" + "中".repeat(30)`, query `needle`, limit 120:
+**panic at byte 50, inside a Chinese character**. Search results can fail rather
+than return an excerpt; this does not prove the entire application process exits.
+Use Unicode-safe clipping and a correct mapping between case-folded and original
+text. Test Chinese, emoji, accented text, Turkish dotted I, long matches and each
+clipping boundary.
+
+### B03 — P2 — An old search response overwrites results for a newer query
+
+**Reproduced against [SearchPanel](../../src/components/vault/SearchPanel.tsx#L20).**
+The 300ms timer is cleared on a new query, but a request already sent is neither
+cancelled nor generation-checked. Resolve the second query first, then the first:
+the UI shows the first query's results while the input still contains the second.
+This can also occur around vault changes. Guard query + vault identity, cancel
+where possible, and represent loading/error explicitly. Test out-of-order replies,
+clearing the input, changing vault and unmounting during a request.
+
+### B04 — P1 — Successfully opened PDFs have no matching loading-task teardown
+
+**Source-confirmed cleanup omission** in [PdfView](../../src/views/PdfView.tsx#L1247),
+the document-load effect around `getDocument`. `task` is local to its async
+callback. It is destroyed only when cancellation is noticed immediately after
+`task.promise`; successful loads store only `pdf`, and effect cleanup sets a
+boolean. Cancellation after `getPage(1)` returns without teardown, and load errors
+have no task-level `finally`. The loading-task handle is not retained for normal
+unmount/replace cleanup. Closing a tab therefore lacks explicit PDF worker/source
+release; actual heap retention must be measured in the native WebView.
+
+Retain and destroy every loading task, cancel page renders, and clear backing
+canvases. Also repair [CanvasPage](../../src/views/CanvasPage.tsx),
+`renderPdfPreview`: it awaits `task.promise` before entering `try/finally`, so
+failed loading skips `destroy()`. Test successful close, corrupt PDF, immediate
+switch, cancellation during first-page lookup and repeated open/close heap slope.
+
+### B05 — P2 — Disposal before native listener registration leaks the subscription
+
+**Reproduced against `FileSystemTransport.onPresenceChanged`** in
+[collabTransport](../../src/lib/collabTransport.ts#L58). Cleanup calls an as-yet
+undefined unlisten function; when the `listen()` promise resolves later, the
+subscription remains installed. `onChatUpdated` and `onConfigChanged` repeat the
+pattern. [AppShell](../../src/components/layout/AppShell.tsx)'s async listener
+setup and [CollabProvider](../../src/components/collaboration/CollabProvider.tsx)'s
+window listeners have the same missing disposed guard.
+
+The probe disposed before resolving registration and observed that the returned
+unlisten function was never called. Introduce a shared race-safe subscription
+helper; late registration must immediately unlisten. Test delayed registration,
+partial setup failure, rapid vault changes and Strict Mode lifecycle cycles.
+
+### B06 — P1 — Atomic-write temporary filenames collide and can overwrite a sibling
+
+**Source-confirmed; path alias reproduced.**
+[files.rs](../../src-tauri/src/commands/files.rs#L202), `write_vault_bytes` and
+`write_note_to_path`, use `full_path.with_extension("tmp")`. `Notes/example.md`
+and `Notes/example.canvas` both stage into `Notes/example.tmp`. An existing
+sibling with that name is overwritten by `fs::write` and then renamed away;
+concurrent writers can also share the staging path. The probe confirmed the path
+collision without writing user files. This is not a concurrency stress result.
+
+Use uniquely created sibling temp files that preserve full destination identity,
+with clear cleanup/recovery rules. Test two extensions with the same stem,
+pre-existing `.tmp`, concurrent writes and rename failure. Preserve same-directory
+atomic rename and optimistic conflict checks.
+
+### B07 — P2 — A PDF thumbnail can be stamped with a newer source than it rendered
+
+**Source-confirmed version gap; timing scenario not yet executed.**
+[pdfPreview](../../src/lib/pdfPreview.ts), `loadPdfPreviewDataUrl`, reads the PDF,
+renders, and calls `writeCachedDocumentPreviewDataUrl` without an expected source
+hash. [sidecars.rs](../../src-tauri/src/commands/files/sidecars.rs) then stamps the
+cache with the source's current mtime/size. If the source changed during rendering,
+the old thumbnail can be accepted as belonging to the new PDF. Internal document
+previews already pass a revision in [documentPreview](../../src/lib/documentPreview.ts).
+
+Bind the source read/render/write to one revision and reject an outdated write.
+Test replacement while rendering, same-size replacement, and preserved mtime.
+Consider a stronger revision than mtime/size for correctness-sensitive cache hits.
+
+### B08 — P2 — The interactive canvas pixel ceiling is not a hard ceiling
+
+**Reproduced against [rendering](../../src/lib/rendering.ts#L11).**
+`boundedCanvasDeviceScale` applies a lower scale bound of 0.5 after calculating
+the pixel-budget scale. At 8000×8000 CSS pixels, it returns 0.5, allocating
+16,000,000 backing pixels despite the declared 12,000,000 maximum.
+
+Allow a lower scale or additionally clamp backing dimensions. This is an oversized
+surface case, not proof that ordinary desktop windows exceed the ceiling. Test
+large dimensions, DPR extremes, non-finite input and actual backing-store rounding.
+
+## Potential Bugs And Capability Gaps To Investigate
+
+These are **not included in the eight established bug entries**. Each needs a
+controlled reproducer before treating its impact as confirmed.
+
+| ID / priority | Evidence and scenario                                                                                                                                                                                                                                                      | Required investigation                                                                                                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R01 / P1      | [AppShell](../../src/components/layout/AppShell.tsx) publishes index results without a vault generation guard. [index.rs](../../src-tauri/src/commands/index.rs) keeps one global native index; `get_backlinks` ignores `_vault_path`, and `open_vault` does not clear it. | Delay indexing vault A, switch to B, then resolve A; check paths/tags/backlinks and encryption-key transitions. Scope native and frontend results to vault identity.                                      |
+| R02 / P1      | [GridCell](../../src/components/grid/GridCell.tsx) renders document views without file identity keys, whereas AppShell keys them. The shared controller deliberately lives for a hook lifetime and uses mutable option proxies.                                            | Change one cell from A to B during a pending save/read. Prove whether A's acknowledgement or draft affects B; use identity-keyed controllers plus safe navigation.                                        |
+| R03 / P1      | [files.rs](../../src-tauri/src/commands/files.rs) checks `expected_hash`, then later writes/renames without a per-file compare-and-write lock.                                                                                                                             | Race two grid views or an external writer against one file. Determine whether both writes can pass the same revision check; serializing a frontend controller alone is insufficient for external writers. |
+| R04 / P2      | [sidecars.rs](../../src-tauri/src/commands/files/sidecars.rs) publishes preview metadata and payload as separate writes; readers may interleave.                                                                                                                           | Pause between writes, read, fail the payload write and retry. Establish a consistent publish protocol and fail-open-to-regeneration behavior.                                                             |
+| R05 / P2      | [ocr](../../src/lib/ocr.ts) has one module-global `activeWorker` and `activeProgress`; `getWorker` has no single-flight initialization/job lock.                                                                                                                           | Run two OCR operations from separate grid panes, then switch language. Check duplicate workers, progress attribution and one job's idle shutdown interrupting another.                                    |
+| R06 / P2      | [useSheetFormulaEngine](../../src/lib/sheet/useSheetFormulaEngine.ts) releases a runtime on unmount while previously submitted evaluations may still be pending. Native evaluation can create a runtime.                                                                   | Force release before an already-queued evaluation executes; check whether the runtime is resurrected and retained. Add runtime generation/cancellation if reproduced.                                     |
+| R07 / P2      | [noteSnippetStore](../../src/store/noteSnippetStore.ts) publishes asynchronous snippet loads without a request/scope guard.                                                                                                                                                | Resolve vault A's snippet list after switching to B. Verify selection, display and mutations target the intended scope.                                                                                   |
+| R08 / P2      | [ocrCache](../../src/lib/ocrCache.ts) persists plaintext recognized text/word boxes globally in IndexedDB. Call-site keys use hashes/path/document identity, not an explicit account/vault lifecycle policy.                                                               | Check encrypted vault close, hosted logout/revocation, cache browsing and deletion. Define authorized retention; identical bytes sharing a result is not itself evidence of incorrect OCR.                |
+| R09 / P2      | [vaultClient](../../src/lib/vaultClient.ts), hosted `buildNoteIndex`, intentionally emits empty tags/wikilinks/word counts.                                                                                                                                                | Check hosted Graph/Tags/Backlinks behavior against local equivalents. Record a product capability gap rather than pretending the lightweight manifest is a full content index.                            |
+| R10 / P2      | [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx) sanitizes success output but constructs raw HTML with `String(e)` in its error fallback.                                                                                                                | Determine whether a content-derived exception can inject markup. Escape fallback text regardless; do not claim a demonstrated XSS exploit from source inspection alone.                                   |
+
+## Performance Opportunity Inventory
+
+Each opportunity has a source, a concrete change and a verification target. Where
+it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
+instructions to optimize code before measuring it.
+
+### Startup, Bundles And Packaged Assets
+
+- **O01 / P1 — Split document/page views at the application boundary.**
+  [AppShell](../../src/components/layout/AppShell.tsx) statically imports all major
+  views. Lazy-load editor families with explicit loading/error states. Measure
+  initial evaluated JS and first-use latency for each editor; do not trade startup
+  gains for broken navigation or unsupported WebKit module paths.
+- **O02 / P2 — Load infrequently opened root modals separately.**
+  [App](../../src/App.tsx) imports Settings, vault management and math modal hosts
+  eagerly. Keep lightweight listeners mounted, defer expensive content. Verify
+  keyboard shortcuts and no extra startup module evaluation.
+- **O03 / P2 — Fix ineffective dynamic imports as graph changes, not warning suppression.**
+  The production build reports opener/window/OCR-cache paths already reached by
+  static imports. Inspect [tauri](../../src/lib/tauri.ts),
+  [ImageView](../../src/views/ImageView.tsx) and
+  [presentWindow](../../src/lib/deck/presentWindow.ts). Establish useful feature
+  boundaries; small shared wrappers may properly stay eager.
+- **O04 / P1 — Unify the PDF API/worker import strategy.**
+  [PdfView](../../src/views/PdfView.tsx), [pdfPreview](../../src/lib/pdfPreview.ts)
+  and [CanvasPage](../../src/views/CanvasPage.tsx) use different normal/legacy
+  PDF.js paths and produce two workers. Choose a compatible strategy and test
+  Linux WebKit, worker startup and PDF features before removing a compatibility
+  build. Measure package bytes and simultaneous worker heaps.
+- **O05 / P2 — Defer icon registry initialization.**
+  [nerdFontIcons](../../src/lib/nerdFontIcons.ts) builds/sorts the full generated
+  icon registry at module evaluation; the root command bar imports it. Build on
+  first icon mode or load a generated search index lazily. Measure boot parse/
+  initialization time and preserve aliases/completion.
+- **O06 / P2 — Reduce eager syntax-highlighter language coverage.**
+  [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx) imports the
+  broad Highlight.js package; CodeMirror paths import language-data catalogs.
+  Register common languages and dynamically load uncommon ones. Test fenced
+  code, language switching, copy and unknown-language fallback.
+- **O07 / P2 — Audit CSS/font distribution separately from startup fetches.**
+  [App.css](../../src/App.css) imports multiple complete font families and the
+  Nerd Font. Package needed scripts/weights or separate optional fonts, preserving
+  user font settings. Measure packaged bytes, loaded faces and fallback behavior;
+  do not assume every emitted font is downloaded at boot.
+- **O08 / P3 — Keep OCR assets optional at runtime without breaking offline use.**
+  [prepare-ocr-assets](../../scripts/prepare-ocr-assets.mjs) packages substantial
+  language/WASM files. Measure installed size and first OCR load; consider an
+  explicit optional language package policy. Do not remove offline English OCR
+  or count these assets as initial JavaScript.
+- **O09 / P2 — Add bundle composition and regression budgets.**
+  [vite.config](../../vite.config.ts) has development prebundling controls but no
+  maintained production entry-size gate. Record module contribution, initial vs
+  lazy assets and per-worker sizes. Budget meaningful boundaries; arbitrary
+  chunk splitting or a larger warning limit is not an optimization.
+
+### React State, Session Ownership And Navigation
+
+- **O10 / P1 — Narrow whole-store subscriptions in shell/common surfaces.**
+  [AppShell](../../src/components/layout/AppShell.tsx),
+  [Sidebar](../../src/components/layout/Sidebar.tsx),
+  [GridView](../../src/views/GridView.tsx),
+  [CollabProvider](../../src/components/collaboration/CollabProvider.tsx) and
+  [command bar](../../src/components/command-bar/useCommandBarShell.ts) subscribe
+  broadly. Use stable selectors for actual dependencies. Profile typing, cursor
+  motion, sync progress and sidebar resize; do not introduce unstable selectors.
+- **O11 / P1 — Stop serializing persistent view state on every interaction.**
+  [editorStore](../../src/store/editorStore.ts) uses localStorage persistence for
+  tab and view maps. Note selection/scroll, sheet scroll and ink/deck viewport
+  updates write into it. Separate transient state from debounced durable state,
+  with a flush on suspension/exit. Count localStorage writes during a pan/scroll.
+- **O12 / P2 — Bound retained per-file view state.**
+  `closeTab` does not prune note/sheet/ink/deck view maps in
+  [editorStore](../../src/store/editorStore.ts). Keep a bounded recent-file LRU,
+  migrating renamed/deleted entries safely. Measure state bytes after opening
+  thousands of distinct files; closing a tab need not erase useful recent state.
+- **O13 / P2 — Batch close/reorder metadata updates.**
+  [TabBar](../../src/components/layout/TabBar.tsx) closes all/other tabs by calling
+  `closeTab` repeatedly. Provide one transactional state update after the B01
+  save/close gate. Measure store notifications/persist writes for 100 tabs.
+- **O14 / P1 — Separate durable document sessions from heavyweight view mounts.**
+  [documentSessionController](../../src/lib/documentSessionController.ts) already
+  centralizes correctness. Retain small sessions/drafts across navigation while
+  suspending editor DOM, PDF workers and renderers. Fix B01 first; compare memory
+  and reopen latency without keeping all editors mounted.
+- **O15 / P2 — Deduplicate same-file sessions across grid panes.**
+  [GridCell](../../src/components/grid/GridCell.tsx) can mount independent views
+  of a file. Share read/cache/live resources by vault/file identity while retaining
+  per-pane view state. Test conflict policy and independent selection; first
+  investigate R02/R03.
+- **O16 / P3 — Reduce application-wide resize broadcasts.**
+  [AppShell](../../src/components/layout/AppShell.tsx) persists sidebar width during
+  pointer movement; [GridView](../../src/views/GridView.tsx) also animates layouts.
+  Use local/rAF geometry during drag and commit durable values at the boundary.
+  Profile layout/reflow rather than simply memoizing every component.
+
+### Vault Listing, Indexing And Search
+
+- **O17 / P1 — Replace whole-vault rebuilds for individual file changes.**
+  [AppShell](../../src/components/layout/AppShell.tsx) debounces all file event
+  types into `refreshFileTree` plus `buildNoteIndex`. Payload paths are discarded.
+  Maintain per-path index updates, rename/removal handling and a coalesced full
+  fallback. Measure filesystem reads for one edited note in a 10k-note vault.
+- **O18 / P1 — Bound indexing concurrency and reject obsolete jobs.**
+  The same effect can start a new scan while a previous scan is awaiting IPC.
+  Add single-flight/coalescing and vault generations across shell/native index
+  code. Test burst writes, vault switches and cancellation; retain latest work.
+- **O19 / P1 — Use a persistent/incremental local content search index.**
+  [index.rs](../../src-tauri/src/commands/index.rs), `search_notes`, rereads and
+  decrypts title-unmatched notes for every query while holding the note-index
+  read lock. Index normalized content/tokens under the correct encryption policy.
+  Measure cold/warm query I/O, memory and lock wait; fix B02/B03/R01 first.
+- **O20 / P2 — Bound search result construction and delivery.**
+  `search_notes` collects/sorts every result; [SearchPanel](../../src/components/vault/SearchPanel.tsx)
+  renders them all. Use top-k/page APIs with explicit total/continuation semantics.
+  Verify deterministic ordering and ability to reach later results.
+- **O21 / P2 — Build reverse-link lookup indexes.**
+  `get_backlinks` in [index.rs](../../src-tauri/src/commands/index.rs) scans every
+  note and repeatedly lowercases paths/links. Normalize once and maintain reverse
+  adjacency by vault. Verify stem ambiguity, aliases and renames.
+- **O22 / P2 — Avoid full character-vector allocation for wikilink extraction.**
+  `extract_wikilinks` collects all characters before scanning in
+  [index.rs](../../src-tauri/src/commands/index.rs). Use a streaming/slice parser
+  with correct Unicode handling and explicit malformed-markup rules. Compare
+  allocations on large notes; preserve existing extraction tests.
+- **O23 / P2 — Reduce redundant index copies across native/IPC/frontend layers.**
+  `build_note_index` clones the full vector into global state and returns another
+  payload. Consider a scoped native index plus compact DTO/page/delta delivery.
+  Measure resident and serialized bytes; keep metadata available for Graph/Tags.
+- **O24 / P1 — Virtualize visible file-tree rows.**
+  [FileTree](../../src/components/vault/FileTree.tsx) recursively mounts expanded
+  nodes. Flatten visible rows once and window them with overscan. Preserve focus,
+  range selection, drag targets, disclosures and accessibility; test deeply nested
+  and 10k-visible-item trees.
+- **O25 / P2 — Maintain path/id maps instead of repeated tree flatten/find work.**
+  [FileTree](../../src/components/vault/FileTree.tsx),
+  [noteAssets](../../src/lib/noteAssets.ts) and hosted manifest lookups repeat
+  traversals. Cache derived maps per manifest/tree revision; avoid copying every
+  subtree to gain an index. Benchmark large image-heavy notes and move previews.
+- **O26 / P1 — Incrementalize kanban attachment discovery.**
+  [FileTree](../../src/components/vault/FileTree.tsx)'s file-tree effect reads every
+  kanban via unbounded `Promise.all`. Maintain board revision/attachment indexes
+  and a bounded reader pool. Count rereads after unrelated file changes and retain
+  error isolation for one unreadable board.
+- **O27 / P2 — Stop generated-directory churn from triggering visible-vault scans.**
+  [watcher.rs](../../src-tauri/src/commands/watcher.rs) watches the entire root
+  recursively and bubbles ignored nested paths to visible parents. Distinguish
+  atomic-save temp files from sustained node_modules/build activity; prune
+  directories at the watcher strategy where possible. Test edits and renames
+  from external editors before suppressing events.
+- **O28 / P2 — Move heavy local listing/index/search into bounded native jobs.**
+  [files.rs](../../src-tauri/src/commands/files.rs) and
+  [index.rs](../../src-tauri/src/commands/index.rs) expose synchronous filesystem
+  scans. Give long jobs explicit scheduling, cancellation/progress and bounded
+  concurrency. Measure actual IPC responsiveness on each native platform; do not
+  claim a specific Tauri executor freeze merely from a synchronous signature.
+
+### Markdown, Math And Graph
+
+- **O29 / P1 — Avoid whole-note string/render work for every keystroke.**
+  [MarkdownEditor](../../src/components/editor/MarkdownEditor.tsx) calls
+  `doc.toString()` on each document change;
+  [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx) preprocesses,
+  renders and sanitizes the whole content. Use transactions/deltas for session
+  state and deferred or block-level preview updates. Test IME, undo and preview
+  consistency; preserve sanitization and save correctness.
+- **O30 / P2 — Reconcile preview blocks/assets rather than rebuilding all DOM work.**
+  The MarkdownPreview effect reruns Mermaid/plot/image resolution after HTML
+  changes. Preserve unaffected block resources and resolve asset paths via a
+  revision-scoped index. Measure diagrams/images touched after a small text edit.
+- **O31 / P2 — Move expensive math sampling/solving off the UI thread.**
+  [mathSolver](../../src/components/editor/mathSolver.ts) and
+  [mathPlotSpec](../../src/components/editor/mathPlotSpec.ts) run Nerdamer and
+  sampling synchronously. Use cancellable bounded workers and latest-request
+  results. Test malformed/expensive expressions and rapid domain edits.
+- **O32 / P1 — Render static 3D plots on demand.**
+  [MathPlot3D](../../src/components/editor/MathPlot3D.tsx) renders in a continuous
+  rAF loop even when the camera/spec is unchanged. Invalidate on interaction,
+  resize/spec/theme and suspend when offscreen/hidden. Measure idle GPU/CPU and
+  preserve interaction smoothness and existing disposal.
+- **O33 / P2 — Limit simultaneously active inline plot renderers.**
+  Markdown can mount many plots. Add visibility-based activation and an aggregate
+  renderer/pixel budget in [MathPlot3D](../../src/components/editor/MathPlot3D.tsx)
+  and [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx). Verify
+  scrolling and renderer recovery without replacing plots with dead placeholders.
+- **O34 / P2 — Move large graph layout work off the UI thread.**
+  [GraphView](../../src/components/graph/GraphView.tsx) runs D3 force simulation
+  on the UI thread with SVG nodes/links. Use a worker/layout cache and consider
+  canvas/WebGL above a measured threshold. Preserve hit testing and accessibility;
+  existing simulation.stop/rAF cleanup should remain.
+- **O35 / P2 — Stable graph inputs and incremental adjacency updates.**
+  GraphView rebuilds its simulation on graph data/callback changes. Maintain
+  stable callbacks and update affected adjacency/layout rather than resetting all
+  nodes after an index refresh. Test camera/selection preservation and large graphs.
+- **O36 / P2 — Bound command/icon search caches and work.**
+  [nerdFontIcons](../../src/lib/nerdFontIcons.ts) caches every query without eviction
+  and scores the full registry for new queries. Add a bounded LRU, normalized
+  query index and top-k behavior. Measure typed-query cost and cache bytes.
+
+### Previews, PDF, Images And OCR
+
+- **O37 / P1 — Replace large asset data URLs over JSON IPC with scoped binary transport.**
+  [files.rs](../../src-tauri/src/commands/files.rs), hosted asset commands and
+  [vaultClient](../../src/lib/vaultClient.ts) read/encode whole files; PDF paths
+  decode into another byte array. Use an authenticated vault-scoped stream/
+  protocol or binary buffer bridge with encryption/range policy intact. Measure
+  transfer copies, peak RSS/heap and large-PDF first-page latency.
+- **O38 / P1 — Share one bounded preview scheduler across every consumer.**
+  [pdfPreview](../../src/lib/pdfPreview.ts), canvas preview rendering and hover
+  previews have separate execution paths. Deduplicate by account/vault/file/revision,
+  prioritize visible work, cap concurrency and cancel obsolete work. Verify no
+  authorization bypass and fair progress across simultaneous grid panes.
+- **O39 / P2 — Reuse the standard PDF preview service in canvas cards.**
+  [useCanvasPreviews](../../src/components/canvas/useCanvasPreviews.ts) reads a PDF
+  and calls its separate 520px renderer instead of the shared persistent helper.
+  Share versioned preview results with an explicit size variant. Measure repeated
+  hovers/card loads; fix B04/B07 first.
+- **O40 / P1 — Avoid full-resolution image reads/decodes for tiny hover previews.**
+  [FileTreeHoverPreviewPopover](../../src/components/previews/FileTreeHoverPreviewPopover.tsx)
+  reads the original image data URL. Add bounded thumbnail generation/delivery
+  with decoder limits and correct revision/authentication. Measure a 40MP photo
+  hover vs thumbnail; server rendering remains a separate deployment decision.
+- **O41 / P2 — Make hover cancellation stop work, not just ignore its result.**
+  The same component sets `cancelled`, but backend read/render work continues.
+  Reference-count shared jobs and cancel when there are no consumers. Test rapid
+  pointer movement without cancelling a preview still used by another pane.
+- **O42 / P2 — Give PDF caches byte budgets and a vault/account lifecycle.**
+  [PdfView](../../src/views/PdfView.tsx) has a 12-entry PNG object-URL LRU;
+  [pdfPreview](../../src/lib/pdfPreview.ts) bounds source-string length, not all
+  output/decoded memory. Account for actual resources, clear sensitive entries on
+  close/lock/logout as policy requires, and preserve eviction revocation.
+- **O43 / P2 — Make the global PDF render queue cancellable and prioritized.**
+  [pdfRenderQueue](../../src/views/pdfRenderQueue.ts) serializes jobs in a promise
+  chain. Single execution is useful, but obsolete queued jobs still occupy their
+  closures and delay current pages. Add latest/visibility scheduling and fairness;
+  test repeated zoom/page changes in multiple PDFs.
+- **O44 / P2 — Bound local preview-cache disk retention.**
+  [sidecars.rs](../../src-tauri/src/commands/files/sidecars.rs) stores per-path cache
+  files without a global byte quota/age GC. Add disposable-cache accounting and
+  rename/delete cleanup, preserving encrypted storage. Measure growth across
+  thousands of visited files; never GC authoritative sidecars as thumbnails.
+- **O45 / P1 — Move image filters/OCR preprocessing off the main thread.**
+  [ocr](../../src/lib/ocr.ts) allocates full-size canvases and loops over every RGBA
+  pixel; [ImageView](../../src/views/ImageView.tsx) has full-resolution image edit
+  paths. Use bounded downsampling where valid, workers/tiles and cancellation.
+  Verify OCR accuracy, original export fidelity and pixel/byte ceilings.
+- **O46 / P1 — Bound native OCR subprocess time and job concurrency.**
+  [ocr.rs](../../src-tauri/src/commands/ocr.rs) uses blocking `Command::output()`
+  within spawn_blocking. Add a job semaphore, cancellation, process timeout and
+  bounded output handling. Test hung/huge OCR jobs and navigation away; preserve
+  the existing RAII temp-file/temp-dir cleanup.
+- **O47 / P2 — Serialize/single-flight WASM OCR workers safely.**
+  [ocr](../../src/lib/ocr.ts) already has a three-minute idle shutdown, but R05's
+  concurrent job/init policy is missing. Use an explicit worker owner/job queue
+  with per-job progress and language transitions. Measure peak WASM memory and
+  idle release; do not just terminate a worker serving another request.
+- **O48 / P2 — Bound and reuse OCR result storage connections.**
+  [ocrCache](../../src/lib/ocrCache.ts) opens/closes IndexedDB for every operation,
+  has a versioned key but no age/size eviction, and retains older-version records.
+  Add bounded GC and a version-change-safe shared connection. Define R08 retention
+  first; test quota errors, upgrade and corrupted entries.
+- **O49 / P2 — Stream language downloads under a hard size ceiling.**
+  [ocr.rs](../../src-tauri/src/commands/ocr.rs), `install_ocr_language_pack`, checks
+  Content-Length but then collects the full body before the actual byte check.
+  Use bounded chunk reads with timeout/cancellation and atomic publish. Test
+  chunked oversized responses and missing headers; network/VPN certificate
+  failures are not evidence of a product regression.
+- **O50 / P2 — Bound web-preview lifetime and prefetch concurrency.**
+  [webPreviewCache](../../src/lib/webPreviewCache.ts) retains successful/error
+  entries indefinitely; `prefetchWebPreviews` starts each distinct URL without a
+  shared concurrency budget. Add TTL/LRU, negative-cache retry and cancellation/
+  visible priority. Measure a note with hundreds of links; preserve URL safety.
+- **O51 / P2 — Bound avatar memory and refresh stale mounted consumers.**
+  [userAvatars](../../src/lib/userAvatars.ts) stores data-URL promises by server/user/
+  version. TTL governs a future lookup, not eviction of old keys or automatic
+  refresh of a mounted hook; `clearUserAvatars` has no production caller in this
+  baseline. Add byte/entry eviction, account-aware cleanup and refresh policy.
+  Test profile changes, many senders, logout and absent-avatar caching.
+
+### Structured Editors, History And Export
+
+- **O52 / P1 — Avoid serializing whole structured documents for every gesture update.**
+  `markLocalChange` in [documentSessionController](../../src/lib/documentSessionController.ts)
+  immediately serializes; logic, ink, deck and sheets feed document changes into
+  it. Track revisions/operations and serialize at safe checkpoints. Retain exact
+  conflict/base content semantics; measure drag/stroke workloads before/after.
+- **O53 / P1 — Send incremental formula requests/results over IPC.**
+  [useSheetFormulaEngine](../../src/lib/sheet/useSheetFormulaEngine.ts) rebuilds
+  positions, expands names and sends all populated cells, despite the native
+  engine's incremental recalculation. Send revision/delta inputs and changed
+  outputs with a full-seed recovery path. Compare payload bytes, build time and
+  correctness for large sheets; do not replace the formula engine.
+- **O54 / P1 — Separate the formula registry lock from per-runtime evaluation.**
+  [sheet.rs](../../src-tauri/src/commands/sheet.rs) holds one registry mutex across
+  build/update/evaluate/output. Grid sheet runtimes can block each other and
+  release waits behind computation. Use short map locking plus per-runtime owners,
+  a global job budget and cancellation. Test independent runtimes and eviction.
+- **O55 / P2 — Coalesce obsolete formula work and preserve volatile semantics.**
+  The formula hook's 80ms debounce and sequence guard discard stale responses but
+  do not cancel native requests already submitted. Add newest-job scheduling and
+  explicit recalculation for time/random functions. Test rapid edits and R06;
+  maintain evaluation budgets and deterministic testing inputs.
+- **O56 / P1 — Bound sheet undo by memory as well as step count.**
+  [SheetView](../../src/views/SheetView.tsx) stores prior whole workbook roots.
+  Structural sharing helps, but each edited cell dictionary/large structural
+  mutation remains retained. Use operation/inverse history or a byte-estimated
+  budget with checkpoints. Test large paste, structural edits and remote boundaries.
+- **O57 / P2 — Reduce repeated row/column/range indexing.**
+  [sheet search](../../src/lib/sheet/search.ts), formula request construction and
+  [operations](../../src/lib/sheet/operations.ts) repeatedly build/find positions.
+  Maintain indexes by worksheet structural revision. Benchmark replace-all,
+  selection, validation and named-range expansion without breaking stable IDs.
+- **O58 / P2 — Keep sheet rendering sparse and measure auxiliary overlays.**
+  [SheetView](../../src/views/SheetView.tsx) already uses viewport helpers; optimize
+  conditional formats, dependency highlights, chart overlays and hit testing rather
+  than adding redundant generic virtualization. Measure visible-cell work and
+  scrolling with formulas/rules/charts, not only an empty grid.
+- **O59 / P1 — Bound canvas card assets/previews by visibility and bytes.**
+  [useCanvasPreviews](../../src/components/canvas/useCanvasPreviews.ts) retains
+  preview strings/content in state and fans updates across matching nodes. Load
+  visible cards, retire removed/revision-obsolete entries and share decoded assets.
+  Test large boards, pan-away/pan-back and node deletion heap recovery.
+- **O60 / P2 — Avoid repeated full node/edge conversions and scans during gestures.**
+  [CanvasPage](../../src/views/CanvasPage.tsx) and
+  [LogicDiagramView](../../src/views/LogicDiagramView.tsx) rebuild maps, normalize
+  nodes and serialize affected graphs. Keep geometry transient and commit semantic
+  changes at gesture boundaries, with incremental derived maps. Profile large
+  drag/selection/rotation interactions; preserve collaboration operations.
+- **O61 / P2 — Incrementally maintain ink spatial data and tile invalidation.**
+  [InkCanvas](../../src/components/ink/InkCanvas.tsx) rebuilds spatial indexes from
+  page identity; [renderer](../../src/lib/ink/renderer.ts) has useful byte-bounded
+  tiles and dirty rectangles. Update the affected objects/layers incrementally and
+  profile index/outliner/eviction cost before changing tile architecture.
+- **O62 / P2 — Load deck media for visible/nearby slides with bounded sharing.**
+  [DeckView](../../src/views/DeckView.tsx), `useDeckAssets`, starts all collected
+  image reads and keeps data URLs for the view lifetime. Use an asset owner with
+  concurrency, byte budget, removed/versioned-entry pruning and visible-slide
+  prefetch. Test missing media, export requirements and presenter transitions.
+- **O63 / P2 — Reduce export-worker structured-clone copies.**
+  [ink exportClient](../../src/lib/ink/exportClient.ts) and
+  [PPTX exportClient](../../src/lib/deck/pptx/exportClient.ts) post full document/
+  asset records. Transfer binary buffers where ownership permits, stage large
+  output outside the UI heap and budget concurrent exports. Existing termination
+  on cancel/completion must remain; measure peak main + worker memory.
+
+### Native Storage, Collaboration, Calendar And Background Work
+
+- **O64 / P1 — Replace quadratic native text merge and add resource budgets.**
+  [files.rs](../../src-tauri/src/commands/files.rs), `compute_line_edit_hunks`,
+  allocates an `(n+1)×(m+1)` usize LCS table. On 64-bit targets, 10k vs 10k lines
+  means **800,160,008 bytes (~763 MiB) for one table**, before strings/hunks.
+  This is an analytical allocation, not a stress run. Use a bounded linear-space/
+  sparse diff or surface a conflict above a safe budget. Test long conflict cases
+  without weakening expected-hash or merge correctness.
+- **O65 / P1 — Add bounded native live-socket backpressure.**
+  [live_ws.rs](../../src-tauri/src/commands/live_ws.rs) uses an unbounded outbound
+  channel. A stalled socket can retain arbitrary queued frames. Bound bytes and
+  messages, coalesce replaceable awareness and preserve/replay durable document
+  updates under explicit semantics. Test slow send, disconnect and reconnect;
+  silently dropping arbitrary CRDT frames is not an acceptable memory fix.
+- **O66 / P2 — Reduce full-state replica/CRDT persistence churn.**
+  [liveDocumentSession](../../src/lib/liveDocumentSession.ts) periodically encodes
+  full Yjs state; [ReplicaStore](../../crates/collab-replica/src/store.rs) reads/
+  writes encrypted JSON/document payloads. Measure state growth, manifest parsing,
+  queue rewrites and crypto copies; introduce delta/checkpoint storage only with
+  durability, quarantine and account-scoping tests intact.
+- **O67 / P2 — Incrementalize and single-flight calendar projection/sync.**
+  [CalendarSyncCoordinator](../../src/components/layout/CalendarSyncCoordinator.tsx)
+  relists/reads local kanbans, replaces generated items and reloads a range on
+  refresh; focus/online/timer triggers can overlap. Reuse the attachment/revision
+  index and coalesce per-profile/origin jobs. Test assignments, deletions, mirrors
+  and events arriving during a sync; preserve reminder delivery.
+- **O68 / P2 — Consolidate desktop polling and background wakeups.**
+  [collabTransport](../../src/lib/collabTransport.ts),
+  [useHostedChat](../../src/lib/useHostedChat.ts), team/inbox/member surfaces,
+  PDF sidecar polling and [background_lifecycle](../../src-tauri/src/background_lifecycle.rs)
+  use independent cadences. The latter wakes every two seconds even though some
+  decisions are minute-scale. Coordinate visibility/connection-aware scheduling,
+  backoff and event-driven invalidation. Count idle wakeups/network calls and test
+  tray/notification/reconnect correctness. Keep existing inventory throttling.
+- **O69 / P2 — Bound completed simulation resources and native staging retention.**
+  [circuit.rs](../../src-tauri/src/commands/circuit.rs) caps job counts and chunk
+  sizes but retained jobs may hold large results. Add aggregate retained-byte/TTL
+  policy and explicit release. Separately, [files.rs](../../src-tauri/src/commands/files.rs)
+  stages plaintext native-drag exports in process-named temp paths without a
+  matching cleanup here. Define lifecycle/scavenging without deleting active
+  transfers. Test circuit navigation/cancel and stale staging after restart.
+- **O70 / P1 — Make performance measurements a maintained release gate.**
+  Existing fixture budgets and [rendering](../../src/lib/rendering.ts) are useful,
+  but build warnings/test durations are not native performance telemetry. Add
+  cold/warm startup, idle power/network, p95 interaction, heap/RSS/worker/GPU,
+  cache/disk and open-close soak fixtures. Correlate IPC job/bytes/lock timings
+  with UI traces; report Linux WebKitGTK, Windows WebView2 and macOS WebKit
+  separately. Keep instrumentation disabled/bounded outside explicit diagnostics.
+
+## Existing Optimizations And Safety Boundaries To Preserve
+
+The review does not recommend undoing work already present:
+
+- HTTP clients in [hosted_client](../../src-tauri/src/hosted_client.rs) are already
+  shared/static; do not claim a fresh TLS client is built for every hosted request.
+- [useServerAutoReconnect](../../src/lib/useServerAutoReconnect.ts) already has
+  per-server in-flight guards and slower connected inventory refresh, rather than
+  a full inventory every 15 seconds.
+- PDF page cache has a bounded 12-entry LRU with object-URL revocation; the
+  remaining issue is byte/lifecycle coverage, not absence of any eviction.
+- [documentPreview](../../src/lib/documentPreview.ts) deduplicates in-flight work
+  and relies on versioned native/server caches instead of retaining completed
+  previews in an unbounded map. Original internal previews already exist.
+- Ink tile surfaces have byte accounting, eviction and disposal; ink/deck undo
+  uses operation inverses. Sheet viewport rendering and incremental native
+  formula recalculation already exist.
+- Mermaid and Three.js are loaded separately/on demand; their artifact sizes do
+  not prove eager startup execution. Math3D explicitly disposes geometry/materials.
+- Native formula/circuit jobs have count/time limits; conversion inputs and
+  parser limits exist. Audit their aggregate cost instead of deleting validation.
+- Native chat outbox is encrypted and bounded; message history/read cursors,
+  expected account identity and authorization-aware offline fallbacks must remain.
+- Encryption, source revisions, expected-hash conflicts, readonly roles and
+  no-fallback-after-permission-denial are constraints on every cache/speed change.
+- Native OCR temp files/directories use RAII cleanup, unlike the separately
+  identified native-drag staging. Preserve this distinction.
+- Linux WebKitGTK acceleration defaults to OnDemand and canvas DPR is bounded.
+  Do not switch all platforms to forced acceleration to hide a measured regression.
+
+## Suggested Delivery Order
+
+1. **Correctness first:** B01 autosave/session ownership; B02 Unicode; B06 staging
+   collisions; B04 PDF lifetimes; B03/B05 stale requests/listeners. Validate the
+   remaining bug/cache cases and R01–R03 early because they can affect data.
+2. **Baseline + largest bounded-cost changes:** O70 telemetry; O64 merge budget;
+   O01/O04 startup graph and PDF workers; O17–O19 incremental index/search;
+   O24/O26 file tree and kanban scans; O37/O40 binary assets and thumbnails.
+3. **Long-session memory:** O11–O15 view/session retention; O38/O42–O51 cache/OCR
+   ownership; O56/O59/O62 history and visible assets; O65/O66 backpressure/persistence.
+4. **Interaction/idle refinements:** Markdown/math, formula IPC/locking, canvas/
+   ink/graph work, calendar/polling and measured P3 asset changes.
+
+Deliver separate PRs by concern. An implementation plan should give each chosen
+batch an owner, fixtures, baselines and acceptance budgets; this audit alone does
+not approve a backend schema change or redefine any unfinished product plan.
+
+## Required Native Measurement Matrix
+
+Use synthetic, disposable local vaults and test accounts; never benchmark by
+rewriting a user's documents or truncating a real server database.
+
+| Scenario                                                               | Capture                                                           | Correctness gate                                                 |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Cold/warm launch, vault picker, locked vault, restored workspace       | Time to usable UI, evaluated JS, native/WebView RSS, CPU/IO       | Theme/restore/auth state correct                                 |
+| 1k/10k/50k note vaults; one edit, rename, burst writes, Unicode search | Files read/decrypted, queue/lock time, p50/p95 query, DOM rows    | Scoped latest results, correct backlinks, no Unicode failures    |
+| Type then switch/close/quit within debounce; save failure/conflict     | Write/draft lifecycle and reopen state                            | No unsaved data loss or wrong-file acknowledgement               |
+| 100-page PDFs, large images, corrupt/slow PDF; repeated open-close     | Worker count, decoded/backing pixels, heap/RSS slope, first page  | Bounded release, annotations/conflicts preserved                 |
+| Large sheets with formulas/rules/charts, paste/undo, two grid panes    | IPC bytes, formula build/evaluation, history bytes, scroll frames | Same values, protections, conflict and remote-history boundaries |
+| Large ink/deck/canvas/logic scenes and multiple plots                  | Index/render/serialize time, GPU bytes, idle CPU, media cache     | No missing geometry/media; smooth, equivalent editing            |
+| Slow socket/offline/reconnect/full replica/export                      | Queue bytes, network calls, crypto/disk work, cancellation        | Durable edits, no duplicate replay or authorization bypass       |
+| Tray/hidden app, calendar reminders, many servers/teams                | Idle wakeups/power, HTTP cadence, stores/ranges read              | Timely notifications and correct lifecycle recovery              |
+| Hundreds of hover/link/avatar/OCR requests then lock/logout            | Cache bytes, TTL/GC, cancellation, retained plaintext policy      | Identity/permission scoped cache access and retention            |
+
+Use release builds and record hardware, display scale, runtime, corpus sizes,
+cache state and competing workloads. Maintain assertions for byte/job bounds;
+set timing budgets only after native baselines. Sandbox restrictions and saturated
+parallel test workers can distort process/timing results, so reproduce outside
+that boundary before calling a measured slowdown a product regression.
+
+## Verification Performed For This Audit
+
+- Fresh production Vite build and artifact inventory: passed; chunk warnings
+  retained and recorded above.
+- Four temporary observational Vitest probes: controller disposal, stale search,
+  canvas ceiling and late native listener cleanup.
+- A temporary test using the existing real NoteView harness: local edit immediately
+  unmounted, no save, old content reopened (one selected test; other copied tests
+  intentionally skipped).
+- Standalone Rust probe extracted the current `make_excerpt` helper verbatim;
+  observed Unicode panic and demonstrated `.with_extension("tmp")` aliasing.
+- Existing controller, rendering, PDF preview and NoteView regression suites
+  passed; TypeScript, audit link/ID checks and documentation formatting passed.
+  No native application/GPU profiling was claimed.
+
+Temporary observational tests are removed from application source; they should
+be replaced with tests for the desired behavior in the actual fix PRs. The raw
+probe/build logs are local review artifacts, not shipped implementation code.
+A full workspace/mobile/server CI sweep is appropriate for implementation PRs;
+this documentation-only audit does not imply those unaffected products received
+a fresh functional sign-off.
