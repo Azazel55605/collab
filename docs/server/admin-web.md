@@ -176,6 +176,15 @@ The dashboard may display:
 Raw log aggregation and external production alert routing remain future
 operations work.
 
+## Performance And Correctness Audit
+
+The [2026-10-14 web interface audit](../audits/web-interface-performance-and-bugs-2026-10-14.md)
+records account/admin UI bugs, browser resource opportunities and the cost of
+its supporting server endpoints. It includes source evidence, controlled
+reproductions and validation targets. Fix implementation has not started;
+progress belongs in [Open Development Work](../plans/open-development-work.md).
+Production browser/DB measurements and accessibility checks remain required.
+
 ## Testing Expectations
 
 - Component and state tests for every management workflow.
