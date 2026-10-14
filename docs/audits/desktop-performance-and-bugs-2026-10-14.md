@@ -19,6 +19,17 @@ cost. Source discovery inventoried 862 TS/TSX/Rust files and 244,405 lines under
 Hotspots and lifecycle boundaries received manual review; this is not a claim
 that every line or every platform was exercised.
 
+## Reported Regression Follow-Up
+
+The [2026-10-14 reported-issue reconciliation](./reported-regressions-2026-10-14.md)
+tracks all 13 subsequent user reports against these inventories, including PDF
+state reset, cache-first reads/automatic freshness, slow/basic previews, component
+consistency, drop targeting, legacy chat/sidebar behavior, Kanban scrolling,
+mobile drawing and canvas performance/save failures. Existing IDs/counts remain
+unchanged; the supplement separates reported symptoms from verified mechanisms
+and adds acceptance targets for gaps. Fixes and platform reproduction remain
+outstanding.
+
 ## Evidence And Interpretation
 
 - **Reproduced**: a focused probe exercised the current code or, for the Rust

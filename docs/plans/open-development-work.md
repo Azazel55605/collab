@@ -69,6 +69,19 @@ release, process-death, accessibility and battery evidence remain open. This
 backlog supplies acceptance contracts for the full mobile overhaul; it does not
 claim standalone local vaults or editor parity are implemented.
 
+### Reported Regressions Across The App
+
+The [reported-issue reconciliation](../audits/reported-regressions-2026-10-14.md)
+tracks all 13 user reports received on **2026-10-14**, preserving existing audit
+IDs and adding explicit gaps under UR01–UR13. **Fix implementation is not
+started.** Prioritize canvas save reliability, cache-first/offline freshness,
+external-drop targeting, PDF state retention and measured canvas/preview latency.
+The backlog also includes rendered internal previews, shared UI consistency,
+legacy chat/sidebar navigation, Kanban scrolling and mobile drawing-mode
+reconciliation. Platform reproduction remains required; existing cache-first,
+auto-refresh, scrolling and shared ink mechanisms should be repaired/extended
+rather than assumed absent.
+
 ### Completed Accounts And Collaboration Expansion
 
 Accounts and the original internal-preview delivery are complete and
