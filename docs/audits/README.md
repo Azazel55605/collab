@@ -17,3 +17,8 @@ status is tracked in [Open Development Work](../plans/open-development-work.md).
   9 bugs, 10 investigation items and 50 optimization opportunities. Implementation
   remains a separate next step. Physical-device profiling is outstanding;
   an independent full server product audit has not been done.
+
+- [Reported Regressions And Audit Reconciliation — 2026-10-14](./reported-regressions-2026-10-14.md):
+  all 13 subsequent user reports mapped to existing findings, with missing
+  regressions, requested behavior, source checks and acceptance targets. This
+  supplement does not change the original audit counts or claim runtime fixes.

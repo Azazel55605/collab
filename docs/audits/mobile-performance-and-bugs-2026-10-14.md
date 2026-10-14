@@ -19,6 +19,17 @@ Lifecycle, save/load, identity, large-document, transfer and background boundari
 received manual review. Physical-device profiling must establish actual CPU,
 heap, native memory, frame time, thermal and battery costs.
 
+## Reported Regression Follow-Up
+
+The [2026-10-14 reported-issue reconciliation](./reported-regressions-2026-10-14.md)
+tracks all 13 subsequent user reports against these inventories, including PDF
+state reset, cache-first reads/automatic freshness, slow/basic previews, component
+consistency, drop targeting, legacy chat/sidebar behavior, Kanban scrolling,
+mobile drawing and canvas performance/save failures. Existing IDs/counts remain
+unchanged; the supplement separates reported symptoms from verified mechanisms
+and adds acceptance targets for gaps. Fixes and platform reproduction remain
+outstanding.
+
 ## Evidence And Baseline
 
 **Reproduced** means a focused Vitest/jsdom probe exercised current helpers,
