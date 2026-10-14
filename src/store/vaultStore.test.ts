@@ -358,6 +358,35 @@ describe('vaultStore Flatpak reopen fallback', () => {
     );
   });
 
+  it('reconciles an existing offline copy on reopen without reseeding or redownloading it', async () => {
+    localStorage.setItem('collab-hosted-always-create-offline-copy', 'true');
+    const manifest = { vaultId: hostedVault.hostedVaultId, sequence: 4, files: [] };
+    tauriCommandsMock.replicaReadManifest.mockResolvedValue(manifest);
+    tauriCommandsMock.replicaReadSyncState.mockResolvedValue({
+      manifestSequence: 4,
+      status: 'idle',
+      lastSyncedAt: null,
+      offlineAvailableAt: 'downloaded',
+    });
+    tauriCommandsMock.hostedVaultRequest.mockResolvedValue({
+      vaultId: hostedVault.hostedVaultId,
+      baseSequence: 4,
+      sequence: 4,
+      changedFiles: [],
+    });
+    await useVaultStore.getState().openHostedVault(hostedVault);
+    await vi.waitFor(() =>
+      expect(tauriCommandsMock.hostedVaultRequest).toHaveBeenCalledWith(
+        hostedVault.serverUrl,
+        'GET',
+        '/api/v1/vaults/hosted-vault/manifest/delta?since=4',
+      ),
+    );
+    expect(useVaultStore.getState().vault).toEqual(hostedVault);
+    expect(tauriCommandsMock.replicaSeed).not.toHaveBeenCalled();
+    expect(tauriCommandsMock.replicaCacheDocument).not.toHaveBeenCalled();
+  });
+
   it('creates a full offline copy when the client preference is enabled', async () => {
     localStorage.setItem('collab-hosted-always-create-offline-copy', 'true');
     const manifest = {

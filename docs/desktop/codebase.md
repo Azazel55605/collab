@@ -230,6 +230,24 @@ in-flight lookups, and unavailable geometry reports an error rather than guessin
 an import destination. Both handlers subscribe to one native event source with
 window fallback. This bridge requires an updated native desktop binary.
 
+Hosted replica synchronization is coalesced by server URL and vault ID in
+`lib/vaultReplica.ts`. Reopening an existing replica reconciles/replays it instead
+of reseeding it. Optimistic writes and metadata seeding preserve the explicit
+offline-copy marker; download checkpoints advance after successful body refresh.
+Partial initial downloads cannot be labelled ready. Native publication checks
+for queued edits after network waits and defers to replay if edits arrived.
+`lib/nativeReplicaSync.ts`, installed by AppShell, maps matching
+`background:vault-synced` events to the manifest mutation channel used by mounted
+document controllers and file lists. Zero-change syncs do not refresh views.
+
+Hosted document refreshes skip optimistic drafts and reject responses after a
+queued edit or a newer cached revision. Cached assets open before a background
+manifest sync; PDF and image annotation caches open before their background
+sidecar requests. Annotation refresh publishes changed sidecars through the
+existing controller conflict policy and leaves queued sidecars intact. Native
+and frontend publication checks are not a cross-process transaction; process
+recovery and broader replica concurrency remain separate acceptance work.
+
 ---
 
 ## Components

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { DragProvider } from '../../contexts/DragContext';
+import { subscribeToNativeReplicaSync } from '../../lib/nativeReplicaSync';
 import { listenSafely } from '../../lib/nativeSubscription';
 import { cn } from '../../lib/utils';
 import { createVaultClient } from '../../lib/vaultClient';
@@ -149,6 +150,7 @@ export default function AppShell() {
   useEffect(() => {
     if (!vault) return;
     const unsubs: Array<() => void> = [];
+    if (vault.kind === 'hosted') unsubs.push(subscribeToNativeReplicaSync(vault));
     let refreshTimer: number | null = null;
     const refreshVisibleFiles = () => {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);

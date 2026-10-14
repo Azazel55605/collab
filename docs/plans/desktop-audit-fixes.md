@@ -27,12 +27,45 @@ This batch does **not** close the complete desktop backlog or every reported
 symptom. Tests establish specific behavior, not proof that every intermittent
 save or platform issue is solved.
 
+## Batch 2 — Cache Reads And Offline Freshness
+
+Implemented the next UR02/UR03 corrections:
+
+- Reopening an existing hosted replica reconciles/replays it instead of blindly
+  replacing its manifest. Seeding and optimistic edits preserve its offline-copy
+  marker. Native and frontend syncs now publish changes on the manifest channel
+  that document controllers and file lists actually subscribe to; autonomous
+  native downloads bridge through `background:vault-synced` for the open vault.
+- Concurrent requests share one synchronization per server/vault. Matching cached
+  asset bytes return before a background sync; matching document bytes already
+  use cache-first reads. Cached PDF/image annotation sidecars now also return
+  before their network request, then publish newer sidecars through the existing
+  dirty/conflict policy.
+- Background document reads skip optimistic drafts and discard responses if an
+  offline edit arrived or a newer revision is cached. Annotation refreshes leave
+  queued changes intact. Native publication checks the queue after network waits
+  and defers new local edits to replay; frontend bulk downloads check too.
+- Partial offline downloads fail visibly instead of being labelled ready. The
+  frontend adapter retains the previous download checkpoint until bodies refresh,
+  so an interrupted update remains retryable.
+
+The user confirmed the external-drop target fix **working on 2026-10-14**.
+Broader platform/monitor coverage remains native release QA, rather than an open
+reproduction of that user's original symptom.
+
+Remaining UR02/UR03 acceptance: native downloaded-vault/reconnect scenarios,
+cache-first preview scheduling, absent sidecars, safe source-byte refresh for
+mounted PDF/image viewers, and broader cross-process replica concurrency. These
+publication checks do not make the replica store transactional. A copy whose
+offline marker was already erased by an older build needs **Make available
+offline** once to restore that intent; the new code preserves it thereafter.
+
 ## Next Batches
 
 1. Cache-first file/annotation/preview reads and automatic offline-copy freshness
    (UR02/UR03), including pending-edit precedence, partial failures and revision
-   publication to mounted views. Existing cache-first/reconciliation code needs
-   end-to-end regression scenarios before replacement.
+   publication to mounted views. Batch 2 repairs read/notification/checkpoint gaps; finish the remaining
+   native acceptance and source-byte/preview paths above.
 2. Canvas save/conflict/live recovery and measured rendering/serialization work
    (UR12/UR13, O52/O59/O60); reproduce remaining failures with authoritative reopen
    checks. Preview scheduling/latency (UR04) belongs with that workload.
@@ -87,6 +120,22 @@ formatting and diff checks passed. Server smoke retains the first-batch limit.
 **Rebuild the desktop binary** before testing this follow-up; frontend hot reload
 alone cannot install the new native command. Physical Windows and Wayland drops,
 including monitor transitions and app zoom, remain acceptance checks.
+
+## Batch 2 Verification
+
+- **177 focused desktop/shared regressions passed**, covering replica reopening,
+  queue protection, sidecar refresh, native notifications, coalesced sync, and
+  document-controller policy.
+- Admin **81/81**, Android **256/256**, desktop/admin/Android TypeScript,
+  desktop/admin frontend builds, Rust workspace tests/check and version/crate
+  boundaries passed. Changed-file lint has no errors and two existing AppShell
+  dependency warnings. Native UI and reconnect acceptance remain open.
+- Full desktop/script run: **2,269 passed, one intentional skip**. The existing
+  dependency test needs its already-installed patched `braces` package exposed
+  via `NODE_PATH` in this local pnpm layout; this is a validation environment
+  workaround, not a dependency-manifest change.
+- Compose config passed previously; server smoke retains the Batch 1 BuildKit
+  entitlement limitation. No real database/Compose project was altered.
 
 ## Verification Boundary
 

@@ -496,6 +496,7 @@ function base64ByteLength(contentBase64: string): number {
 
 export class HostedVaultClient implements VaultClient {
   readonly kind = 'hosted';
+  private annotationRefreshes = new Map<string, Promise<void>>();
   readonly capabilities = HOSTED_VAULT_CAPABILITIES;
   readonly runtime: VaultRuntimeCapabilities;
 
@@ -841,9 +842,28 @@ export class HostedVaultClient implements VaultClient {
     });
   }
 
+  private async hasPendingFileChanges(fileId: string): Promise<boolean> {
+    const pending = await tauriCommands.replicaListPendingOperations(
+      this.vault.serverUrl,
+      this.vault.hostedVaultId,
+    );
+    return pending.some((operation) => operation.fileId === fileId);
+  }
+
   private refreshDocumentCacheInBackground(fileId: string): void {
-    void this.request<HostedTextDocument>('GET', `/files/${fileId}`)
-      .then(async (document) => {
+    void this.hasPendingFileChanges(fileId)
+      .then(async (pending) => {
+        if (pending) return;
+        const document = await this.request<HostedTextDocument>('GET', `/files/${fileId}`);
+        if (await this.hasPendingFileChanges(fileId)) return;
+        const manifest = await this.cachedManifest();
+        const current = manifest.files.find((file) => file.id === fileId);
+        if (
+          !current ||
+          current.currentRevision?.contentHash === 'offline' ||
+          (current.currentRevision?.sequence ?? 0) > (document.file.currentRevision?.sequence ?? 0)
+        )
+          return;
         await this.cacheDocumentForOfflineCopy(document.file.id, document.content);
         await this.updateCachedManifestFile(document.file);
       })
@@ -960,7 +980,8 @@ export class HostedVaultClient implements VaultClient {
         const cachedFile = this.findByPath(asHostedManifest(cachedManifest), relativePath);
         const cachedContent = await this.readCurrentCachedDocument(cachedFile);
         if (cachedContent !== null) {
-          this.refreshDocumentCacheInBackground(cachedFile.id);
+          if (cachedFile.currentRevision?.contentHash !== 'offline')
+            this.refreshDocumentCacheInBackground(cachedFile.id);
           return this.vaultDocumentFromHosted(
             cachedFile,
             cachedContent,
@@ -1575,6 +1596,7 @@ export class HostedVaultClient implements VaultClient {
     if (file.kind === 'folder') throw new Error('Folders cannot be downloaded as assets.');
     const cached = await this.readCurrentCachedAsset(file).catch(() => null);
     if (cached !== null) {
+      void syncReplicaManifestDelta(this.vault).catch(() => {});
       return `data:${guessAssetMime(relativePath)};base64,${cached}`;
     }
     try {
@@ -1604,30 +1626,79 @@ export class HostedVaultClient implements VaultClient {
     }
   }
 
-  async readPdfAnnotations(relativePath: string): Promise<VaultPdfAnnotations> {
-    const manifest = await this.onlineOrCachedManifest();
-    const file = this.findByPath(manifest, relativePath);
+  private async readCachedAnnotations<T extends { state: unknown; version: number | null }>(
+    file: HostedFileEntry,
+    suffix: string,
+    convert: (response: { state: unknown; sequence: number }) => T,
+  ): Promise<T | null> {
+    const text = await tauriCommands
+      .replicaReadCachedDocument(this.vault.serverUrl, this.vault.hostedVaultId, file.id)
+      .catch(() => null);
+    if (!text) return null;
+    let cached: T;
     try {
-      const response = await this.request<{ state: Record<string, unknown>; sequence: number }>(
-        'GET',
-        `/files/${file.id}/pdf-annotations`,
-      );
-      const result = {
-        state: normalizeAnnotationState(response.state),
-        version: response.sequence,
-      };
-      void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
-      return result;
-    } catch (error) {
-      if (!isLikelyConnectivityError(error)) throw error;
-      const cached = await tauriCommands.replicaReadCachedDocument(
-        this.vault.serverUrl,
-        this.vault.hostedVaultId,
-        file.id,
-      );
-      if (!cached) throw error;
-      return JSON.parse(cached) as VaultPdfAnnotations;
+      cached = JSON.parse(text) as T;
+      if (
+        !cached ||
+        typeof cached !== 'object' ||
+        !('state' in cached) ||
+        !(cached.version === null || typeof cached.version === 'number')
+      )
+        return null;
+    } catch {
+      return null;
     }
+    const key = `${file.id}:${suffix}`;
+    if (!this.annotationRefreshes.has(key)) {
+      const refresh = (async () => {
+        if (await this.hasPendingFileChanges(file.id)) return;
+        const response = await this.request<{ state: unknown; sequence: number }>(
+          'GET',
+          `/files/${file.id}/${suffix}`,
+        );
+        if (await this.hasPendingFileChanges(file.id)) return;
+        const next = convert(response);
+        // Ignore older out-of-order responses and avoid refreshing unchanged views.
+        if ((next.version ?? 0) < (cached.version ?? 0) || JSON.stringify(next) === text) return;
+        await tauriCommands.replicaCacheDocument(
+          this.vault.serverUrl,
+          this.vault.hostedVaultId,
+          file.id,
+          JSON.stringify(next),
+        );
+        emitReplicaMutated({
+          kind: 'manifest',
+          fileIds: [file.id],
+          relativePaths: [file.relativePath],
+        });
+      })()
+        .catch(() => {})
+        .finally(() => this.annotationRefreshes.delete(key));
+      this.annotationRefreshes.set(key, refresh);
+    }
+    return cached;
+  }
+
+  async readPdfAnnotations(relativePath: string): Promise<VaultPdfAnnotations> {
+    const manifest = await this.cachedOrOnlineManifest();
+    const file = this.findByPath(manifest, relativePath);
+    const convert = (response: { state: unknown; sequence: number }): VaultPdfAnnotations => ({
+      state: normalizeAnnotationState(
+        response.state && typeof response.state === 'object'
+          ? (response.state as Record<string, unknown>)
+          : null,
+      ),
+      version: response.sequence,
+    });
+    const cached = await this.readCachedAnnotations(file, 'pdf-annotations', convert);
+    if (cached) return cached;
+    const response = await this.request<{ state: unknown; sequence: number }>(
+      'GET',
+      `/files/${file.id}/pdf-annotations`,
+    );
+    const result = convert(response);
+    void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
+    return result;
   }
 
   async writePdfAnnotations(
@@ -1681,26 +1752,21 @@ export class HostedVaultClient implements VaultClient {
   }
 
   async readViewAnnotations(relativePath: string): Promise<VaultViewAnnotations> {
-    const manifest = await this.onlineOrCachedManifest();
+    const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
-    try {
-      const response = await this.request<{ state: unknown; sequence: number }>(
-        'GET',
-        `/files/${file.id}/view-annotations`,
-      );
-      const result = { state: response.state, version: response.sequence };
-      void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
-      return result;
-    } catch (error) {
-      if (!isLikelyConnectivityError(error)) throw error;
-      const cached = await tauriCommands.replicaReadCachedDocument(
-        this.vault.serverUrl,
-        this.vault.hostedVaultId,
-        file.id,
-      );
-      if (!cached) throw error;
-      return JSON.parse(cached) as VaultViewAnnotations;
-    }
+    const convert = (response: { state: unknown; sequence: number }): VaultViewAnnotations => ({
+      state: response.state,
+      version: response.sequence,
+    });
+    const cached = await this.readCachedAnnotations(file, 'view-annotations', convert);
+    if (cached) return cached;
+    const response = await this.request<{ state: unknown; sequence: number }>(
+      'GET',
+      `/files/${file.id}/view-annotations`,
+    );
+    const result = convert(response);
+    void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
+    return result;
   }
 
   async writeViewAnnotations(

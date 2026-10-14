@@ -41,7 +41,10 @@ source references and validation targets. **Fix implementation is in progress**
 in [Desktop Audit Fixes](./desktop-audit-fixes.md). Batch 1 implements guarded
 save-before-navigation, Unicode/search/listener fixes, unique staging writes,
 PDF lifetime/view settings, preview revision checks and canvas pixel bounds,
-plus initial native-drop, legacy-chat and Kanban overflow corrections. Native
+plus initial native-drop, legacy-chat and Kanban overflow corrections. The user
+confirmed the external-drop follow-up working. Batch 2 adds replica reopening and
+offline-marker/checkpoint preservation, native-to-view refresh notifications,
+coalesced sync, cache-first annotations and pending-edit protection. Native
 acceptance and the remaining desktop/report backlog are still open.
 Prioritize pending-edit loss during navigation, Unicode search panics, native
 staging collisions, PDF resource cleanup, stale searches/listeners, and bounded

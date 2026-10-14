@@ -8,7 +8,9 @@ import { createVaultClient, requireRuntimeCapability } from '../lib/vaultClient'
 import {
   cleanupReplicaCache,
   makeHostedVaultAvailableOffline,
+  readCachedReplicaManifest,
   seedReplicaFromManifest,
+  syncReplicaManifestDelta,
 } from '../lib/vaultReplica';
 import {
   hostedVaultMeta,
@@ -154,9 +156,23 @@ export const useVaultStore = create<VaultState>()(
             vaultCan(vault, 'vault.offlineCopy') &&
             (vault.requireOfflineCopy === true ||
               localStorage.getItem(ALWAYS_CREATE_OFFLINE_COPY_KEY) === 'true');
-          const prepareOfflineCopy = shouldCreateOfflineCopy
-            ? makeHostedVaultAvailableOffline(vault)
-            : seedReplicaFromManifest(vault).then(() => cleanupReplicaCache(vault));
+          const prepareOfflineCopy = (async () => {
+            const cached = await readCachedReplicaManifest(vault);
+            const state = await tauriCommands.replicaReadSyncState(
+              vault.serverUrl,
+              vault.hostedVaultId,
+            );
+            if (cached && (!shouldCreateOfflineCopy || state.offlineAvailableAt)) {
+              // Reconcile/replay an existing copy instead of replacing its local
+              // manifest and clearing offline intent on every vault open.
+              await syncReplicaManifestDelta(vault);
+            } else if (shouldCreateOfflineCopy) {
+              await makeHostedVaultAvailableOffline(vault);
+            } else {
+              await seedReplicaFromManifest(vault);
+              await cleanupReplicaCache(vault);
+            }
+          })();
           prepareOfflineCopy.catch((error) => {
             console.warn(
               shouldCreateOfflineCopy
