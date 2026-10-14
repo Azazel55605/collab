@@ -55,6 +55,20 @@ keyboard behavior, stable permission rows and unsaved backup settings. Then
 reduce polling fan-out and bound archive memory. Live browser, database and
 multi-client profiling remain required; this is not a full server product audit.
 
+### Android Performance And Correctness Audit
+
+Reviewed separately on **2026-10-14**. The
+[Android audit](../audits/mobile-performance-and-bugs-2026-10-14.md) is complete:
+9 bug entries, 10 investigation items and 50 optimization opportunities across
+the companion frontend, Android/native adapters and shared workloads.
+**Fix implementation is not started.** Prioritize stale vault loads, permanent
+autosave retry loops, URI upload routing, unsaved note exits, scoped destinations,
+safe download completion and cumulative response limits. Then reduce hidden
+polling/resume duplication and measure startup/PDF/transfer memory. Device,
+release, process-death, accessibility and battery evidence remain open. This
+backlog supplies acceptance contracts for the full mobile overhaul; it does not
+claim standalone local vaults or editor parity are implemented.
+
 ### Completed Accounts And Collaboration Expansion
 
 Accounts and the original internal-preview delivery are complete and
