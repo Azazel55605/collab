@@ -325,6 +325,7 @@ export default function FileTree() {
     treeContainerRef,
     handleNativeFileDrop,
     mode === 'files' && !!vault && !readOnly,
+    vault?.path,
   );
 
   const handleOpenFile = useCallback(

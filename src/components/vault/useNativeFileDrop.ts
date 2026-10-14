@@ -2,17 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toast } from 'sonner';
+
+import { resolveNativeDropPoint } from '../../lib/nativeDropCoordinates';
 
 interface NativeDropPayload {
   type: 'enter' | 'over' | 'drop' | 'leave';
   paths?: string[];
   position?: { x: number; y: number };
-}
-
-function toClientPoint(position: { x: number; y: number }) {
-  // Tauri drag-drop coordinates are physical pixels; convert to CSS pixels.
-  const ratio = window.devicePixelRatio || 1;
-  return { x: position.x / ratio, y: position.y / ratio };
 }
 
 /**
@@ -26,6 +23,7 @@ export function useNativeFileDrop(
   containerRef: React.RefObject<HTMLElement | null>,
   onDropFiles: (paths: string[], point: { x: number; y: number }) => void,
   enabled = true,
+  scope?: string,
 ): { isDraggingOver: boolean } {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const onDropRef = useRef(onDropFiles);
@@ -33,10 +31,12 @@ export function useNativeFileDrop(
   const lastDropRef = useRef<{ key: string; at: number }>({ key: '', at: 0 });
 
   useEffect(() => {
+    setIsDraggingOver(false);
     if (!enabled) return;
     let unlistenWebview: (() => void) | null = null;
     let unlistenWindow: (() => void) | null = null;
     let disposed = false;
+    let positionGeneration = 0;
 
     const isInsideContainer = (point: { x: number; y: number }) => {
       const el = containerRef.current;
@@ -52,29 +52,42 @@ export function useNativeFileDrop(
 
     const handle = (payload: NativeDropPayload) => {
       if (disposed) return;
+      const generation = ++positionGeneration;
       if (payload.type === 'leave') {
         setIsDraggingOver(false);
         return;
       }
       if (!payload.position) return;
-      const point = toClientPoint(payload.position);
-      const inside = isInsideContainer(point);
-
-      if (payload.type === 'enter' || payload.type === 'over') {
-        setIsDraggingOver(inside);
-        return;
-      }
-
-      if (payload.type === 'drop') {
-        setIsDraggingOver(false);
-        if (!inside || !payload.paths || payload.paths.length === 0) return;
-        // The webview and window emitters can both fire for one drop; collapse them.
-        const key = payload.paths.join('\n');
-        const now = Date.now();
-        if (key === lastDropRef.current.key && now - lastDropRef.current.at < 400) return;
-        lastDropRef.current = { key, at: now };
-        onDropRef.current(payload.paths, point);
-      }
+      if (payload.type === 'drop') setIsDraggingOver(false);
+      void resolveNativeDropPoint(
+        payload.position,
+        payload.type === 'drop' || payload.type === 'enter',
+      )
+        .then((point) => {
+          if (disposed || (payload.type !== 'drop' && generation !== positionGeneration)) return;
+          const inside = isInsideContainer(point);
+          if (payload.type === 'enter' || payload.type === 'over') {
+            setIsDraggingOver(inside);
+            return;
+          }
+          if (payload.type === 'drop') {
+            if (!inside || !payload.paths?.length) return;
+            const key = payload.paths.join('\n');
+            const now = Date.now();
+            if (key === lastDropRef.current.key && now - lastDropRef.current.at < 400) return;
+            lastDropRef.current = { key, at: now };
+            onDropRef.current(payload.paths, point);
+          }
+        })
+        .catch((error) => {
+          if (disposed) return;
+          console.error('[useNativeFileDrop] could not map drop position:', error);
+          if (payload.type === 'drop') {
+            toast.error('Could not determine the file drop target. Please try again.');
+          } else if (generation === positionGeneration) {
+            setIsDraggingOver(false);
+          }
+        });
     };
 
     const subscribe = (
@@ -139,7 +152,7 @@ export function useNativeFileDrop(
       unlistenWebview?.();
       unlistenWindow?.();
     };
-  }, [containerRef, enabled]);
+  }, [containerRef, enabled, scope]);
 
   return { isDraggingOver };
 }

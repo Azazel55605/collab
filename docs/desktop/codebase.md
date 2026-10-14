@@ -219,6 +219,16 @@ sessionStorage. Hosted annotations continue to exclude private viewer settings.
 Native document writes use uniquely created sibling temporary files before
 atomic replacement. External file-tree drops use visible row geometry from
 `components/vault/nativeDropTarget.ts`; file rows target their containing folder.
+File-tree hover/drop and Markdown editor insertion share
+`lib/nativeDropCoordinates.ts`. The `native_drop_viewport` IPC returns native
+WebView bounds without converting their units: GTK/WKWebView use logical units,
+WebView2 uses physical pixels. Mapping those bounds to the CSS viewport includes
+both display scaling and WebView zoom; dividing every event by devicePixelRatio
+would shift Linux drop targets. Hover geometry is briefly cached/coalesced, while
+enter and committed drops query fresh bounds. Disposal and vault changes discard
+in-flight lookups, and unavailable geometry reports an error rather than guessing
+an import destination. Both handlers subscribe to one native event source with
+window fallback. This bridge requires an updated native desktop binary.
 
 ---
 

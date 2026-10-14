@@ -5,6 +5,27 @@ pub async fn set_ui_zoom(zoom: f64, window: tauri::WebviewWindow) -> Result<(), 
     window.set_zoom(zoom).map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+pub struct NativeDropViewport {
+    width: f64,
+    height: f64,
+}
+
+/// Wry's drop points use the platform view's units, not uniformly physical pixels.
+/// Preserve the bounds' units: GTK/WKWebView are logical, WebView2 is physical.
+#[tauri::command]
+pub async fn native_drop_viewport(webview: tauri::Webview) -> Result<NativeDropViewport, String> {
+    let bounds = webview.bounds().map_err(|error| error.to_string())?;
+    let (width, height) = match bounds.size {
+        tauri::Size::Logical(size) => (size.width, size.height),
+        tauri::Size::Physical(size) => (size.width as f64, size.height as f64),
+    };
+    if width <= 0.0 || height <= 0.0 {
+        return Err("The native drop viewport is not available.".into());
+    }
+    Ok(NativeDropViewport { width, height })
+}
+
 /// Returns the host operating system (`std::env::consts::OS`, e.g. "linux",
 /// "windows", "macos"). The frontend uses this to show OS-specific controls such
 /// as the Linux-only "keep me signed in across reboots" credential-store choice.

@@ -964,6 +964,7 @@ export const tauriCommands = {
 
   // UI
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),
+  nativeDropViewport: () => invoke<{ width: number; height: number }>('native_drop_viewport'),
   hostOs: () => invoke<string>('host_os'),
   isAppImage: () => invoke<boolean>('is_appimage'),
   isFlatpak: () => invoke<boolean>('is_flatpak'),
