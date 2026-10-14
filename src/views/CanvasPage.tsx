@@ -503,9 +503,8 @@ function dataUrlToUint8Array(dataUrl: string) {
 
 async function renderPdfPreview(dataUrl: string) {
   const task = getDocument({ data: dataUrlToUint8Array(dataUrl) });
-  const pdf = await task.promise;
-
   try {
+    const pdf = await task.promise;
     const page = await pdf.getPage(1);
     const baseViewport = page.getViewport({ scale: 1 });
     const maxWidth = 520;

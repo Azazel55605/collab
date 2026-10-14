@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { listen } from '@tauri-apps/api/event';
 import {
   Bookmark,
   BookmarkPlus,
@@ -71,6 +70,7 @@ import {
 } from '../lib/documentSessionController';
 import { defaultToolState } from '../lib/ink/tools';
 import type { InkToolState } from '../lib/ink/tools';
+import { listenSafely } from '../lib/nativeSubscription';
 import { readOcrCache, writeOcrCache } from '../lib/ocrCache';
 import {
   annotatedPdfFileName,
@@ -94,6 +94,7 @@ import type { VaultPdfAnnotations } from '../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useEditorStore } from '../store/editorStore';
+import { useServerStore } from '../store/serverStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 import type { CanvasData } from '../types/canvas';
@@ -112,7 +113,10 @@ import { enqueuePdfRender } from './pdfRenderQueue';
 import {
   buildPdfPageRenderCacheKey,
   buildPdfViewerState,
+  flushPdfViewerStates,
   type PdfPageRenderCacheEntry,
+  readPdfViewerState,
+  rememberPdfViewerState,
   resolvePdfBookmarksOpen,
 } from './pdfViewSession';
 import type { LayoutMode, ZoomMode } from './pdfViewTypes';
@@ -928,6 +932,11 @@ interface Props {
 
 export default function PdfView({ relativePath }: Props) {
   const { vault, fileTree } = useVaultStore();
+  const accountId = useServerStore((state) =>
+    vault?.kind === 'hosted' ? state.statusFor(vault.serverUrl)?.user?.id : undefined,
+  );
+  const viewerStateKey = `${vault?.path ?? ''}:${accountId ?? 'local'}:${relativePath}`;
+  useEffect(() => () => flushPdfViewerStates(), [viewerStateKey]);
   // Local PDF sidecars live under `.collab/pdf/`. Hosted sidecars use the
   // permission-enforced API; this flag only controls native file watching and
   // local viewer-state persistence.
@@ -1061,7 +1070,10 @@ export default function PdfView({ relativePath }: Props) {
 
   const applyPdfSession = useCallback(
     (candidate: RemoteCandidate<PdfSidecarState>) => {
-      const sidecar = normalizePdfState(candidate.document);
+      const sidecar = {
+        ...normalizePdfState(candidate.document),
+        viewerState: readPdfViewerState(viewerStateKey) ?? candidate.document.viewerState,
+      };
       setPdfState(sidecar);
       setBookmarksOpen(resolvePdfBookmarksOpen(sidecar.viewerState));
       if (sidecar.viewerState?.lastPage && pageCount > 0) {
@@ -1091,7 +1103,7 @@ export default function PdfView({ relativePath }: Props) {
         setRotation(sidecar.viewerState.lastRotation);
       }
     },
-    [normalizePdfState, pageCount],
+    [normalizePdfState, pageCount, viewerStateKey],
   );
 
   const readPdfSession = useCallback(async (): Promise<{
@@ -1201,6 +1213,7 @@ export default function PdfView({ relativePath }: Props) {
     }
 
     let cancelled = false;
+    let loadingTask: ReturnType<typeof getDocument> | null = null;
     setLoading(true);
     setError(null);
     setDocumentProxy(null);
@@ -1245,6 +1258,7 @@ export default function PdfView({ relativePath }: Props) {
       .then(async ([dataUrl, annotations]) => {
         const data = dataUrlToUint8Array(dataUrl);
         const task = getDocument({ data });
+        loadingTask = task;
         const pdf = await task.promise;
         if (cancelled) {
           // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns
@@ -1254,7 +1268,10 @@ export default function PdfView({ relativePath }: Props) {
         }
 
         const migration = migratePdfSidecar(annotations.state, relativePath, pdf.numPages);
-        const sidecar = migration.state;
+        const sidecar = {
+          ...migration.state,
+          viewerState: readPdfViewerState(viewerStateKey) ?? migration.state.viewerState,
+        };
         if (migration.warnings.length > 0) {
           toast.warning('Some PDF annotations needed repair.', {
             description: migration.warnings.slice(0, 3).join(' '),
@@ -1303,6 +1320,7 @@ export default function PdfView({ relativePath }: Props) {
       })
       .catch((loadError) => {
         if (cancelled) return;
+        void loadingTask?.destroy().catch(() => {});
         setDocumentProxy(null);
         setError(String(loadError));
       })
@@ -1312,6 +1330,7 @@ export default function PdfView({ relativePath }: Props) {
 
     return () => {
       cancelled = true;
+      void loadingTask?.destroy().catch(() => {});
     };
   }, [
     normalizePdfState,
@@ -1320,6 +1339,7 @@ export default function PdfView({ relativePath }: Props) {
     serializePdfSession,
     supportsSidecars,
     vault?.path,
+    viewerStateKey,
   ]);
 
   useEffect(() => {
@@ -1332,6 +1352,7 @@ export default function PdfView({ relativePath }: Props) {
       rotation,
       bookmarksOpen,
     });
+    rememberPdfViewerState(viewerStateKey, latestViewerStateRef.current);
     pdfSessionController.markLocalChange({
       ...pdfState,
       viewerState: latestViewerStateRef.current,
@@ -1345,6 +1366,7 @@ export default function PdfView({ relativePath }: Props) {
     relativePath,
     rotation,
     sidecarLoaded,
+    viewerStateKey,
     vault,
     zoom,
     zoomMode,
@@ -1352,17 +1374,11 @@ export default function PdfView({ relativePath }: Props) {
 
   useEffect(() => {
     if (!vault || !supportsSidecars || !relativePath) return;
-    let unlisten: (() => void) | undefined;
-    listen<{ path: string }>('vault:file-modified', async (event) => {
+    return listenSafely<{ path: string }>('vault:file-modified', async (event) => {
       if (event.payload?.path !== relativePath) return;
       if (Date.now() - pdfSessionController.getSnapshot().lastLocalWriteStartedAt < 2000) return;
       await pdfSessionController.handleExternalMutation('rest');
-    }).then((cleanup) => {
-      unlisten = cleanup;
     });
-    return () => {
-      unlisten?.();
-    };
   }, [pdfSessionController, relativePath, supportsSidecars, vault]);
 
   useEffect(() => {

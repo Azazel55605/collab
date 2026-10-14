@@ -8,7 +8,6 @@ import {
   useState,
 } from 'react';
 
-import { listen } from '@tauri-apps/api/event';
 import {
   CircuitBoard,
   FileText,
@@ -23,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { DragProvider } from '../../contexts/DragContext';
+import { listenSafely } from '../../lib/nativeSubscription';
 import { cn } from '../../lib/utils';
 import { createVaultClient } from '../../lib/vaultClient';
 import { onReplicaMutated } from '../../lib/vaultReplica';
@@ -160,14 +160,14 @@ export default function AppShell() {
         } catch {}
       }, 150);
     };
-    const setup = async () => {
-      const u1 = await listen('vault:file-created', refreshVisibleFiles);
-      const u2 = await listen('vault:file-deleted', refreshVisibleFiles);
-      const u3 = await listen('vault:file-renamed', refreshVisibleFiles);
-      const u4 = await listen('vault:file-modified', refreshVisibleFiles);
-      unsubs.push(u1, u2, u3, u4);
-    };
-    setup();
+    unsubs.push(
+      ...[
+        'vault:file-created',
+        'vault:file-deleted',
+        'vault:file-renamed',
+        'vault:file-modified',
+      ].map((event) => listenSafely(event, refreshVisibleFiles)),
+    );
     const unsubscribeReplica = onReplicaMutated(refreshVisibleFiles, {
       kinds: ['manifest', 'replica'],
     });

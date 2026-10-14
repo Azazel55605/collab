@@ -66,6 +66,7 @@ describe('loadPdfPreviewDataUrl', () => {
       '/vault',
       'Docs/spec.pdf',
       'data:image/png;base64,rendered',
+      expect.stringMatching(/^[a-f0-9]{64}$/),
     );
   });
 

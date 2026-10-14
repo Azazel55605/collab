@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import { runDocumentNavigation } from '../lib/documentNavigation';
 import { reconcileFileTreeIdentity } from '../lib/fileTreeIdentity';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient, requireRuntimeCapability } from '../lib/vaultClient';
@@ -84,6 +85,7 @@ export const useVaultStore = create<VaultState>()(
       lastOpenedVaultPath: null,
       isLoading: false,
       openVault: async (path) => {
+        if (!(await runDocumentNavigation(() => {}))) return;
         const attemptOpenVault = async (vaultPath: string) => {
           const previousVault = get().vault;
           if (previousVault) {
@@ -138,6 +140,7 @@ export const useVaultStore = create<VaultState>()(
         }
       },
       openHostedVault: async (vault) => {
+        if (!(await runDocumentNavigation(() => {}))) return;
         set({ isLoading: true });
         try {
           const previousVault = get().vault;
@@ -218,12 +221,14 @@ export const useVaultStore = create<VaultState>()(
         });
       },
       closeVault: () => {
-        const vault = get().vault;
-        if (vault)
-          createVaultClient(vault)
-            .runtime.watch?.stop()
-            .catch(() => {});
-        set({ vault: null, isVaultLocked: false, fileTree: [] });
+        void runDocumentNavigation(() => {
+          const vault = get().vault;
+          if (vault)
+            createVaultClient(vault)
+              .runtime.watch?.stop()
+              .catch(() => {});
+          set({ vault: null, isVaultLocked: false, fileTree: [] });
+        });
       },
       loadRecentVaults: async () => {
         const recentVaults = await tauriCommands.getRecentVaults();

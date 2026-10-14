@@ -383,7 +383,9 @@ export class DocumentSessionController<TDocument> {
    */
   markLocalChange(doc: TDocument): void {
     this.currentDocument = doc;
-    this.currentContent = this.options.serialize(doc);
+    const nextContent = this.options.serialize(doc);
+    if (nextContent !== this.currentContent) this.offlineQueued = false;
+    this.currentContent = nextContent;
     this.dirty =
       this.lastSavedContent === null
         ? true

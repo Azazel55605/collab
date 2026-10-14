@@ -130,28 +130,26 @@ fn count_words(content: &str) -> u32 {
 }
 
 fn make_excerpt(content: &str, query: &str, max_len: usize) -> String {
-    let lower_content = content.to_lowercase();
-    let lower_query = query.to_lowercase();
-
-    if let Some(pos) = lower_content.find(&lower_query) {
-        let start = pos.saturating_sub(40);
-        let end = (pos + query.len() + 80).min(content.len());
-        let excerpt = &content[start..end];
-        // Trim to word boundary
-        let trimmed = excerpt.trim();
-        if trimmed.len() > max_len {
-            format!("{}...", &trimmed[..max_len])
-        } else {
-            trimmed.to_string()
-        }
+    let folded = content.to_lowercase();
+    let query = query.to_lowercase();
+    let start = folded
+        .find(&query)
+        .and_then(|position| {
+            let mut folded_offset = 0;
+            content.chars().enumerate().find_map(|(index, character)| {
+                let folded_len: usize = character.to_lowercase().map(char::len_utf8).sum();
+                let contains = position < folded_offset + folded_len;
+                folded_offset += folded_len;
+                contains.then_some(index.saturating_sub(40))
+            })
+        })
+        .unwrap_or(0);
+    let mut chars = content.chars().skip(start);
+    let excerpt: String = chars.by_ref().take(max_len).collect();
+    if chars.next().is_some() {
+        format!("{}...", excerpt.trim())
     } else {
-        // Return first max_len chars
-        let first = content.chars().take(max_len).collect::<String>();
-        if content.len() > max_len {
-            format!("{}...", first.trim())
-        } else {
-            first.trim().to_string()
-        }
+        excerpt.trim().to_string()
     }
 }
 
@@ -448,5 +446,16 @@ mod tests {
         let excerpt = make_excerpt(content, "missing", 20);
 
         assert_eq!(excerpt, "This is the first se...");
+    }
+    #[test]
+    fn excerpts_use_original_unicode_character_boundaries() {
+        let content = format!("{}needle{}", "中".repeat(30), "😀".repeat(60));
+        let excerpt = make_excerpt(&content, "NEEDLE", 120);
+        assert!(excerpt.contains("needle"));
+        assert!(
+            make_excerpt(&format!("{}needle", "İ".repeat(60)), "needle", 80).contains("needle")
+        );
+        assert_eq!(make_excerpt("😀中é", "missing", 2), "😀中...");
+        assert_eq!(make_excerpt("😀", "😀", 0), "...");
     }
 }

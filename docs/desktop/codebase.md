@@ -206,6 +206,20 @@ keystroke → onChange → markDirty → 600ms debounce → tauriCommands.writeN
 manual save (Ctrl+S) → immediate write + createSnapshot
 ```
 
+Desktop tab/page/vault transitions pass through `lib/documentNavigation.ts`.
+It flushes registered dirty controllers before unmounting their editors and
+keeps navigation blocked after a failed/conflicting save; acknowledged native
+offline queues permit the transition. This is not process-death draft recovery.
+Native event registration uses `lib/nativeSubscription.ts` where late promises
+must clean themselves up after disposal.
+
+PDF viewer settings are separate from shared annotations: `views/pdfViewSession.ts`
+keeps up to 128 identity-scoped settings records in memory and debounced
+sessionStorage. Hosted annotations continue to exclude private viewer settings.
+Native document writes use uniquely created sibling temporary files before
+atomic replacement. External file-tree drops use visible row geometry from
+`components/vault/nativeDropTarget.ts`; file rows target their containing folder.
+
 ---
 
 ## Components

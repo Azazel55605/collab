@@ -51,6 +51,7 @@ export function useNativeFileDrop(
     };
 
     const handle = (payload: NativeDropPayload) => {
+      if (disposed) return;
       if (payload.type === 'leave') {
         setIsDraggingOver(false);
         return;
@@ -68,7 +69,7 @@ export function useNativeFileDrop(
         setIsDraggingOver(false);
         if (!inside || !payload.paths || payload.paths.length === 0) return;
         // The webview and window emitters can both fire for one drop; collapse them.
-        const key = `${payload.paths.join('\n')}@@${Math.round(point.x)}:${Math.round(point.y)}`;
+        const key = payload.paths.join('\n');
         const now = Date.now();
         if (key === lastDropRef.current.key && now - lastDropRef.current.at < 400) return;
         lastDropRef.current = { key, at: now };
@@ -84,6 +85,7 @@ export function useNativeFileDrop(
       },
       assign: (unlisten: () => void) => void,
       label: string,
+      fallback?: () => void,
     ) => {
       source
         .onDragDropEvent((event) => handle(event.payload))
@@ -91,30 +93,45 @@ export function useNativeFileDrop(
           if (disposed) unlisten();
           else assign(unlisten);
         })
-        .catch((err) =>
-          console.error(`[useNativeFileDrop] failed to attach ${label} listener:`, err),
-        );
+        .catch((err) => {
+          console.error(`[useNativeFileDrop] failed to attach ${label} listener:`, err);
+          if (!disposed) fallback?.();
+        });
     };
 
     // Guard against environments without a Tauri runtime (e.g. the test harness),
     // where acquiring the webview/window handle can throw synchronously.
+    const subscribeWindow = () => {
+      try {
+        subscribe(
+          getCurrentWindow(),
+          (u) => {
+            unlistenWindow = u;
+          },
+          'window',
+        );
+      } catch (error) {
+        console.error('[useNativeFileDrop] window fallback unavailable:', error);
+      }
+    };
     try {
+      // One coordinate source per drag. Window and webview events must not race
+      // to import the same paths into different hit targets.
       subscribe(
         getCurrentWebview(),
         (u) => {
           unlistenWebview = u;
         },
         'webview',
-      );
-      subscribe(
-        getCurrentWindow(),
-        (u) => {
-          unlistenWindow = u;
-        },
-        'window',
+        subscribeWindow,
       );
     } catch (err) {
-      console.error('[useNativeFileDrop] native drag-drop unavailable:', err);
+      console.error('[useNativeFileDrop] webview drag-drop unavailable:', err);
+      try {
+        subscribeWindow();
+      } catch (fallbackError) {
+        console.error('[useNativeFileDrop] window fallback unavailable:', fallbackError);
+      }
     }
 
     return () => {

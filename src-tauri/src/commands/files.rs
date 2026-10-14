@@ -199,9 +199,15 @@ fn write_vault_bytes(
         bytes.to_vec()
     };
 
-    let tmp_path = full_path.with_extension("tmp");
-    std::fs::write(&tmp_path, &bytes_to_write).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp_path, full_path).map_err(|e| e.to_string())
+    let mut staged =
+        tempfile::NamedTempFile::new_in(full_path.parent().ok_or("Missing parent directory")?)
+            .map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut staged, &bytes_to_write).map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    staged
+        .persist(full_path)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 fn read_vault_bytes(full_path: &Path, key_opt: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
@@ -1295,9 +1301,12 @@ fn write_note_to_path(
         content_to_write.as_bytes().to_vec()
     };
 
-    let tmp_path = full_path.with_extension("tmp");
-    std::fs::write(&tmp_path, &bytes_to_write).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp_path, full_path).map_err(|e| e.to_string())?;
+    let mut staged =
+        tempfile::NamedTempFile::new_in(full_path.parent().ok_or("Missing parent directory")?)
+            .map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut staged, &bytes_to_write).map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    staged.persist(full_path).map_err(|e| e.to_string())?;
 
     let hash = compute_hash(&content_to_write);
     Ok(WriteResult {
@@ -1788,6 +1797,22 @@ pub fn read_file_for_upload(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn atomic_writes_preserve_sibling_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let sibling = dir.path().join("example.tmp");
+        std::fs::write(&sibling, b"keep me").unwrap();
+        let first = dir.path().join("example.md");
+        let second = dir.path().join("example.canvas");
+        std::thread::scope(|scope| {
+            scope.spawn(|| super::write_vault_bytes(&first, b"note", None).unwrap());
+            scope.spawn(|| super::write_vault_bytes(&second, b"canvas", None).unwrap());
+        });
+        assert_eq!(std::fs::read(sibling).unwrap(), b"keep me");
+        assert_eq!(std::fs::read(first).unwrap(), b"note");
+        assert_eq!(std::fs::read(second).unwrap(), b"canvas");
+    }
     use super::{
         build_tree, collect_entries, create_note_at_path,
         document_preview_cache_metadata_relative_path,

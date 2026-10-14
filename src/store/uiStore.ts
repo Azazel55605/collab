@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import { runDocumentNavigation } from '../lib/documentNavigation';
 import type { InkEraserMode } from '../lib/ink/erase';
 import type { InkBrushKind } from '../types/ink';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
@@ -582,7 +583,7 @@ export const useUiStore = create<UiState>()(
       presentationDefaultMode: 'slideshow',
       presentationPreferredDisplayId: null,
 
-      setActiveView: (activeView) => set({ activeView }),
+      setActiveView: (activeView) => runDocumentNavigation(() => set({ activeView })),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
       setCollabTab: (collabTab) => set({ collabTab }),
       setFileTreeCollapsedPathsForVault: (vaultPath, paths) =>

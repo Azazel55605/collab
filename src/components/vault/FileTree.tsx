@@ -77,6 +77,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 import FileReferencesPanel from './FileReferencesPanel';
 import { FILE_TYPE_FILTERS, type FileTypeFilter, filterFileTreeByType } from './fileTreeFilters';
+import { nativeDropFolderAtPoint } from './nativeDropTarget';
 import TrashPanel from './TrashPanel';
 import { useNativeFileDrop } from './useNativeFileDrop';
 import { ConfirmDeleteDialog, InputDialog, RenameMovePreviewDialog } from './VaultDialogs';
@@ -314,9 +315,7 @@ export default function FileTree() {
   // inside it; anywhere else imports to the vault root.
   const handleNativeFileDrop = useCallback(
     (paths: string[], point: { x: number; y: number }) => {
-      const element = document.elementFromPoint(point.x, point.y);
-      const folderEl = element?.closest('[data-tree-folder-path]') as HTMLElement | null;
-      const targetFolder = folderEl?.dataset.treeFolderPath || undefined;
+      const targetFolder = nativeDropFolderAtPoint(treeContainerRef.current, point);
       void importFiles(paths, targetFolder);
     },
     [importFiles],
@@ -1537,6 +1536,11 @@ const FileTreeNode = memo(function FileTreeNode({
           <div
             draggable={!suppressHtmlDrag}
             data-tree-folder-path={node.isFolder ? node.relativePath : undefined}
+            data-tree-drop-folder={
+              node.isFolder
+                ? node.relativePath
+                : node.relativePath.split('/').slice(0, -1).join('/')
+            }
             onMouseDown={(e) => {
               const wantsNativeDrag = e.button === 0 && canReveal && (e.ctrlKey || e.metaKey);
               dragOutCandidateRef.current = wantsNativeDrag ? { x: e.clientX, y: e.clientY } : null;

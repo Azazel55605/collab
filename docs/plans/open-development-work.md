@@ -37,7 +37,12 @@ work from being mistaken for an active roadmap item.
 Reviewed separately on **2026-10-14**. The
 [desktop audit](../audits/desktop-performance-and-bugs-2026-10-14.md) is complete:
 8 bug entries, 10 investigation items and 70 optimization opportunities with
-source references and validation targets. **Fix implementation is not started.**
+source references and validation targets. **Fix implementation is in progress**
+in [Desktop Audit Fixes](./desktop-audit-fixes.md). Batch 1 implements guarded
+save-before-navigation, Unicode/search/listener fixes, unique staging writes,
+PDF lifetime/view settings, preview revision checks and canvas pixel bounds,
+plus initial native-drop, legacy-chat and Kanban overflow corrections. Native
+acceptance and the remaining desktop/report backlog are still open.
 Prioritize pending-edit loss during navigation, Unicode search panics, native
 staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
 merge/index/asset work. Establish native measurements before claiming speedups.
@@ -73,8 +78,9 @@ claim standalone local vaults or editor parity are implemented.
 
 The [reported-issue reconciliation](../audits/reported-regressions-2026-10-14.md)
 tracks all 13 user reports received on **2026-10-14**, preserving existing audit
-IDs and adding explicit gaps under UR01–UR13. **Fix implementation is not
-started.** Prioritize canvas save reliability, cache-first/offline freshness,
+IDs and adding explicit gaps under UR01–UR13. **Desktop fix implementation is
+in progress** in [Desktop Audit Fixes](./desktop-audit-fixes.md). Prioritize
+canvas save reliability, cache-first/offline freshness,
 external-drop targeting, PDF state retention and measured canvas/preview latency.
 The backlog also includes rendered internal previews, shared UI consistency,
 legacy chat/sidebar navigation, Kanban scrolling and mobile drawing-mode

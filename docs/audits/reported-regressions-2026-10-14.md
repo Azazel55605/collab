@@ -14,6 +14,10 @@ remain unchanged to avoid counting overlapping findings twice. UR01–UR13 are
 the follow-up tracker, including reports missing from the original inventories.
 Platform scope below is provisional where the report did not name one.
 
+Implementation has begun in [Desktop Audit Fixes](../plans/desktop-audit-fixes.md).
+The source checks below remain the original report baseline; consult that tracker
+for implemented changes and outstanding native acceptance.
+
 ## Coverage And Priority
 
 | ID        | Report / likely scope                                                                            | Previous coverage                                                                                                                                                      | Added tracking                                                                                                                        |

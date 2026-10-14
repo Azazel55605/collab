@@ -19,6 +19,14 @@ cost. Source discovery inventoried 862 TS/TSX/Rust files and 244,405 lines under
 Hotspots and lifecycle boundaries received manual review; this is not a claim
 that every line or every platform was exercised.
 
+## Implementation Progress
+
+Fixing is now **in progress** in [Desktop Audit Fixes](../plans/desktop-audit-fixes.md).
+Batch 1 addresses save-before-navigation and the concrete search, listener,
+staging, PDF and pixel-bound bugs, plus initial fixes for reported viewer,
+legacy-chat, drop-target and Kanban issues. The original evidence below is the
+pre-fix baseline; native acceptance and the remaining backlog are still open.
+
 ## Reported Regression Follow-Up
 
 The [2026-10-14 reported-issue reconciliation](./reported-regressions-2026-10-14.md)

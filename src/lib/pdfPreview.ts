@@ -93,10 +93,24 @@ export async function loadPdfPreviewDataUrl(
   }
 
   const sourceDataUrl = await client.readAssetDataUrl(relativePath);
+  let expectedHash: string | undefined;
+  if (cacheVaultPath) {
+    const binary = atob(sourceDataUrl.split(',', 2)[1]);
+    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    expectedHash = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+  }
   const renderedPreview = await deps.renderPdfPreviewFromDataUrl(sourceDataUrl);
   if (cacheVaultPath) {
     void deps
-      .writeCachedDocumentPreviewDataUrl(cacheVaultPath, relativePath, renderedPreview)
+      .writeCachedDocumentPreviewDataUrl(
+        cacheVaultPath,
+        relativePath,
+        renderedPreview,
+        expectedHash,
+      )
       .catch(() => {});
   }
   return renderedPreview;
