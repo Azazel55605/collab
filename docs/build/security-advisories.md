@@ -56,6 +56,34 @@ patched, the patch and a regression test must be committed alongside it.
 There are currently no Rust advisory ignores. The RSA dependency was removed
 from the resolved graph by the SQLx upgrade described below.
 
+## Vulnerabilities resolved in the 2026-10-15 PR #96 follow-up
+
+The failing PR dependency scan reported **nine Rust vulnerabilities**. Compatible
+lockfile upgrades resolve all nine without adding audit ignores:
+
+- **`quinn-proto` 0.11.15 → 0.11.18** resolves
+  [RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338.html),
+  [RUSTSEC-2026-0339](https://rustsec.org/advisories/RUSTSEC-2026-0339.html),
+  [RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340.html),
+  [RUSTSEC-2026-0341](https://rustsec.org/advisories/RUSTSEC-2026-0341.html) and
+  [RUSTSEC-2026-0342](https://rustsec.org/advisories/RUSTSEC-2026-0342.html).
+  These cover peer-triggered panics and bypasses of receive/reassembly memory
+  limits. The compatible update also resolves its newer random-number helper
+  dependencies within the same lockfile.
+- **`rustls` 0.23.45 → 0.23.46** resolves
+  [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html),
+  [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html),
+  [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) and
+  [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html).
+  These address session-secret debug output, rejected-ECH buffering,
+  unauthenticated certificate-decompression allocation and key-exchange downgrade
+  handling.
+
+The refreshed `cargo audit` reports **zero vulnerabilities**, with the same
+three informational warnings documented below. `.cargo/audit.toml` still ignores
+nothing. The PR's JavaScript and container vulnerability checks passed before
+this follow-up; the failing check was the Rust dependency audit.
+
 ## Vulnerabilities resolved in the 2026-10-07 review
 
 - **GHSA-68fv-2mgg-jv7q — `source-map-js` (high).** Raised from **1.2.1**
