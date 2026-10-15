@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { Slider } from '../ui/slider';
 
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
@@ -219,14 +221,14 @@ export function MathPlotModal({ spec, onOpenChange }: MathPlotModalProps) {
 
             <Field label={`Sample rate — ${draft.samples}`}>
               <div className="flex items-center gap-2">
-                <input
-                  type="range"
+                <Slider
+                  aria-label="Sample rate slider"
                   min={PLOT_MIN_SAMPLES}
                   max={maxSamples}
-                  value={draft.samples}
+                  value={[draft.samples]}
                   className="h-8 flex-1 accent-primary"
-                  onChange={(event) =>
-                    updateDraft({ samples: clampSamples(Number(event.target.value), maxSamples) })
+                  onValueChange={(values) =>
+                    updateDraft({ samples: clampSamples(values[0], maxSamples) })
                   }
                 />
                 <Input
@@ -245,11 +247,10 @@ export function MathPlotModal({ spec, onOpenChange }: MathPlotModalProps) {
 
             <div className="flex flex-col gap-2 rounded-md border border-border/45 p-2.5">
               <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <input
-                  type="checkbox"
+                <Checkbox
                   className="accent-primary"
                   checked={manualVertical}
-                  onChange={(event) => setManualVertical(event.target.checked)}
+                  onCheckedChange={(checked) => setManualVertical(checked === true)}
                 />
                 <span>Manual {verticalLabel} limits</span>
               </label>

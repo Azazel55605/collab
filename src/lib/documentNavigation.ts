@@ -30,7 +30,10 @@ export function runDocumentNavigation(action: () => void): Promise<boolean> {
     const snapshot = controller.getSnapshot();
     return (snapshot.dirty || snapshot.saving) && !snapshot.liveState && !snapshot.offlineQueued;
   });
-  if (!flushing && dirty.length === 0) {
+  const preparers = Object.values(useDocumentStatusStore.getState().statuses).flatMap((entry) =>
+    entry.beforeLeave ? [entry.beforeLeave] : [],
+  );
+  if (!flushing && dirty.length === 0 && preparers.length === 0) {
     action();
     return Promise.resolve(true);
   }
@@ -39,6 +42,18 @@ export function runDocumentNavigation(action: () => void): Promise<boolean> {
   flushing = true;
   void (async () => {
     try {
+      if (preparers.length) await Promise.all(preparers.map((prepare) => prepare()));
+      // A preparer can materialize a paused gesture after the initial snapshot.
+      for (const controller of controllers) {
+        const state = controller.getSnapshot();
+        if (
+          (state.dirty || state.saving) &&
+          !state.liveState &&
+          !state.offlineQueued &&
+          !dirty.includes(controller)
+        )
+          dirty.push(controller);
+      }
       for (let attempt = 0; attempt < 3; attempt++) {
         await Promise.all(dirty.map((controller) => controller.requestSave('flush')));
         if (

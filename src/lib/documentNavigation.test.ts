@@ -123,3 +123,75 @@ describe('document navigation durability', () => {
     expect(leave).not.toHaveBeenCalled();
   });
 });
+
+it('materializes a paused gesture before deciding which controllers require a save', async () => {
+  useDocumentStatusStore.setState({ statuses: {} });
+  const write = vi.fn(async () => ({ version: 'v2' }));
+  const controller = new DocumentSessionController<string>({
+    write,
+    serialize: (value) => value,
+    deserialize: (value) => value,
+    applyDocument: () => {},
+    schedule: () => () => {},
+  });
+  controller.load('old', 'v1');
+  const action = vi.fn();
+  useDocumentStatusStore.setState({
+    statuses: {
+      'a.canvas': {
+        status: 'idle',
+        controller: controller as DocumentSessionController<unknown>,
+        beforeLeave: async () => controller.markLocalChange('last drag position'),
+      },
+    },
+  });
+  expect(await runDocumentNavigation(action)).toBe(true);
+  expect(write).toHaveBeenCalledWith(
+    expect.objectContaining({ content: 'last drag position', expectedVersion: 'v1' }),
+  );
+  expect(action).toHaveBeenCalledOnce();
+  controller.dispose();
+  useDocumentStatusStore.setState({ statuses: {} });
+});
+
+it('keeps the live editor open if its durable checkpoint fails', async () => {
+  const action = vi.fn();
+  useDocumentStatusStore.setState({
+    statuses: {
+      'a.canvas': {
+        status: 'live-reconnecting',
+        beforeLeave: async () => {
+          throw new Error('disk full');
+        },
+      },
+    },
+  });
+  expect(await runDocumentNavigation(action)).toBe(false);
+  expect(action).not.toHaveBeenCalled();
+  useDocumentStatusStore.setState({ statuses: {} });
+});
+
+it('waits for a save already in progress before leaving instead of rejecting early', async () => {
+  let finish!: (value: { version: string }) => void;
+  const write = vi.fn(
+    () =>
+      new Promise<{ version: string }>((done) => {
+        finish = done;
+      }),
+  );
+  const controller = register(write);
+  const saving = controller.requestSave('manual');
+  const action = vi.fn();
+  const navigation = runDocumentNavigation(action);
+  await settle();
+  expect(action).not.toHaveBeenCalled();
+  finish({ version: 'v2' });
+  await settle();
+  // A queued trailing save may run for the same current state.
+  if (write.mock.calls.length > 1) finish({ version: 'v3' });
+  await saving;
+  expect(await navigation).toBe(true);
+  expect(action).toHaveBeenCalledOnce();
+  controller.dispose();
+  useDocumentStatusStore.setState({ statuses: {} });
+});

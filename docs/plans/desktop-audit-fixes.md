@@ -60,22 +60,68 @@ publication checks do not make the replica store transactional. A copy whose
 offline marker was already erased by an older build needs **Make available
 offline** once to restore that intent; the new code preserves it thereafter.
 
-## Next Batches
+## Batch 3 — Canvas, Previews And Desktop UI
 
-1. Cache-first file/annotation/preview reads and automatic offline-copy freshness
-   (UR02/UR03), including pending-edit precedence, partial failures and revision
-   publication to mounted views. Batch 2 repairs read/notification/checkpoint gaps; finish the remaining
-   native acceptance and source-byte/preview paths above.
-2. Canvas save/conflict/live recovery and measured rendering/serialization work
-   (UR12/UR13, O52/O59/O60); reproduce remaining failures with authoritative reopen
-   checks. Preview scheduling/latency (UR04) belongs with that workload.
-3. Rich rendered internal thumbnails (UR05), shared component consistency
-   (UR06), dynamic sidebar context (UR09), and remaining native drop/scroll/viewer
-   acceptance. Mobile drawing-mode reconciliation (UR11) belongs to the Android
-   batch; `.ink` already uses the shared tool model.
-4. Remaining desktop investigations/optimization opportunities, ranked by native
-   measurements. Web and Android audits retain their separate implementation
-   backlog rather than being marked complete by shared helper changes.
+Implemented **2026-10-15**:
+
+- **UR12/UR13:** Canvas load failures block editing/autosave instead of replacing
+  unreadable content with an empty document. Initial sanitization stays in memory;
+  opening a document alone does not rewrite it. Late loads cannot replace a newer
+  canvas, and changing collaboration callbacks does not reload a dirty graph.
+- Canvas gestures mark transient changes without repeatedly serializing the graph.
+  Manual save/navigation materialize the latest graph, including an unfinished
+  gesture. Navigation waits for both an active save and its coalesced trailing
+  write. Live canvas edits flush before teardown and before applying remote
+  changes; base-aware merging preserves independent remote fields/nodes.
+  Native CRDT checkpoints are serialized/coalesced; explicit flush failures block
+  navigation instead of reporting a durable save prematurely.
+- **UR04:** Preview queues bound canvas/PDF work to two jobs each and document/web
+  work to four each. Canvas hydration considers nearby visible cards, skips
+  cancelled queued work, limits retained Markdown, and invalidates stale results
+  when source revisions change. PDF cards reuse the common thumbnail pipeline.
+  Web previews retain at most 128 completed entries, with ten-minute success and
+  thirty-second error expiry.
+- **UR02/UR03/UR04:** Hosted internal previews use cached manifest/body data before
+  server requests when available. The in-memory SVG cache is scoped by account,
+  content hash and renderer version, with 64-entry/16 MiB limits. Mounted hosted
+  PDF/image views refresh changed source bytes after local edits are safe.
+- **UR01:** PDF views retain scroll/pan alongside page/zoom/layout settings. A
+  reference-counted PDF resource cache reuses unchanged sources across tab
+  switches, with a two-entry/64 MiB source-byte budget; active documents are never
+  evicted. This bounds retained sources, not total PDF worker/GPU memory.
+- **UR05:** Shared renderer version 2 adds spatial canvas/logic diagrams, Kanban
+  columns/cards, and first-slide deck layout, shape, theme and inherited text
+  styles. Server/native thumbnail keys invalidate older renders. Rendering stays
+  bounded and excludes private notes/external resource fetching. Deck images,
+  charts and tables still use placeholders; this is not editor-fidelity output.
+- **UR06/UR09:** Sidebar uses shared Tabs and resets file-tree state per vault.
+  Newly active documents reveal their ancestors and leave stale trash/filter
+  contexts. Visible legacy controls in canvas, Kanban, deck, drawing, image/PDF,
+  spreadsheet and logic panels now use shared UI primitives. Hidden file chooser
+  inputs remain adapters. Canvas edges no longer leak React Flow props onto DOM
+  elements.
+
+Browser acceptance uses actual React components with a disposable, in-memory
+Tauri adapter at **1280 × 720**. Editing, saving and authoritative fixture reopen,
+plus Files/Search sidebar navigation, are checked separately from native storage.
+The generated SVG gallery is checked for bounds, readable labels and deck theme
+contrast. These checks do not establish Windows/Wayland behavior or real-server
+reconnect durability.
+
+## Remaining Desktop Work
+
+1. Native downloaded-vault/reconnect, dirty-overlay refresh, corrupt/large PDF and
+   repeated open/close resource tests. A copy whose offline marker an older build
+   erased still needs **Make available offline** once to restore its intent.
+2. Canvas multi-client conflict/reconnect and actual-disk reopen acceptance,
+   process quit/death recovery, and native CPU/heap/GPU profiling. Checkpoints and
+   queue guards do not make cross-process replica publication transactional.
+3. Full-fidelity internal thumbnails, including deck assets/charts, plus measured
+   native preview latency/memory and broader shared-control/accessibility QA.
+4. Remaining desktop audit investigations/optimization opportunities, ranked by
+   measured workload impact. The original 70 opportunities are not all closed by
+   these batches. Android drawing modes and the web/mobile audit backlogs remain
+   separate work.
 
 ## Batch 1 Verification
 
@@ -136,6 +182,32 @@ including monitor transitions and app zoom, remain acceptance checks.
   workaround, not a dependency-manifest change.
 - Compose config passed previously; server smoke retains the Batch 1 BuildKit
   entitlement limitation. No real database/Compose project was altered.
+
+## Batch 3 Verification
+
+- Full desktop/script suite: **2,292 passed, one intentional skip**. The existing
+  dependency test still requires the installed patched `braces` package exposed
+  through `NODE_PATH`; dependency manifests were not changed. A test-only array
+  lookup was subsequently made compatible with the configured TypeScript target,
+  with all **17 live-session tests** rerun successfully.
+- Canvas regression drives **100 drag updates without flow-to-document
+  conversions during the gesture**, then saves and reopens the authoritative
+  final position. This demonstrates eliminated conversion work, not a measured
+  native FPS improvement. Navigation/checkpoint regressions cover trailing-save
+  completion and independent concurrent JSON edits.
+- An initial full run under concurrent builds exceeded the unchanged ink
+  hit-test timing budget (11.2 ms versus 8 ms). All ten isolated ink tests and
+  the final complete desktop run passed without increasing that budget.
+- Android **256/256**, admin **81/81**, Rust workspace tests/check, crate
+  boundaries and version alignment passed. Browser fixture save/reopen and
+  sidebar interactions passed; the generated Rust thumbnail gallery was visually
+  checked. The clean fixture has no console errors; an existing React Flow
+  attribution warning remains.
+- Desktop/admin/Android TypeScript and desktop/admin production frontend builds
+  passed. Compose configuration passed without starting services.
+- Changed/new-file lint has **zero errors and 66 warnings** (hook/Fast Refresh
+  and existing component debt). Formatting and diff checks passed. Native
+  acceptance and server smoke retain the boundaries below.
 
 ## Verification Boundary
 

@@ -881,11 +881,22 @@ export default function FileTree() {
   // (otherwise ctrl/shift multi-selection would be clobbered).
   const lastSyncedActiveTab = useRef<string | null>(null);
   useEffect(() => {
-    if (mode !== 'files' || !activeTabPath) return;
+    if (!activeTabPath) return;
     if (lastSyncedActiveTab.current === activeTabPath) return;
     const existing = flatten(fileTree).find((entry) => entry.relativePath === activeTabPath);
     if (!existing) return;
     lastSyncedActiveTab.current = activeTabPath;
+    setMode('files');
+    // Opening a document from tabs/search must reveal it even if a previous
+    // file-type filter or collapsed ancestor would hide its row.
+    if (!flatten(filteredFileTree).some((entry) => entry.relativePath === activeTabPath))
+      setFileTypeFilters(new Set());
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      const parts = activeTabPath.split('/');
+      for (let i = 1; i < parts.length; i++) next.delete(parts.slice(0, i).join('/'));
+      return next;
+    });
     setSelectedRelativePath(activeTabPath);
     setSelectedPaths(new Set([activeTabPath]));
   }, [activeTabPath, fileTree, mode]);

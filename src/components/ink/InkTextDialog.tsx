@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import { Textarea } from '../ui/textarea';
 
 export interface InkTextDraft {
   kind: 'text' | 'sticky' | 'equation';
@@ -55,7 +56,7 @@ export default function InkTextDialog({ draft, onOpenChange, onCreate }: InkText
             Text stays editable after it is placed on the drawing.
           </DialogDescription>
         </DialogHeader>
-        <textarea
+        <Textarea
           autoFocus
           aria-label={
             draft?.kind === 'sticky'

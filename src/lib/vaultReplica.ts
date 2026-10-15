@@ -465,7 +465,7 @@ export function classifyPendingOperationFailure(error: unknown): PendingOperatio
 }
 
 export async function readCachedReplicaManifest(
-  vault: HostedVaultMeta,
+  vault: Pick<HostedVaultMeta, 'serverUrl' | 'hostedVaultId'>,
 ): Promise<ReplicaManifest | null> {
   return tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
 }

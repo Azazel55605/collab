@@ -1,6 +1,8 @@
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { Node as FlowNode } from '@xyflow/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { HostedVaultClient } from '../../lib/vaultClient';
 
 import type { CanvasFlowEdge } from './CanvasEdgeTypes';
 import type { CanvasNodeData } from './CanvasNodeTypes';
@@ -174,74 +176,43 @@ describe('useCanvasDocumentSession', () => {
     expect(setViewport).toHaveBeenCalledWith({ x: 1, y: 2, zoom: 0.9 });
   });
 
-  it('persists a repaired canvas when load removes dangling edges', async () => {
+  it('sanitizes dangling edges in memory without rewriting the source on open', async () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
-        nodes: [
-          {
-            id: 'node-a',
-            type: 'text',
-            content: 'A',
-            position: { x: 0, y: 0 },
-            width: 100,
-            height: 100,
-          },
-        ],
-        edges: [{ id: 'edge-broken', source: 'node-a', target: 'missing-node' }],
-        viewport: { x: 1, y: 2, zoom: 0.9 },
+        nodes: [],
+        edges: [{ id: 'broken', source: 'missing', target: 'missing' }],
+        viewport: { x: 0, y: 0, zoom: 1 },
       }),
       hash: 'hash-1',
       modifiedAt: 1,
     });
-    tauriMocks.writeNote.mockResolvedValue({ hash: 'hash-repaired' });
+    const options = baseLocalOptions();
+    renderHook(() => useCanvasDocumentSession(options));
+    await waitFor(() =>
+      expect(options.setSavedHash).toHaveBeenCalledWith('Boards/test.canvas', 'hash-1'),
+    );
+    expect(tauriMocks.writeNote).not.toHaveBeenCalled();
+  });
 
-    const setSavedHash = vi.fn();
+  it.each([new Error('permission denied'), new Error('offline')])(
+    'never enables autosave after a failed load: %s',
+    async (error) => {
+      tauriMocks.readNote.mockRejectedValue(error);
+      const options = baseLocalOptions();
+      const hook = renderHook(() => useCanvasDocumentSession(options));
+      await waitFor(() => expect(hook.result.current.loadError).toBe(String(error)));
+      await hook.result.current.beforeLeave();
+      await hook.result.current.controller.requestSave('flush');
+      expect(tauriMocks.writeNote).not.toHaveBeenCalled();
+      expect(options.markSaved).not.toHaveBeenCalled();
+    },
+  );
 
-    renderHook(() => useCanvasDocumentSession(baseLocalOptions({ setSavedHash })));
-
-    await waitFor(() => {
-      expect(tauriMocks.writeNote).toHaveBeenCalledWith(
-        '/vault',
-        'Boards/test.canvas',
-        JSON.stringify(
-          {
-            nodes: [
-              {
-                id: 'node-a',
-                type: 'text',
-                content: 'A',
-                position: { x: 0, y: 0 },
-                width: 100,
-                height: 100,
-              },
-            ],
-            edges: [],
-            viewport: { x: 1, y: 2, zoom: 0.9 },
-          },
-          null,
-          2,
-        ),
-        'hash-1',
-        JSON.stringify({
-          nodes: [
-            {
-              id: 'node-a',
-              type: 'text',
-              content: 'A',
-              position: { x: 0, y: 0 },
-              width: 100,
-              height: 100,
-            },
-          ],
-          edges: [{ id: 'edge-broken', source: 'node-a', target: 'missing-node' }],
-          viewport: { x: 1, y: 2, zoom: 0.9 },
-        }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(setSavedHash).toHaveBeenCalledWith('Boards/test.canvas', 'hash-repaired');
-    });
+  it('reports invalid JSON without replacing the document with an empty canvas', async () => {
+    tauriMocks.readNote.mockResolvedValue({ content: '{broken', hash: 'hash', modifiedAt: 1 });
+    const hook = renderHook(() => useCanvasDocumentSession(baseLocalOptions()));
+    await waitFor(() => expect(hook.result.current.loadError).toBeTruthy());
+    expect(tauriMocks.writeNote).not.toHaveBeenCalled();
   });
 
   it('autosaves current canvas content and creates a snapshot on success', async () => {
@@ -323,7 +294,112 @@ describe('useCanvasDocumentSession', () => {
     );
   });
 
+  it('ignores a slow response from a previously selected canvas', async () => {
+    let release!: (value: unknown) => void;
+    tauriMocks.readNote.mockImplementation((_vault, path) =>
+      path === 'old.canvas'
+        ? new Promise((done) => {
+            release = done;
+          })
+        : Promise.resolve({
+            content: JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }),
+            hash: 'new',
+            modifiedAt: 1,
+          }),
+    );
+    const options = baseLocalOptions();
+    const hook = renderHook(
+      ({ path }) => useCanvasDocumentSession({ ...options, relativePath: path }),
+      { initialProps: { path: 'old.canvas' } },
+    );
+    hook.rerender({ path: 'new.canvas' });
+    await waitFor(() => expect(options.setSavedHash).toHaveBeenCalledWith('new.canvas', 'new'));
+    await act(async () => release({ content: '{}', hash: 'old', modifiedAt: 1 }));
+    expect(options.setSavedHash).not.toHaveBeenCalledWith('old.canvas', 'old');
+  });
+
+  it('serializes a drag at its checkpoint and saves the final authoritative position', async () => {
+    const options = baseLocalOptions({
+      viewport: { x: 1, y: 2, zoom: 0.9 },
+      fromFlowNode: vi.fn((node) => ({
+        id: node.id,
+        type: 'text' as const,
+        content: node.data.content ?? '',
+        position: node.position,
+        width: 100,
+        height: 100,
+      })),
+    });
+    tauriMocks.writeNote.mockResolvedValue({ hash: 'hash-2' });
+    const hook = renderHook(
+      ({ nodes, pause }: { nodes: FlowNode<CanvasNodeData>[]; pause: boolean }) =>
+        useCanvasDocumentSession({ ...options, nodes, pauseAutosave: pause }),
+      { initialProps: { nodes: [] as FlowNode<CanvasNodeData>[], pause: false } },
+    );
+    await waitFor(() => expect(options.setSavedHash).toHaveBeenCalled());
+    vi.mocked(options.fromFlowNode).mockClear();
+    for (let x = 0; x < 100; x++) {
+      hook.rerender({
+        nodes: [
+          {
+            id: 'node',
+            type: 'textCard',
+            data: { content: 'keep' },
+            position: { x, y: 20 },
+          } as FlowNode<CanvasNodeData>,
+        ],
+        pause: true,
+      });
+    }
+    expect(options.fromFlowNode).not.toHaveBeenCalled();
+    expect(hook.result.current.snapshot.dirty).toBe(true);
+    await act(async () => {
+      await hook.result.current.controller.requestSave('manual');
+    });
+    const saved = JSON.parse(tauriMocks.writeNote.mock.calls[0][2]);
+    expect(saved.nodes[0]).toMatchObject({ content: 'keep', position: { x: 99, y: 20 } });
+    tauriMocks.readNote.mockResolvedValue({
+      content: JSON.stringify(saved),
+      hash: 'hash-2',
+      modifiedAt: 2,
+    });
+    hook.unmount();
+    const reopened = baseLocalOptions({
+      fromFlowNode: options.fromFlowNode,
+      buildFlowNode: (canvas) =>
+        canvas.nodes.map(
+          (node) =>
+            ({ id: node.id, data: {}, position: node.position }) as FlowNode<CanvasNodeData>,
+        ),
+    });
+    renderHook(() => useCanvasDocumentSession(reopened));
+    await waitFor(() =>
+      expect(reopened.setNodes).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ position: { x: 99, y: 20 } })]),
+      ),
+    );
+  });
+
   function hostedLiveOptions(overrides: Partial<SessionOptions> = {}): SessionOptions {
+    vi.spyOn(HostedVaultClient.prototype, 'readDocument').mockResolvedValue({
+      relativePath: 'Boards/test.canvas',
+      version: '3',
+      modifiedAt: 1,
+      content: JSON.stringify({
+        nodes: [
+          {
+            id: 'node-1',
+            type: 'text',
+            content: 'server',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
+        ],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    });
     return {
       reactFlow: { setViewport: vi.fn() },
       vault: {
@@ -401,7 +477,7 @@ describe('useCanvasDocumentSession', () => {
 
     const options = hostedLiveOptions();
 
-    const { rerender } = renderHook(
+    const { rerender, unmount } = renderHook(
       ({ nodes }: { nodes: FlowNode<CanvasNodeData>[] }) =>
         useCanvasDocumentSession({ ...options, nodes }),
       { initialProps: { nodes: [] as FlowNode<CanvasNodeData>[] } },
@@ -427,7 +503,9 @@ describe('useCanvasDocumentSession', () => {
 
     // A genuine post-hydration edit is pushed into the live doc.
     rerender({ nodes: [{ ...hydratedNode, data: { title: 'Text', content: 'edited' } }] });
-    await waitFor(() => expect(writeJson).toHaveBeenCalledTimes(1));
+    unmount();
+    expect(writeJson).toHaveBeenCalledTimes(1);
+    expect(writeJson.mock.calls[0][0].nodes[0].content).toBe('edited');
   });
 
   it('publishes the selected node ids as ephemeral canvas awareness', async () => {

@@ -19,6 +19,7 @@ import type {
 } from '../types/vault';
 import { vaultCan, vaultKind } from '../types/vault';
 
+import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
 import { tauriCommands } from './tauri';
 import {
   emitReplicaMutated,
@@ -1571,23 +1572,39 @@ export class HostedVaultClient implements VaultClient {
     throw new Error('Hosted snapshot history is immutable and cannot be cleared.');
   }
 
-  async readDocumentPreviewDataUrl(relativePath: string): Promise<string> {
-    const manifest = await this.onlineOrCachedManifest();
+  async readDocumentPreviewDataUrl(relativePath: string, accountScope?: string): Promise<string> {
+    const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
     // Unsynced edits must preview the local draft rather than an older server revision.
     const local = await this.readCurrentCachedDocument(file).catch(() => null);
     if (file.currentRevision?.contentHash === 'offline' && local !== null) {
       return tauriCommands.generateDocumentPreview(relativePath, local);
     }
-    try {
-      const preview = await this.request<{ dataUrl: string }>('GET', `/files/${file.id}/preview`);
-      return preview.dataUrl;
-    } catch (error) {
-      // Connectivity failures may use an authorized offline replica. Permission
-      // failures must never fall back to cached private content.
-      if (!isLikelyConnectivityError(error) || local === null) throw error;
-      return tauriCommands.generateDocumentPreview(relativePath, local);
+    const key = accountScope ? `${accountScope}::${relativePath}` : null;
+    const hash = file.currentRevision?.contentHash;
+    const cached = key && hash ? cachedRevisionPreview(key, hash) : null;
+    if (cached) {
+      void syncReplicaManifestDelta(this.vault).catch(() => {});
+      return cached;
     }
+    if (local !== null) {
+      const dataUrl = await tauriCommands.generateDocumentPreview(relativePath, local);
+      if (key && hash) rememberRevisionPreview(key, { hash, renderer: 2, dataUrl });
+      void syncReplicaManifestDelta(this.vault).catch(() => {});
+      return dataUrl;
+    }
+    const preview = await this.request<{
+      dataUrl: string;
+      contentHash?: string;
+      rendererVersion?: number;
+    }>('GET', `/files/${file.id}/preview`);
+    if (key && preview.contentHash && preview.rendererVersion)
+      rememberRevisionPreview(key, {
+        hash: preview.contentHash,
+        renderer: preview.rendererVersion,
+        dataUrl: preview.dataUrl,
+      });
+    return preview.dataUrl;
   }
 
   async readAssetDataUrl(relativePath: string): Promise<string> {

@@ -165,6 +165,8 @@ export interface DocumentSessionControllerOptions<TDocument> {
   }): Promise<DocumentWriteOutcome>;
   /** Serialize a document to the string content written to the vault. */
   serialize(doc: TDocument): string;
+  /** Materialize deferred gesture state at a save boundary. */
+  prepareSave?(): void;
   /** Parse vault content into a document. */
   deserialize(content: string): TDocument;
   /**
@@ -231,25 +233,37 @@ export function createExclusiveSaveRunner(callbacks?: { onBusy?(): void; onIdle?
   let saving = false;
   let pending: null | (() => Promise<void>) = null;
 
-  async function run(save: () => Promise<void>): Promise<void> {
+  let completion: Promise<void> | null = null;
+  function run(save: () => Promise<void>): Promise<void> {
     if (saving) {
       pending = save;
-      return;
+      return completion!;
     }
     saving = true;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const done = new Promise<void>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    completion = done;
     callbacks?.onBusy?.();
-    try {
-      let current: (() => Promise<void>) | null = save;
-      while (current) {
+    void (async () => {
+      try {
+        let current: (() => Promise<void>) | null = save;
+        while (current) {
+          pending = null;
+          await current();
+          current = pending;
+        }
+      } finally {
+        saving = false;
         pending = null;
-        await current();
-        current = pending;
+        completion = null;
+        callbacks?.onIdle?.();
       }
-    } finally {
-      saving = false;
-      pending = null;
-      callbacks?.onIdle?.();
-    }
+    })().then(resolve, reject);
+    return done;
   }
 
   return {
@@ -397,12 +411,26 @@ export class DocumentSessionController<TDocument> {
     this.invalidate();
   }
 
+  /** Mark an in-progress gesture dirty without serializing the graph on every frame. */
+  markTransientChange(): void {
+    this.dirty = true;
+    this.offlineQueued = false;
+    this.justSaved = false;
+    this.clearAutosave();
+    this.invalidate();
+  }
+
   /** Requests a save now. Manual saves flush the debounce and run immediately. */
   requestSave(_reason: SaveReason = 'manual'): Promise<void> {
     if (this.conflicted) return Promise.resolve();
     // Live sessions persist through the server relay; the REST write path is
     // disabled so it never races the CRDT materialization with a stale version.
     if (this.options.isLive?.()) return Promise.resolve();
+    try {
+      this.options.prepareSave?.();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (this.currentContent === null) return Promise.resolve();
     this.clearAutosave();
     if (this.runner.isBusy()) {
@@ -835,6 +863,7 @@ export function useDocumentSessionController<TDocument>(
     const proxy: DocumentSessionControllerOptions<TDocument> = {
       write: (args) => optionsRef.current.write(args),
       serialize: (doc) => optionsRef.current.serialize(doc),
+      prepareSave: () => optionsRef.current.prepareSave?.(),
       deserialize: (content) => optionsRef.current.deserialize(content),
       applyDocument: (candidate) => optionsRef.current.applyDocument(candidate),
       read: () => (optionsRef.current.read ? optionsRef.current.read() : Promise.resolve(null)),

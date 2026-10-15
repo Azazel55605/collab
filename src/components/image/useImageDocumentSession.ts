@@ -9,6 +9,7 @@ import {
   useDocumentSessionController,
 } from '../../lib/documentSessionController';
 import { tauriCommands } from '../../lib/tauri';
+import { useHostedAssetRevision } from '../../lib/useHostedAssetRevision';
 import { createVaultClient } from '../../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../../lib/vaultReplica';
 import { migrateImageAnnotations } from '../../lib/viewAnnotations';
@@ -199,6 +200,12 @@ export function useImageDocumentSession(options: Options) {
     autosaveDebounceMs: 450,
   });
 
+  const assetRevision = useHostedAssetRevision(
+    vault,
+    relativePath,
+    !snapshot.dirty && !snapshot.saving && !snapshot.conflicted,
+  );
+
   useEffect(() => {
     if (!vault || !relativePath || !client) {
       setSrc(null);
@@ -244,6 +251,7 @@ export function useImageDocumentSession(options: Options) {
       cancelled = true;
     };
   }, [
+    assetRevision,
     client,
     controller,
     loadImage,

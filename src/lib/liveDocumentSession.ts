@@ -6,6 +6,7 @@ import {
 } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
+import { createExclusiveSaveRunner } from './documentSessionController';
 import { isLiveCollabDebugEnabled, liveDebugPush } from './liveDebugLog';
 import {
   createLiveSocket,
@@ -76,6 +77,8 @@ export interface LiveDocumentHandle {
    * replication.
    */
   discardOfflineState(): void;
+  /** Await a durable native CRDT checkpoint before leaving the editor. */
+  flushOfflineState?(): Promise<void>;
   destroy(): void;
 }
 
@@ -172,6 +175,7 @@ export class WebSocketYProvider {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private initialSyncPending = false;
   private subscribedCallback: ((ok: boolean) => void) | undefined;
+  private readonly persistRunner = createExclusiveSaveRunner();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   // When set, the offline replica state for this document has been discarded as
   // degenerate: stop persisting and do not flush on destroy.
@@ -252,11 +256,17 @@ export class WebSocketYProvider {
       this.persistTimer = null;
     }
     if (!this.offlineReplica) return;
-    void tauriCommands
-      .replicaClearCrdtState(this.target.serverUrl, this.target.vaultId, this.target.fileId)
-      .catch(() => {
-        // Best-effort: a clear failure leaves the next session to re-evaluate.
-      });
+    const clear = () =>
+      tauriCommands.replicaClearCrdtState(
+        this.target.serverUrl,
+        this.target.vaultId,
+        this.target.fileId,
+      );
+    // Clear only after an already-started checkpoint settles.
+    void this.persistRunner
+      .run(clear)
+      .catch(clear)
+      .catch(() => {});
   }
 
   private schedulePersist() {
@@ -267,17 +277,21 @@ export class WebSocketYProvider {
     }, PERSIST_DEBOUNCE_MS);
   }
 
-  private async persistNow() {
-    if (!this.offlineReplica) return;
+  private async persistNow(strict = false) {
+    if (!this.offlineReplica || this.offlineDiscarded) return;
     try {
       const state = bytesToBase64(Y.encodeStateAsUpdate(this.doc));
-      await tauriCommands.replicaCacheCrdtState(
-        this.target.serverUrl,
-        this.target.vaultId,
-        this.target.fileId,
-        state,
-      );
-    } catch {
+      await this.persistRunner.run(async () => {
+        if (this.offlineDiscarded) return;
+        await tauriCommands.replicaCacheCrdtState(
+          this.target.serverUrl,
+          this.target.vaultId,
+          this.target.fileId,
+          state,
+        );
+      });
+    } catch (error) {
+      if (strict) throw error;
       // Best-effort caching; never disrupt the live session.
     }
   }
@@ -290,6 +304,11 @@ export class WebSocketYProvider {
       getStatus: () => this.getStatus(),
       onStatus: (cb) => this.onStatus(cb),
       discardOfflineState: () => this.discardOfflineState(),
+      flushOfflineState: async () => {
+        if (this.persistTimer) clearTimeout(this.persistTimer);
+        this.persistTimer = null;
+        if (!this.offlineDiscarded) await this.persistNow(true);
+      },
       destroy: () => this.destroy(),
     };
   }

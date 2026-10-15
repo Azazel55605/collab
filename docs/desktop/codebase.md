@@ -213,6 +213,31 @@ offline queues permit the transition. This is not process-death draft recovery.
 Native event registration uses `lib/nativeSubscription.ts` where late promises
 must clean themselves up after disposal.
 
+Canvas registers a `beforeLeave` preparer through `documentStatusStore`: transient
+React Flow gestures materialize into the controller before the navigation guard
+collects dirty documents. `createExclusiveSaveRunner` returns a shared completion
+promise covering the active and coalesced trailing save. Live canvas checkpoints
+use the same serialization rule before navigation; `liveJsonDocument` can merge
+local edits against their base into the latest remote JSON. Load errors leave the
+source untouched and disable autosave.
+
+`lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
+queues. Canvas only schedules nearby cards and discards obsolete hydration after
+source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,
+content hash and renderer version (64 entries/16 MiB). Cached manifest/body data
+can produce previews before network requests. Shared Rust thumbnail renderer v2
+adds bounded canvas/logic, Kanban and deck geometry; deck image/chart/table
+placeholders remain intentionally limited.
+
+`lib/pdfResourceCache.ts` shares unchanged PDF loading resources across tab
+switches (two entries/64 MiB source bytes, reference counted; mounted consumers
+are not evicted). This is not a total worker-memory ceiling. PDF view state keeps
+client-local scroll/pan as well as page/zoom/layout settings.
+`lib/useHostedAssetRevision.ts` observes cached manifest revisions for mounted
+PDF/image source refresh, deferring reload while local overlays are dirty,
+saving or conflicted. `webPreviewCache` bounds completed results to 128 with
+success/error expiry; PDF preview raster and data URL caches are bounded too.
+
 PDF viewer settings are separate from shared annotations: `views/pdfViewSession.ts`
 keeps up to 128 identity-scoped settings records in memory and debounced
 sessionStorage. Hosted annotations continue to exclude private viewer settings.
@@ -650,7 +675,7 @@ a positioned popover.
 | `components/canvas/useCanvasViewportControls.ts`    | Shared canvas viewport controls and keyboard shortcut hook for pan, zoom, fit, reset, picker toggles, and delete actions                                           | React hooks, React Flow viewport API                                         |
 | `components/canvas/useCanvasNodeCommands.ts`        | Shared canvas node creation and drop/picker command hook for content cards, planning nodes, and starter presets                                                    | React hooks, React Flow positioning                                          |
 | `components/canvas/canvasPlanning.ts`               | Shared planning-node labels, defaults, and starter-preset builders for the mixed diagramming canvas                                                                | Canvas types                                                                 |
-| `components/canvas/useCanvasPreviews.ts`            | Shared canvas preview state and hydration hook for web/file/note previews, external preview requests, and preview reset behavior                                   | React hooks, opener, Tauri wrappers, web preview cache                       |
+| `components/canvas/useCanvasPreviews.ts`            | Shared canvas preview state and hydration hook for web/file/note previews, external preview requests, and preview reset behavior                                   | React hooks, preview queues, Tauri wrappers, web preview cache               |
 | `components/canvas/useCanvasDocumentSession.ts`     | Shared canvas document/session hook for initial load, external reload, autosave scheduling, conflict handling, and snapshot creation                               | React hooks, watcher events, Tauri wrappers, document session state          |
 | `components/canvas/CanvasFlowNodeUtils.ts`          | Shared mapping helpers between persisted canvas nodes and React Flow node models                                                                                   | Canvas types, preview helpers, UI store mode                                 |
 | `components/image/ImageViewUtils.ts`                | Shared image-view geometry, file/output, crop, overlay label, and dirty-state helpers                                                                              | Image types                                                                  |

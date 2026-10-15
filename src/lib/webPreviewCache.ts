@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { webPreviewQueue } from './previewQueue';
 import { type LinkPreviewData, tauriCommands } from './tauri';
 
 export interface WebPreviewCacheEntry {
@@ -8,7 +9,37 @@ export interface WebPreviewCacheEntry {
   error: string | null;
 }
 
-const cache = new Map<string, WebPreviewCacheEntry>();
+const MAX_CACHE_ENTRIES = 128;
+const SUCCESS_TTL_MS = 10 * 60_000;
+const ERROR_TTL_MS = 30_000;
+const cache = new Map<string, WebPreviewCacheEntry & { expiresAt: number }>();
+function store(url: string, entry: WebPreviewCacheEntry) {
+  cache.delete(url);
+  cache.set(url, {
+    ...entry,
+    expiresAt: Date.now() + (entry.status === 'error' ? ERROR_TTL_MS : SUCCESS_TTL_MS),
+  });
+  let completed = [...cache.values()].filter((value) => value.status !== 'loading').length;
+  for (const [key, value] of cache) {
+    if (completed <= MAX_CACHE_ENTRIES) break;
+    if (key !== url && value.status !== 'loading') {
+      cache.delete(key);
+      completed--;
+    }
+  }
+}
+function currentEntry(url: string) {
+  const entry = cache.get(url);
+  if (entry && entry.status !== 'loading' && entry.expiresAt <= Date.now()) {
+    cache.delete(url);
+    return undefined;
+  }
+  if (entry) {
+    cache.delete(url);
+    cache.set(url, entry);
+  }
+  return entry;
+}
 const inflight = new Map<string, Promise<LinkPreviewData>>();
 const listeners = new Map<string, Set<() => void>>();
 
@@ -42,7 +73,7 @@ export function getWebPreviewHostname(url: string) {
 
 export function getCachedWebPreview(url: string): WebPreviewCacheEntry {
   const normalizedUrl = normalizeWebPreviewUrl(url);
-  return cache.get(normalizedUrl) ?? { status: 'idle', data: null, error: null };
+  return currentEntry(normalizedUrl) ?? { status: 'idle', data: null, error: null };
 }
 
 export function subscribeWebPreview(url: string, listener: () => void) {
@@ -63,31 +94,32 @@ export async function requestWebPreview(url: string): Promise<LinkPreviewData> {
   const normalizedUrl = normalizeWebPreviewUrl(url);
   if (!normalizedUrl) throw new Error('URL is required');
 
-  const existing = cache.get(normalizedUrl);
+  const existing = currentEntry(normalizedUrl);
   if (existing?.status === 'loaded' && existing.data) return existing.data;
+  if (existing?.status === 'error') throw new Error(existing.error ?? 'Preview unavailable');
   if (existing?.status === 'loading') {
     const running = inflight.get(normalizedUrl);
     if (running) return running;
   }
 
-  cache.set(normalizedUrl, {
+  store(normalizedUrl, {
     status: 'loading',
     data: existing?.data ?? null,
     error: null,
   });
   emit(normalizedUrl);
 
-  const promise = tauriCommands
-    .fetchLinkPreview(normalizedUrl)
+  const promise = webPreviewQueue
+    .run(() => tauriCommands.fetchLinkPreview(normalizedUrl))
     .then((data) => {
-      cache.set(normalizedUrl, { status: 'loaded', data, error: null });
+      store(normalizedUrl, { status: 'loaded', data, error: null });
       inflight.delete(normalizedUrl);
       emit(normalizedUrl);
       return data;
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
-      cache.set(normalizedUrl, { status: 'error', data: null, error: message });
+      store(normalizedUrl, { status: 'error', data: null, error: message });
       inflight.delete(normalizedUrl);
       emit(normalizedUrl);
       throw error;
@@ -101,7 +133,7 @@ export function prefetchWebPreviews(urls: Iterable<string>) {
   for (const url of urls) {
     const normalizedUrl = normalizeWebPreviewUrl(url);
     if (!normalizedUrl) continue;
-    const existing = cache.get(normalizedUrl);
+    const existing = currentEntry(normalizedUrl);
     if (existing?.status === 'loaded' || existing?.status === 'loading') continue;
     void requestWebPreview(normalizedUrl).catch(() => {});
   }

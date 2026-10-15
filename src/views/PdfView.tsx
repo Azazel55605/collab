@@ -30,7 +30,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  getDocument,
   GlobalWorkerOptions,
   PixelsPerInch,
   RenderingCancelledException,
@@ -79,6 +78,7 @@ import {
 } from '../lib/pdfAnnotatedExport';
 import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
 import { createPdfInkDocument, migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
+import { acquirePdfDocument } from '../lib/pdfResourceCache';
 import {
   appendMarkdownBlock,
   appendPdfQuoteTextNode,
@@ -88,6 +88,7 @@ import {
 } from '../lib/pdfWorkspace';
 import { interactiveCanvasDeviceScale } from '../lib/rendering';
 import { tauriCommands } from '../lib/tauri';
+import { useHostedAssetRevision } from '../lib/useHostedAssetRevision';
 import { cn } from '../lib/utils';
 import { createVaultClient } from '../lib/vaultClient';
 import type { VaultPdfAnnotations } from '../lib/vaultClient';
@@ -959,6 +960,7 @@ export default function PdfView({ relativePath }: Props) {
     setRevealEditorPath,
   } = useEditorStore();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRef = useRef<{ top: number; left: number } | null>(null);
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const pageCanvasRefs = useRef<Record<number, HTMLCanvasElement | null>>({});
   const pinchScaleRef = useRef(1);
@@ -1203,6 +1205,12 @@ export default function PdfView({ relativePath }: Props) {
     );
   }, [activeTabPath, openTabs]);
 
+  const assetRevision = useHostedAssetRevision(
+    vault,
+    relativePath,
+    !pdfSessionSnapshot.dirty && !pdfSessionSnapshot.saving && !pdfSessionSnapshot.conflicted,
+  );
+
   useEffect(() => {
     if (!vault || !relativePath) {
       setDocumentProxy(null);
@@ -1213,7 +1221,7 @@ export default function PdfView({ relativePath }: Props) {
     }
 
     let cancelled = false;
-    let loadingTask: ReturnType<typeof getDocument> | null = null;
+    let releasePdf: (() => void) | null = null;
     setLoading(true);
     setError(null);
     setDocumentProxy(null);
@@ -1257,13 +1265,17 @@ export default function PdfView({ relativePath }: Props) {
     ])
       .then(async ([dataUrl, annotations]) => {
         const data = dataUrlToUint8Array(dataUrl);
-        const task = getDocument({ data });
-        loadingTask = task;
-        const pdf = await task.promise;
+        const lease = await acquirePdfDocument(viewerStateKey, data);
+        releasePdf = lease.release;
+        if (cancelled) {
+          releasePdf();
+          return;
+        }
+        const pdf = await lease.promise;
         if (cancelled) {
           // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns
           // the worker teardown now.
-          await task.destroy().catch(() => {});
+          releasePdf();
           return;
         }
 
@@ -1278,6 +1290,11 @@ export default function PdfView({ relativePath }: Props) {
           });
         }
 
+        const viewer = sidecar.viewerState;
+        pendingScrollRef.current = {
+          top: Number.isFinite(viewer?.lastScrollTop) ? Math.max(0, viewer!.lastScrollTop!) : 0,
+          left: Number.isFinite(viewer?.lastScrollLeft) ? Math.max(0, viewer!.lastScrollLeft!) : 0,
+        };
         const firstPage = await pdf.getPage(1);
         if (cancelled) return;
         const initialViewport = firstPage.getViewport({ scale: 1, rotation: 0 });
@@ -1320,7 +1337,7 @@ export default function PdfView({ relativePath }: Props) {
       })
       .catch((loadError) => {
         if (cancelled) return;
-        void loadingTask?.destroy().catch(() => {});
+        releasePdf?.();
         setDocumentProxy(null);
         setError(String(loadError));
       })
@@ -1330,9 +1347,10 @@ export default function PdfView({ relativePath }: Props) {
 
     return () => {
       cancelled = true;
-      void loadingTask?.destroy().catch(() => {});
+      releasePdf?.();
     };
   }, [
+    assetRevision,
     normalizePdfState,
     pdfSessionController,
     relativePath,
@@ -1344,14 +1362,18 @@ export default function PdfView({ relativePath }: Props) {
 
   useEffect(() => {
     if (!vault || !relativePath || !sidecarLoaded) return;
-    latestViewerStateRef.current = buildPdfViewerState({
-      pageNumber,
-      zoomMode,
-      zoom,
-      layoutMode,
-      rotation,
-      bookmarksOpen,
-    });
+    latestViewerStateRef.current = {
+      ...buildPdfViewerState({
+        pageNumber,
+        zoomMode,
+        zoom,
+        layoutMode,
+        rotation,
+        bookmarksOpen,
+      }),
+      lastScrollTop: pendingScrollRef.current?.top ?? viewportRef.current?.scrollTop ?? 0,
+      lastScrollLeft: pendingScrollRef.current?.left ?? viewportRef.current?.scrollLeft ?? 0,
+    };
     rememberPdfViewerState(viewerStateKey, latestViewerStateRef.current);
     pdfSessionController.markLocalChange({
       ...pdfState,
@@ -2242,6 +2264,18 @@ export default function PdfView({ relativePath }: Props) {
 
   useEffect(() => {
     const viewport = viewportRef.current;
+    const pending = pendingScrollRef.current;
+    if (!viewport || !pending || loading || !documentProxy) return;
+    const frame = requestAnimationFrame(() => {
+      viewport.scrollTop = pending.top;
+      viewport.scrollLeft = pending.left;
+      pendingScrollRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [documentProxy, loading, workspaceMetrics.width, workspaceMetrics.height]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
     if (!viewport || layoutMode === 'single' || renderedPages.length === 0) return;
 
     let frame = 0;
@@ -3114,7 +3148,7 @@ export default function PdfView({ relativePath }: Props) {
                 </div>
               )}
               {!ocrLoading && (
-                <textarea
+                <Textarea
                   readOnly
                   value={ocrText || 'No text recognized.'}
                   className="mt-2 h-52 w-full resize-none rounded-lg border border-input bg-background/70 px-3 py-2 text-xs leading-relaxed outline-none"
@@ -3427,6 +3461,15 @@ export default function PdfView({ relativePath }: Props) {
           ref={viewportRef}
           tabIndex={0}
           className="relative min-h-0 h-full overflow-auto bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.08),transparent_42%),linear-gradient(to_bottom,color-mix(in_oklch,var(--background)_92%,black_8%),var(--background))]"
+          onScroll={(event) => {
+            if (!sidecarLoaded || pendingScrollRef.current) return;
+            latestViewerStateRef.current = {
+              ...latestViewerStateRef.current,
+              lastScrollTop: event.currentTarget.scrollTop,
+              lastScrollLeft: event.currentTarget.scrollLeft,
+            };
+            rememberPdfViewerState(viewerStateKey, latestViewerStateRef.current);
+          }}
           onPointerDown={() => viewportRef.current?.focus()}
           onPointerDownCapture={handleWorkspacePointerDown}
         >

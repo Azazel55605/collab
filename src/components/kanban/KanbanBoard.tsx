@@ -1503,7 +1503,7 @@ export default function KanbanBoardView() {
                   <div className="shrink-0 w-[272px]">
                     {addingColumn ? (
                       <div className="bg-card/60 border border-border/50 rounded-lg p-2 flex flex-col gap-2">
-                        <input
+                        <Input
                           autoFocus
                           value={newColTitle}
                           onChange={(e) => setNewColTitle(e.target.value)}

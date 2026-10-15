@@ -41,6 +41,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
 
 import KanbanCardView from './KanbanCard';
 
@@ -362,7 +364,7 @@ export default function KanbanColumnView({ column }: Props) {
 
           {/* Title */}
           {editingTitle ? (
-            <input
+            <Input
               ref={titleInputRef}
               value={titleDraft}
               onChange={(e) => setTitleDraft(e.target.value)}
@@ -612,7 +614,7 @@ export default function KanbanColumnView({ column }: Props) {
             <div className="p-1.5 shrink-0">
               {addingCard ? (
                 <div className="flex flex-col gap-1.5">
-                  <textarea
+                  <Textarea
                     autoFocus
                     value={cardDraft}
                     onChange={(e) => setCardDraft(e.target.value)}
@@ -732,7 +734,7 @@ export default function KanbanColumnView({ column }: Props) {
 
             {/* Add tag input */}
             <div className="flex gap-2">
-              <input
+              <Input
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => {

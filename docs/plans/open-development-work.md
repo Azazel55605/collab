@@ -44,8 +44,12 @@ PDF lifetime/view settings, preview revision checks and canvas pixel bounds,
 plus initial native-drop, legacy-chat and Kanban overflow corrections. The user
 confirmed the external-drop follow-up working. Batch 2 adds replica reopening and
 offline-marker/checkpoint preservation, native-to-view refresh notifications,
-coalesced sync, cache-first annotations and pending-edit protection. Native
-acceptance and the remaining desktop/report backlog are still open.
+coalesced sync, cache-first annotations and pending-edit protection. Batch 3 adds
+canvas load/save/checkpoint guards and gesture serialization, bounded preview
+queues/revision caches, rendered internal thumbnails, PDF resource reuse and
+scroll restoration, safe hosted source refresh, shared UI controls and dynamic
+file-tree context. Native acceptance, process-death recovery, full-fidelity asset
+thumbnails and the remaining desktop/report backlog are still open.
 Prioritize pending-edit loss during navigation, Unicode search panics, native
 staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
 merge/index/asset work. Establish native measurements before claiming speedups.

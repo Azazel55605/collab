@@ -1,9 +1,9 @@
 import { Files, Search, Tag } from 'lucide-react';
 
-import { cn } from '../../lib/utils';
 import { type SidebarPanel, useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { CollabPanel } from '../collaboration/CollabPanel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import FileTree from '../vault/FileTree';
 import SearchPanel from '../vault/SearchPanel';
 import TagsPanel from '../vault/TagsPanel';
@@ -40,7 +40,11 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-sidebar">
+    <Tabs
+      value={sidebarPanel}
+      onValueChange={(value) => setSidebarPanel(value as SidebarPanel)}
+      className="flex flex-col h-full bg-sidebar"
+    >
       {/* Vault name header */}
       {vault && (
         <div className="px-3 pt-3 pb-2 border-b border-sidebar-border/60">
@@ -54,30 +58,33 @@ export default function Sidebar() {
       )}
 
       {/* Panel tab switcher */}
-      <div className="flex px-2 pt-2 pb-1 gap-0.5">
-        {EDITOR_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setSidebarPanel(tab.id)}
-            className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all duration-150 flex-1 justify-center',
-              sidebarPanel === tab.id
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
-            )}
-          >
-            {tab.icon}
-            <span>{tab.label}</span>
-          </button>
-        ))}
+      <div className="px-2 pt-2 pb-1">
+        <TabsList className="w-full" aria-label="Vault navigation">
+          {EDITOR_TABS.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} className="flex-1">
+              {tab.icon}
+              <span>{tab.label}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
       </div>
 
       {/* Panel content */}
-      <div key={sidebarPanel} className="flex-1 overflow-hidden app-sidebar-panel-enter">
-        {sidebarPanel === 'files' && <FileTree />}
+      <TabsContent
+        value={sidebarPanel}
+        key={sidebarPanel}
+        className="flex-1 overflow-hidden app-sidebar-panel-enter"
+      >
+        {sidebarPanel === 'files' && (
+          <FileTree
+            key={
+              vault?.kind === 'hosted' ? `${vault.serverUrl}:${vault.hostedVaultId}` : vault?.path
+            }
+          />
+        )}
         {sidebarPanel === 'search' && <SearchPanel />}
         {sidebarPanel === 'tags' && <TagsPanel />}
-      </div>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }

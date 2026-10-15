@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { listen } from '@tauri-apps/api/event';
 import type { Node as FlowNode, Viewport } from '@xyflow/react';
+import { toast } from 'sonner';
 
 import { saveConflictedCopy } from '../../lib/conflictedCopy';
 import { DOCUMENT_SNAPSHOT_INTERVAL_MS } from '../../lib/documentSession';
@@ -18,6 +18,7 @@ import {
   type LiveJsonSession,
   openLiveJsonSession,
 } from '../../lib/liveJsonDocument';
+import { listenSafely } from '../../lib/nativeSubscription';
 import { useLiveDocumentStatus } from '../../lib/useLiveDocumentStatus';
 import { createVaultClient } from '../../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../../lib/vaultReplica';
@@ -140,6 +141,8 @@ export interface CanvasDocumentSession {
   snapshot: DocumentSessionSnapshot<CanvasData>;
   /** Persist the local canvas as a new revision/file ("Save mine as new"). */
   onSaveAsNew: (localContent: string) => Promise<void>;
+  beforeLeave: () => Promise<void>;
+  loadError: string | null;
 }
 
 export function useCanvasDocumentSession({
@@ -174,11 +177,14 @@ export function useCanvasDocumentSession({
   const [restLoadedPath, setRestLoadedPath] = useState<string | null>(null);
   const [loadRevision, setLoadRevision] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadGenerationRef = useRef(0);
   const [refreshPulse, setRefreshPulse] = useState(false);
   // Live co-editing session for hosted canvases; null = REST optimistic writes.
   const [liveSession, setLiveSession] = useState<LiveJsonSession | null>(null);
   const liveWriteTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const liveHydratedRef = useRef(false);
+  const liveBaseRef = useRef<JsonObject | null>(null);
   const expectedLiveCanvasRef = useRef<string | null>(null);
   // After a controller-driven apply (load / remote adopt / merge), skip exactly
   // one local-change mark so re-applying the just-loaded state never marks dirty
@@ -200,14 +206,13 @@ export function useCanvasDocumentSession({
   const applyCanvas = useCallback(
     (canvas: CanvasData) => {
       const sanitized = sanitizeLoadedCanvasData(canvas).canvas;
-      resetPreviewState();
       setViewport(sanitized.viewport ?? EMPTY_CANVAS.viewport);
       setNodes(buildFlowNode(sanitized));
       setEdges((sanitized.edges ?? []).map(toFlowEdge));
       pendingViewportRef.current = sanitized.viewport ?? EMPTY_CANVAS.viewport;
       setLoadRevision((prev) => prev + 1);
     },
-    [buildFlowNode, resetPreviewState, setEdges, setNodes, setViewport, toFlowEdge],
+    [buildFlowNode, setEdges, setNodes, setViewport, toFlowEdge],
   );
 
   const applyLiveCanvas = useCallback(
@@ -247,11 +252,7 @@ export function useCanvasDocumentSession({
 
   const parseCanvasContent = useCallback((content: string): CanvasData => {
     if (!content.trim()) return EMPTY_CANVAS;
-    try {
-      return sanitizeLoadedCanvasData(JSON.parse(content) as CanvasData).canvas;
-    } catch {
-      return EMPTY_CANVAS;
-    }
+    return sanitizeLoadedCanvasData(JSON.parse(content) as CanvasData).canvas;
   }, []);
 
   const pulseRefresh = useCallback(() => {
@@ -276,6 +277,10 @@ export function useCanvasDocumentSession({
 
   const { controller, snapshot } = useDocumentSessionController<CanvasData>({
     serialize: (canvas) => JSON.stringify(canvasToJson(canvas), null, 2),
+    prepareSave: () => {
+      if (!readOnly && !loadError && restLoadedPath === relativePath)
+        controller.markLocalChange(buildLatestCanvas());
+    },
     deserialize: parseCanvasContent,
     applyDocument: applyCanvasDocument,
     read: async () => {
@@ -328,52 +333,51 @@ export function useCanvasDocumentSession({
   // controller baseline (force explicit reload policy).
   const loadInitialCanvas = useCallback(async () => {
     if (!client || !relativePath) return;
+    const generation = ++loadGenerationRef.current;
+    const current = () => isMountedRef.current && generation === loadGenerationRef.current;
     setIsLoading(true);
+    setLoadError(null);
+    setRestLoadedPath(null);
     try {
       const { content, version } = await client.readDocument(relativePath);
-      if (!isMountedRef.current) return;
+      if (!current()) return;
 
       let canvas = EMPTY_CANVAS;
-      let currentVersion = version;
+      const currentVersion = version;
 
       if (content.trim()) {
         const sanitized = sanitizeLoadedCanvasData(JSON.parse(content) as CanvasData);
         canvas = sanitized.canvas;
-        // Viewers cannot persist; skip the dangling-edge repair write.
-        if (sanitized.changed && !readOnly && client.capabilities.nativeFilesystem) {
-          try {
-            const repaired = await client.writeDocument(
-              relativePath,
-              JSON.stringify(canvas, null, 2),
-              currentVersion ?? undefined,
-              content,
-            );
-            currentVersion = repaired.version;
-          } catch {
-            // Repair is best-effort; keep the sanitized canvas in memory.
-          }
-        }
-      } else if (!readOnly) {
-        const result = await client.writeDocument(
-          relativePath,
-          JSON.stringify(EMPTY_CANVAS, null, 2),
-        );
-        currentVersion = result.version;
       }
 
-      if (!isMountedRef.current) return;
+      if (!current()) return;
       controller.load(roundTripCanonical(canvas), currentVersion, 'rest');
-    } catch {
-      setRestLoadedPath(relativePath);
+    } catch (error) {
+      if (!current()) return;
+      setLoadError(String(error));
+      toast.error('Could not load the canvas. The file has not been changed.', {
+        description: String(error),
+      });
     } finally {
-      if (isMountedRef.current) setIsLoading(false);
+      if (current()) setIsLoading(false);
     }
-  }, [client, controller, isMountedRef, readOnly, relativePath, roundTripCanonical]);
+  }, [client, controller, isMountedRef, relativePath, roundTripCanonical]);
 
+  const initialLoadRef = useRef(loadInitialCanvas);
+  initialLoadRef.current = () => {
+    resetPreviewState();
+    return loadInitialCanvas();
+  };
+  const invalidateLoad = useCallback(() => {
+    loadGenerationRef.current++;
+  }, []);
+  const documentScope =
+    vault?.kind === 'hosted' ? `${vault.serverUrl}:${vault.hostedVaultId}` : vault?.path;
   useEffect(() => {
     if (!relativePath) return;
-    void loadInitialCanvas();
-  }, [loadInitialCanvas, relativePath]);
+    void initialLoadRef.current();
+    return invalidateLoad;
+  }, [documentScope, relativePath, invalidateLoad]);
 
   // Open a live co-editing session for hosted canvases; fall back to REST when
   // unavailable. Remote changes flow in through `onChange`.
@@ -399,6 +403,10 @@ export function useCanvasDocumentSession({
           session?.destroy();
           return;
         }
+        if (controller.getSnapshot().dirty || controller.getSnapshot().saving) {
+          session.destroy();
+          return;
+        }
         opened = session;
         const initial = session.readJson();
         if (initial && Object.keys(initial).length > 0) {
@@ -419,6 +427,7 @@ export function useCanvasDocumentSession({
             opened = null;
             return;
           }
+          liveBaseRef.current = initial;
           applyLiveCanvas(liveCanvas);
         } else {
           // The server owns seeding from the current REST revision. An empty
@@ -431,8 +440,13 @@ export function useCanvasDocumentSession({
           opened = null;
           return;
         }
-        off = session.onChange((json) => {
-          if (!cancelled) applyLiveCanvas(json as unknown as CanvasData);
+        off = session.onChange(() => {
+          if (!cancelled) {
+            flushLiveWriteRef.current();
+            const merged = session.readJson();
+            liveBaseRef.current = merged;
+            applyLiveCanvas(merged as unknown as CanvasData);
+          }
         });
         setLiveSession(session);
       })
@@ -442,12 +456,13 @@ export function useCanvasDocumentSession({
     return () => {
       cancelled = true;
       off?.();
+      flushLiveWriteRef.current();
       opened?.destroy();
       liveHydratedRef.current = false;
       expectedLiveCanvasRef.current = null;
       setLiveSession(null);
     };
-  }, [applyLiveCanvas, client, relativePath, restLoadedPath]);
+  }, [applyLiveCanvas, client, controller, relativePath, restLoadedPath]);
 
   useEffect(() => {
     if (!liveSession) return;
@@ -479,35 +494,81 @@ export function useCanvasDocumentSession({
   // Push local canvas edits into the live structure (debounced). Writing a value
   // that already matches the shared document is a no-op, so remote-applied
   // changes do not echo back.
+  const latestFlowRef = useRef({ nodes, edges, viewport, fromFlowNode, fromFlowEdge });
+  latestFlowRef.current = { nodes, edges, viewport, fromFlowNode, fromFlowEdge };
+  const buildLatestCanvas = useCallback((): CanvasData => {
+    const current = latestFlowRef.current;
+    return {
+      nodes: current.nodes.map(current.fromFlowNode),
+      edges: current.edges.map(current.fromFlowEdge),
+      viewport: current.viewport,
+    };
+  }, []);
+  const pendingLiveWriteRef = useRef<(() => void) | null>(null);
+  const flushLiveWrite = useCallback(() => {
+    if (liveWriteTimerRef.current) clearTimeout(liveWriteTimerRef.current);
+    liveWriteTimerRef.current = undefined;
+    const write = pendingLiveWriteRef.current;
+    pendingLiveWriteRef.current = null;
+    write?.();
+  }, []);
+
   useEffect(() => {
     if (!liveSession || readOnly) return;
-    const localCanvas = canvasToJson({
-      nodes: nodes.map(fromFlowNode),
-      edges: edges.map(fromFlowEdge),
-      viewport,
-    });
     if (!liveHydratedRef.current) {
-      if (JSON.stringify(localCanvas) === expectedLiveCanvasRef.current) {
+      if (JSON.stringify(canvasToJson(buildLatestCanvas())) === expectedLiveCanvasRef.current)
         liveHydratedRef.current = true;
-      }
       return;
     }
-    if (liveWriteTimerRef.current) clearTimeout(liveWriteTimerRef.current);
-    liveWriteTimerRef.current = setTimeout(() => {
-      liveSession.writeJson(localCanvas);
-    }, LIVE_WRITE_DEBOUNCE_MS);
-    return () => {
-      if (liveWriteTimerRef.current) clearTimeout(liveWriteTimerRef.current);
+    pendingLiveWriteRef.current = () => {
+      liveSession.writeJson(canvasToJson(buildLatestCanvas()), liveBaseRef.current ?? undefined);
+      liveBaseRef.current = liveSession.readJson();
     };
-  }, [liveSession, readOnly, nodes, edges, viewport, fromFlowNode, fromFlowEdge]);
+    if (liveWriteTimerRef.current) clearTimeout(liveWriteTimerRef.current);
+    if (!pauseAutosave)
+      liveWriteTimerRef.current = setTimeout(flushLiveWrite, LIVE_WRITE_DEBOUNCE_MS);
+  }, [
+    liveSession,
+    readOnly,
+    nodes,
+    edges,
+    viewport,
+    pauseAutosave,
+    buildLatestCanvas,
+    flushLiveWrite,
+  ]);
+
+  // Effect cleanup ordering flushes the last gesture before the session's destroy.
+  const flushLiveWriteRef = useRef(flushLiveWrite);
+  flushLiveWriteRef.current = flushLiveWrite;
+
+  const beforeLeave = useCallback(async () => {
+    if (readOnly || restLoadedPath !== relativePath || loadError) return;
+    if (liveSession) {
+      flushLiveWrite();
+      await liveSession.flushOfflineState?.();
+    } else {
+      controller.markLocalChange(buildLatestCanvas());
+    }
+  }, [
+    readOnly,
+    restLoadedPath,
+    relativePath,
+    loadError,
+    liveSession,
+    flushLiveWrite,
+    controller,
+    buildLatestCanvas,
+  ]);
 
   useEffect(() => {
     const nextViewport = pendingViewportRef.current;
     if (!nextViewport) return;
     pendingViewportRef.current = null;
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       void reactFlow.setViewport(nextViewport, { duration: 0 });
     });
+    return () => cancelAnimationFrame(frame);
   }, [loadRevision, reactFlow]);
 
   // Local edits drive the controller (REST path only). Fires on any node/edge/
@@ -521,6 +582,10 @@ export function useCanvasDocumentSession({
       firstMarkAfterApplyRef.current = false;
       return;
     }
+    if (pauseAutosave) {
+      controller.markTransientChange();
+      return;
+    }
     controller.markLocalChange({
       nodes: nodes.map(fromFlowNode),
       edges: edges.map(fromFlowEdge),
@@ -528,6 +593,7 @@ export function useCanvasDocumentSession({
     });
   }, [
     controller,
+    pauseAutosave,
     edges,
     fromFlowEdge,
     fromFlowNode,
@@ -557,19 +623,13 @@ export function useCanvasDocumentSession({
   // auto-applies when clean, queues when dirty, and ignores our own echo/stale.
   useEffect(() => {
     if (!client || !client.capabilities.filesystemWatch || !relativePath) return;
-    let unsub: (() => void) | undefined;
-    listen<{ path: string }>('vault:file-modified', (event) => {
+    return listenSafely<{ path: string }>('vault:file-modified', (event) => {
       if (event.payload.path !== relativePath) return;
       if (Date.now() - controller.getSnapshot().lastLocalWriteStartedAt < 2000) return;
       void controller.handleExternalMutation('rest').then((decision) => {
         if (decision === 'applied') pulseRefresh();
       });
-    }).then((cleanup) => {
-      unsub = cleanup;
     });
-    return () => {
-      unsub?.();
-    };
   }, [client, controller, pulseRefresh, relativePath]);
 
   // Hosted replica refresh: route through the same safe remote policy.
@@ -609,5 +669,7 @@ export function useCanvasDocumentSession({
     controller,
     snapshot,
     onSaveAsNew,
+    beforeLeave,
+    loadError,
   };
 }

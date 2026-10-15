@@ -23,6 +23,8 @@ export interface RegisteredDocumentStatus {
   /** Persists local content as a new revision/file ("Save mine as new"). */
   onSaveAsNew?: (localContent: string) => Promise<void>;
   readOnly?: boolean;
+  /** Materialize pending gesture/live state before navigation flushes controllers. */
+  beforeLeave?: () => Promise<void>;
   onLoadRemote?: () => void;
   onKeepLocal?: () => void;
 }
