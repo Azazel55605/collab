@@ -21,7 +21,7 @@ that every line or every platform was exercised.
 
 ## Implementation Progress
 
-Updated **2026-10-15**, through implementation batches 1–6 in
+Updated **2026-10-15**, through implementation batches 1–7 in
 [Desktop Audit Fixes](../plans/desktop-audit-fixes.md). Keep these checkboxes current
 with each implementation batch. `[x]` means the described correction is
 implemented; it does not substitute for native acceptance or close adjacent
@@ -64,7 +64,10 @@ and server; it is not closed by these bug checkboxes.
 - [x] **R05:** Bounded serial OCR queue owns initialization, language transitions,
       per-worker progress and idle termination. Failures release ownership and do not
       poison later jobs. Native OCR process limits remain O46.
-- [ ] **R06 — Open:** Formula release versus queued evaluation.
+- [x] **R06:** Shared desktop/Android formula owners await submitted native work
+      before releasing, cancel pending work and isolate workbook/StrictMode lifetimes.
+      A mounted workbook retains at most one active and one latest trailing request.
+      Native execution/release stress and process-death acceptance remain open.
 - [x] **R07:** Scope/epoch ownership for snippet lists and mutations.
 - [ ] **R08 — Open:** Authorized OCR result retention/lifecycle policy.
 - [ ] **R09 — Open:** Hosted content-index capability parity.
@@ -617,7 +620,7 @@ instructions to optimize code before measuring it.
       release waits behind computation. Use short map locking plus per-runtime owners,
       a global job budget and cancellation. Test independent runtimes and eviction.
 - [ ] **O55 / P2 — Coalesce obsolete formula work and preserve volatile semantics.**
-      **Status: Open.**
+      **Status: Partial — one active/latest trailing request per workbook; superseded pending inputs and stale results are discarded, and volatile time is bound at dispatch. Manual/periodic volatile recalculation, cancellation of already-running native work and global native scheduling remain open.**
       The formula hook's 80ms debounce and sequence guard discard stale responses but
       do not cancel native requests already submitted. Add newest-job scheduling and
       explicit recalculation for time/random functions. Test rapid edits and R06;

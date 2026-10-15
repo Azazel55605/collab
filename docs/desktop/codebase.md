@@ -269,6 +269,20 @@ idle shutdown. The queue recovers after failures and rejects overload visibly.
 This does not bound native subprocess duration, image bytes or persistent OCR
 result retention; those remain separate audit items.
 
+`lib/sheet/formulaRequest.ts` constructs framework-free formula requests for
+desktop, Android and deck snapshots. `formulaSession.ts` owns a unique runtime per
+mounted workbook, one submitted evaluation and at most one latest trailing
+request. Disposal discards pending inputs, waits for the active IPC response, then
+releases once; it never submits again after disposal. Requests bind volatile
+time at dispatch. `useSheetFormulaSession.ts` handles debounce, scoped result
+publication and StrictMode-safe ownership. Last computed values remain while
+recalculating the same workbook; scope changes hide them immediately. Removing
+the last formula releases the runtime. Desktop/mobile adapters supply their own
+IPC wrappers, timezone and 80/120 ms delays; Android and deck request builders no
+longer import the desktop hook/UI store. Native registry locking, global job
+limits, running-job cancellation and explicit volatile recalculation remain
+separate work.
+
 `lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
 queues. Canvas only schedules nearby cards and discards obsolete hydration after
 source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,

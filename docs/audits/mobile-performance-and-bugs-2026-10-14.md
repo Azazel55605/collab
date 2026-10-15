@@ -19,6 +19,19 @@ Lifecycle, save/load, identity, large-document, transfer and background boundari
 received manual review. Physical-device profiling must establish actual CPU,
 heap, native memory, frame time, thermal and battery costs.
 
+## Implementation Follow-Up
+
+Updated **2026-10-15**. The inventory below is the historical source baseline.
+Targeted shared fixes are tracked with the desktop batches; this does not close
+other Android findings or physical-device acceptance.
+
+- [x] **MR07 implementation:** Desktop batch 7 replaces unmount-time immediate
+      release with a shared formula owner that waits for in-flight native work,
+      cancels pending requests and isolates workbook lifetimes. Device timezone and
+      the mobile debounce remain. Native close/reopen stress and real-device runtime
+      memory acceptance remain open. See
+      [Desktop Audit Fixes](../plans/desktop-audit-fixes.md#batch-7--formula-lifetime-and-queued-work).
+
 ## Reported Regression Follow-Up
 
 The [2026-10-14 reported-issue reconciliation](./reported-regressions-2026-10-14.md)

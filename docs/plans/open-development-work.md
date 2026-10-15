@@ -56,7 +56,10 @@ replacement/workspace/layout/resize transitions, retains every pane's save
 registration, and serializes local compare-and-write operations within the app
 process. Batch 6 makes local preview metadata/payload publication atomic and
 integrity-checked, and serializes OCR initialization/jobs/language changes with
-per-worker progress and idle ownership. Current checkboxes in the desktop audit and reported-regression
+per-worker progress and idle ownership. Batch 7 shares formula runtime ownership
+between desktop/Android, orders release after submitted work, coalesces trailing
+requests and isolates late results/workbook lifetimes. Native global formula
+locking/scheduling and explicit volatile recalculation remain open. Current checkboxes in the desktop audit and reported-regression
 supplement distinguish implemented, partial and open work. Native acceptance,
 process-death recovery, full-fidelity asset
 thumbnails and the remaining desktop/report backlog are still open.
@@ -83,7 +86,9 @@ Reviewed separately on **2026-10-14**. The
 [Android audit](../audits/mobile-performance-and-bugs-2026-10-14.md) is complete:
 9 bug entries, 10 investigation items and 50 optimization opportunities across
 the companion frontend, Android/native adapters and shared workloads.
-**Fix implementation is not started.** Prioritize stale vault loads, permanent
+**Targeted shared implementation has begun:** desktop batch 7 repairs mobile
+MR07 formula ownership/release ordering. The wider Android backlog remains open.
+Prioritize stale vault loads, permanent
 autosave retry loops, URI upload routing, unsaved note exits, scoped destinations,
 safe download completion and cumulative response limits. Then reduce hidden
 polling/resume duplication and measure startup/PDF/transfer memory. Device,

@@ -438,6 +438,52 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
 - Server smoke retains the existing BuildKit entitlement limitation and was not
   rerun for these desktop-only changes. No existing server/database was changed.
 
+## Batch 7 — Formula Lifetime And Queued Work
+
+Implemented **2026-10-15**. Canvas remains **needs final testing**.
+
+- **R06 / mobile MR07:** A shared owner controls each mounted formula runtime.
+  Closing/removing formulas cancels debounce/trailing requests, waits for an
+  already-submitted evaluation to settle, then releases exactly once. Evaluation
+  can no longer be submitted by that owner after release. New workbook and
+  StrictMode lifetimes receive fresh runtime IDs; late results cannot publish to
+  the replacement or unmounted component.
+- **O55 partial:** Each owner retains one active and one replaceable latest
+  trailing request. Request changes discard obsolete pending inputs; submitted
+  native work finishes normally. Prior results remain visible during same-book
+  recalculation, while a changed workbook scope hides them immediately. Volatile
+  evaluation time is refreshed at actual dispatch, including a midnight boundary.
+- Framework-free request construction moved to `formulaRequest.ts`. Desktop,
+  Android and deck snapshots share it without importing desktop UI state through
+  the desktop hook. `useSheetFormulaSession.ts` shares lifecycle/debounce/result
+  handling; adapters retain their typed IPC wrappers and timezone policies.
+- Regression cases cover delayed native execution across close, cancellation,
+  latest trailing work, failure recovery, midnight, retained same-workbook values,
+  workbook replacement, formula removal, StrictMode and mobile close/debounce.
+- Native registry lock isolation/global concurrency (O54), running-job
+  cancellation and explicit volatile recalculation (remaining O55), incremental
+  IPC (O53), and real native/device stress/memory acceptance remain open. This
+  changes frontend ownership, not the formula engine or IPC protocol.
+
+### Batch 7 Verification
+
+- Full desktop/script suite: **2,346 passed, one intentional skip**. Admin
+  **81/81** and Android **258/258** passed. The new regressions comprise **11
+  desktop/shared and two mobile tests**; no suite retries were needed.
+- Desktop/admin/Android TypeScript and all **three frontend production builds**
+  passed. Android frontend build is not an APK/AAB or physical-device run.
+- Rust workspace tests/check, formatting, changed-file lint (zero warnings/errors),
+  diff checks, crate/version guards and Compose configuration passed. No native
+  source, formula engine or IPC contract was changed. The existing patched
+  `braces` `NODE_PATH` workaround and host-permitted CLI tests remain documented.
+- The preceding PR head's four checks were green, including dependency/container
+  security; this push requires new-head CI. No dependency/ignore changes.
+- Native formula close/reopen stress, running-job cancellation/global scheduling,
+  explicit volatile recalculation, device memory and canvas user acceptance
+  remain open. Server smoke retains the existing BuildKit entitlement limitation
+  and was not rerun for these frontend-only changes. Existing servers/databases
+  were untouched.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.

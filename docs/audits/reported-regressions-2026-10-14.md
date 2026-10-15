@@ -16,7 +16,7 @@ Platform scope below is provisional where the report did not name one.
 
 ## Current Implementation Checklist
 
-Updated **2026-10-15** through desktop batches 1–6. `[x]` marks the listed
+Updated **2026-10-15** through desktop batches 1–7. `[x]` marks the listed
 **desktop implementation**, not all-platform acceptance. Preserve the remaining
 acceptance below and update this checklist alongside future fixes. Detailed
 changes and automated verification live in
