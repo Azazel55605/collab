@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { HostedVaultMeta, HostedVaultSummary } from '../types/vault';
+import type { HostedVaultMeta, HostedVaultSummary, NoteFile } from '../types/vault';
 
 import { sortFileTreeAlphabetically, useVaultStore } from './vaultStore';
 
@@ -71,6 +71,66 @@ describe('vaultStore Flatpak reopen fallback', () => {
     tauriCommandsMock.replicaCacheDocument.mockResolvedValue(undefined);
     tauriCommandsMock.replicaCacheAsset.mockResolvedValue(undefined);
     tauriCommandsMock.hostedVaultAssetDataUrl.mockResolvedValue('data:image/png;base64,YXNzZXQ=');
+  });
+
+  it('ignores a file-tree refresh completed after switching vaults', async () => {
+    const a = { id: 'A', path: '/A', name: 'A', isEncrypted: false, lastOpened: 1 };
+    useVaultStore.setState({ vault: a, fileTree: [] });
+    let finish!: (value: NoteFile[]) => void;
+    tauriCommandsMock.listVaultFiles.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const refreshing = useVaultStore.getState().refreshFileTree();
+    const b = { ...a, id: 'B', path: '/B' };
+    useVaultStore.setState({ vault: b, fileTree: [] });
+    finish([
+      {
+        relativePath: 'a.md',
+        name: 'a.md',
+        extension: 'md',
+        isFolder: false,
+        modifiedAt: 1,
+        size: 1,
+      },
+    ]);
+    await refreshing;
+    expect(useVaultStore.getState().vault).toBe(b);
+    expect(useVaultStore.getState().fileTree).toEqual([]);
+    // A separate generation also rejects an older refresh for the same vault.
+    let first!: (value: NoteFile[]) => void;
+    let second!: (value: NoteFile[]) => void;
+    tauriCommandsMock.listVaultFiles
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            first = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            second = resolve;
+          }),
+      );
+    const old = useVaultStore.getState().refreshFileTree();
+    const current = useVaultStore.getState().refreshFileTree();
+    const latestFile = {
+      relativePath: 'latest.md',
+      name: 'latest.md',
+      extension: 'md',
+      isFolder: false,
+      modifiedAt: 2,
+      size: 1,
+    };
+    second([latestFile]);
+    await current;
+    const expected = useVaultStore.getState().fileTree;
+    first([{ ...latestFile, name: 'old.md', relativePath: 'old.md' }]);
+    await old;
+    expect(useVaultStore.getState().fileTree).toBe(expected);
   });
 
   it('reauthorizes Flatpak recents when direct reopen loses access', async () => {

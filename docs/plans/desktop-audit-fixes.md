@@ -246,6 +246,10 @@ BuildKit entitlement limitation described above.
 
 ## Hosted Canvas Source-Cause Correction — 2026-10-15
 
+Status: **needs final testing**. Keep this report open until the user confirms
+repeated edits, saves, navigation and reopen against the updated desktop and
+server. Automated regression results below do not close this acceptance gate.
+
 The previous revision-recovery change did not stop recurring merge prompts.
 Tracing both writers identified server comparisons between compact live JSON and
 formatted REST JSON, plus a client connection path that abandoned live ownership
@@ -286,6 +290,53 @@ its tests; existing databases and running services were untouched.
 An older server retains the raw-text comparison even with the newer desktop.
 Native user acceptance remains open; the earlier recovery patch alone is not
 considered a resolution of the recurring-merge report.
+
+## Batch 4 — Scoped Indexing, Snippets And Render Errors
+
+Implemented **2026-10-15** while the canvas report remains **needs final testing**:
+
+- **R01 / O18:** `useVaultNoteIndex` owns initial loads and file/replica refreshes
+  for the active vault/server scope. It clears notes when closing/locking/switching,
+  ignores late results, and coalesces events into one active job plus a debounced
+  trailing refresh. Vault metadata identity changes do not restart indexing.
+- The native note-index slot now carries its vault path and request generation.
+  Opening/creating a local vault clears it while changing the active vault;
+  superseded scans stop at entry boundaries and cannot publish over newer jobs.
+  Backlinks/search select only the requested vault's notes. Scan/search jobs
+  capture their encryption key once. Search shares an immutable snapshot without
+  copying all note metadata and releases the index lock before disk reads. Native encrypted-vault lifecycle/close-key recovery remains separate
+  acceptance work.
+- File-tree refreshes reject results from an older vault instance or refresh
+  generation instead of replacing the current sidebar tree.
+- **R07:** snippet listings and delayed mutations retain scope/epoch ownership;
+  old lists cannot undo a completed mutation. App/vault snippets sharing an ID no
+  longer replace/delete each other in the visible list.
+- **R10:** Markdown render-error text is HTML-escaped before insertion. The
+  regression injects markup through a renderer exception and verifies literal
+  text with no injected elements. This repairs an unsafe fallback; it is not a
+  claim of a demonstrated production exploit.
+- PR #96's **nine failing Rust dependency advisories** are fixed by compatible
+  `quinn-proto` and `rustls` upgrades. The refreshed audit reports zero
+  vulnerabilities. See [Security Advisories](../build/security-advisories.md)
+  for IDs/versions and the remaining informational warnings. No new ignores.
+
+Focused evidence: **32 frontend regressions passed**, covering reversed vault
+loads, close/lock/unlock, same-ID hosted vaults on different servers, event bursts,
+file-list publication, snippet races and render-error escaping. Three native index
+policy tests cover cross-vault/same-vault generations, reopening the same path,
+and sharing immutable snapshots.
+Final frontend verification: **2,312 desktop/script tests passed, one intentional
+skip**, using the existing patched-`braces` `NODE_PATH` workaround. Android
+**256/256**, admin **81/81**, desktop/Android/admin TypeScript and desktop/admin
+production builds passed. Changed-file lint has zero errors and nine existing
+Markdown warnings; formatting and diff checks passed. JavaScript audit passed at
+the CI high threshold; the accepted patched `braces` remains documented.
+Rust workspace tests/check and crate/version guards passed, including all three
+native index policy tests. The isolated Compose smoke test was retried and still
+stopped before startup because BuildKit lacks its `network.host` entitlement.
+The container security check must run in CI; no running user server was altered.
+
+Native UI/resource/crypto acceptance and the wider audit backlog remain open.
 
 ## Verification Boundary
 

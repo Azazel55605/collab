@@ -77,6 +77,8 @@ function isLikelyFlatpakVaultAccessError(error: unknown) {
   );
 }
 
+let fileTreeRefreshGeneration = 0;
+
 export const useVaultStore = create<VaultState>()(
   persist(
     (set, get) => ({
@@ -207,7 +209,9 @@ export const useVaultStore = create<VaultState>()(
       refreshFileTree: async () => {
         const { vault, fileTree: previous } = get();
         if (!vault) return;
+        const generation = ++fileTreeRefreshGeneration;
         const listed = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
+        if (get().vault !== vault || generation !== fileTreeRefreshGeneration) return;
         // Unchanged nodes keep their identity so the sidebar's memoized rows can
         // skip re-rendering; the watcher fires this after every file write.
         set({ fileTree: reconcileFileTreeIdentity(previous, listed) });

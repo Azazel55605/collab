@@ -240,6 +240,17 @@ retains exact byte semantics. The server applies these policies to REST/live
 reconciliation and suppresses formatting-only materialized revisions, after
 checking the current revision marker.
 
+`lib/useVaultNoteIndex.ts` centralizes shell index loading and file/replica event
+refreshes. Scope includes hosted server identity; one active job coalesces later
+requests, and disposed/stale generations cannot publish notes or loading status.
+Native `state/note_index.rs` owns a single vault-tagged, generation-guarded index.
+Local vault transitions clear it, obsolete scans stop early, and backlinks/search
+cannot read a different vault's cached metadata. Each scan/search captures its
+key once; search shares an immutable metadata snapshot before disk I/O rather
+than holding the shared index lock throughout. File-tree refreshes and `noteSnippetStore` also reject
+stale scope/request completions; snippet mutations compare both ID and app/vault
+scope and invalidate older listings.
+
 `lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
 queues. Canvas only schedules nearby cards and discards obsolete hydration after
 source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,

@@ -48,7 +48,11 @@ coalesced sync, cache-first annotations and pending-edit protection. Batch 3 add
 canvas load/save/checkpoint guards and gesture serialization, bounded preview
 queues/revision caches, rendered internal thumbnails, PDF resource reuse and
 scroll restoration, safe hosted source refresh, shared UI controls and dynamic
-file-tree context. Native acceptance, process-death recovery, full-fidelity asset
+file-tree context. The recurring canvas save/merge fix remains **needs final testing** against both
+the rebuilt client and server. Batch 4 scopes note-index/file-tree/snippet
+publication, coalesces index jobs, escapes Markdown render errors and upgrades
+the dependencies flagged by PR #96's security scan. Native acceptance,
+process-death recovery, full-fidelity asset
 thumbnails and the remaining desktop/report backlog are still open.
 Prioritize pending-edit loss during navigation, Unicode search panics, native
 staging collisions, PDF resource cleanup, stale searches/listeners, and bounded

@@ -158,6 +158,18 @@ pub fn build_note_index(
     vault_path: String,
     state: State<AppState>,
 ) -> Result<Vec<NoteMetadata>, String> {
+    let active = state.active_vault.read();
+    if active
+        .as_ref()
+        .is_some_and(|vault| vault.path != vault_path)
+    {
+        return Err("Vault changed before indexing started".into());
+    }
+    // Capture one key for this job; switching vaults must not change decryption
+    // midway through a directory scan. Publication is generation guarded below.
+    let encryption_key = *state.encryption_key.read();
+    let generation = state.note_index.write().begin(&vault_path);
+    drop(active);
     let base = Path::new(&vault_path);
     let mut index: Vec<NoteMetadata> = Vec::new();
 
@@ -169,6 +181,9 @@ pub fn build_note_index(
             !should_skip_walk_entry(&name, e.file_type().is_dir())
         })
     {
+        if !state.note_index.read().is_current(&vault_path, generation) {
+            return Err("Index request superseded".into());
+        }
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
 
@@ -195,9 +210,8 @@ pub fn build_note_index(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let key_guard = state.encryption_key.read();
         let content_bytes = if crypto::is_encrypted_data(&raw) {
-            match key_guard.as_ref() {
+            match encryption_key.as_ref() {
                 Some(key) => match crypto::decrypt_bytes(key, &raw) {
                     Ok(b) => b,
                     Err(_) => continue,
@@ -207,7 +221,6 @@ pub fn build_note_index(
         } else {
             raw
         };
-        drop(key_guard);
         let content = match String::from_utf8(content_bytes) {
             Ok(s) => s,
             Err(_) => continue,
@@ -242,17 +255,28 @@ pub fn build_note_index(
         });
     }
 
-    *state.note_index.write() = index.clone();
+    let active = state.active_vault.read();
+    if active
+        .as_ref()
+        .is_some_and(|vault| vault.path != vault_path)
+    {
+        return Err("Vault changed while indexing".into());
+    }
+    state
+        .note_index
+        .write()
+        .publish(&vault_path, generation, index.clone());
     Ok(index)
 }
 
 #[tauri::command]
 pub fn get_backlinks(
-    _vault_path: String,
+    vault_path: String,
     relative_path: String,
     state: State<AppState>,
 ) -> Result<Vec<String>, String> {
-    let index = state.note_index.read();
+    let cache = state.note_index.read();
+    let index = cache.notes_for(&vault_path);
 
     // The note's "name" without extension for matching [[NoteTitle]] links
     let note_stem = Path::new(&relative_path)
@@ -292,8 +316,17 @@ pub fn search_notes(
         return Ok(vec![]);
     }
 
+    let active = state.active_vault.read();
+    if active
+        .as_ref()
+        .is_some_and(|vault| vault.path != vault_path)
+    {
+        return Err("Vault changed before searching".into());
+    }
+    let encryption_key = *state.encryption_key.read();
+    let index = state.note_index.read().snapshot_for(&vault_path);
+    drop(active);
     let matcher = SkimMatcherV2::default();
-    let index = state.note_index.read();
     let mut results: Vec<SearchResult> = Vec::new();
     let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -325,9 +358,8 @@ pub fn search_notes(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let key_guard = state.encryption_key.read();
         let content_bytes = if crypto::is_encrypted_data(&raw) {
-            match key_guard.as_ref() {
+            match encryption_key.as_ref() {
                 Some(key) => match crypto::decrypt_bytes(key, &raw) {
                     Ok(b) => b,
                     Err(_) => continue,
@@ -337,7 +369,6 @@ pub fn search_notes(
         } else {
             raw
         };
-        drop(key_guard);
         let content = match String::from_utf8(content_bytes) {
             Ok(s) => s,
             Err(_) => continue,
