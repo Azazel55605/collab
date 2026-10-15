@@ -23,10 +23,7 @@ use walkdir::WalkDir;
 pub(crate) mod sidecars;
 use sidecars::overlay_relative_path;
 #[cfg(test)]
-use sidecars::{
-    document_preview_cache_metadata_relative_path, document_preview_cache_payload_relative_path,
-    pdf_sidecar_relative_path,
-};
+use sidecars::{document_preview_cache_relative_path, pdf_sidecar_relative_path};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1839,16 +1836,15 @@ mod tests {
         assert_eq!(std::fs::read(second).unwrap(), b"canvas");
     }
     use super::{
-        build_tree, collect_entries, create_note_at_path,
-        document_preview_cache_metadata_relative_path,
-        document_preview_cache_payload_relative_path, extension_for_mime, guess_mime_type,
-        is_allowed_extension, list_file_references_inner, list_trash_entries_inner,
-        move_path_to_trash, normalize_relative_path, overlay_relative_path, parse_data_url,
-        pdf_sidecar_relative_path, preview_path_change_inner, purge_trashed_item_inner,
-        read_note_from_path, read_vault_bytes, remap_path, replace_markdown_references,
-        resolve_vault_path, restore_trashed_item_inner, rewrite_all_references,
-        rewrite_canvas_references, rewrite_kanban_references, sanitize_file_name,
-        should_skip_walk_entry, unique_target_path, write_note_to_path, write_vault_bytes,
+        build_tree, collect_entries, create_note_at_path, document_preview_cache_relative_path,
+        extension_for_mime, guess_mime_type, is_allowed_extension, list_file_references_inner,
+        list_trash_entries_inner, move_path_to_trash, normalize_relative_path,
+        overlay_relative_path, parse_data_url, pdf_sidecar_relative_path,
+        preview_path_change_inner, purge_trashed_item_inner, read_note_from_path, read_vault_bytes,
+        remap_path, replace_markdown_references, resolve_vault_path, restore_trashed_item_inner,
+        rewrite_all_references, rewrite_canvas_references, rewrite_kanban_references,
+        sanitize_file_name, should_skip_walk_entry, unique_target_path, write_note_to_path,
+        write_vault_bytes,
     };
     use crate::{crypto, test_support::TempVault};
     use std::path::{Path, PathBuf};
@@ -2761,12 +2757,9 @@ mod tests {
 
     #[test]
     fn document_preview_cache_paths_use_hidden_collab_namespace() {
-        let metadata_relative = document_preview_cache_metadata_relative_path("Docs/spec.pdf");
-        let payload_relative = document_preview_cache_payload_relative_path("Docs/spec.pdf");
-        assert!(metadata_relative.starts_with(".collab/previews/documents/"));
-        assert!(metadata_relative.ends_with(".json"));
-        assert!(payload_relative.starts_with(".collab/previews/documents/"));
-        assert!(payload_relative.ends_with(".bin"));
+        let relative = document_preview_cache_relative_path("Docs/spec.pdf");
+        assert!(relative.starts_with(".collab/previews/documents/"));
+        assert!(relative.ends_with(".entry"));
     }
 }
 

@@ -54,7 +54,9 @@ publication, coalesces index jobs, escapes Markdown render errors and upgrades
 the dependencies flagged by PR #96's security scan. Batch 5 guards grid document
 replacement/workspace/layout/resize transitions, retains every pane's save
 registration, and serializes local compare-and-write operations within the app
-process. Current checkboxes in the desktop audit and reported-regression
+process. Batch 6 makes local preview metadata/payload publication atomic and
+integrity-checked, and serializes OCR initialization/jobs/language changes with
+per-worker progress and idle ownership. Current checkboxes in the desktop audit and reported-regression
 supplement distinguish implemented, partial and open work. Native acceptance,
 process-death recovery, full-fidelity asset
 thumbnails and the remaining desktop/report backlog are still open.

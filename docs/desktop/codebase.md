@@ -251,6 +251,24 @@ than holding the shared index lock throughout. File-tree refreshes and `noteSnip
 stale scope/request completions; snippet mutations compare both ID and app/vault
 scope and invalidate older listings.
 
+Local document previews use one `.collab/previews/documents/*.entry` record in
+`commands/files/sidecars.rs`: versioned framing, bounded JSON metadata, raw image
+bytes and SHA-256 integrity trailer. `write_vault_bytes` encrypts when needed and
+publishes the whole record by atomic staging/rename. Cache parse/decrypt/read
+failure is a miss; source metadata and renderer version still gate reuse. Legacy
+`.json`/`.bin` pairs are ignored and retained for older clients; disk GC remains
+separate work. Authoritative annotation sidecars retain their existing format.
+
+`lib/ocr.ts` owns one serialized recognition queue (eight active/queued jobs),
+including preprocessing and native fallback. Completed cache hits bypass the
+queue; queued requests recheck results before recognizing. Worker initialization,
+language changes and idle termination share queue ownership. Progress belongs to
+the current worker/job, is cleared on completion/failure, and retired workers
+cannot report into another pane. Only an empty queue schedules the three-minute
+idle shutdown. The queue recovers after failures and rejects overload visibly.
+This does not bound native subprocess duration, image bytes or persistent OCR
+result retention; those remain separate audit items.
+
 `lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
 queues. Canvas only schedules nearby cards and discards obsolete hydration after
 source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,

@@ -16,7 +16,7 @@ Platform scope below is provisional where the report did not name one.
 
 ## Current Implementation Checklist
 
-Updated **2026-10-15** through desktop batches 1–5. `[x]` marks the listed
+Updated **2026-10-15** through desktop batches 1–6. `[x]` marks the listed
 **desktop implementation**, not all-platform acceptance. Preserve the remaining
 acceptance below and update this checklist alongside future fixes. Detailed
 changes and automated verification live in
@@ -32,7 +32,8 @@ changes and automated verification live in
       native sync publishes view refreshes; concurrent sync coalesces and partial
       downloads fail visibly. Native reconnect/cross-process and Android work remain.
 - [ ] **UR04 partial:** Bounded preview queues, cache-first hosted rendering,
-      scoped bounded SVG cache and shared PDF pipeline implemented. Measured native
+      scoped bounded SVG cache, shared PDF pipeline and atomic local preview records
+      implemented; corrupt/legacy records regenerate. Measured native
       cold/warm latency, image thumbnails and remaining cancellation work are open.
 - [ ] **UR05 partial:** Spatial canvas/logic, Kanban columns/cards and themed deck
       layout rendered. Deck images/charts/tables remain placeholders; full-fidelity

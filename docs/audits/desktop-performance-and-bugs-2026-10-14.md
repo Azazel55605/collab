@@ -21,7 +21,7 @@ that every line or every platform was exercised.
 
 ## Implementation Progress
 
-Updated **2026-10-15**, through implementation batches 1–5 in
+Updated **2026-10-15**, through implementation batches 1–6 in
 [Desktop Audit Fixes](../plans/desktop-audit-fixes.md). Keep these checkboxes current
 with each implementation batch. `[x]` means the described correction is
 implemented; it does not substitute for native acceptance or close adjacent
@@ -57,8 +57,13 @@ and server; it is not closed by these bug checkboxes.
 - [ ] **R03 — Partial:** Same-process native note compare/merge/write serialized
       per canonical parent/file. Other processes, external editors and other
       mutation paths remain outside this lock protocol.
-- [ ] **R04 — Open:** Consistent preview metadata/payload publication.
-- [ ] **R05 — Open:** Concurrent WASM OCR worker initialization/job ownership.
+- [x] **R04:** One atomic, encrypted-as-needed preview record contains metadata
+      and image bytes, with a complete-record integrity check. Legacy/missing/corrupt
+      entries regenerate; source/renderer checks remain. Native storage QA and disk
+      retention (O44) remain open.
+- [x] **R05:** Bounded serial OCR queue owns initialization, language transitions,
+      per-worker progress and idle termination. Failures release ownership and do not
+      poison later jobs. Native OCR process limits remain O46.
 - [ ] **R06 — Open:** Formula release versus queued evaluation.
 - [x] **R07:** Scope/epoch ownership for snippet lists and mutations.
 - [ ] **R08 — Open:** Authorized OCR result retention/lifecycle policy.
@@ -68,8 +73,8 @@ and server; it is not closed by these bug checkboxes.
 
 ### Optimization Checklist
 
-Every O01–O70 item below has its own checkbox. O39's shared PDF-card pipeline is
-implemented. Partial entries identify the narrower completed work; unchecked
+Every O01–O70 item below has its own checkbox. O39's shared PDF-card pipeline and
+O47's WASM worker/job ownership are implemented. Partial entries identify the narrower completed work; unchecked
 items still need implementation and/or the requested measurements. No native
 startup, RSS, FPS, GPU or latency speedup is claimed from unit tests.
 
@@ -557,8 +562,8 @@ instructions to optimize code before measuring it.
       within spawn_blocking. Add a job semaphore, cancellation, process timeout and
       bounded output handling. Test hung/huge OCR jobs and navigation away; preserve
       the existing RAII temp-file/temp-dir cleanup.
-- [ ] **O47 / P2 — Serialize/single-flight WASM OCR workers safely.**
-      **Status: Open.**
+- [x] **O47 / P2 — Serialize/single-flight WASM OCR workers safely.**
+      **Status: Implemented — one worker owns serialized recognition, language changes and progress; at most eight active/queued jobs; idle termination waits for the queue. Native peak-WASM memory/real-engine soak remains acceptance.**
       [ocr](../../src/lib/ocr.ts) already has a three-minute idle shutdown, but R05's
       concurrent job/init policy is missing. Use an explicit worker owner/job queue
       with per-job progress and language transitions. Measure peak WASM memory and

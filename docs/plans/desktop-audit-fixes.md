@@ -388,6 +388,56 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
   BuildKit entitlement limitation; it was not rerun for these desktop-only
   changes. No existing server/database was changed.
 
+## Batch 6 — Atomic Preview Records And OCR Ownership
+
+Implemented **2026-10-15**. Canvas remains **needs final testing**.
+
+- **R04:** Preview metadata and image bytes are encoded in one integrity-checked
+  `.entry` record, published by the existing encrypted/atomic staging helper.
+  Readers cannot combine independently published MIME/source data and images.
+  Missing, corrupted, truncated, obsolete-renderer and legacy records are cache
+  misses and can regenerate. Source metadata and expected render hash checks
+  remain. Legacy pairs are retained for older clients; disk retention is O44.
+- Native regressions exercise concurrent readers/writers with different image
+  MIME/payloads, staged-before-publish reads, corruption/regeneration, encrypted
+  records/wrong keys, stale writes and changed source/renderer invalidation.
+- **R05 / O47:** One bounded serial queue owns OCR preprocessing, WASM worker
+  initialization/recognition, language transitions and native fallback. At most
+  eight active/queued jobs retain inputs; additional requests fail visibly.
+  Cached results bypass running jobs, and queued duplicates recheck cache after
+  earlier jobs finish. Cache failures do not stop otherwise working recognition.
+- Progress callbacks belong to the worker's running job; completed/retired
+  workers lose their callbacks. Language changes and idle shutdown wait for
+  prior work. Only an empty queue schedules the three-minute idle timer, and new
+  work waits for any already-started termination. Failure cannot poison later
+  jobs; failed workers retire before native fallback. Preprocessing is reused
+  for fallback instead of being repeated.
+- OCR tests use controlled worker/recognition/termination promises and virtual
+  time. Real Tesseract/WASM memory soak, native subprocess cancellation/timeouts,
+  preprocessing byte/worker budgets and authorized OCR retention remain open
+  under O45/O46/R08/O48. No native preview latency/FPS/memory speedup is claimed.
+
+### Batch 6 Verification
+
+- Full desktop/script suite: **2,335 passed, one intentional skip**, including
+  all **10 new OCR ownership regressions**. The installed patched `braces`
+  `NODE_PATH` workaround remains; host permissions let CLI tests spawn Node.
+- Admin **81/81**, Android **256/256**, desktop/admin/Android TypeScript and
+  desktop/admin production builds passed. No suite retries were needed.
+- Rust workspace tests/check and formatting passed, including all **five new
+  native preview publication/invalidation regressions**. Changed-file lint has
+  zero warnings/errors. Formatting, diff checks, crate/version guards and
+  Compose configuration passed.
+- All four PR #96 checks were green on the preceding batch's head, including
+  dependency/container security. This push requires new-head CI. No dependency
+  or advisory-ignore changes were made.
+- **Rebuild the desktop binary** for native cache publication. Old cached pairs
+  regenerate into the new record on demand and remain on disk for older clients;
+  no authoritative sidecar/data migration or deletion occurs. Native storage,
+  real OCR engine/memory soak and canvas user acceptance remain open.
+- Server smoke retains the existing BuildKit entitlement limitation and was not
+  rerun for these desktop-only changes. No existing server/database was changed.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.
