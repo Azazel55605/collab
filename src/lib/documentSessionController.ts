@@ -466,10 +466,25 @@ export class DocumentSessionController<TDocument> {
     }
 
     this.offlineQueued = false;
-    const saved = outcome.mergedContent ?? content;
+    // Establish the baseline in the editor's serialized form, just like its
+    // initial load. Server formatting must not manufacture another local edit.
+    const saved =
+      outcome.mergedContent === undefined
+        ? content
+        : this.options.serialize(this.options.deserialize(outcome.mergedContent));
     this.loadedVersion = outcome.version;
     this.lastSavedContent = saved;
     if (saved !== content && !this.contentEqual(saved, content)) {
+      if (this.currentContent !== null && !this.contentEqual(this.currentContent, content)) {
+        // New edits arrived while the server merged this write. Preserve both
+        // versions for review rather than replacing those edits or overwriting
+        // the server merge with an automatic trailing save.
+        this.setConflict(
+          { theirContent: saved, theirVersion: outcome.version, baseContent: content },
+          this.currentContent,
+        );
+        return;
+      }
       // The backend auto-merged concurrent non-overlapping edits; adopt the
       // merged document as the new source of truth.
       this.currentContent = saved;

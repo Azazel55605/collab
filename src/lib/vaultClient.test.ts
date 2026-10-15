@@ -460,6 +460,51 @@ describe('HostedVaultClient', () => {
     );
   });
 
+  it('turns a rejected hosted revision into an authoritative conflict without cached rereads or retries', async () => {
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    const latest = {
+      ...hostedDocument,
+      currentRevision: { ...hostedDocument.currentRevision, sequence: 7 },
+    };
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockRejectedValueOnce('The document has changed since the supplied revision.')
+      .mockResolvedValueOnce({ file: latest, content: '# Remote' });
+    const result = await new HostedVaultClient(hostedVault).writeDocument(
+      'Notes/Test.md',
+      '# Mine',
+      '3',
+      '# Base',
+    );
+    expect(result.conflict).toEqual({
+      relativePath: 'Notes/Test.md',
+      ourContent: '# Mine',
+      theirContent: '# Remote',
+      theirVersion: '7',
+    });
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledTimes(2);
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
+      hostedVault.serverUrl,
+      'GET',
+      '/api/v1/vaults/hosted-vault/files/file-1',
+      undefined,
+    );
+    expect(tauriCommands.replicaEnqueueOperation).not.toHaveBeenCalled();
+  });
+
+  it('returns server-merged document bytes instead of acknowledging the submitted bytes', async () => {
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce({
+      file: {
+        ...hostedDocument,
+        currentRevision: { ...hostedDocument.currentRevision, sequence: 4 },
+      },
+      content: '# Mine and remote',
+    });
+    await expect(
+      new HostedVaultClient(hostedVault).writeDocument('Notes/Test.md', '# Mine', '3'),
+    ).resolves.toEqual({ version: '4', mergedContent: '# Mine and remote' });
+  });
+
   it('routes hosted logic component library operations through vault endpoints', async () => {
     const component = {
       id: 'component-1',

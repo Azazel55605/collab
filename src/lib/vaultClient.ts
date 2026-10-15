@@ -1056,6 +1056,23 @@ export class HostedVaultClient implements VaultClient {
       expectedRevisionSequence: expectedSequence,
       content,
     }).catch(async (error) => {
+      // Native hosted errors currently expose the server message, not its code.
+      // Read directly from the server: a cache-first read can return the same
+      // rejected revision and strand conflict resolution in a retry loop.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === 'The document has changed since the supplied revision.') {
+        const latest = await this.request<HostedTextDocument>('GET', `/files/${file.id}`);
+        return {
+          file: latest.file,
+          content: latest.content,
+          conflict: {
+            relativePath,
+            ourContent: content,
+            theirContent: latest.content,
+            theirVersion: String(latest.file.currentRevision?.sequence ?? 0),
+          },
+        };
+      }
       if (!isLikelyConnectivityError(error)) throw error;
       const nextManifest = this.optimisticManifestForEdit(
         manifest,
@@ -1083,13 +1100,16 @@ export class HostedVaultClient implements VaultClient {
         offlineQueued: true,
       };
     });
+    if ('conflict' in document) {
+      return { version: String(expectedSequence), conflict: document.conflict };
+    }
     if ('offlineQueued' in document && document.offlineQueued) {
       return {
         version: String(document.file.currentRevision?.sequence ?? expectedSequence + 1),
         offlineQueued: true,
       };
     }
-    void this.cacheDocumentForOfflineCopy(file.id, content);
+    void this.cacheDocumentForOfflineCopy(file.id, document.content);
     void writeOptimisticReplicaManifest(this.vault, {
       ...manifest,
       sequence: Math.max(
@@ -1098,7 +1118,10 @@ export class HostedVaultClient implements VaultClient {
       ),
       files: manifest.files.map((entry) => (entry.id === file.id ? document.file : entry)),
     } as unknown as ReplicaManifest).catch(() => {});
-    return { version: String(document.file.currentRevision?.sequence ?? expectedSequence + 1) };
+    return {
+      version: String(document.file.currentRevision?.sequence ?? expectedSequence + 1),
+      ...(document.content !== content ? { mergedContent: document.content } : {}),
+    };
   }
 
   async createDocument(relativePath: string): Promise<NoteFile> {

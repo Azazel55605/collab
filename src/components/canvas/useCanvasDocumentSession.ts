@@ -294,18 +294,29 @@ export function useCanvasDocumentSession({
     },
     write: async ({ content, expectedVersion, baseContent }) => {
       if (!client || !relativePath || readOnly) return { version: expectedVersion ?? '' };
-      const result = await client.writeDocument(
+      let result = await client.writeDocument(
         relativePath,
         content,
         expectedVersion ?? undefined,
         baseContent,
       );
+      if (result.conflict?.theirVersion) {
+        const remote = roundTripCanonical(parseCanvasContent(result.conflict.theirContent));
+        const version = result.conflict.theirVersion;
+        if (remote === content) return { version };
+        // A newer sequence with the same base bytes is safe to rebase once.
+        // Actual remote edits still require explicit conflict resolution.
+        if (baseContent !== undefined && remote === baseContent && version !== expectedVersion)
+          result = await client.writeDocument(relativePath, content, version, baseContent);
+      }
       if (result.conflict) {
-        let theirVersion: string | null = null;
-        try {
-          theirVersion = (await client.readDocument(relativePath)).version;
-        } catch {
-          // Best-effort; a null version makes a keep-mine resolution overwrite.
+        let theirVersion: string | null = result.conflict.theirVersion ?? null;
+        if (theirVersion === null) {
+          try {
+            theirVersion = (await client.readDocument(relativePath)).version;
+          } catch {
+            // Keep the conflict visible if the latest version is unavailable.
+          }
         }
         return {
           version: expectedVersion ?? '',
@@ -317,11 +328,15 @@ export function useCanvasDocumentSession({
         };
       }
       if (result.offlineQueued) return { version: result.version, offlineQueued: true };
-      const savedContent = result.mergedContent ?? content;
+      const mergedContent =
+        result.mergedContent === undefined
+          ? undefined
+          : roundTripCanonical(parseCanvasContent(result.mergedContent));
+      const savedContent = mergedContent ?? content;
       if (shouldCreateSnapshot(result.version)) {
         client.createSnapshot(relativePath, savedContent, myUserId, myUserName).catch(() => {});
       }
-      return { version: result.version, mergedContent: result.mergedContent };
+      return { version: result.version, mergedContent };
     },
     isLive: () => liveSession !== null,
     compareVersions: compareDocumentVersions,

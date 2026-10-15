@@ -163,6 +163,8 @@ export interface FileReference {
 }
 
 export interface ConflictInfo {
+  /** Authoritative revision accompanying theirContent, when supplied by the server. */
+  theirVersion?: string;
   ourContent: string;
   theirContent: string;
   relativePath: string;

@@ -209,6 +209,41 @@ including monitor transitions and app zoom, remain acceptance checks.
   and existing component debt). Formatting and diff checks passed. Native
   acceptance and server smoke retain the boundaries below.
 
+## Hosted Canvas Revision Regression — 2026-10-15
+
+A hosted revision rejection could leave canvas status cycling from unsaved to
+saving and back, with navigation blocked by the server's supplied-revision
+error. The hosted adapter previously threw that rejection as a generic failure;
+no actionable conflict reached the document controller. A cache-first conflict
+reread could also return the stale revision again.
+
+The adapter now fetches the conflicting document directly from the server and
+returns its exact revision alongside its content. Shared document editors use
+that supplied revision for conflict resolution. The canvas acknowledges content
+already saved remotely, or retries **once** when the authoritative canvas still
+matches its original saved base after normal editor normalization. Different
+remote edits remain visible conflicts; retrying never silently rebases over them.
+Server-merged write responses now supply the authoritative content to the
+controller and offline body cache; canvas content is canonicalized before
+establishing the new baseline. If additional edits arrive during a merged save,
+the controller preserves those edits and the server result for explicit review
+instead of replacing the newer local content.
+
+Regression coverage includes stale-base save plus successful navigation,
+already-persisted content, real remote edits, bounded repeated rejection, fresh
+server conflict reads and returned server-merged bytes. Native/server acceptance
+still requires a rebuilt client against the hosted server; these tests use the
+adapter and controller harnesses.
+
+Validation: full desktop/script suite **2,300 passed, one intentional skip**
+(using the installed patched `braces` via `NODE_PATH` as above).
+**170 focused document/navigation tests passed**; Android **256/256**,
+admin **81/81**, desktop/Android/admin TypeScript and desktop/admin frontend
+builds passed. Rust workspace tests/check, version/crate guards and Compose
+configuration passed. Changed-file lint has zero errors and seven existing
+warnings; formatting/diff checks passed. Server smoke retains the existing
+BuildKit entitlement limitation described above.
+
 ## Verification Boundary
 
 Run the repository checks and focused regressions for each batch. Keep timing

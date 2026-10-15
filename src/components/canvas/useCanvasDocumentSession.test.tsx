@@ -1,8 +1,13 @@
+import { useState } from 'react';
+
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { Node as FlowNode } from '@xyflow/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { runDocumentNavigation } from '../../lib/documentNavigation';
+import type { DocumentSessionController } from '../../lib/documentSessionController';
 import { HostedVaultClient } from '../../lib/vaultClient';
+import { useDocumentStatusStore } from '../../store/documentStatusStore';
 
 import type { CanvasFlowEdge } from './CanvasEdgeTypes';
 import type { CanvasNodeData } from './CanvasNodeTypes';
@@ -87,6 +92,7 @@ describe('useCanvasDocumentSession', () => {
 
   afterEach(() => {
     cleanup();
+    useDocumentStatusStore.setState({ statuses: {} });
     vi.useRealTimers();
   });
 
@@ -449,6 +455,135 @@ describe('useCanvasDocumentSession', () => {
       ...overrides,
     };
   }
+
+  function renderHostedFallback() {
+    const options = hostedLiveOptions();
+    vi.spyOn(HostedVaultClient.prototype, 'createSnapshot').mockResolvedValue({} as never);
+    return renderHook(() => {
+      const [nodes, setNodes] = useState<FlowNode<CanvasNodeData>[]>([]);
+      const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+      const session = useCanvasDocumentSession({
+        ...options,
+        nodes,
+        setNodes,
+        viewport,
+        setViewport,
+      });
+      return {
+        ...session,
+        edit: () =>
+          setNodes((old) =>
+            old.map((node) => ({ ...node, data: { ...node.data, content: 'mine' } })),
+          ),
+      };
+    });
+  }
+
+  it('rebases a stale hosted revision only when authoritative canvas content matches the saved base, then allows leaving', async () => {
+    const write = vi.spyOn(HostedVaultClient.prototype, 'writeDocument');
+    write
+      .mockImplementationOnce(async (path, content, _version, base) => ({
+        version: '3',
+        conflict: {
+          relativePath: path,
+          ourContent: content,
+          theirContent: base!,
+          theirVersion: '7',
+        },
+      }))
+      .mockResolvedValue({ version: '8' });
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    useDocumentStatusStore.getState().setDocumentStatus('Boards/test.canvas', {
+      status: 'dirty',
+      controller: hook.result.current.controller as DocumentSessionController<unknown>,
+      beforeLeave: hook.result.current.beforeLeave,
+    });
+    const leave = vi.fn();
+    await act(async () => {
+      expect(await runDocumentNavigation(leave)).toBe(true);
+    });
+    expect(leave).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write.mock.calls[1][2]).toBe('7');
+    expect(hook.result.current.snapshot.dirty).toBe(false);
+    expect(hook.result.current.snapshot.loadedVersion).toBe('8');
+  });
+
+  it('stops after one stale-base retry if the server changes again', async () => {
+    const write = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockImplementation(async (path, content, version, base) => ({
+        version: version!,
+        conflict: {
+          relativePath: path,
+          ourContent: content,
+          theirContent: base!,
+          theirVersion: version === '3' ? '7' : '8',
+        },
+      }));
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    await act(async () => {
+      await hook.result.current.controller.requestSave();
+    });
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.snapshot.conflicted).toBe(true);
+  });
+
+  it('acknowledges already-persisted canvas content without another write', async () => {
+    const write = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockImplementation(async (path, content) => ({
+        version: '3',
+        conflict: {
+          relativePath: path,
+          ourContent: content,
+          theirContent: content,
+          theirVersion: '7',
+        },
+      }));
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    await act(async () => {
+      await hook.result.current.controller.requestSave();
+    });
+    expect(write).toHaveBeenCalledOnce();
+    expect(hook.result.current.snapshot.dirty).toBe(false);
+    expect(hook.result.current.snapshot.loadedVersion).toBe('7');
+  });
+
+  it('shows real concurrent canvas edits as a conflict and keeps the authoritative version for keep mine', async () => {
+    const write = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockImplementation(async (path, content, _version, base) => {
+        const remote = JSON.parse(base!);
+        remote.nodes[0].content = 'remote';
+        return {
+          version: '3',
+          conflict: {
+            relativePath: path,
+            ourContent: content,
+            theirContent: JSON.stringify(remote),
+            theirVersion: '7',
+          },
+        };
+      });
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    await act(async () => {
+      await hook.result.current.controller.requestSave();
+    });
+    expect(write).toHaveBeenCalledOnce();
+    expect(hook.result.current.snapshot.conflicted).toBe(true);
+    act(() => hook.result.current.controller.keepMine());
+    expect(hook.result.current.snapshot.loadedVersion).toBe('7');
+    expect(hook.result.current.snapshot.dirty).toBe(true);
+  });
 
   it('opens a hosted canvas live session but only writes after hydration', async () => {
     const writeJson = vi.fn();

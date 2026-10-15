@@ -165,6 +165,50 @@ describe('DocumentSessionController', () => {
     expect(controller.version).toBe('d');
   });
 
+  it('normalizes server formatting before establishing the saved baseline', async () => {
+    const { controller, applied } = makeController({
+      serialize: (value) => JSON.stringify(JSON.parse(value), null, 2),
+      resolveWrite: async () => ({ version: '2', mergedContent: '{"title":"edited"}' }),
+    });
+    controller.load(JSON.stringify({ title: 'base' }, null, 2), '1');
+    controller.markLocalChange('{"title":"edited"}');
+    await controller.requestSave();
+    expect(controller.getSnapshot().dirty).toBe(false);
+    expect(applied).toHaveLength(1);
+    controller.markLocalChange('{"title":"edited"}');
+    expect(controller.getSnapshot().dirty).toBe(false);
+  });
+
+  it('preserves edits made during a server-merged save for conflict review', async () => {
+    let finish!: (value: DocumentWriteOutcome) => void;
+    const { controller, applied } = makeController({
+      resolveWrite: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    controller.load('base', '1');
+    controller.markLocalChange('submitted');
+    const saving = controller.requestSave();
+    controller.markLocalChange('newer local edits');
+    const trailing = controller.requestSave();
+    finish({ version: '2', mergedContent: 'submitted plus remote edits' });
+    await Promise.all([saving, trailing]);
+    expect(applied).toHaveLength(1);
+    expect(controller.getSnapshot()).toMatchObject({
+      currentContent: 'newer local edits',
+      dirty: true,
+      conflicted: true,
+      conflict: {
+        ourContent: 'newer local edits',
+        theirContent: 'submitted plus remote edits',
+        theirVersion: '2',
+      },
+    });
+    controller.keepMine();
+    expect(controller.version).toBe('2');
+  });
+
   it('rejects stale remote candidates (same or older version)', () => {
     const { controller, applied } = makeController();
     controller.load('a', 'v1');

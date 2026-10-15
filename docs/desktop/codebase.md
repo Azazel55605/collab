@@ -221,6 +221,15 @@ use the same serialization rule before navigation; `liveJsonDocument` can merge
 local edits against their base into the latest remote JSON. Load errors leave the
 source untouched and disable autosave.
 
+Hosted revision conflicts include the authoritative server content and its
+`theirVersion` token, fetched directly rather than through cache-first document
+reads. Editors retain that token for explicit conflict resolution. Canvas only
+rebases automatically once when the remote canvas equals its saved base (or
+acknowledges an already-persisted identical edit). Server-merged content becomes
+the save baseline and cached body, so acknowledging a revision does not falsely
+acknowledge different submitted bytes. Edits made during a server-merged save
+remain in the editor with both versions available for conflict review.
+
 `lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
 queues. Canvas only schedules nearby cards and discards obsolete hydration after
 source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,
