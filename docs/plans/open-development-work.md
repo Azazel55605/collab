@@ -99,14 +99,17 @@ claim standalone local vaults or editor parity are implemented.
 ### Reported Regressions Across The App
 
 The [reported-issue reconciliation](../audits/reported-regressions-2026-10-14.md)
-tracks all 13 user reports received on **2026-10-14**, preserving existing audit
-IDs and adding explicit gaps under UR01–UR13. **Desktop fix implementation is
+tracks **14 user reports**: the 13 received on **2026-10-14** and the
+**2026-10-15** math-block evaluation keyboard-shortcut failure (UR14). Existing
+audit IDs are preserved, with reported gaps tracked under UR01–UR14. **Desktop fix implementation is
 in progress** in [Desktop Audit Fixes](./desktop-audit-fixes.md). Prioritize
 canvas save reliability, cache-first/offline freshness,
 external-drop targeting, PDF state retention and measured canvas/preview latency.
 The backlog also includes rendered internal previews, shared UI consistency,
 legacy chat/sidebar navigation, Kanban scrolling and mobile drawing-mode
-reconciliation. Platform reproduction remains required; existing cache-first,
+reconciliation. UR14 remains open for keyboard-event/focus reproduction and
+evaluation/result/undo acceptance; spreadsheet runtime fixes do not close it.
+Platform reproduction remains required; existing cache-first,
 auto-refresh, scrolling and shared ink mechanisms should be repaired/extended
 rather than assumed absent.
 

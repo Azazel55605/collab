@@ -484,6 +484,15 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
   and was not rerun for these frontend-only changes. Existing servers/databases
   were untouched.
 
+## Newly Reported — Math Evaluation Shortcut
+
+- [ ] **UR14 / P2 — Open, reported 2026-10-15:** Formula evaluation via keyboard
+      shortcut in Markdown math blocks does not work. Track this separately from the
+      completed spreadsheet runtime ownership fix. Exact key/platform/focus
+      reproduction, keyboard-event dispatch coverage, result insertion and undo
+      acceptance remain open. See the
+      [reported regression](../audits/reported-regressions-2026-10-14.md#ur14--math-block-evaluation-keyboard-shortcut).
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.

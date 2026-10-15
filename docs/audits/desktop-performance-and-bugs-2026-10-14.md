@@ -84,10 +84,11 @@ startup, RSS, FPS, GPU or latency speedup is claimed from unit tests.
 ## Reported Regression Follow-Up
 
 The [2026-10-14 reported-issue reconciliation](./reported-regressions-2026-10-14.md)
-tracks all 13 subsequent user reports against these inventories, including PDF
+tracks all 14 subsequent user reports against these inventories, including PDF
 state reset, cache-first reads/automatic freshness, slow/basic previews, component
 consistency, drop targeting, legacy chat/sidebar behavior, Kanban scrolling,
-mobile drawing and canvas performance/save failures. Existing IDs/counts remain
+mobile drawing, canvas performance/save failures and math-block evaluation
+keyboard-shortcut failure (UR14, reported 2026-10-15). Existing IDs/counts remain
 unchanged; the supplement separates reported symptoms from verified mechanisms
 and adds acceptance targets for gaps. Its current checklist records completed
 desktop work separately from partial changes, Android work and native acceptance.

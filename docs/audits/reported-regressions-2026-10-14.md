@@ -2,7 +2,8 @@
 
 Reported and checked against source: **2026-10-14**. Baseline: `4231413`
 (application code matches `c9fbdb7`; the later commit adds the mobile audit).
-This supplement reconciles all **13 user reports** with the
+This supplement reconciles **14 user reports** (13 initially reported on
+2026-10-14, plus the math-shortcut report on 2026-10-15) with the
 [desktop](./desktop-performance-and-bugs-2026-10-14.md),
 [web](./web-interface-performance-and-bugs-2026-10-14.md) and
 [Android](./mobile-performance-and-bugs-2026-10-14.md) audits.
@@ -10,7 +11,7 @@ This supplement reconciles all **13 user reports** with the
 These are reported regressions and requested behavior, not newly reproduced
 platform bugs. The source checks below describe the historical baseline; the implementation
 checklist records subsequent fixes separately from native/platform sign-off. Existing audit IDs and counts
-remain unchanged to avoid counting overlapping findings twice. UR01–UR13 are
+remain unchanged to avoid counting overlapping findings twice. UR01–UR14 are
 the follow-up tracker, including reports missing from the original inventories.
 Platform scope below is provisional where the report did not name one.
 
@@ -60,26 +61,31 @@ changes and automated verification live in
       implemented. Repeated edits/save/navigation/reopen must be confirmed with
       **both rebuilt desktop and server**. Process quit/death recovery remains open.
 
+- [ ] **UR14 open:** Keyboard-triggered formula evaluation in Markdown math
+      blocks does not work, as reported on **2026-10-15**. Reproduction/platform
+      and the exact pressed shortcut are not yet confirmed; no fix is claimed.
+
 Android counterparts of UR01–UR06/UR08–UR10 and web-specific consistency work
 are not closed by desktop checkboxes. The original source inventory follows.
 
 ## Coverage And Priority
 
-| ID        | Report / likely scope                                                                            | Previous coverage                                                                                                                                                      | Added tracking                                                                                                                        |
-| --------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| UR01 / P2 | PDFs reload/reset zoom and state on switching; desktop and mobile                                | Desktop B04 covers worker lifetime; O11/O12 cover other viewer state; Android MR08/MO11–14 cover PDF resources. None explicitly tracks this PDF navigation regression. | Preserve per-document viewer state independently of remounted renderers; investigate hosted/local differences and reload costs.       |
-| UR02 / P1 | Files ignore downloaded/offline copies; cached-first loading requested; desktop/mobile           | Desktop O37 and Android MO14/MO23/MO28–30 touch asset/cache costs. Cache failure policy is Android MR02.                                                               | Explicit cache-first, revision-aware revalidation and pending-edit precedence across every file format.                               |
-| UR03 / P1 | Downloaded vault caches do not update automatically; desktop/mobile                              | Desktop O68 and Android MO24–28 cover synchronization cost; Android MR01 covers partial availability.                                                                  | Treat failed automatic freshness as a regression, with completion/failure visibility and a reconnect/background test matrix.          |
-| UR04 / P1 | Previews take too long; desktop/mobile where implemented                                         | Desktop O38–44/O59 and Android MO03/MO14/MO30 cover scheduling, reads and memory.                                                                                      | Add measured cold/warm preview latency and responsiveness acceptance; trace cache hits, server generation and bridge/renderer stages. |
-| UR05 / P2 | Internal previews show basic content; proper rendering requested; shared renderer/server/clients | Existing audits recognize internal previews but do not specify richer fidelity. This was previously deferred expansion work.                                           | Add a requested visual-rendering enhancement with per-format fidelity, bounded rendering and versioned cache acceptance.              |
-| UR06 / P2 | Stale/native-looking controls; use shadcn/shared styled components; all UIs                      | Web WO42 and Android MO47 address primitive/accessibility debt. Neither is a complete consistency inventory.                                                           | Explicit cross-surface component migration, including desktop dialogs/toolbars/menus and mobile controls.                             |
-| UR07 / P1 | External drag/drop targets random folders across systems; desktop                                | Existing tree/drag optimization entries do not track positional misrouting.                                                                                            | Native coordinate/scale/hit-test regression with platform and monitor matrix and truthful target highlighting.                        |
-| UR08 / P2 | Old chat remains in Collaboration menu; desktop, mobile equivalents to inspect                   | Audits cover chat costs and new Teams navigation, not removal/reconciliation of the legacy entry.                                                                      | Explicit navigation cleanup and migration decision; preserve any deliberate vault-specific channel functionality.                     |
-| UR09 / P2 | Sidebar does not update with the current view; desktop primarily                                 | Desktop O10 covers subscriptions, not navigation correctness.                                                                                                          | Track page/tab/document-aware sidebar selection and capability refresh, including switching from Chats.                               |
-| UR10 / P2 | Long Kanban columns lack a scrollbar; desktop/mobile                                             | General list/rendering bounds do not cover column overflow.                                                                                                            | Track bounded column height, usable vertical scroll and drag auto-scroll across pointer/touch platforms.                              |
-| UR11 / P2 | Mobile drawing exposes stale drawing modes; Android                                              | Android MO20/MO47 cover rendering/input; current `.ink` already uses the shared tool model.                                                                            | Inventory exact drawing/annotation surfaces and reconcile obsolete modes with the current shared model.                               |
-| UR12 / P1 | Canvas has severe performance problems; desktop, Android viewer separately                       | Desktop O52/O59/O60 and Android MO17 already cover major related costs.                                                                                                | Upgrade from a tuning opportunity to an observed regression requiring representative-scene profiling and budgets.                     |
-| UR13 / P1 | Canvas frequently fails to save; desktop editable canvas primarily                               | Desktop B01 covers pending-edit loss broadly; O52 covers serialization; Android MR03 covers durability generally. No explicit canvas save-failure entry exists.        | Dedicated persistence/recovery investigation; highest-priority follow-up with UR02/03 and data-loss findings.                         |
+| ID        | Report / likely scope                                                                                | Previous coverage                                                                                                                                                      | Added tracking                                                                                                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UR01 / P2 | PDFs reload/reset zoom and state on switching; desktop and mobile                                    | Desktop B04 covers worker lifetime; O11/O12 cover other viewer state; Android MR08/MO11–14 cover PDF resources. None explicitly tracks this PDF navigation regression. | Preserve per-document viewer state independently of remounted renderers; investigate hosted/local differences and reload costs.                                           |
+| UR02 / P1 | Files ignore downloaded/offline copies; cached-first loading requested; desktop/mobile               | Desktop O37 and Android MO14/MO23/MO28–30 touch asset/cache costs. Cache failure policy is Android MR02.                                                               | Explicit cache-first, revision-aware revalidation and pending-edit precedence across every file format.                                                                   |
+| UR03 / P1 | Downloaded vault caches do not update automatically; desktop/mobile                                  | Desktop O68 and Android MO24–28 cover synchronization cost; Android MR01 covers partial availability.                                                                  | Treat failed automatic freshness as a regression, with completion/failure visibility and a reconnect/background test matrix.                                              |
+| UR04 / P1 | Previews take too long; desktop/mobile where implemented                                             | Desktop O38–44/O59 and Android MO03/MO14/MO30 cover scheduling, reads and memory.                                                                                      | Add measured cold/warm preview latency and responsiveness acceptance; trace cache hits, server generation and bridge/renderer stages.                                     |
+| UR05 / P2 | Internal previews show basic content; proper rendering requested; shared renderer/server/clients     | Existing audits recognize internal previews but do not specify richer fidelity. This was previously deferred expansion work.                                           | Add a requested visual-rendering enhancement with per-format fidelity, bounded rendering and versioned cache acceptance.                                                  |
+| UR06 / P2 | Stale/native-looking controls; use shadcn/shared styled components; all UIs                          | Web WO42 and Android MO47 address primitive/accessibility debt. Neither is a complete consistency inventory.                                                           | Explicit cross-surface component migration, including desktop dialogs/toolbars/menus and mobile controls.                                                                 |
+| UR07 / P1 | External drag/drop targets random folders across systems; desktop                                    | Existing tree/drag optimization entries do not track positional misrouting.                                                                                            | Native coordinate/scale/hit-test regression with platform and monitor matrix and truthful target highlighting.                                                            |
+| UR08 / P2 | Old chat remains in Collaboration menu; desktop, mobile equivalents to inspect                       | Audits cover chat costs and new Teams navigation, not removal/reconciliation of the legacy entry.                                                                      | Explicit navigation cleanup and migration decision; preserve any deliberate vault-specific channel functionality.                                                         |
+| UR09 / P2 | Sidebar does not update with the current view; desktop primarily                                     | Desktop O10 covers subscriptions, not navigation correctness.                                                                                                          | Track page/tab/document-aware sidebar selection and capability refresh, including switching from Chats.                                                                   |
+| UR10 / P2 | Long Kanban columns lack a scrollbar; desktop/mobile                                                 | General list/rendering bounds do not cover column overflow.                                                                                                            | Track bounded column height, usable vertical scroll and drag auto-scroll across pointer/touch platforms.                                                                  |
+| UR11 / P2 | Mobile drawing exposes stale drawing modes; Android                                                  | Android MO20/MO47 cover rendering/input; current `.ink` already uses the shared tool model.                                                                            | Inventory exact drawing/annotation surfaces and reconcile obsolete modes with the current shared model.                                                                   |
+| UR12 / P1 | Canvas has severe performance problems; desktop, Android viewer separately                           | Desktop O52/O59/O60 and Android MO17 already cover major related costs.                                                                                                | Upgrade from a tuning opportunity to an observed regression requiring representative-scene profiling and budgets.                                                         |
+| UR13 / P1 | Canvas frequently fails to save; desktop editable canvas primarily                                   | Desktop B01 covers pending-edit loss broadly; O52 covers serialization; Android MR03 covers durability generally. No explicit canvas save-failure entry exists.        | Dedicated persistence/recovery investigation; highest-priority follow-up with UR02/03 and data-loss findings.                                                             |
+| UR14 / P2 | Formula evaluation via keyboard shortcut in math blocks fails; desktop Markdown editor provisionally | Desktop O31 concerns math solver cost, not shortcut dispatch. Direct command tests do not establish keyboard-event behavior.                                           | Reproduce with focus/caret in a math block; trace shortcut registration, precedence and event handling, then verify the result and undo behavior through the real editor. |
 
 ## Source Checks And Acceptance Targets
 
@@ -248,15 +254,39 @@ retain recoverable content and explain blocked saves. Compare serialized content
 not just a toast or tab dirty marker. Do correctness work before tuning away
 serialization or retaining more renderer state.
 
+### UR14 — Math-Block Evaluation Keyboard Shortcut
+
+Reported **2026-10-15**: evaluating a formula through the keyboard shortcut in a
+math block does not work. Keep this as a reported regression until the actual
+key combination, editor focus/state and affected platform are reproduced.
+This concerns Markdown math blocks, separately from spreadsheet runtime fixes.
+
+[mathBlockCommands](../../src/components/editor/mathBlockCommands.ts) registers
+`Mod-Enter` for evaluation and `Mod-Alt-Enter` for approximate evaluation
+(Ctrl on Windows/Linux, Cmd on macOS). Existing direct-command tests establish
+solver behavior, not successful keyboard dispatch in the running editor.
+Investigate focus/caret and math-block detection, keymap precedence, competing
+handlers and event propagation before assigning a cause.
+
+Acceptance: focus an editable math block and trigger evaluation with the
+configured shortcut; verify the expected result appears once and can be undone.
+Cover exact/approximate commands, rendered versus source-editing focus, selection
+and non-math context, and read-only behavior. Add keyboard-event integration
+coverage and reproduce on the affected desktop platform; preserve normal Enter
+handling outside math blocks. No implementation or platform sign-off yet.
+
 ## Follow-Up Order And Validation Boundary
 
 Start with UR13/UR02/UR03 and existing data-loss findings, then UR07 targeting,
 UR01 state retention and UR12/UR04 measured performance. UR05 rich previews,
 UR06 component consistency, UR08/UR09 navigation and UR10/UR11 input/overflow
-follow as scoped work with regressions covered. This ordering is triage, not a
+follow as scoped work with regressions covered. Track UR14 math-keyboard
+evaluation as an additional editor correctness fix. This ordering is triage, not a
 replacement feature plan or a claim that fixes have begun.
 
-This update checked source and audit coverage for all 13 reports, documentation
+The initial reconciliation checked source and audit coverage for 13 reports;
+the 2026-10-15 update adds UR14 without changing the original audit IDs/counts.
+Documentation checks cover
 links, finding IDs and formatting. No app code changed; existing suites were not
 rerun for this documentation-only reconciliation. Runtime reproduction on the
 affected platform remains required, particularly for coordinates, scrollbar
