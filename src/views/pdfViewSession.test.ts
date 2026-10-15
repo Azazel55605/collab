@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPdfPageRenderCacheKey,
   buildPdfViewerState,
+  flushPdfViewerStates,
+  readPdfViewerState,
+  rememberPdfViewerState,
   resolvePdfBookmarksOpen,
 } from './pdfViewSession';
 
@@ -30,4 +33,21 @@ describe('pdfViewSession helpers', () => {
       }).lastBookmarksOpen,
     ).toBe(false);
   });
+});
+
+it('keeps PDF view state across viewers with bounded identity-scoped retention', () => {
+  const state = buildPdfViewerState({
+    pageNumber: 5,
+    zoomMode: 'custom',
+    zoom: 2,
+    rotation: 90,
+    layoutMode: 'scroll',
+    bookmarksOpen: false,
+  });
+  rememberPdfViewerState('server/account/doc.pdf', state);
+  expect(readPdfViewerState('server/account/doc.pdf')).toEqual(state);
+  expect(readPdfViewerState('other/account/doc.pdf')).toBeUndefined();
+  for (let i = 0; i < 128; i++) rememberPdfViewerState(`recent-${i}`, state);
+  expect(readPdfViewerState('server/account/doc.pdf')).toBeUndefined();
+  flushPdfViewerStates();
 });

@@ -134,7 +134,7 @@ export function CardDialogChecklistComments({
                   {resolveCardTitle(item.cardRef)}
                 </span>
               ) : (
-                <input
+                <Input
                   value={item.text}
                   onChange={(e) => updateChecklistText(item.id, e.target.value)}
                   readOnly={!caps.editContent}

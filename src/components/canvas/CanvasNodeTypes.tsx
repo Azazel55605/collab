@@ -31,6 +31,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Textarea } from '../ui/textarea';
 
 import { supportsLinkedPath, supportsPlanningMetadata } from './canvasDiagramUtils';
 import { getPlanningNodeLabel } from './canvasPlanning';
@@ -590,7 +591,7 @@ function TextCardNode({
             <div className="truncate text-[11px] text-muted-foreground">Canvas note</div>
           </div>
         </div>
-        <textarea
+        <Textarea
           value={data.content ?? ''}
           placeholder="Write directly on the canvas…"
           onChange={(event) => data.onTextChange?.(id, event.target.value)}

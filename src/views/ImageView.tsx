@@ -55,6 +55,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import { Textarea } from '../components/ui/textarea';
 import { sceneToSvg } from '../lib/ink/svg';
 import { defaultToolState } from '../lib/ink/tools';
 import { interactiveCanvasDeviceScale } from '../lib/rendering';
@@ -769,7 +770,7 @@ export default function ImageView({ relativePath }: Props) {
               </div>
             )}
             {!ocrLoading && (
-              <textarea
+              <Textarea
                 readOnly
                 value={ocrError ?? (ocrText || 'No text recognized.')}
                 className={cn(

@@ -7,6 +7,7 @@ import type {
   ImagePenOverlay,
   ImageTextOverlay,
 } from '../../types/image';
+import { Textarea } from '../ui/textarea';
 
 import {
   type Dimensions,
@@ -355,13 +356,13 @@ export function ImageAdditiveStage({
                 });
               }}
             >
-              <textarea
+              <Textarea
                 ref={(node) => {
                   textInputRefs.current[item.id] = node;
                 }}
                 value={item.text}
                 placeholder="Write here"
-                className="h-full w-full resize-none rounded-md border-0 bg-transparent px-2 py-2 outline-none"
+                className="h-full min-h-0 w-full resize-none rounded-md border-0 bg-transparent px-2 py-2 shadow-none outline-none focus-visible:ring-0 dark:bg-transparent"
                 style={{
                   color: item.color,
                   fontSize: `${item.fontSize}px`,

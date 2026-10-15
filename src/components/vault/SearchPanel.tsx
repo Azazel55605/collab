@@ -22,13 +22,19 @@ export default function SearchPanel() {
       setResults([]);
       return;
     }
+    let cancelled = false;
     const t = setTimeout(async () => {
       try {
         const r = await createVaultClient(vault).search(query);
-        setResults(r);
-      } catch {}
+        if (!cancelled) setResults(r);
+      } catch {
+        if (!cancelled) setResults([]);
+      }
     }, 300);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [query, vault?.path]);
 
   return (

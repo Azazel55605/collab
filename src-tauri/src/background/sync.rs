@@ -366,6 +366,7 @@ async fn sync_replica(
         fetch_manifest(session, &vault.id).await?
     };
 
+    ensure_no_new_pending(store)?;
     store
         .write_manifest(&manifest)
         .map_err(JobExecutionError::persistence)?;
@@ -386,6 +387,7 @@ async fn sync_replica(
             .cleanup(REPLICA_CACHE_BUDGET_BYTES)
             .map_err(JobExecutionError::persistence)?;
     }
+    ensure_no_new_pending(store)?;
     store
         .write_sync_state(&ReplicaSyncState {
             manifest_sequence: manifest.sequence,
@@ -602,6 +604,25 @@ async fn replay_operation(
     Ok(())
 }
 
+/// Edits may arrive while a network request is awaited. Defer publication and
+/// replay them on retry instead of overwriting the new local draft/manifest.
+fn ensure_no_new_pending(store: &ReplicaStore) -> Result<(), JobExecutionError> {
+    if store
+        .count_pending_operations()
+        .map_err(JobExecutionError::persistence)?
+        .total
+        > 0
+    {
+        return Err(JobExecutionError {
+            status: BackgroundJobStatus::Deferred,
+            category: "local_edits",
+            message: "Local edits arrived during synchronization; retrying after replay.".into(),
+            retryable: true,
+        });
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn cache_changed_files(
     coordinator: &BackgroundCoordinator,
@@ -652,6 +673,7 @@ async fn cache_changed_files(
             let path = format!("/api/v1/vaults/{}/files/{}", vault.id, file.id);
             let document: HostedTextDocument =
                 request_json(session, Method::GET, &path, None).await?;
+            ensure_no_new_pending(store)?;
             store
                 .cache_document(&file.id, &document.content)
                 .map_err(JobExecutionError::persistence)?;
@@ -666,6 +688,7 @@ async fn cache_changed_files(
             }
             let path = format!("/api/v1/vaults/{}/files/{}/content", vault.id, file.id);
             let bytes = request_bytes(session, &path, MAX_BACKGROUND_ASSET_BYTES).await?;
+            ensure_no_new_pending(store)?;
             store
                 .cache_asset(&file.id, &bytes)
                 .map_err(JobExecutionError::persistence)?;
@@ -921,4 +944,48 @@ pub(super) fn ensure_running(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pending_publication_tests {
+    use super::*;
+
+    #[test]
+    fn new_offline_edit_defers_publication_until_it_has_been_replayed() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ReplicaStore::open_or_create(
+            root.path(),
+            "https://server.test",
+            "vault",
+            "Vault",
+            None,
+            &[],
+        )
+        .unwrap();
+        store.cache_document("file", "offline draft").unwrap();
+        assert!(ensure_no_new_pending(&store).is_ok());
+        store
+            .enqueue_operation(&PendingOperation {
+                id: "edit".into(),
+                kind: PendingOpKind::Edit,
+                file_id: Some("file".into()),
+                relative_path: Some("Note.md".into()),
+                payload: json!({ "content": "offline draft" }),
+                base_manifest_sequence: 1,
+                created_at: "now".into(),
+                status: PendingOpStatus::Pending,
+                failure_code: None,
+                failure_message: None,
+            })
+            .unwrap();
+        let error = ensure_no_new_pending(&store).err().unwrap();
+        assert_eq!(error.status, BackgroundJobStatus::Deferred);
+        assert!(error.retryable);
+        assert_eq!(
+            store.read_cached_document("file").unwrap().as_deref(),
+            Some("offline draft")
+        );
+        store.remove_operation("edit").unwrap();
+        assert!(ensure_no_new_pending(&store).is_ok());
+    }
 }

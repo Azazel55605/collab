@@ -391,6 +391,7 @@ pub fn run() {
             commands::sheet_convert::sheet_convert_export,
             // ui
             commands::ui::set_ui_zoom,
+            commands::ui::native_drop_viewport,
             commands::ui::host_os,
             commands::ui::is_appimage,
             commands::ui::is_flatpak,

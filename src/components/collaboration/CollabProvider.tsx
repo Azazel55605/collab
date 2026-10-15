@@ -1,10 +1,10 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 
 import { useCollabIdentity } from '../../lib/collabIdentity';
 import { type CollabTransport, createCollabTransport } from '../../lib/collabTransport';
+import { listenSafely } from '../../lib/nativeSubscription';
 import { getAppVersion } from '../../lib/tauri';
 import { tauriCommands } from '../../lib/tauri';
 import { useCollabStore } from '../../store/collabStore';
@@ -46,23 +46,17 @@ export function CollabProvider({ children }: { children: ReactNode }) {
   transportRef.current = transport;
 
   useEffect(() => {
-    let unlistenHidden: (() => void) | undefined;
-    let unlistenShown: (() => void) | undefined;
-    listen('background:window-hidden', () => {
+    const unlistenHidden = listenSafely('background:window-hidden', () => {
       windowVisibleRef.current = false;
       setWindowVisible(false);
       setPeers([]);
       if (transportRef.current) {
         void transportRef.current.clearPresence(identity.userId).catch(() => {});
       }
-    }).then((unlisten) => {
-      unlistenHidden = unlisten;
     });
-    listen('background:window-shown', () => {
+    const unlistenShown = listenSafely('background:window-shown', () => {
       windowVisibleRef.current = true;
       setWindowVisible(true);
-    }).then((unlisten) => {
-      unlistenShown = unlisten;
     });
     return () => {
       unlistenHidden?.();
@@ -166,12 +160,9 @@ export function CollabProvider({ children }: { children: ReactNode }) {
       } catch {}
     });
 
-    let unsubChatMessage: (() => void) | undefined;
-    listen<ChatMessage>('collab:chat-message', ({ payload }) => {
+    const unsubChatMessage = listenSafely<ChatMessage>('collab:chat-message', ({ payload }) => {
       if (!payload) return;
       handleIncomingMessages([payload], 'append');
-    }).then((u) => {
-      unsubChatMessage = u;
     });
 
     return () => {

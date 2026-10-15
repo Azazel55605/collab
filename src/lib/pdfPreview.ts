@@ -2,6 +2,7 @@ import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
 import { useServerStore } from '../store/serverStore';
 
+import { pdfPreviewQueue } from './previewQueue';
 import { tauriCommands } from './tauri';
 import { HostedVaultClient, LocalVaultClient, type VaultClient } from './vaultClient';
 
@@ -14,7 +15,7 @@ const MAX_CACHED_PDF_BYTES = 16 * 1024 * 1024;
 let cachedPdfBytes = 0;
 
 function forgetPreview(key: string) {
-  if (previewCache.delete(key)) cachedPdfBytes -= key.length;
+  if (previewCache.delete(key)) cachedPdfBytes -= key.length * 2;
 }
 const inFlightVaultPreviewLoads = new Map<string, Promise<string>>();
 
@@ -36,7 +37,11 @@ export async function renderPdfPreviewFromDataUrl(dataUrl: string) {
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(1);
       const baseViewport = page.getViewport({ scale: 1 });
-      const scale = Math.min(1.4, 260 / Math.max(1, baseViewport.width));
+      const scale = Math.min(
+        1.4,
+        260 / Math.max(1, baseViewport.width),
+        320 / Math.max(1, baseViewport.height),
+      );
       const viewport = page.getViewport({ scale });
       const canvas = window.document.createElement('canvas');
       const context = canvas.getContext('2d');
@@ -56,12 +61,15 @@ export async function renderPdfPreviewFromDataUrl(dataUrl: string) {
     }
   })();
 
-  while (cachedPdfBytes + key.length > MAX_CACHED_PDF_BYTES && previewCache.size > 0) {
+  while (
+    (cachedPdfBytes + key.length * 2 > MAX_CACHED_PDF_BYTES || previewCache.size >= 32) &&
+    previewCache.size > 0
+  ) {
     forgetPreview(previewCache.keys().next().value!);
   }
-  if (key.length <= MAX_CACHED_PDF_BYTES) {
+  if (key.length * 2 <= MAX_CACHED_PDF_BYTES) {
     previewCache.set(key, promise);
-    cachedPdfBytes += key.length;
+    cachedPdfBytes += key.length * 2;
     void promise.catch(() => {
       if (previewCache.get(key) === promise) forgetPreview(key);
     });
@@ -93,10 +101,24 @@ export async function loadPdfPreviewDataUrl(
   }
 
   const sourceDataUrl = await client.readAssetDataUrl(relativePath);
+  let expectedHash: string | undefined;
+  if (cacheVaultPath) {
+    const binary = atob(sourceDataUrl.split(',', 2)[1]);
+    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    expectedHash = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+  }
   const renderedPreview = await deps.renderPdfPreviewFromDataUrl(sourceDataUrl);
   if (cacheVaultPath) {
     void deps
-      .writeCachedDocumentPreviewDataUrl(cacheVaultPath, relativePath, renderedPreview)
+      .writeCachedDocumentPreviewDataUrl(
+        cacheVaultPath,
+        relativePath,
+        renderedPreview,
+        expectedHash,
+      )
       .catch(() => {});
   }
   return renderedPreview;
@@ -111,9 +133,11 @@ export async function getPdfPreviewDataUrl(client: VaultClient, relativePath: st
   const existing = inFlightVaultPreviewLoads.get(key);
   if (existing) return existing;
 
-  const promise = loadPdfPreviewDataUrl(client, relativePath).finally(() => {
-    inFlightVaultPreviewLoads.delete(key);
-  });
+  const promise = pdfPreviewQueue
+    .run(() => loadPdfPreviewDataUrl(client, relativePath))
+    .finally(() => {
+      inFlightVaultPreviewLoads.delete(key);
+    });
 
   inFlightVaultPreviewLoads.set(key, promise);
   return promise;

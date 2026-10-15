@@ -20,6 +20,7 @@ import type {
   CircuitSweepResult,
   CircuitTransientResult,
 } from '../../types/circuitRuntime';
+import { Checkbox } from '../ui/checkbox';
 
 import './CircuitSweepPlot.css';
 
@@ -208,12 +209,11 @@ function CircuitSeriesPlot({
           const key = circuitSweepOutputKey(trace.output);
           return (
             <label key={key}>
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={visible.has(key)}
-                onChange={(event) =>
+                onCheckedChange={(checked) =>
                   setVisibleKeys((current) =>
-                    event.target.checked
+                    checked === true
                       ? [...current, key]
                       : current.filter((candidate) => candidate !== key),
                   )

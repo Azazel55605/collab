@@ -6,6 +6,7 @@ import type { ChartData } from '../../lib/deck/sheetSnapshot';
 import { DECK_LIMITS } from '../../types/deck';
 import type { DeckChartElement, DeckChartKind } from '../../types/deck';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -178,11 +179,10 @@ export function DeckChartDialog({
             onChange={(event) => setTitle(event.target.value)}
           />
           <label className="flex items-center gap-1.5 text-xs">
-            <input
-              type="checkbox"
+            <Checkbox
               className="accent-primary"
               checked={showLegend}
-              onChange={(event) => setShowLegend(event.target.checked)}
+              onCheckedChange={(checked) => setShowLegend(checked === true)}
             />
             Legend
           </label>

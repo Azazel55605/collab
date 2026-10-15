@@ -384,6 +384,92 @@ pub fn revision_decision<T: Eq>(expected: Option<&T>, current: Option<&T>) -> Re
     }
 }
 
+/// Structured documents compare JSON values, not indentation or object-key order.
+/// Text documents retain exact byte semantics. Invalid JSON is never equivalent
+/// to a different byte sequence.
+pub fn content_matches(kind: LiveDocumentKind, left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    if !kind.is_structured() {
+        return false;
+    }
+    match (
+        serde_json::from_str::<serde_json::Value>(left),
+        serde_json::from_str::<serde_json::Value>(right),
+    ) {
+        (Ok(left), Ok(right)) => json_values_match(&left, &right),
+        _ => false,
+    }
+}
+
+fn json_values_match(left: &serde_json::Value, right: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => {
+            if left == right {
+                return true;
+            }
+            // Yrs serializes JavaScript numbers as f64 (1.0), while REST JSON
+            // commonly uses integers (1). Compare mixed forms exactly without
+            // rounding distinct large integers through f64.
+            let (float, integer) = if left.is_f64() && !right.is_f64() {
+                (left, right)
+            } else if right.is_f64() && !left.is_f64() {
+                (right, left)
+            } else {
+                return false;
+            };
+            let integer = integer
+                .as_i64()
+                .map(i128::from)
+                .or_else(|| integer.as_u64().map(i128::from));
+            match (float.as_f64(), integer) {
+                (Some(float), Some(integer)) => {
+                    float.is_finite() && float.fract() == 0.0 && float as i128 == integer
+                }
+                _ => false,
+            }
+        }
+        (Value::Array(left), Value::Array(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| json_values_match(left, right))
+        }
+        (Value::Object(left), Value::Object(right)) => {
+            left.len() == right.len()
+                && left.iter().all(|(key, value)| {
+                    right
+                        .get(key)
+                        .is_some_and(|other| json_values_match(value, other))
+                })
+        }
+        _ => left == right,
+    }
+}
+
+/// Reconcile a REST write against the room's current materialized content.
+pub fn merge_external_content(
+    kind: LiveDocumentKind,
+    base: &str,
+    incoming: &str,
+    live: &str,
+) -> Option<String> {
+    if content_matches(kind, live, base) || content_matches(kind, live, incoming) {
+        return Some(incoming.to_owned());
+    }
+    if content_matches(kind, incoming, base) {
+        return Some(live.to_owned());
+    }
+    match kind {
+        LiveDocumentKind::NoteText => try_auto_merge_text(base, incoming, live),
+        LiveDocumentKind::None => Some(incoming.to_owned()),
+        _ => None,
+    }
+}
+
 pub fn try_auto_merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
     if ours == theirs {
         return Some(ours.to_string());
@@ -559,6 +645,64 @@ fn compute_line_edit_hunks(base: &str, modified: &str) -> Vec<TextEditHunk> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn structured_numeric_forms_match_without_rounding_real_changes() {
+        use super::{content_matches, LiveDocumentKind::Canvas};
+        assert!(content_matches(
+            Canvas,
+            r#"{"zoom":1,"position":[0,-2]}"#,
+            r#"{"position":[0.0,-2.0],"zoom":1.0}"#
+        ));
+        assert!(!content_matches(
+            Canvas,
+            "9007199254740993",
+            "9007199254740992.0"
+        ));
+        assert!(!content_matches(
+            Canvas,
+            "9007199254740993",
+            "9007199254740992"
+        ));
+        assert!(!content_matches(Canvas, "[1,2]", "[2,1]"));
+    }
+
+    #[test]
+    fn rest_canvas_edits_do_not_conflict_with_an_unchanged_live_json_document() {
+        let base = "{\n  \"nodes\": [],\n  \"viewport\": {\"zoom\": 1, \"x\": 0, \"y\": 0}\n}";
+        let live = r#"{"viewport":{"y":0,"x":0,"zoom":1},"nodes":[]}"#;
+        let edited = r#"{"nodes":[{"id":"new"}],"viewport":{"zoom":1,"x":0,"y":0}}"#;
+        assert_ne!(base, live);
+        assert!(super::content_matches(
+            super::LiveDocumentKind::Canvas,
+            base,
+            live
+        ));
+        for _ in 0..3 {
+            assert_eq!(
+                super::merge_external_content(super::LiveDocumentKind::Canvas, base, edited, live)
+                    .as_deref(),
+                Some(edited)
+            );
+        }
+        assert!(super::merge_external_content(
+            super::LiveDocumentKind::Canvas,
+            base,
+            edited,
+            r#"{"nodes":[{"id":"remote"}]}"#
+        )
+        .is_none());
+        assert!(!super::content_matches(
+            super::LiveDocumentKind::NoteText,
+            base,
+            live
+        ));
+        assert!(!super::content_matches(
+            super::LiveDocumentKind::Canvas,
+            "{invalid",
+            "{invalid "
+        ));
+    }
+
     use super::*;
 
     fn text_state(content: &str) -> Vec<u8> {

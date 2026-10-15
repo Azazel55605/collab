@@ -1,8 +1,7 @@
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-
 import type { ChatMessage, PresenceEntry } from '../types/collab';
 import type { HostedVaultMeta, VaultConfig, VaultMeta } from '../types/vault';
 
+import { listenSafely } from './nativeSubscription';
 import { tauriCommands } from './tauri';
 
 export type Unsubscribe = () => void;
@@ -56,27 +55,15 @@ export class FileSystemTransport implements CollabTransport {
   }
 
   onPresenceChanged(cb: () => void): Unsubscribe {
-    let unsub: UnlistenFn | undefined;
-    listen('collab:presence-changed', cb).then((u) => {
-      unsub = u;
-    });
-    return () => unsub?.();
+    return listenSafely('collab:presence-changed', cb);
   }
 
   onChatUpdated(cb: () => void): Unsubscribe {
-    let unsub: UnlistenFn | undefined;
-    listen('collab:chat-updated', cb).then((u) => {
-      unsub = u;
-    });
-    return () => unsub?.();
+    return listenSafely('collab:chat-updated', cb);
   }
 
   onConfigChanged(cb: () => void): Unsubscribe {
-    let unsub: UnlistenFn | undefined;
-    listen('collab:config-changed', cb).then((u) => {
-      unsub = u;
-    });
-    return () => unsub?.();
+    return listenSafely('collab:config-changed', cb);
   }
 }
 

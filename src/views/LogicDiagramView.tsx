@@ -1469,11 +1469,11 @@ function LogicDiagramEditor({ relativePath }: Props) {
         baseContent,
       );
       if (result.conflict) {
-        // ConflictInfo carries the other side's content but no version token;
-        // read the current server version so keep-mine/load-latest can rebase.
-        let theirVersion: string | null = null;
+        // Hosted conflicts carry the revision for these exact remote bytes.
+        let theirVersion: string | null = result.conflict.theirVersion ?? null;
         try {
-          theirVersion = (await client.readDocument(relativePath)).version;
+          if (theirVersion === null)
+            theirVersion = (await client.readDocument(relativePath)).version;
         } catch {
           // Best-effort; a null version makes the next save force-overwrite.
         }

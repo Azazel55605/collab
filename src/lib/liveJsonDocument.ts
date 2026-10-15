@@ -36,7 +36,7 @@ export interface LiveJsonSession extends LiveDocumentHandle {
   /** Current document value read from the live structure. */
   readJson(): JsonObject;
   /** Reconcile a new document value into the live structure (a local edit). */
-  writeJson(value: JsonObject): void;
+  writeJson(value: JsonObject, base?: JsonObject): void;
   /** Subscribe to remote changes (not the caller's own writes). */
   onChange(cb: (value: JsonObject) => void): () => void;
 }
@@ -57,6 +57,55 @@ export interface UseLiveJsonDocumentSessionOptions<TDocument> {
 
 function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Apply only changes authored since base, preserving concurrent edits to other fields/items. */
+export function mergeLiveJsonEdits(
+  base: JsonValue | undefined,
+  local: JsonValue,
+  remote: JsonValue,
+): JsonValue {
+  if (stableEqual(base, local)) return remote;
+  if (isPlainObject(local) && isPlainObject(remote)) {
+    const previous = isPlainObject(base) ? base : {};
+    const result: JsonObject = { ...remote };
+    for (const key of Object.keys(previous)) if (!(key in local)) delete result[key];
+    for (const [key, value] of Object.entries(local)) {
+      // Do not resurrect an item/field removed remotely unless locally changed.
+      if (!(key in remote) && stableEqual(previous[key], value)) continue;
+      result[key] = key in remote ? mergeLiveJsonEdits(previous[key], value, remote[key]) : value;
+    }
+    return result;
+  }
+  if (
+    Array.isArray(base) &&
+    Array.isArray(local) &&
+    Array.isArray(remote) &&
+    [...base, ...local, ...remote].every(
+      (item) => isPlainObject(item) && typeof item.id === 'string',
+    )
+  ) {
+    const id = (item: JsonValue) => (item as JsonObject).id as string;
+    const previous = new Map(base.map((item) => [id(item), item]));
+    const mine = new Map(local.map((item) => [id(item), item]));
+    const theirs = new Map(remote.map((item) => [id(item), item]));
+    const localReordered = !stableEqual(
+      base.map(id).filter((key) => mine.has(key)),
+      local.map(id).filter((key) => previous.has(key)),
+    );
+    const order = localReordered
+      ? [...local.map(id), ...remote.map(id)]
+      : [...remote.map(id), ...local.map(id)];
+    return [...new Set(order)].flatMap((key) => {
+      if (!mine.has(key)) return previous.has(key) ? [] : [theirs.get(key)!];
+      if (!theirs.has(key))
+        return previous.has(key) && stableEqual(previous.get(key), mine.get(key))
+          ? []
+          : [mine.get(key)!];
+      return [mergeLiveJsonEdits(previous.get(key), mine.get(key)!, theirs.get(key)!)];
+    });
+  }
+  return local;
 }
 
 /** Converts a JSON value into a Yjs value (nested shared types for containers). */
@@ -214,8 +263,9 @@ export async function openLiveJsonSession(
   return {
     ...provider.handle(),
     readJson: () => yToJson(root) as JsonObject,
-    writeJson: (value: JsonObject) => {
-      doc.transact(() => reconcileMap(root, value), LOCAL_ORIGIN);
+    writeJson: (value: JsonObject, base?: JsonObject) => {
+      const next = base ? (mergeLiveJsonEdits(base, value, yToJson(root)) as JsonObject) : value;
+      doc.transact(() => reconcileMap(root, next), LOCAL_ORIGIN);
     },
     onChange: (cb) => {
       const observer = (_events: unknown, transaction: Y.Transaction) => {

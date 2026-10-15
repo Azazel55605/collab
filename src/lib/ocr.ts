@@ -30,13 +30,45 @@ export interface RecognizeImageTextOptions {
 
 const OCR_CACHE_PATH = 'collab-ocr/official-fast';
 const OCR_WORKER_IDLE_MS = 3 * 60 * 1000;
+const MAX_OCR_JOBS = 8;
+let jobTail: Promise<void> = Promise.resolve();
+let pendingJobs = 0;
 
 let activeWorker: {
   language: string;
   worker: Tesseract.Worker;
   idleTimer: number | null;
+  progress: { current: OcrProgress | undefined };
 } | null = null;
-let activeProgress: OcrProgress | undefined;
+
+function clearWorkerIdleTimer() {
+  if (activeWorker?.idleTimer != null) {
+    window.clearTimeout(activeWorker.idleTimer);
+    activeWorker.idleTimer = null;
+  }
+}
+
+function runOcrJob<T>(work: () => Promise<T>): Promise<T> {
+  if (pendingJobs >= MAX_OCR_JOBS) {
+    return Promise.reject(
+      new Error('OCR is busy. Wait for a current request to finish and try again.'),
+    );
+  }
+  pendingJobs++;
+  clearWorkerIdleTimer();
+  const result = jobTail.then(work);
+  // Failed requests cannot poison the queue or bypass cleanup for the next caller.
+  jobTail = result
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .finally(() => {
+      pendingJobs--;
+      if (pendingJobs === 0) scheduleWorkerIdleShutdown();
+    });
+  return result;
+}
 
 function isNativeOcrSupportedBase64ImageDataUrl(value: string): boolean {
   return /^data:image\/(?:png|jpe?g|webp);base64,/i.test(value);
@@ -182,6 +214,7 @@ async function seedInstalledLanguagePacks(language: string): Promise<void> {
 async function terminateActiveWorker(): Promise<void> {
   if (!activeWorker) return;
   const { worker, idleTimer } = activeWorker;
+  activeWorker.progress.current = undefined;
   activeWorker = null;
   if (idleTimer != null) window.clearTimeout(idleTimer);
   await worker.terminate().catch(() => undefined);
@@ -189,40 +222,47 @@ async function terminateActiveWorker(): Promise<void> {
 
 function scheduleWorkerIdleShutdown() {
   if (!activeWorker) return;
-  if (activeWorker.idleTimer != null) window.clearTimeout(activeWorker.idleTimer);
-  activeWorker.idleTimer = window.setTimeout(() => {
-    void terminateActiveWorker();
+  clearWorkerIdleTimer();
+  const owner = activeWorker;
+  owner.idleTimer = window.setTimeout(() => {
+    if (activeWorker !== owner || pendingJobs !== 0) return;
+    // A later request must wait for idle termination before creating/reusing a worker.
+    jobTail = jobTail.then(terminateActiveWorker).catch(() => undefined);
   }, OCR_WORKER_IDLE_MS);
 }
 
-async function getWorker(language: string): Promise<Tesseract.Worker> {
+async function getWorker(language: string, onProgress?: OcrProgress): Promise<Tesseract.Worker> {
   if (activeWorker?.language === language) {
-    if (activeWorker.idleTimer != null) {
-      window.clearTimeout(activeWorker.idleTimer);
-      activeWorker.idleTimer = null;
-    }
+    clearWorkerIdleTimer();
+    activeWorker.progress.current = onProgress;
     return activeWorker.worker;
   }
 
   await terminateActiveWorker();
   await seedInstalledLanguagePacks(language);
 
+  const progress = { current: onProgress };
   const { createWorker } = await import('tesseract.js');
-  const worker = await createWorker(language, 1, {
-    workerPath: assetUrl('worker.min.js'),
-    corePath: assetUrl('tesseract-core-lstm.wasm.js'),
-    langPath: assetUrl(''),
-    cachePath: OCR_CACHE_PATH,
-    gzip: true,
-    workerBlobURL: false,
-    logger: (message) => {
-      if (typeof message.progress === 'number') {
-        activeProgress?.(message.progress, message.status ?? 'Recognizing text');
-      }
-    },
-  });
-  activeWorker = { language, worker, idleTimer: null };
-  return worker;
+  try {
+    const worker = await createWorker(language, 1, {
+      workerPath: assetUrl('worker.min.js'),
+      corePath: assetUrl('tesseract-core-lstm.wasm.js'),
+      langPath: assetUrl(''),
+      cachePath: OCR_CACHE_PATH,
+      gzip: true,
+      workerBlobURL: false,
+      logger: (message) => {
+        if (typeof message.progress === 'number') {
+          progress.current?.(message.progress, message.status ?? 'Recognizing text');
+        }
+      },
+    });
+    activeWorker = { language, worker, idleTimer: null, progress };
+    return worker;
+  } catch (error) {
+    progress.current = undefined;
+    throw error;
+  }
 }
 
 function wordsFromBlocks(blocks: Tesseract.Block[] | null | undefined): OcrWordBox[] {
@@ -277,8 +317,7 @@ async function recognizeWithWasm(
   language: string,
   onProgress?: OcrProgress,
 ): Promise<OcrResult> {
-  activeProgress = onProgress;
-  const worker = await getWorker(language);
+  const worker = await getWorker(language, onProgress);
   try {
     const result = await worker.recognize(image, {}, { text: true, blocks: true, tsv: true });
     const blockWords = wordsFromBlocks(result.data.blocks);
@@ -292,8 +331,7 @@ async function recognizeWithWasm(
       sourceHeight: size.height,
     };
   } finally {
-    activeProgress = undefined;
-    scheduleWorkerIdleShutdown();
+    if (activeWorker?.worker === worker) activeWorker.progress.current = undefined;
   }
 }
 
@@ -333,22 +371,19 @@ export async function recognizeImageText(
         resultMode: 'ocr',
       }
     : null;
-  if (cacheScope && !options.force) {
-    const cached = await readOcrCache(cacheScope);
-    if (cached) {
-      onProgress?.(1, 'Loaded cached OCR');
-      return {
-        text: cached.text,
-        confidence: cached.confidence,
-        words: cached.words,
-        sourceWidth: cached.sourceWidth,
-        sourceHeight: cached.sourceHeight,
-        cached: true,
-      };
-    }
-  }
-
-  try {
+  const cachedResult = async (): Promise<OcrResult | null> => {
+    if (!cacheScope || options.force) return null;
+    const cached = await readOcrCache(cacheScope).catch(() => null);
+    if (!cached) return null;
+    onProgress?.(1, 'Loaded cached OCR');
+    return { ...cached, cached: true };
+  };
+  // Completed cache hits do not wait behind expensive recognition jobs.
+  const cached = await cachedResult();
+  if (cached) return cached;
+  return runOcrJob(async () => {
+    const refreshed = await cachedResult();
+    if (refreshed) return refreshed;
     onProgress?.(
       0,
       ocrPreprocessingMode === 'none'
@@ -356,16 +391,18 @@ export async function recognizeImageText(
         : `Applying ${ocrPreprocessingMode} preprocessing`,
     );
     const preparedImage = await preprocessImage(image, ocrPreprocessingMode);
-    const result = await recognizeWithWasm(preparedImage, language, onProgress);
+    let result: OcrResult;
+    try {
+      result = await recognizeWithWasm(preparedImage, language, onProgress);
+    } catch (error) {
+      console.warn('[ocr] bundled WASM OCR failed, falling back to native tesseract', error);
+      // A failed recognition may leave this worker unusable; never reuse it for the next job.
+      await terminateActiveWorker();
+      result = await recognizeWithNativeFallback(preparedImage, language, onProgress);
+    }
     if (cacheScope) await writeOcrCache(cacheScope, result, 'ocr').catch(() => undefined);
     return result;
-  } catch (error) {
-    console.warn('[ocr] bundled WASM OCR failed, falling back to native tesseract', error);
-    const preparedImage = await preprocessImage(image, ocrPreprocessingMode);
-    const result = await recognizeWithNativeFallback(preparedImage, language, onProgress);
-    if (cacheScope) await writeOcrCache(cacheScope, result, 'ocr').catch(() => undefined);
-    return result;
-  }
+  });
 }
 
 export async function copyTextToClipboard(text: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import MarkdownIt from 'markdown-it';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { encodeInkExportMetadata, makeInkExportSource } from '../../lib/ink/export';
@@ -35,6 +36,17 @@ describe('MarkdownPreview', () => {
     Reflect.deleteProperty(globalThis, 'mermaid');
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it('renders content-derived render errors as literal text without injected elements', () => {
+    const message = '<img src=x onerror="window.injected=true"><script>bad()</script>';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(MarkdownIt.prototype, 'render').mockImplementationOnce(() => {
+      throw new Error(message);
+    });
+    const { container } = render(<MarkdownPreview content="broken fixture" />);
+    expect(container.querySelector('pre')?.textContent).toContain(message);
+    expect(container.querySelector('img, script, [onerror]')).toBeNull();
   });
 
   it('renders display math plot directives as preview widgets', async () => {

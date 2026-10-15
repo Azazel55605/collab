@@ -12,6 +12,7 @@ import { getCardAttachmentPaths, type KanbanCard } from '../../types/kanban';
 import type { NoteFile } from '../../types/vault';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { Dialog, DialogContent } from '../ui/dialog';
+import { Textarea } from '../ui/textarea';
 
 import { CardDialogChecklistComments } from './CardDialogChecklistComments';
 import { CardDialogMoveTagsPrompt } from './CardDialogMoveTagsPrompt';
@@ -271,7 +272,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
             )}
           </button>
 
-          <textarea
+          <Textarea
             ref={titleRef}
             value={draft.title}
             onChange={(e) => patchDraft({ title: e.target.value })}
@@ -292,7 +293,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
             {/* Description */}
             <section>
               <label className="section-label">Description</label>
-              <textarea
+              <Textarea
                 value={draft.description ?? ''}
                 onChange={(e) => patchDraft({ description: e.target.value || undefined })}
                 readOnly={!caps.editContent}

@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { openUrl } from '@tauri-apps/plugin-opener';
 import type { Node as FlowNode } from '@xyflow/react';
 
 import { getDocumentPreviewDataUrl, supportsDocumentPreview } from '../../lib/documentPreview';
+import { listenSafely } from '../../lib/nativeSubscription';
+import { getPdfPreviewDataUrl } from '../../lib/pdfPreview';
+import { canvasPreviewQueue } from '../../lib/previewQueue';
+import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
+import { onReplicaMutated } from '../../lib/vaultReplica';
 import {
   prefetchWebPreviews,
   requestWebPreview as requestCachedWebPreview,
 } from '../../lib/webPreviewCache';
 import type { CanvasWebCardDefaultMode } from '../../store/uiStore';
-import type { CanvasNode, CanvasWebDisplayMode, WebCanvasNode } from '../../types/canvas';
+import type { CanvasNode, CanvasWebDisplayMode } from '../../types/canvas';
 import type { VaultMeta } from '../../types/vault';
 
 import type { CanvasNodeData } from './CanvasNodeTypes';
@@ -32,13 +36,14 @@ interface UseCanvasPreviewsOptions {
   setNodes: React.Dispatch<React.SetStateAction<FlowNode<CanvasNodeData>[]>>;
   isMountedRef: React.RefObject<boolean>;
   fromFlowNode: (node: FlowNode<CanvasNodeData>) => CanvasNode;
-  renderPdfPreview: (dataUrl: string) => Promise<string>;
+  renderPdfPreview?: (dataUrl: string) => Promise<string>;
   openRelativePath: (path: string) => void;
   canvasWebCardDefaultMode: CanvasWebCardDefaultMode;
   canvasWebCardAutoLoad: boolean;
   webPreviewsEnabled: boolean;
   hoverWebLinkPreviewsEnabled: boolean;
   backgroundWebPreviewPrefetchEnabled: boolean;
+  isVisible?: (node: FlowNode<CanvasNodeData>) => boolean;
 }
 
 export function useCanvasPreviews({
@@ -47,14 +52,15 @@ export function useCanvasPreviews({
   setNodes,
   isMountedRef,
   fromFlowNode,
-  renderPdfPreview,
   openRelativePath,
   canvasWebCardDefaultMode,
   canvasWebCardAutoLoad,
   webPreviewsEnabled,
   hoverWebLinkPreviewsEnabled,
   backgroundWebPreviewPrefetchEnabled,
+  isVisible,
 }: UseCanvasPreviewsOptions) {
+  const generationRef = useRef(0);
   const loadingPreviewPathsRef = useRef(new Set<string>());
   const [previews, setPreviews] = useState<Record<string, PreviewState>>({});
   const [requestedWebPreviewIds, setRequestedWebPreviewIds] = useState<Record<string, boolean>>({});
@@ -121,7 +127,7 @@ export function useCanvasPreviews({
   const openExternalUrl = useCallback((url: string) => {
     const normalized = normalizeWebUrl(url);
     if (!normalized) return;
-    void openUrl(normalized);
+    void tauriCommands.openExternalUrl(normalized);
   }, []);
 
   const hydratePreview = useCallback(
@@ -130,7 +136,10 @@ export function useCanvasPreviews({
       const previewKey = getPreviewKey(node);
       if (loadingPreviewPathsRef.current.has(previewKey)) return;
 
-      loadingPreviewPathsRef.current.add(previewKey);
+      const generation = generationRef.current;
+      const loading = loadingPreviewPathsRef.current;
+      const current = () => isMountedRef.current && generationRef.current === generation;
+      loading.add(previewKey);
       setPreviews((prev) => ({
         ...prev,
         [previewKey]: { ...(prev[previewKey] ?? {}), loading: true },
@@ -159,42 +168,47 @@ export function useCanvasPreviews({
       }
 
       try {
-        let nextPreview: PreviewState = {};
+        const nextPreview = await canvasPreviewQueue.run(async () => {
+          let nextPreview: PreviewState = {};
 
-        if (node.type === 'web') {
-          const normalizedUrl = normalizeWebUrl(node.url);
-          if (!normalizedUrl) {
-            nextPreview = { previewError: null };
-          } else {
-            const linkPreview = await requestCachedWebPreview(normalizedUrl);
-            nextPreview = {
-              linkPreview,
-              imageSrc: linkPreview.imageUrl ?? null,
-              faviconSrc: linkPreview.faviconUrl ?? null,
-            };
+          if (node.type === 'web') {
+            const normalizedUrl = normalizeWebUrl(node.url);
+            if (!normalizedUrl) {
+              nextPreview = { previewError: null };
+            } else {
+              const linkPreview = await requestCachedWebPreview(normalizedUrl);
+              nextPreview = {
+                linkPreview,
+                imageSrc: linkPreview.imageUrl ?? null,
+                faviconSrc: linkPreview.faviconUrl ?? null,
+              };
+            }
+          } else if ('relativePath' in node && vault) {
+            const client = createVaultClient(vault);
+            const path = node.relativePath;
+            const extension = path.split('.').pop()?.toLowerCase() ?? '';
+            if (node.type === 'file' && isImageExtension(extension)) {
+              nextPreview = { imageSrc: await client.readAssetDataUrl(path) };
+            } else if (node.type === 'file' && extension === 'pdf') {
+              nextPreview = { imageSrc: await getPdfPreviewDataUrl(client, path) };
+            } else if (node.type === 'note') {
+              const { content } = await client.readDocument(path);
+              nextPreview = {
+                excerpt: cleanPreviewText(content),
+                markdownContent: content.slice(0, 32_000),
+              };
+            } else if (supportsDocumentPreview(path)) {
+              nextPreview = { imageSrc: await getDocumentPreviewDataUrl(client, path) };
+            } else if (canPreviewText(extension)) {
+              const { content } = await client.readDocument(path);
+              nextPreview = { excerpt: cleanPreviewText(content) };
+            }
           }
-        } else if ('relativePath' in node && vault) {
-          const client = createVaultClient(vault);
-          const path = node.relativePath;
-          const extension = path.split('.').pop()?.toLowerCase() ?? '';
-          if (node.type === 'file' && isImageExtension(extension)) {
-            nextPreview = { imageSrc: await client.readAssetDataUrl(path) };
-          } else if (node.type === 'file' && extension === 'pdf') {
-            const pdfDataUrl = await client.readAssetDataUrl(path);
-            nextPreview = { imageSrc: await renderPdfPreview(pdfDataUrl) };
-          } else if (node.type === 'note') {
-            const { content } = await client.readDocument(path);
-            nextPreview = { excerpt: cleanPreviewText(content), markdownContent: content };
-          } else if (supportsDocumentPreview(path)) {
-            nextPreview = { imageSrc: await getDocumentPreviewDataUrl(client, path) };
-          } else if (canPreviewText(extension)) {
-            const { content } = await client.readDocument(path);
-            nextPreview = { excerpt: cleanPreviewText(content) };
-          }
-        }
 
+          return nextPreview;
+        }, current);
         const resolvedPreview: PreviewState = { ...nextPreview, loading: false, loaded: true };
-        if (!isMountedRef.current) return;
+        if (!current()) return;
 
         setPreviews((prev) => ({
           ...prev,
@@ -202,7 +216,11 @@ export function useCanvasPreviews({
         }));
         setNodes((prev) =>
           prev.map((flowNode) => {
-            if (getPreviewKey(fromFlowNode(flowNode)) !== previewKey) return flowNode;
+            const key =
+              flowNode.type === 'webCard'
+                ? `web:${normalizeWebUrl(flowNode.data.url ?? '')}`
+                : `vault:${flowNode.data.relativePath ?? ''}`;
+            if (key !== previewKey) return flowNode;
             const sourceNode = fromFlowNode(flowNode);
             return {
               ...flowNode,
@@ -229,7 +247,7 @@ export function useCanvasPreviews({
           }),
         );
       } catch (error) {
-        if (!isMountedRef.current) return;
+        if (!current()) return;
         const failedPreview: PreviewState = {
           ...(previews[previewKey] ?? {}),
           previewError: error instanceof Error ? error.message : String(error),
@@ -263,7 +281,7 @@ export function useCanvasPreviews({
           );
         }
       } finally {
-        loadingPreviewPathsRef.current.delete(previewKey);
+        loading.delete(previewKey);
       }
     },
     [
@@ -274,7 +292,6 @@ export function useCanvasPreviews({
       openExternalUrl,
       openRelativePath,
       previews,
-      renderPdfPreview,
       requestWebPreview,
       setNodes,
       vault,
@@ -286,14 +303,15 @@ export function useCanvasPreviews({
     if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled)
       return;
     const urls = nodes
-      .map((flowNode) => fromFlowNode(flowNode))
-      .filter((node): node is WebCanvasNode => node.type === 'web')
-      .map((node) => normalizeWebUrl(node.url))
+      .filter((node) => !isVisible || isVisible(node))
+      .filter((node) => node.type === 'webCard')
+      .map((node) => normalizeWebUrl(node.data.url ?? ''))
       .filter((url) => /^https?:\/\//i.test(url));
     if (urls.length === 0) return;
     prefetchWebPreviews(urls);
   }, [
     backgroundWebPreviewPrefetchEnabled,
+    isVisible,
     fromFlowNode,
     hoverWebLinkPreviewsEnabled,
     nodes,
@@ -302,12 +320,21 @@ export function useCanvasPreviews({
 
   useEffect(() => {
     for (const flowNode of nodes) {
-      const sourceNode = fromFlowNode(flowNode);
-      if (sourceNode.type !== 'web' && !vault) continue;
-      if (sourceNode.type !== 'web' && flowNode.type !== 'noteCard' && flowNode.type !== 'fileCard')
+      if (isVisible && !isVisible(flowNode)) continue;
+      if (
+        flowNode.type !== 'webCard' &&
+        flowNode.type !== 'noteCard' &&
+        flowNode.type !== 'fileCard'
+      )
         continue;
-      const existing = previews[getPreviewKey(sourceNode)];
+      if (flowNode.type !== 'webCard' && !vault) continue;
+      const key =
+        flowNode.type === 'webCard'
+          ? `web:${normalizeWebUrl(flowNode.data.url ?? '')}`
+          : `vault:${flowNode.data.relativePath ?? ''}`;
+      const existing = previews[key];
       if (existing?.loading || existing?.loaded) continue;
+      const sourceNode = fromFlowNode(flowNode);
       if (sourceNode.type === 'web' && !sourceNode.url.trim()) continue;
       if (sourceNode.type === 'web' && !webPreviewsEnabled) continue;
       if (
@@ -320,6 +347,7 @@ export function useCanvasPreviews({
     }
   }, [
     canvasWebCardAutoLoad,
+    isVisible,
     fromFlowNode,
     hydratePreview,
     nodes,
@@ -329,10 +357,50 @@ export function useCanvasPreviews({
     webPreviewsEnabled,
   ]);
 
+  const previewsRef = useRef(previews);
+  previewsRef.current = previews;
+  useEffect(() => {
+    if (!vault) return;
+    const invalidate = (paths?: string[]) => {
+      const affects = (key: string) =>
+        key.startsWith('vault:') && (!paths || paths.includes(key.slice(6)));
+      if (!Object.keys(previewsRef.current).some(affects)) return;
+      generationRef.current++;
+      loadingPreviewPathsRef.current = new Set();
+      setPreviews((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(([key, value]) => !affects(key) && !value.loading),
+        ),
+      );
+    };
+    const offReplica = onReplicaMutated((event) => invalidate(event.relativePaths), {
+      kinds: ['manifest'],
+    });
+    const offFile =
+      vault.kind === 'hosted'
+        ? () => {}
+        : listenSafely<{ path?: string }>('vault:file-modified', ({ payload }) =>
+            invalidate(payload.path ? [payload.path] : undefined),
+          );
+    return () => {
+      offReplica();
+      offFile();
+    };
+  }, [vault]);
+
   const resetPreviewState = useCallback(() => {
+    generationRef.current++;
+    loadingPreviewPathsRef.current = new Set();
     setPreviews({});
     setRequestedWebPreviewIds({});
   }, []);
+
+  useEffect(
+    () => () => {
+      generationRef.current++;
+    },
+    [],
+  );
 
   return {
     openExternalUrl,

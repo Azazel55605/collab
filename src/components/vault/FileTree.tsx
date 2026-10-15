@@ -77,6 +77,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 import FileReferencesPanel from './FileReferencesPanel';
 import { FILE_TYPE_FILTERS, type FileTypeFilter, filterFileTreeByType } from './fileTreeFilters';
+import { nativeDropFolderAtPoint } from './nativeDropTarget';
 import TrashPanel from './TrashPanel';
 import { useNativeFileDrop } from './useNativeFileDrop';
 import { ConfirmDeleteDialog, InputDialog, RenameMovePreviewDialog } from './VaultDialogs';
@@ -314,9 +315,7 @@ export default function FileTree() {
   // inside it; anywhere else imports to the vault root.
   const handleNativeFileDrop = useCallback(
     (paths: string[], point: { x: number; y: number }) => {
-      const element = document.elementFromPoint(point.x, point.y);
-      const folderEl = element?.closest('[data-tree-folder-path]') as HTMLElement | null;
-      const targetFolder = folderEl?.dataset.treeFolderPath || undefined;
+      const targetFolder = nativeDropFolderAtPoint(treeContainerRef.current, point);
       void importFiles(paths, targetFolder);
     },
     [importFiles],
@@ -326,6 +325,7 @@ export default function FileTree() {
     treeContainerRef,
     handleNativeFileDrop,
     mode === 'files' && !!vault && !readOnly,
+    vault?.path,
   );
 
   const handleOpenFile = useCallback(
@@ -881,11 +881,22 @@ export default function FileTree() {
   // (otherwise ctrl/shift multi-selection would be clobbered).
   const lastSyncedActiveTab = useRef<string | null>(null);
   useEffect(() => {
-    if (mode !== 'files' || !activeTabPath) return;
+    if (!activeTabPath) return;
     if (lastSyncedActiveTab.current === activeTabPath) return;
     const existing = flatten(fileTree).find((entry) => entry.relativePath === activeTabPath);
     if (!existing) return;
     lastSyncedActiveTab.current = activeTabPath;
+    setMode('files');
+    // Opening a document from tabs/search must reveal it even if a previous
+    // file-type filter or collapsed ancestor would hide its row.
+    if (!flatten(filteredFileTree).some((entry) => entry.relativePath === activeTabPath))
+      setFileTypeFilters(new Set());
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      const parts = activeTabPath.split('/');
+      for (let i = 1; i < parts.length; i++) next.delete(parts.slice(0, i).join('/'));
+      return next;
+    });
     setSelectedRelativePath(activeTabPath);
     setSelectedPaths(new Set([activeTabPath]));
   }, [activeTabPath, fileTree, mode]);
@@ -1537,6 +1548,11 @@ const FileTreeNode = memo(function FileTreeNode({
           <div
             draggable={!suppressHtmlDrag}
             data-tree-folder-path={node.isFolder ? node.relativePath : undefined}
+            data-tree-drop-folder={
+              node.isFolder
+                ? node.relativePath
+                : node.relativePath.split('/').slice(0, -1).join('/')
+            }
             onMouseDown={(e) => {
               const wantsNativeDrag = e.button === 0 && canReveal && (e.ctrlKey || e.metaKey);
               dragOutCandidateRef.current = wantsNativeDrag ? { x: e.clientX, y: e.clientY } : null;

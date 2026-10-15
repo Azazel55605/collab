@@ -66,6 +66,15 @@ const hostedVault: HostedVaultMeta = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([]);
+  vi.mocked(tauriCommands.replicaRemoveOperation).mockImplementation(
+    async (_server, _vault, id) => {
+      const queue = await tauriCommands.replicaListPendingOperations(_server, _vault);
+      vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue(
+        queue.filter((op) => op.id !== id),
+      );
+    },
+  );
   vi.mocked(tauriCommands.replicaReadSyncState).mockResolvedValue({
     manifestSequence: 4,
     lastSyncedAt: '2026-06-17T00:00:00Z',
@@ -392,7 +401,7 @@ describe('vaultReplica', () => {
       'hosted-vault',
       'Hosted Vault',
       manifest,
-      expect.objectContaining({ manifestSequence: 10, status: 'idle' }),
+      expect.objectContaining({ manifestSequence: 9, status: 'syncing' }),
       'editor',
       ['vault.read', 'vault.offlineCopy'],
     );
@@ -472,45 +481,121 @@ describe('vaultReplica', () => {
     );
   });
 
-  it('does not emit a replica mutation after a zero-change native sync', async () => {
-    const commands = tauriCommands as typeof tauriCommands & Record<string, unknown>;
-    const originalRun = commands.backgroundJobRun;
-    const originalGet = commands.backgroundJobGet;
-    commands.backgroundJobRun = vi.fn().mockResolvedValue({
-      id: 'job-1',
-      idempotencyKey: 'foreground:hosted-vault:test',
-      kind: 'replica_sync',
-      serverUrl: hostedVault.serverUrl,
-      profileId: null,
-      vaultId: hostedVault.hostedVaultId,
-      trigger: 'foreground',
-      attempt: 1,
-      status: 'succeeded',
-      createdAt: '2026-07-27T12:00:00Z',
-      startedAt: '2026-07-27T12:00:00Z',
-      finishedAt: '2026-07-27T12:00:01Z',
-      nextRetryAt: null,
-      progress: { completed: 1, total: 1, detail: null },
-      changed: 0,
-      summary: 'Offline replicas are already up to date',
-      errorCategory: null,
-      errorMessage: null,
-      retryable: false,
-    });
-    commands.backgroundJobGet = vi.fn();
-    const manifest = { vaultId: 'hosted-vault', sequence: 9, files: [] };
-    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
-    const listener = vi.fn();
-    const unsubscribe = onReplicaMutated(listener);
+  it.each([0, 2])(
+    'publishes native sync results to manifest listeners only when changed=%i',
+    async (changed) => {
+      const commands = tauriCommands as typeof tauriCommands & Record<string, unknown>;
+      const originalRun = commands.backgroundJobRun;
+      const originalGet = commands.backgroundJobGet;
+      commands.backgroundJobRun = vi.fn().mockResolvedValue({
+        id: 'job-1',
+        idempotencyKey: 'foreground:hosted-vault:test',
+        kind: 'replica_sync',
+        serverUrl: hostedVault.serverUrl,
+        profileId: null,
+        vaultId: hostedVault.hostedVaultId,
+        trigger: 'foreground',
+        attempt: 1,
+        status: 'succeeded',
+        createdAt: '2026-07-27T12:00:00Z',
+        startedAt: '2026-07-27T12:00:00Z',
+        finishedAt: '2026-07-27T12:00:01Z',
+        nextRetryAt: null,
+        progress: { completed: 1, total: 1, detail: null },
+        changed,
+        summary: 'Offline replicas are already up to date',
+        errorCategory: null,
+        errorMessage: null,
+        retryable: false,
+      });
+      commands.backgroundJobGet = vi.fn();
+      const manifest = { vaultId: 'hosted-vault', sequence: 9, files: [] };
+      vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
+      const listener = vi.fn();
+      const unsubscribe = onReplicaMutated(listener);
 
-    try {
-      await expect(syncReplicaManifestDelta(hostedVault)).resolves.toEqual(manifest);
-      expect(listener).not.toHaveBeenCalled();
-    } finally {
-      unsubscribe();
-      commands.backgroundJobRun = originalRun;
-      commands.backgroundJobGet = originalGet;
-    }
+      try {
+        await expect(syncReplicaManifestDelta(hostedVault)).resolves.toEqual(manifest);
+        if (changed)
+          expect(listener).toHaveBeenCalledWith(expect.objectContaining({ kind: 'manifest' }));
+        else expect(listener).not.toHaveBeenCalled();
+      } finally {
+        unsubscribe();
+        commands.backgroundJobRun = originalRun;
+        commands.backgroundJobGet = originalGet;
+      }
+    },
+  );
+
+  it('preserves offline intent and the download checkpoint when seeding newer metadata', async () => {
+    vi.mocked(tauriCommands.replicaReadSyncState).mockResolvedValue({
+      manifestSequence: 4,
+      status: 'idle',
+      lastSyncedAt: null,
+      offlineAvailableAt: 'downloaded',
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue({
+      vaultId: hostedVault.hostedVaultId,
+      sequence: 7,
+      files: [],
+    });
+    await seedReplicaFromManifest(hostedVault);
+    expect(tauriCommands.replicaSeed).toHaveBeenCalledWith(
+      hostedVault.serverUrl,
+      hostedVault.hostedVaultId,
+      hostedVault.name,
+      expect.anything(),
+      expect.objectContaining({ offlineAvailableAt: 'downloaded', manifestSequence: 4 }),
+      hostedVault.role,
+      hostedVault.capabilities,
+    );
+  });
+
+  it('refuses to reseed over pending drafts', async () => {
+    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([
+      { id: 'draft' },
+    ] as never);
+    await expect(seedReplicaFromManifest(hostedVault)).rejects.toThrow('pending changes');
+    expect(tauriCommands.replicaSeed).not.toHaveBeenCalled();
+    expect(tauriCommands.hostedVaultRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a partially downloaded vault ready for offline use', async () => {
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockResolvedValueOnce({ vaultId: hostedVault.hostedVaultId, sequence: 7, files: [] })
+      .mockRejectedValue(new Error('bad document'));
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue({
+      vaultId: hostedVault.hostedVaultId,
+      sequence: 7,
+      files: [{ id: 'broken', state: 'active', kind: 'document' }],
+    });
+    await expect(makeHostedVaultAvailableOffline(hostedVault)).rejects.toThrow(
+      'Offline copy incomplete',
+    );
+    expect(tauriCommands.replicaWriteSyncState).not.toHaveBeenCalled();
+  });
+
+  it('shares an in-flight synchronization across simultaneous readers', async () => {
+    let release!: (value: unknown) => void;
+    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([]);
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue({
+      vaultId: hostedVault.hostedVaultId,
+      sequence: 4,
+      files: [],
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockImplementation(
+      () =>
+        new Promise((done) => {
+          release = done;
+        }) as never,
+    );
+    const first = syncReplicaManifestDelta(hostedVault);
+    const second = syncReplicaManifestDelta(hostedVault);
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release({ vaultId: hostedVault.hostedVaultId, baseSequence: 4, sequence: 4, changedFiles: [] });
+    await Promise.all([first, second]);
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledOnce();
   });
 
   it('enqueues pending operations with stable replay metadata', async () => {

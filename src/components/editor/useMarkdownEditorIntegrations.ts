@@ -5,6 +5,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toast } from 'sonner';
 
+import { resolveNativeDropPoint } from '../../lib/nativeDropCoordinates';
 import { createVaultClient } from '../../lib/vaultClient';
 import {
   getVaultDocumentView,
@@ -464,6 +465,7 @@ export function useMarkdownEditorIntegrations({
     const appWindow = getCurrentWindow();
     let unlistenWebviewDragDrop: (() => void) | null = null;
     let unlistenWindowDragDrop: (() => void) | null = null;
+    let disposed = false;
 
     const resolveAssetImport = () => {
       const vault = useVaultStore.getState().vault;
@@ -503,43 +505,58 @@ export function useMarkdownEditorIntegrations({
       ) => Promise<() => void>,
       setUnlisten: (unlisten: (() => void) | null) => void,
       label: string,
+      fallback?: () => void,
     ) => {
       void subscribe((event) => {
         if (event.payload.type !== 'drop' || !event.payload.paths || !event.payload.position)
           return;
-        const clientX = event.payload.position.x / window.devicePixelRatio;
-        const clientY = event.payload.position.y / window.devicePixelRatio;
-        handleNativeEditorDrop({
-          paths: event.payload.paths,
-          clientX,
-          clientY,
-          editorDom,
-          view,
-          stateRef: nativeDropStateRef,
-          importDroppedImages,
-        });
+        const paths = event.payload.paths;
+        void resolveNativeDropPoint(event.payload.position, true)
+          .then(({ x: clientX, y: clientY }) => {
+            if (disposed) return;
+            handleNativeEditorDrop({
+              paths,
+              clientX,
+              clientY,
+              editorDom,
+              view,
+              stateRef: nativeDropStateRef,
+              importDroppedImages,
+            });
+          })
+          .catch((error) => {
+            console.error('[MarkdownEditor] could not map drop position:', error);
+            if (!disposed)
+              toast.error('Could not determine the editor drop position.', {
+                description: String(error),
+              });
+          });
       })
         .then((unlisten) => {
-          setUnlisten(unlisten);
+          if (disposed) unlisten();
+          else setUnlisten(unlisten);
         })
         .catch((err) => {
           console.error(`[MarkdownEditor] failed to attach ${label} drag-drop listener:`, err);
+          if (!disposed) fallback?.();
         });
     };
 
+    const attachWindowDrop = () =>
+      attachDropListener(
+        (handler) => appWindow.onDragDropEvent(handler),
+        (unlisten) => {
+          unlistenWindowDragDrop = unlisten;
+        },
+        'window',
+      );
     attachDropListener(
       (handler) => webview.onDragDropEvent(handler),
       (unlisten) => {
         unlistenWebviewDragDrop = unlisten;
       },
       'webview',
-    );
-    attachDropListener(
-      (handler) => appWindow.onDragDropEvent(handler),
-      (unlisten) => {
-        unlistenWindowDragDrop = unlisten;
-      },
-      'window',
+      attachWindowDrop,
     );
 
     const handleDrop = (event: DragEvent) => {
@@ -653,6 +670,7 @@ export function useMarkdownEditorIntegrations({
     editorDom.addEventListener('mousedown', handleMouseDown, true);
 
     return () => {
+      disposed = true;
       editorDom.removeEventListener('drop', handleDrop);
       editorDom.removeEventListener('paste', handlePaste, true);
       editorDom.removeEventListener('mousemove', handlePreviewHover);

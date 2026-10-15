@@ -21,6 +21,7 @@ vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
     readNoteAssetDataUrl: vi.fn(),
     readNote: vi.fn(),
+    openExternalUrl: openUrlMock,
   },
 }));
 

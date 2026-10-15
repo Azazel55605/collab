@@ -382,7 +382,7 @@ function PreviewInner({
     } catch (e) {
       console.error('[MarkdownPreview] render error:', e);
       return {
-        html: `<pre style="color:red;white-space:pre-wrap">${String(e)}</pre>`,
+        html: `<pre style="color:red;white-space:pre-wrap">${md.utils.escapeHtml(String(e))}</pre>`,
         plotBlocks: [],
       };
     }

@@ -10,8 +10,10 @@ use collab_vault_domain::{
     PathChangeKind,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
@@ -21,10 +23,7 @@ use walkdir::WalkDir;
 pub(crate) mod sidecars;
 use sidecars::overlay_relative_path;
 #[cfg(test)]
-use sidecars::{
-    document_preview_cache_metadata_relative_path, document_preview_cache_payload_relative_path,
-    pdf_sidecar_relative_path,
-};
+use sidecars::{document_preview_cache_relative_path, pdf_sidecar_relative_path};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -199,9 +198,15 @@ fn write_vault_bytes(
         bytes.to_vec()
     };
 
-    let tmp_path = full_path.with_extension("tmp");
-    std::fs::write(&tmp_path, &bytes_to_write).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp_path, full_path).map_err(|e| e.to_string())
+    let mut staged =
+        tempfile::NamedTempFile::new_in(full_path.parent().ok_or("Missing parent directory")?)
+            .map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut staged, &bytes_to_write).map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    staged
+        .persist(full_path)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 fn read_vault_bytes(full_path: &Path, key_opt: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
@@ -1201,6 +1206,27 @@ fn try_auto_merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
     Some(merged)
 }
 
+// Protect the entire compare/merge/atomic-publish operation across IPC callers.
+// Weak entries share locks for active writers without retaining visited paths.
+fn note_write_lock(full_path: &Path) -> Result<Arc<parking_lot::Mutex<()>>, String> {
+    static LOCKS: LazyLock<parking_lot::Mutex<HashMap<PathBuf, Weak<parking_lot::Mutex<()>>>>> =
+        LazyLock::new(|| parking_lot::Mutex::new(HashMap::new()));
+    let parent = full_path.parent().ok_or("Missing parent directory")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let identity = parent
+        .canonicalize()
+        .map_err(|error| error.to_string())?
+        .join(full_path.file_name().ok_or("Missing file name")?);
+    let mut locks = LOCKS.lock();
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&identity).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(parking_lot::Mutex::new(()));
+    locks.insert(identity, Arc::downgrade(&lock));
+    Ok(lock)
+}
+
 fn write_note_to_path(
     full_path: &Path,
     relative_path: &str,
@@ -1209,6 +1235,8 @@ fn write_note_to_path(
     base_content: Option<String>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<WriteResult, String> {
+    let lock = note_write_lock(full_path)?;
+    let _write_guard = lock.lock();
     let mut content_to_write = content;
     let mut merged_content: Option<String> = None;
 
@@ -1295,9 +1323,12 @@ fn write_note_to_path(
         content_to_write.as_bytes().to_vec()
     };
 
-    let tmp_path = full_path.with_extension("tmp");
-    std::fs::write(&tmp_path, &bytes_to_write).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp_path, full_path).map_err(|e| e.to_string())?;
+    let mut staged =
+        tempfile::NamedTempFile::new_in(full_path.parent().ok_or("Missing parent directory")?)
+            .map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut staged, &bytes_to_write).map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    staged.persist(full_path).map_err(|e| e.to_string())?;
 
     let hash = compute_hash(&content_to_write);
     Ok(WriteResult {
@@ -1788,17 +1819,32 @@ pub fn read_file_for_upload(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn atomic_writes_preserve_sibling_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let sibling = dir.path().join("example.tmp");
+        std::fs::write(&sibling, b"keep me").unwrap();
+        let first = dir.path().join("example.md");
+        let second = dir.path().join("example.canvas");
+        std::thread::scope(|scope| {
+            scope.spawn(|| super::write_vault_bytes(&first, b"note", None).unwrap());
+            scope.spawn(|| super::write_vault_bytes(&second, b"canvas", None).unwrap());
+        });
+        assert_eq!(std::fs::read(sibling).unwrap(), b"keep me");
+        assert_eq!(std::fs::read(first).unwrap(), b"note");
+        assert_eq!(std::fs::read(second).unwrap(), b"canvas");
+    }
     use super::{
-        build_tree, collect_entries, create_note_at_path,
-        document_preview_cache_metadata_relative_path,
-        document_preview_cache_payload_relative_path, extension_for_mime, guess_mime_type,
-        is_allowed_extension, list_file_references_inner, list_trash_entries_inner,
-        move_path_to_trash, normalize_relative_path, overlay_relative_path, parse_data_url,
-        pdf_sidecar_relative_path, preview_path_change_inner, purge_trashed_item_inner,
-        read_note_from_path, read_vault_bytes, remap_path, replace_markdown_references,
-        resolve_vault_path, restore_trashed_item_inner, rewrite_all_references,
-        rewrite_canvas_references, rewrite_kanban_references, sanitize_file_name,
-        should_skip_walk_entry, unique_target_path, write_note_to_path, write_vault_bytes,
+        build_tree, collect_entries, create_note_at_path, document_preview_cache_relative_path,
+        extension_for_mime, guess_mime_type, is_allowed_extension, list_file_references_inner,
+        list_trash_entries_inner, move_path_to_trash, normalize_relative_path,
+        overlay_relative_path, parse_data_url, pdf_sidecar_relative_path,
+        preview_path_change_inner, purge_trashed_item_inner, read_note_from_path, read_vault_bytes,
+        remap_path, replace_markdown_references, resolve_vault_path, restore_trashed_item_inner,
+        rewrite_all_references, rewrite_canvas_references, rewrite_kanban_references,
+        sanitize_file_name, should_skip_walk_entry, unique_target_path, write_note_to_path,
+        write_vault_bytes,
     };
     use crate::{crypto, test_support::TempVault};
     use std::path::{Path, PathBuf};
@@ -2241,6 +2287,60 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_note_writers_cannot_both_accept_the_same_base() {
+        let vault = TempVault::new().expect("temporary vault");
+        let target = vault.resolve("Notes/Race.md");
+        vault.write_text("Notes/Race.md", "base").unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let results = std::thread::scope(|scope| {
+            let jobs: Vec<_> = (0..8)
+                .map(|writer| {
+                    let target = &target;
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        write_note_to_path(
+                            target,
+                            "Notes/Race.md",
+                            format!("writer {writer} {}", "x".repeat(128 * 1024)),
+                            Some(super::compute_hash("base")),
+                            None,
+                            None,
+                        )
+                        .unwrap()
+                    })
+                })
+                .collect();
+            jobs.into_iter()
+                .map(|job| job.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result.conflict.is_none())
+                .count(),
+            1
+        );
+        let saved = vault.read_text("Notes/Race.md").unwrap();
+        for result in results.iter().filter(|result| result.conflict.is_some()) {
+            assert_eq!(result.conflict.as_ref().unwrap().their_content, saved);
+        }
+    }
+
+    #[test]
+    fn note_writers_share_lock_across_parent_directory_aliases() {
+        let vault = TempVault::new().unwrap();
+        let target = vault.resolve("Notes/Test.md");
+        let first = super::note_write_lock(&target).unwrap();
+        let alias = vault.resolve("Notes/./Test.md");
+        let second = super::note_write_lock(&alias).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        let other = super::note_write_lock(&vault.resolve("Notes/Other.md")).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&first, &other));
+    }
+
+    #[test]
     fn write_note_reports_conflict_when_expected_hash_is_stale() {
         let vault = TempVault::new().expect("temp vault should exist");
         let target = vault.resolve("Notes/Test.md");
@@ -2657,12 +2757,9 @@ mod tests {
 
     #[test]
     fn document_preview_cache_paths_use_hidden_collab_namespace() {
-        let metadata_relative = document_preview_cache_metadata_relative_path("Docs/spec.pdf");
-        let payload_relative = document_preview_cache_payload_relative_path("Docs/spec.pdf");
-        assert!(metadata_relative.starts_with(".collab/previews/documents/"));
-        assert!(metadata_relative.ends_with(".json"));
-        assert!(payload_relative.starts_with(".collab/previews/documents/"));
-        assert!(payload_relative.ends_with(".bin"));
+        let relative = document_preview_cache_relative_path("Docs/spec.pdf");
+        assert!(relative.starts_with(".collab/previews/documents/"));
+        assert!(relative.ends_with(".entry"));
     }
 }
 

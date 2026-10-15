@@ -27,9 +27,11 @@ import type {
   DeckTransition,
 } from '../../types/deck';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { ColorPicker } from '../ui/color-picker';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Textarea } from '../ui/textarea';
 
 export type MasterTextClass = 'title' | 'body' | 'other';
 
@@ -489,7 +491,7 @@ function ObjectSection({
       </label>
       <label className="flex flex-col gap-1 pt-1 text-xs">
         <span className="text-muted-foreground">Alt text</span>
-        <textarea
+        <Textarea
           aria-label="Alt text"
           className="min-h-14 rounded-md border border-input bg-transparent px-2 py-1 text-xs outline-none focus-visible:border-ring"
           maxLength={4_096}
@@ -743,12 +745,13 @@ export function DeckInspector({
                 />
               </label>
               <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
+                <Checkbox
                   className="accent-primary"
                   checked={designLayout.showMasterElements !== false}
                   disabled={readOnly}
-                  onChange={(event) => onLayoutChange({ showMasterElements: event.target.checked })}
+                  onCheckedChange={(checked) =>
+                    onLayoutChange({ showMasterElements: checked === true })
+                  }
                 />
                 Show master artwork
               </label>

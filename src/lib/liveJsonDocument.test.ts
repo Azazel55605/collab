@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 
-import { type JsonObject, reconcileMap, toShared, yToJson } from './liveJsonDocument';
+import {
+  type JsonObject,
+  mergeLiveJsonEdits,
+  reconcileMap,
+  toShared,
+  yToJson,
+} from './liveJsonDocument';
 
 function withMap(initial: JsonObject): { doc: Y.Doc; root: Y.Map<unknown> } {
   const doc = new Y.Doc();
@@ -168,5 +174,49 @@ describe('liveJsonDocument reconciler', () => {
     const inner = root.get('v');
     expect(inner).toBeInstanceOf(Y.Map);
     expect((inner as Y.Map<unknown>).get('a')).toBeInstanceOf(Y.Array);
+  });
+});
+
+describe('delayed canvas collaboration', () => {
+  it('preserves peer edits to another node and another field while applying a local drag', () => {
+    const base = {
+      nodes: [
+        { id: 'a', x: 0, text: 'old' },
+        { id: 'b', x: 0, text: 'old' },
+      ],
+    };
+    const mine = {
+      nodes: [
+        { id: 'a', x: 50, text: 'old' },
+        { id: 'b', x: 0, text: 'old' },
+      ],
+    };
+    const peer = {
+      nodes: [
+        { id: 'a', x: 0, text: 'peer A' },
+        { id: 'b', x: 0, text: 'peer B' },
+        { id: 'c', x: 1, text: 'new' },
+      ],
+    };
+    const merged = mergeLiveJsonEdits(base, mine, peer);
+    const { root } = withMap(peer);
+    reconcileMap(root, merged as JsonObject);
+    expect(yToJson(root)).toEqual({
+      nodes: [
+        { id: 'a', x: 50, text: 'peer A' },
+        { id: 'b', x: 0, text: 'peer B' },
+        { id: 'c', x: 1, text: 'new' },
+      ],
+    });
+  });
+
+  it('honors local deletions without resurrecting unchanged remote deletions', () => {
+    expect(
+      mergeLiveJsonEdits(
+        { nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
+        { nodes: [{ id: 'b' }, { id: 'c' }] },
+        { nodes: [{ id: 'a' }, { id: 'b' }, { id: 'd' }] },
+      ),
+    ).toEqual({ nodes: [{ id: 'b' }, { id: 'd' }] });
   });
 });

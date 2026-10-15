@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import { runDocumentNavigation } from '../lib/documentNavigation';
+
 export interface OpenTab {
   relativePath: string;
   title: string;
@@ -161,29 +163,35 @@ export const useEditorStore = create<EditorState>()(
           deckViewStates: {},
         }),
 
-      openTab: (relativePath, title, type = 'note') => {
-        const { openTabs } = get();
-        if (!openTabs.find((t) => t.relativePath === relativePath)) {
-          set({
-            openTabs: [...openTabs, { relativePath, title, isDirty: false, savedHash: null, type }],
-          });
-        }
-        set({ activeTabPath: relativePath });
-      },
+      openTab: (relativePath, title, type = 'note') =>
+        runDocumentNavigation(() => {
+          const { openTabs } = get();
+          if (!openTabs.find((t) => t.relativePath === relativePath)) {
+            set({
+              openTabs: [
+                ...openTabs,
+                { relativePath, title, isDirty: false, savedHash: null, type },
+              ],
+            });
+          }
+          set({ activeTabPath: relativePath });
+        }),
 
-      closeTab: (relativePath) => {
-        const { openTabs, activeTabPath } = get();
-        const newTabs = openTabs.filter((t) => t.relativePath !== relativePath);
-        const newActive =
-          activeTabPath === relativePath
-            ? newTabs.length > 0
-              ? newTabs[newTabs.length - 1].relativePath
-              : null
-            : activeTabPath;
-        set({ openTabs: newTabs, activeTabPath: newActive });
-      },
+      closeTab: (relativePath) =>
+        runDocumentNavigation(() => {
+          const { openTabs, activeTabPath } = get();
+          const newTabs = openTabs.filter((t) => t.relativePath !== relativePath);
+          const newActive =
+            activeTabPath === relativePath
+              ? newTabs.length > 0
+                ? newTabs[newTabs.length - 1].relativePath
+                : null
+              : activeTabPath;
+          set({ openTabs: newTabs, activeTabPath: newActive });
+        }),
 
-      setActiveTab: (relativePath) => set({ activeTabPath: relativePath }),
+      setActiveTab: (relativePath) =>
+        runDocumentNavigation(() => set({ activeTabPath: relativePath })),
 
       markDirty: (relativePath) => {
         set((state) => {

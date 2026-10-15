@@ -1,7 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 
 import type { UpdateInfo } from '../store/updateStore';
 import type {
@@ -963,7 +963,9 @@ export const tauriCommands = {
     }),
 
   // UI
+  openExternalUrl: (url: string) => openUrl(url),
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),
+  nativeDropViewport: () => invoke<{ width: number; height: number }>('native_drop_viewport'),
   hostOs: () => invoke<string>('host_os'),
   isAppImage: () => invoke<boolean>('is_appimage'),
   isFlatpak: () => invoke<boolean>('is_flatpak'),

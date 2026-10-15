@@ -293,8 +293,10 @@ pub fn open_vault(path: String, state: State<AppState>) -> Result<VaultMeta, Str
     let meta = ensure_open_vault_meta(&path)?;
 
     // Update AppState — clear any stale encryption key from the previous vault.
+    let mut active = state.active_vault.write();
     *state.encryption_key.write() = None;
-    *state.active_vault.write() = Some(meta.clone());
+    state.note_index.write().clear();
+    *active = Some(meta.clone());
 
     Ok(meta)
 }
@@ -318,8 +320,10 @@ pub fn create_vault(
     )?;
     let _ = app.emit("collab:config-changed", serde_json::json!({}));
 
+    let mut active = state.active_vault.write();
     *state.encryption_key.write() = None;
-    *state.active_vault.write() = Some(meta.clone());
+    state.note_index.write().clear();
+    *active = Some(meta.clone());
 
     Ok(meta)
 }

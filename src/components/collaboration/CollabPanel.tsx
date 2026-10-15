@@ -1,48 +1,34 @@
 import { type CollabTab, useUiStore } from '../../store/uiStore';
+import { Button } from '../ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 
-import { ChatPanel } from './chat/ChatPanel';
 import { HistoryPanel } from './history/HistoryPanel';
 import { PeerList } from './presence/PeerList';
 
-const TABS: { id: CollabTab; label: string }[] = [
-  { id: 'peers', label: 'Peers' },
-  { id: 'chat', label: 'Chat' },
-  { id: 'history', label: 'History' },
-];
-
 export function CollabPanel() {
-  const { collabTab, setCollabTab } = useUiStore();
-
+  const { collabTab, setCollabTab, setActiveView } = useUiStore();
+  const selectedTab = collabTab === 'chat' ? 'peers' : collabTab;
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex border-b border-border px-2 pt-1 gap-0.5 flex-shrink-0">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setCollabTab(tab.id)}
-            className={`px-3 py-1.5 text-xs rounded-t font-medium transition-colors ${
-              collabTab === tab.id
-                ? 'text-foreground border-b-2 border-primary -mb-px'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <Tabs
+      value={selectedTab}
+      onValueChange={(value) => setCollabTab(value as CollabTab)}
+      className="flex h-full min-h-0 flex-col overflow-hidden"
+    >
+      <div className="flex shrink-0 items-center gap-1 border-b border-border p-2">
+        <TabsList>
+          <TabsTrigger value="peers">Peers</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+        <Button variant="ghost" size="sm" onClick={() => setActiveView('chats')}>
+          Open chats
+        </Button>
       </div>
-      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {collabTab === 'peers' && (
-          <div className="overflow-y-auto flex-1">
-            <PeerList />
-          </div>
-        )}
-        {collabTab === 'chat' && <ChatPanel />}
-        {collabTab === 'history' && (
-          <div className="overflow-y-auto flex-1">
-            <HistoryPanel />
-          </div>
-        )}
-      </div>
-    </div>
+      <TabsContent value="peers" className="min-h-0 flex-1 overflow-y-auto">
+        <PeerList />
+      </TabsContent>
+      <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto">
+        <HistoryPanel />
+      </TabsContent>
+    </Tabs>
   );
 }

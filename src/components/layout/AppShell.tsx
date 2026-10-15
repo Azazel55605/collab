@@ -8,7 +8,6 @@ import {
   useState,
 } from 'react';
 
-import { listen } from '@tauri-apps/api/event';
 import {
   CircuitBoard,
   FileText,
@@ -23,10 +22,9 @@ import {
 } from 'lucide-react';
 
 import { DragProvider } from '../../contexts/DragContext';
+import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
-import { createVaultClient } from '../../lib/vaultClient';
-import { onReplicaMutated } from '../../lib/vaultReplica';
-import { useEditorStore, useNoteIndexStore, useUiStore, useVaultStore } from '../../store';
+import { useEditorStore, useUiStore, useVaultStore } from '../../store';
 import CalendarPage from '../../views/CalendarPage';
 import CanvasPage from '../../views/CanvasPage';
 import ChatsPage from '../../views/ChatsPage';
@@ -89,7 +87,7 @@ class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Er
 }
 
 export default function AppShell() {
-  const { vault, refreshFileTree } = useVaultStore();
+  const { vault, isVaultLocked, refreshFileTree } = useVaultStore();
   const { activeTabPath, openTabs, closeTab, setActiveTab } = useEditorStore();
   const {
     activeView,
@@ -102,7 +100,7 @@ export default function AppShell() {
     isSettingsOpen,
     setActiveView,
   } = useUiStore();
-  const { setNotes, setIndexing } = useNoteIndexStore();
+  useVaultNoteIndex(vault, isVaultLocked, refreshFileTree);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWRef = useRef(0);
@@ -133,50 +131,6 @@ export default function AppShell() {
     },
     [setActiveTab, setActiveView],
   );
-
-  // Build note index on vault open
-  useEffect(() => {
-    if (!vault) return;
-    setIndexing(true);
-    createVaultClient(vault)
-      .buildNoteIndex()
-      .then(setNotes)
-      .catch(() => {})
-      .finally(() => setIndexing(false));
-  }, [vault?.path]);
-
-  // File-system event listeners
-  useEffect(() => {
-    if (!vault) return;
-    const unsubs: Array<() => void> = [];
-    let refreshTimer: number | null = null;
-    const refreshVisibleFiles = () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(async () => {
-        refreshTimer = null;
-        try {
-          await refreshFileTree();
-          setNotes(await createVaultClient(vault).buildNoteIndex());
-        } catch {}
-      }, 150);
-    };
-    const setup = async () => {
-      const u1 = await listen('vault:file-created', refreshVisibleFiles);
-      const u2 = await listen('vault:file-deleted', refreshVisibleFiles);
-      const u3 = await listen('vault:file-renamed', refreshVisibleFiles);
-      const u4 = await listen('vault:file-modified', refreshVisibleFiles);
-      unsubs.push(u1, u2, u3, u4);
-    };
-    setup();
-    const unsubscribeReplica = onReplicaMutated(refreshVisibleFiles, {
-      kinds: ['manifest', 'replica'],
-    });
-    return () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-      unsubscribeReplica();
-      unsubs.forEach((u) => u());
-    };
-  }, [vault?.path]);
 
   // Global keyboard shortcuts
   useEffect(() => {

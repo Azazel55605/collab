@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { addWorksheet, createEmptySheetDocument } from './document';
+import { buildSheetFormulaRequest } from './formulaRequest';
 import {
   createSheetNamedRange,
   expandNamedRangesInFormula,
@@ -10,7 +11,6 @@ import {
 } from './namedRanges';
 import { activeWorksheet, deleteTracks, duplicateWorksheet, setCell } from './operations';
 import { createSelection, extendSelection } from './selection';
-import { buildSheetFormulaRequest } from './useSheetFormulaEngine';
 
 function fixture() {
   return createEmptySheetDocument('Names', {

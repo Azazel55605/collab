@@ -1,5 +1,6 @@
 import { useServerStore } from '../store/serverStore';
 
+import { documentPreviewQueue } from './previewQueue';
 import { tauriCommands } from './tauri';
 import { HostedVaultClient, LocalVaultClient, type VaultClient } from './vaultClient';
 
@@ -20,13 +21,15 @@ export function getDocumentPreviewDataUrl(client: VaultClient, path: string): Pr
   const key = `${scope}::${path}`;
   const existing = inFlight.get(key);
   if (existing) return existing;
-  const pending = load(client, path).finally(() => inFlight.delete(key));
+  const pending = documentPreviewQueue
+    .run(() => load(client, path, scope))
+    .finally(() => inFlight.delete(key));
   inFlight.set(key, pending);
   return pending;
 }
 
-async function load(client: VaultClient, path: string) {
-  if (client instanceof HostedVaultClient) return client.readDocumentPreviewDataUrl(path);
+async function load(client: VaultClient, path: string, scope: string) {
+  if (client instanceof HostedVaultClient) return client.readDocumentPreviewDataUrl(path, scope);
   const localPath = client instanceof LocalVaultClient ? client.vault.path : null;
   if (localPath) {
     const cached = await tauriCommands
