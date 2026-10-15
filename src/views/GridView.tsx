@@ -14,6 +14,7 @@ import { GripVertical } from 'lucide-react';
 import GridCell from '../components/grid/GridCell';
 import GridLayoutPicker from '../components/grid/GridLayoutPicker';
 import WorkspaceBar from '../components/grid/WorkspaceBar';
+import { runDocumentNavigation } from '../lib/documentNavigation';
 import {
   GRID_LAYOUTS,
   type GridLayoutId,
@@ -56,6 +57,7 @@ export default function GridView() {
   const layoutAnimationRef = useRef<{
     fromRects: Map<string, DOMRect>;
     targetLayout: GridLayoutId;
+    workspaceId: string;
   } | null>(null);
   const [containerWidth, setContainerWidth] = useState(1000);
 
@@ -85,15 +87,21 @@ export default function GridView() {
         if (node) fromRects.set(cell.id, node.getBoundingClientRect());
       }
 
-      layoutAnimationRef.current = { fromRects, targetLayout: id };
+      layoutAnimationRef.current = { fromRects, targetLayout: id, workspaceId: activeWs.id };
       setPendingLayout(id);
       setFading(true);
     },
-    [activeWs.cells, activeWs.layoutId, animationsEnabled, containerWidth, store],
+    [activeWs.cells, activeWs.id, activeWs.layoutId, animationsEnabled, containerWidth, store],
   );
 
   useEffect(() => {
     if (!fading || !pendingLayout) return;
+    if (layoutAnimationRef.current?.workspaceId !== activeWs.id) {
+      layoutAnimationRef.current = null;
+      setPendingLayout(null);
+      setFading(false);
+      return;
+    }
     const t = setTimeout(
       () => {
         store.setLayout(pendingLayout);
@@ -103,7 +111,7 @@ export default function GridView() {
       animationsEnabled ? Math.round(getMotionDuration() * 0.45) : 0,
     );
     return () => clearTimeout(t);
-  }, [animationsEnabled, fading, getMotionDuration, pendingLayout, store]);
+  }, [activeWs.id, animationsEnabled, fading, getMotionDuration, pendingLayout, store]);
 
   useLayoutEffect(() => {
     const animation = layoutAnimationRef.current;
@@ -163,16 +171,33 @@ export default function GridView() {
     layoutAnimationRef.current = null;
   }, [activeWs.cells, activeWs.layoutId, containerWidth, getMotionDuration]);
 
+  const resizeInputs = useRef({ layoutId: activeWs.layoutId, containerWidth });
+  resizeInputs.current = { layoutId: activeWs.layoutId, containerWidth };
+
   // ── ResizeObserver for responsive layout ─────────────────────────────────
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      setContainerWidth(Math.floor(entry.contentRect.width));
-    });
+    let generation = 0;
+    const resize = (width: number) => {
+      const request = ++generation;
+      const { layoutId, containerWidth: previousWidth } = resizeInputs.current;
+      const before = GRID_LAYOUTS[resolveLayout(layoutId, previousWidth)].cellCount;
+      const after = GRID_LAYOUTS[resolveLayout(layoutId, width)].cellCount;
+      const apply = () => {
+        if (request === generation) setContainerWidth(width);
+      };
+      // Responsive fallback also unmounts panes. Keep their editors until saved.
+      if (after < before) void runDocumentNavigation(apply);
+      else apply();
+    };
+    const ro = new ResizeObserver(([entry]) => resize(Math.floor(entry.contentRect.width)));
     ro.observe(el);
-    setContainerWidth(Math.floor(el.getBoundingClientRect().width));
-    return () => ro.disconnect();
+    resize(Math.floor(el.getBoundingClientRect().width));
+    return () => {
+      generation++;
+      ro.disconnect();
+    };
   }, []);
 
   // ── dnd-kit setup ─────────────────────────────────────────────────────────

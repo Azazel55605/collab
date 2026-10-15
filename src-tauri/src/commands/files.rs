@@ -10,8 +10,10 @@ use collab_vault_domain::{
     PathChangeKind,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
@@ -1207,6 +1209,27 @@ fn try_auto_merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
     Some(merged)
 }
 
+// Protect the entire compare/merge/atomic-publish operation across IPC callers.
+// Weak entries share locks for active writers without retaining visited paths.
+fn note_write_lock(full_path: &Path) -> Result<Arc<parking_lot::Mutex<()>>, String> {
+    static LOCKS: LazyLock<parking_lot::Mutex<HashMap<PathBuf, Weak<parking_lot::Mutex<()>>>>> =
+        LazyLock::new(|| parking_lot::Mutex::new(HashMap::new()));
+    let parent = full_path.parent().ok_or("Missing parent directory")?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let identity = parent
+        .canonicalize()
+        .map_err(|error| error.to_string())?
+        .join(full_path.file_name().ok_or("Missing file name")?);
+    let mut locks = LOCKS.lock();
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&identity).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(parking_lot::Mutex::new(()));
+    locks.insert(identity, Arc::downgrade(&lock));
+    Ok(lock)
+}
+
 fn write_note_to_path(
     full_path: &Path,
     relative_path: &str,
@@ -1215,6 +1238,8 @@ fn write_note_to_path(
     base_content: Option<String>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<WriteResult, String> {
+    let lock = note_write_lock(full_path)?;
+    let _write_guard = lock.lock();
     let mut content_to_write = content;
     let mut merged_content: Option<String> = None;
 
@@ -2263,6 +2288,60 @@ mod tests {
 
         assert!(error.contains("canvas document is not valid JSON"));
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn concurrent_note_writers_cannot_both_accept_the_same_base() {
+        let vault = TempVault::new().expect("temporary vault");
+        let target = vault.resolve("Notes/Race.md");
+        vault.write_text("Notes/Race.md", "base").unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let results = std::thread::scope(|scope| {
+            let jobs: Vec<_> = (0..8)
+                .map(|writer| {
+                    let target = &target;
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        write_note_to_path(
+                            target,
+                            "Notes/Race.md",
+                            format!("writer {writer} {}", "x".repeat(128 * 1024)),
+                            Some(super::compute_hash("base")),
+                            None,
+                            None,
+                        )
+                        .unwrap()
+                    })
+                })
+                .collect();
+            jobs.into_iter()
+                .map(|job| job.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result.conflict.is_none())
+                .count(),
+            1
+        );
+        let saved = vault.read_text("Notes/Race.md").unwrap();
+        for result in results.iter().filter(|result| result.conflict.is_some()) {
+            assert_eq!(result.conflict.as_ref().unwrap().their_content, saved);
+        }
+    }
+
+    #[test]
+    fn note_writers_share_lock_across_parent_directory_aliases() {
+        let vault = TempVault::new().unwrap();
+        let target = vault.resolve("Notes/Test.md");
+        let first = super::note_write_lock(&target).unwrap();
+        let alias = vault.resolve("Notes/./Test.md");
+        let second = super::note_write_lock(&alias).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        let other = super::note_write_lock(&vault.resolve("Notes/Other.md")).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&first, &other));
     }
 
     #[test]

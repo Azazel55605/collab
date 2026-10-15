@@ -8,15 +8,59 @@ This supplement reconciles all **13 user reports** with the
 [Android](./mobile-performance-and-bugs-2026-10-14.md) audits.
 
 These are reported regressions and requested behavior, not newly reproduced
-platform bugs. Source checks identify related mechanisms and gaps; no runtime
-fixes or native/platform sign-off are claimed. Existing audit IDs and counts
+platform bugs. The source checks below describe the historical baseline; the implementation
+checklist records subsequent fixes separately from native/platform sign-off. Existing audit IDs and counts
 remain unchanged to avoid counting overlapping findings twice. UR01–UR13 are
 the follow-up tracker, including reports missing from the original inventories.
 Platform scope below is provisional where the report did not name one.
 
-Implementation has begun in [Desktop Audit Fixes](../plans/desktop-audit-fixes.md).
-The source checks below remain the original report baseline; consult that tracker
-for implemented changes and outstanding native acceptance.
+## Current Implementation Checklist
+
+Updated **2026-10-15** through desktop batches 1–5. `[x]` marks the listed
+**desktop implementation**, not all-platform acceptance. Preserve the remaining
+acceptance below and update this checklist alongside future fixes. Detailed
+changes and automated verification live in
+[Desktop Audit Fixes](../plans/desktop-audit-fixes.md).
+
+- [x] **UR01 desktop:** PDF page/zoom/layout/rotation/bookmark/scroll state survives
+      remounts; bounded resources reuse unchanged sources. Native large/corrupt-file
+      soak, renamed/replaced files and Android behavior remain acceptance/work.
+- [x] **UR02 desktop:** Cache-first documents/assets/annotations/previews with
+      revision-aware background refresh and pending-edit protection. Native
+      connected-but-unreachable/offline authorization and Android acceptance remain.
+- [x] **UR03 desktop:** Replica reopening preserves offline intent/checkpoints;
+      native sync publishes view refreshes; concurrent sync coalesces and partial
+      downloads fail visibly. Native reconnect/cross-process and Android work remain.
+- [ ] **UR04 partial:** Bounded preview queues, cache-first hosted rendering,
+      scoped bounded SVG cache and shared PDF pipeline implemented. Measured native
+      cold/warm latency, image thumbnails and remaining cancellation work are open.
+- [ ] **UR05 partial:** Spatial canvas/logic, Kanban columns/cards and themed deck
+      layout rendered. Deck images/charts/tables remain placeholders; full-fidelity
+      per-format rendering is open.
+- [ ] **UR06 partial:** Visible legacy controls in desktop editors migrated to
+      shared primitives; full component/accessibility inventory and mobile remain.
+- [x] **UR07 desktop:** External OS drop coordinates and target-area mapping
+      corrected. **User confirmed working**; broader monitor/platform release QA
+      remains.
+- [x] **UR08 desktop:** Legacy Collaboration Chat tab now opens the Chats
+      workspace; persisted old selection falls back to Peers. Existing data retained;
+      mobile equivalents still need inspection.
+- [ ] **UR09 partial:** Shared sidebar Tabs, per-vault file-tree state and active
+      document ancestor/filter/trash context corrected. Broader view-dependent
+      sidebar behavior still needs native acceptance.
+- [x] **UR10 desktop:** Kanban flex height constraints and scrolling card region
+      implemented. Native scrollbar/drag auto-scroll/touch acceptance remains.
+- [ ] **UR11 open:** Android stale drawing modes remain mobile work.
+- [ ] **UR12 — needs final testing:** Canvas gesture serialization, bounded
+      hydration and pixel limits implemented. Native CPU/heap/GPU profiling and
+      large-board interactions remain; do not close the performance report yet.
+- [ ] **UR13 — needs final testing:** Load/save/navigation guards, coalesced live
+      checkpoints, semantic REST/live JSON comparison and connection ownership fixes
+      implemented. Repeated edits/save/navigation/reopen must be confirmed with
+      **both rebuilt desktop and server**. Process quit/death recovery remains open.
+
+Android counterparts of UR01–UR06/UR08–UR10 and web-specific consistency work
+are not closed by desktop checkboxes. The original source inventory follows.
 
 ## Coverage And Priority
 

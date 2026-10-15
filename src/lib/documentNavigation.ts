@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 
-import { useDocumentStatusStore } from '../store/documentStatusStore';
+import { getRegisteredDocumentStatuses } from '../store/documentStatusStore';
 
 let pending: Array<{ action: () => void; resolve: (allowed: boolean) => void }> = [];
 let flushing = false;
@@ -8,7 +8,7 @@ let flushing = false;
 /** Keep the mounted editor until its latest content is saved or durably queued. */
 export function runDocumentNavigation(action: () => void): Promise<boolean> {
   if (
-    Object.values(useDocumentStatusStore.getState().statuses).some((entry) => {
+    getRegisteredDocumentStatuses().some((entry) => {
       const snapshot = entry.controller?.getSnapshot();
       return entry.readOnly && snapshot?.dirty && !snapshot.offlineQueued;
     })
@@ -20,7 +20,7 @@ export function runDocumentNavigation(action: () => void): Promise<boolean> {
   }
   const controllers = [
     ...new Set(
-      Object.values(useDocumentStatusStore.getState().statuses)
+      getRegisteredDocumentStatuses()
         .filter((entry) => !entry.readOnly)
         .map((entry) => entry.controller)
         .filter((controller) => controller !== undefined),
@@ -30,7 +30,7 @@ export function runDocumentNavigation(action: () => void): Promise<boolean> {
     const snapshot = controller.getSnapshot();
     return (snapshot.dirty || snapshot.saving) && !snapshot.liveState && !snapshot.offlineQueued;
   });
-  const preparers = Object.values(useDocumentStatusStore.getState().statuses).flatMap((entry) =>
+  const preparers = getRegisteredDocumentStatuses().flatMap((entry) =>
     entry.beforeLeave ? [entry.beforeLeave] : [],
   );
   if (!flushing && dirty.length === 0 && preparers.length === 0) {

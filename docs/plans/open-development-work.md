@@ -51,7 +51,11 @@ scroll restoration, safe hosted source refresh, shared UI controls and dynamic
 file-tree context. The recurring canvas save/merge fix remains **needs final testing** against both
 the rebuilt client and server. Batch 4 scopes note-index/file-tree/snippet
 publication, coalesces index jobs, escapes Markdown render errors and upgrades
-the dependencies flagged by PR #96's security scan. Native acceptance,
+the dependencies flagged by PR #96's security scan. Batch 5 guards grid document
+replacement/workspace/layout/resize transitions, retains every pane's save
+registration, and serializes local compare-and-write operations within the app
+process. Current checkboxes in the desktop audit and reported-regression
+supplement distinguish implemented, partial and open work. Native acceptance,
 process-death recovery, full-fidelity asset
 thumbnails and the remaining desktop/report backlog are still open.
 Prioritize pending-edit loss during navigation, Unicode search panics, native

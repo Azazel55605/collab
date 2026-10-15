@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 
 import { create } from 'zustand';
 
@@ -31,37 +31,57 @@ export interface RegisteredDocumentStatus {
 
 interface DocumentStatusState {
   statuses: Record<string, RegisteredDocumentStatus>;
-  setDocumentStatus: (relativePath: string, status: RegisteredDocumentStatus) => void;
-  clearDocumentStatus: (relativePath: string) => void;
+  registrations: Record<string, { relativePath: string; status: RegisteredDocumentStatus }>;
+  setDocumentStatus: (
+    relativePath: string,
+    status: RegisteredDocumentStatus,
+    owner?: string,
+  ) => void;
+  clearDocumentStatus: (relativePath: string, owner?: string) => void;
 }
 
 export const useDocumentStatusStore = create<DocumentStatusState>((set) => ({
   statuses: {},
-  setDocumentStatus: (relativePath, status) =>
+  registrations: {},
+  setDocumentStatus: (relativePath, status, owner = relativePath) =>
     set((state) => ({
-      statuses: {
-        ...state.statuses,
-        [relativePath]: status,
-      },
+      registrations: { ...state.registrations, [owner]: { relativePath, status } },
+      statuses: { ...state.statuses, [relativePath]: status },
     })),
-  clearDocumentStatus: (relativePath) =>
+  clearDocumentStatus: (relativePath, owner = relativePath) =>
     set((state) => {
-      if (!(relativePath in state.statuses)) return state;
+      const { [owner]: _registration, ...registrations } = state.registrations;
+      const remaining = Object.values(registrations).filter(
+        (entry) => entry.relativePath === relativePath,
+      );
       const { [relativePath]: _removed, ...statuses } = state.statuses;
-      return { statuses };
+      if (remaining.length) statuses[relativePath] = remaining[remaining.length - 1].status;
+      return { registrations, statuses };
     }),
 }));
+
+/** Include every mounted pane even when multiple panes show the same path. */
+export function getRegisteredDocumentStatuses(): RegisteredDocumentStatus[] {
+  const { statuses, registrations } = useDocumentStatusStore.getState();
+  return [
+    ...new Set([
+      ...Object.values(statuses),
+      ...Object.values(registrations).map((entry) => entry.status),
+    ]),
+  ];
+}
 
 export function useDocumentStatusRegistration(
   relativePath: string | null | undefined,
   status: RegisteredDocumentStatus | null,
 ): void {
+  const owner = useId();
   const setDocumentStatus = useDocumentStatusStore((state) => state.setDocumentStatus);
   const clearDocumentStatus = useDocumentStatusStore((state) => state.clearDocumentStatus);
 
   useEffect(() => {
     if (!relativePath || !status) return;
-    setDocumentStatus(relativePath, status);
-    return () => clearDocumentStatus(relativePath);
-  }, [clearDocumentStatus, relativePath, setDocumentStatus, status]);
+    setDocumentStatus(relativePath, status, owner);
+    return () => clearDocumentStatus(relativePath, owner);
+  }, [clearDocumentStatus, owner, relativePath, setDocumentStatus, status]);
 }

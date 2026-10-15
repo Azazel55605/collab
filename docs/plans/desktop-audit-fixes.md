@@ -3,8 +3,8 @@
 Started **2026-10-14**. Status: **In progress**. This tracks implementation of
 the [desktop audit](../audits/desktop-performance-and-bugs-2026-10-14.md) and
 [reported regressions](../audits/reported-regressions-2026-10-14.md). Original
-audit counts/IDs remain historical inventories; implementation evidence belongs
-here and in [Open Development Work](./open-development-work.md).
+audit counts/IDs remain historical inventories; current checkboxes live in the
+audit documents, with implementation evidence here and in [Open Development Work](./open-development-work.md).
 
 ## Batch 1 — Save And Viewer Correctness
 
@@ -338,9 +338,60 @@ The container security check must run in CI; no running user server was altered.
 
 Native UI/resource/crypto acceptance and the wider audit backlog remain open.
 
+## Batch 5 — Grid Lifetimes And Local Save Serialization
+
+Implemented **2026-10-15**. Canvas remains **needs final testing**.
+
+- **R02 / B01:** Grid editor subtrees are keyed by vault/server, document type and
+  path. Cell replacement/clear, swaps, reorders, workspace creation/switch/deletion,
+  layout changes and split activation pass through the save-before-navigation
+  gate. Delayed actions cannot mutate a different active workspace. Responsive
+  resizing also waits before removing mounted panes and rejects obsolete resize
+  completions.
+- Same-file grid panes have separate status-registration owners. Navigation
+  inspects every controller; cleaning up one pane cannot remove another pane's
+  registration. Sessions remain independent; **O15 shared sessions is open**.
+- **R03 partial:** Native note writes serialize the full expected-hash check,
+  merge and atomic publication per canonical parent/file within this process.
+  Weak lock entries are retired as later writes arrive; separate files do not
+  share an I/O lock. Concurrent stale writers receive the existing conflict or
+  merge result. This does not coordinate another application/process or protect
+  other write/delete/rename paths. External-writer acceptance remains open.
+- Both audit documents now carry current completion/partial/acceptance status.
+  Implemented code is distinguished from outstanding platform/fidelity work.
+
+### Batch 5 Verification
+
+- The end-of-batch full desktop/script run recorded **2,321 passed, three failed,
+  one intentional skip**. Failures were the existing ink 8 ms timing ceiling
+  (9.3 ms under load), a CLI child-process `EPERM` in the sandbox, and the new
+  resize test attempting to redefine a non-configurable harness mock.
+- The resize fixture now assigns/restores that writable mock. Review also added
+  a regression preventing delayed layout animation from changing a different
+  workspace. All **46 affected desktop tests passed** in the final focused run,
+  including grid navigation/identity, same-file pane ownership, resize/layout,
+  the unchanged ink budget and host-permitted manifest CLI. Unrelated desktop
+  suites were not repeated after these fixture/guard corrections.
+- Admin **81/81** passed. Android's full run recorded **254 passed/two failures**
+  in the calendar screen during native compilation; all **14 calendar tests**
+  subsequently passed in isolation, without changing Android code or timeouts.
+- Rust workspace tests/check and formatting passed, including eight simultaneous
+  stale note writers (one accepted, seven conflicts) and canonical-parent lock
+  sharing. Desktop/admin/Android TypeScript, desktop/admin production builds,
+  changed-file lint (zero warnings/errors), formatting, crate/version guards and
+  Compose configuration passed.
+- Both dependency and container security checks passed on PR #96's preceding
+  head, confirming the prior dependency fixes. New-head CI must still run.
+  No new dependency changes or advisory ignores in this batch.
+- Native UI, external-writer coordination, process-death recovery and canvas
+  user acceptance remain open. Server smoke retains the previously established
+  BuildKit entitlement limitation; it was not rerun for these desktop-only
+  changes. No existing server/database was changed.
+
 ## Verification Boundary
 
-Run the repository checks and focused regressions for each batch. Keep timing
+Finish the batch before running the repository suites and regression checks.
+Run them at the end, with targeted reruns only for failures or later corrections. Keep timing
 tests separate from first-time native compilation. Tests that bind localhost or
 spawn child CLIs require a host environment allowing those operations; an EPERM
 is not product failure. Browser/jsdom success does not establish native drag,

@@ -870,6 +870,16 @@ setLayout(wsId, layout) | setCellContent(wsId, cellIdx, content)
 swapCells | reorderCells | clearCell | activateSplit
 ```
 
+Grid store operations that can unmount/remount a document use
+`runDocumentNavigation`; deferred changes retain their originating workspace.
+GridCell keys its editor subtree by vault/server, type and path. Responsive grid
+fallback waits for saves before removing panes. Document status registrations
+have per-pane owners while retaining the path-based status projection for UI;
+navigation collects every mounted controller, including duplicate-file panes.
+Native `commands/files.rs` uses weakly retained per-path locks around each note
+compare/merge/publish operation. Canonical parent directories share locks across
+path aliases. These are process-local locks, not an external-editor protocol.
+
 ### `kanbanStore` (`src/store/kanbanStore.ts`)
 
 ```ts
