@@ -39,8 +39,8 @@ use axum::{
 use collab_live::{
     apply_update, compact_state, diff as live_diff, materialization_decision, materialized_content,
     recovery_decision, replace_document, replay_updates, seed_document,
-    state_vector as live_state_vector, try_auto_merge_text, validate_update, Doc, LiveDocumentKind,
-    LiveLimits, MaterializationDecision, RecoveryDecision,
+    state_vector as live_state_vector, validate_update, Doc, LiveDocumentKind, LiveLimits,
+    MaterializationDecision, RecoveryDecision,
 };
 use collab_protocol::{
     ws_message, Capability, ErrorCode, HostedVaultRole, HostedVaultStatus, WsClientControl,
@@ -764,25 +764,14 @@ impl Hub {
         let Some(live_content) = room.materialized_content() else {
             return ExternalRevisionMerge::Merged(incoming_content);
         };
-        if live_content == base_content || live_content == incoming_content {
-            return ExternalRevisionMerge::Merged(incoming_content);
-        }
-        if incoming_content == base_content {
-            return ExternalRevisionMerge::Merged(live_content);
-        }
-        match room.materialize {
-            MaterializeKind::NoteText => {
-                match try_auto_merge_text(base_content, &incoming_content, &live_content) {
-                    Some(merged) => ExternalRevisionMerge::Merged(merged),
-                    None => ExternalRevisionMerge::Conflict,
-                }
-            }
-            MaterializeKind::Json
-            | MaterializeKind::Canvas
-            | MaterializeKind::Sheet
-            | MaterializeKind::Ink
-            | MaterializeKind::Deck => ExternalRevisionMerge::Conflict,
-            MaterializeKind::None => ExternalRevisionMerge::Merged(incoming_content),
+        match collab_live::merge_external_content(
+            room.materialize,
+            base_content,
+            &incoming_content,
+            &live_content,
+        ) {
+            Some(content) => ExternalRevisionMerge::Merged(content),
+            None => ExternalRevisionMerge::Conflict,
         }
     }
 }
@@ -2504,6 +2493,73 @@ mod tests {
             .await
             .expect("current text");
         assert_eq!(content, "offline edit");
+    }
+
+    #[tokio::test]
+    async fn canvas_formatting_does_not_create_conflicts_or_noop_revisions() {
+        let Some((pool, _db_guard)) = test_pool().await else {
+            return;
+        };
+        let owner = insert_user(&pool, "format-owner").await;
+        let vault = insert_vault(&pool, owner).await;
+        let file = insert_typed_document(&pool, vault, "format.canvas", "canvas").await;
+        let (_addr, state) = serve(pool.clone()).await;
+        let mut value = serde_json::json!({"nodes":[{"id":"one","type":"text","content":"base","position":{"x":0,"y":0},"width":100,"height":100}],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}});
+        let mut base = serde_json::to_string_pretty(&value).unwrap();
+        insert_note_revision(&pool, &state.blobs, vault, file, &base).await;
+        let room = state.hub.join(file, vault).await.unwrap();
+        for edit in 1..=3 {
+            let live = room.materialized_content().unwrap();
+            assert_ne!(live, base, "live JSON is compact; REST JSON is formatted");
+            let snapshot = api::load_current_document_snapshot(&pool, &*state.blobs, vault, file)
+                .await
+                .unwrap();
+            let unchanged = api::persist_materialized_document(
+                &pool,
+                &*state.blobs,
+                vault,
+                file,
+                &live,
+                Some(owner),
+                Some(&snapshot.marker),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(
+                unchanged,
+                api::MaterializeDocumentOutcome::Unchanged(_)
+            ));
+            value["nodes"][0]["content"] = serde_json::json!(format!("edit {edit}"));
+            let incoming = serde_json::to_string_pretty(&value).unwrap();
+            let merged = state
+                .hub
+                .merge_external_content(vault, file, &base, incoming.clone())
+                .await;
+            let ExternalRevisionMerge::Merged(content) = merged else {
+                panic!("unchanged live JSON must not conflict with REST edit {edit}");
+            };
+            assert_eq!(content, incoming);
+            insert_note_revision(&pool, &state.blobs, vault, file, &content).await;
+            let saved = api::load_current_document_snapshot(&pool, &*state.blobs, vault, file)
+                .await
+                .unwrap();
+            state
+                .hub
+                .apply_external_revision(vault, file, content.clone(), saved.marker, Some(owner))
+                .await;
+            base = content;
+        }
+        tokio::time::sleep(Duration::from_millis(2000)).await;
+        let revisions: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM hosted_file_revisions WHERE file_id = $1")
+                .bind(file)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            revisions, 4,
+            "one initial revision and three actual edits; no formatting-only revisions"
+        );
     }
 
     #[tokio::test]

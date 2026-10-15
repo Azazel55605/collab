@@ -244,6 +244,49 @@ configuration passed. Changed-file lint has zero errors and seven existing
 warnings; formatting/diff checks passed. Server smoke retains the existing
 BuildKit entitlement limitation described above.
 
+## Hosted Canvas Source-Cause Correction — 2026-10-15
+
+The previous revision-recovery change did not stop recurring merge prompts.
+Tracing both writers identified server comparisons between compact live JSON and
+formatted REST JSON, plus a client connection path that abandoned live ownership
+when an edit arrived during connection. Callback/vault-object identity changes
+could also restart that ownership or repeatedly mark the canvas dirty.
+
+- Shared `collab-live` content comparison now treats structured JSON formatting,
+  object-key order and equivalent integer/float forms as equal. Text remains
+  byte-sensitive; array order, changed fields and distinct large integers remain
+  significant. REST/live reconciliation uses that policy before declaring a
+  structured conflict.
+- Live materialization checks the current structured document when digests differ
+  and skips formatting-only revisions. Optimistic revision-marker validation
+  still happens first, preserving rejection of genuinely stale room writes.
+- Canvas live ownership follows vault/path/permission scope rather than renderer
+  callback or vault-object identity. Edits made during connection are merged from
+  their REST base into the live document, preserving independent remote cards.
+  An in-flight REST request finishes before live takeover. Dirty-state tracking
+  likewise follows document scope rather than vault-object identity.
+
+The new client regression covers a delayed connection, local edits, a remote
+card, unstable callback/vault identities and the absence of competing REST saves.
+A new **real PostgreSQL** regression performs three successive canvas edits and
+checks exactly four revisions (initial plus three edits), including background
+materialization. All **19 WebSocket/server tests** passed against an isolated,
+disposable PostgreSQL container, including offline reconnect, permissions and
+stale materialization protection. No existing database was used.
+
+Final validation: **2,301 desktop/script tests passed, one intentional skip**
+(with the same installed patched `braces`/`NODE_PATH` workaround noted above).
+Android **256/256**, admin **81/81**, desktop/Android/admin TypeScript,
+desktop/admin production builds, Rust workspace tests/check and version/crate
+guards passed. Changed canvas files have zero lint warnings/errors; formatting
+and diff checks passed. The disposable PostgreSQL container was stopped after
+its tests; existing databases and running services were untouched.
+
+**Both the desktop client and server must be rebuilt/deployed** for this fix.
+An older server retains the raw-text comparison even with the newer desktop.
+Native user acceptance remains open; the earlier recovery patch alone is not
+considered a resolution of the recurring-merge report.
+
 ## Verification Boundary
 
 Run the repository checks and focused regressions for each batch. Keep timing

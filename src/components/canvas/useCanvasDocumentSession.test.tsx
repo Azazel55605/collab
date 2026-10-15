@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runDocumentNavigation } from '../../lib/documentNavigation';
 import type { DocumentSessionController } from '../../lib/documentSessionController';
+import { type JsonObject, mergeLiveJsonEdits } from '../../lib/liveJsonDocument';
 import { HostedVaultClient } from '../../lib/vaultClient';
 import { useDocumentStatusStore } from '../../store/documentStatusStore';
 
@@ -46,7 +47,8 @@ vi.mock('../../lib/tauri', () => ({
   },
 }));
 
-vi.mock('../../lib/liveJsonDocument', () => ({
+vi.mock('../../lib/liveJsonDocument', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/liveJsonDocument')>()),
   openLiveJsonSession: liveMocks.openLiveJsonSession,
 }));
 
@@ -456,7 +458,7 @@ describe('useCanvasDocumentSession', () => {
     };
   }
 
-  function renderHostedFallback() {
+  function renderHostedFallback(unstableInputs = false) {
     const options = hostedLiveOptions();
     vi.spyOn(HostedVaultClient.prototype, 'createSnapshot').mockResolvedValue({} as never);
     return renderHook(() => {
@@ -464,6 +466,13 @@ describe('useCanvasDocumentSession', () => {
       const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
       const session = useCanvasDocumentSession({
         ...options,
+        ...(unstableInputs
+          ? {
+              vault: { ...options.vault! },
+              buildFlowNode: (canvas: Parameters<SessionOptions['buildFlowNode']>[0]) =>
+                options.buildFlowNode(canvas),
+            }
+          : {}),
         nodes,
         setNodes,
         viewport,
@@ -478,6 +487,72 @@ describe('useCanvasDocumentSession', () => {
       };
     });
   }
+
+  it('hands edits made during connection to one stable live session instead of competing REST saves', async () => {
+    let connect!: (session: unknown) => void;
+    liveMocks.openLiveJsonSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          connect = resolve;
+        }),
+    );
+    const restWrite = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockResolvedValue({ version: '4' });
+    const hook = renderHostedFallback(true);
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    let json: JsonObject = {
+      nodes: [
+        {
+          id: 'node-1',
+          type: 'text',
+          content: 'server',
+          position: { x: 0, y: 0 },
+          width: 100,
+          height: 100,
+        },
+        {
+          id: 'remote',
+          type: 'text',
+          content: 'remote card',
+          position: { x: 0, y: 0 },
+          width: 100,
+          height: 100,
+        },
+      ],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    };
+    const session = {
+      readJson: () => json,
+      writeJson: vi.fn((local: JsonObject, base: JsonObject) => {
+        json = mergeLiveJsonEdits(base, local, json) as JsonObject;
+      }),
+      onChange: () => () => {},
+      awareness: { setLocalStateField: vi.fn() },
+      getStatus: () => 'connected',
+      onStatus: () => () => {},
+      destroy: vi.fn(),
+    };
+    await act(async () => {
+      connect(session);
+    });
+    await waitFor(() => expect(hook.result.current.liveSession).toBe(session));
+    expect(json.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'node-1', content: 'mine' }),
+        expect.objectContaining({ id: 'remote', content: 'remote card' }),
+      ]),
+    );
+    hook.rerender();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    });
+    expect(liveMocks.openLiveJsonSession).toHaveBeenCalledTimes(1);
+    expect(session.destroy).not.toHaveBeenCalled();
+    expect(restWrite).not.toHaveBeenCalled();
+  });
 
   it('rebases a stale hosted revision only when authoritative canvas content matches the saved base, then allows leaving', async () => {
     const write = vi.spyOn(HostedVaultClient.prototype, 'writeDocument');

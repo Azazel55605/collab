@@ -394,9 +394,14 @@ export function useCanvasDocumentSession({
     return invalidateLoad;
   }, [documentScope, relativePath, invalidateLoad]);
 
+  const liveInputsRef = useRef({ client, applyLiveCanvas, buildLatestCanvas: () => EMPTY_CANVAS });
+  liveInputsRef.current.client = client;
+  liveInputsRef.current.applyLiveCanvas = applyLiveCanvas;
+
   // Open a live co-editing session for hosted canvases; fall back to REST when
   // unavailable. Remote changes flow in through `onChange`.
   useEffect(() => {
+    const { client } = liveInputsRef.current;
     if (
       !LIVE_CANVAS_ENABLED ||
       !client ||
@@ -413,16 +418,29 @@ export function useCanvasDocumentSession({
     let opened: LiveJsonSession | null = null;
     let off: (() => void) | undefined;
     openLiveJsonSession(client, relativePath)
-      .then((session) => {
+      .then(async (session) => {
         if (cancelled || !session) {
           session?.destroy();
           return;
         }
-        if (controller.getSnapshot().dirty || controller.getSnapshot().saving) {
+        opened = session;
+        // Finish any REST request already in flight before live ownership takes
+        // over. Dirty edits made during connection belong in the live document,
+        // rather than abandoning it and competing with its materializer forever.
+        if (controller.getSnapshot().saving) {
+          try {
+            await controller.requestSave('flush');
+          } catch {
+            session.destroy();
+            opened = null;
+            return;
+          }
+        }
+        if (cancelled || controller.getSnapshot().conflicted) {
           session.destroy();
+          opened = null;
           return;
         }
-        opened = session;
         const initial = session.readJson();
         if (initial && Object.keys(initial).length > 0) {
           const liveCanvas = sanitizeLoadedCanvasData(initial as unknown as CanvasData).canvas;
@@ -442,8 +460,15 @@ export function useCanvasDocumentSession({
             opened = null;
             return;
           }
-          liveBaseRef.current = initial;
-          applyLiveCanvas(liveCanvas);
+          if (!readOnly && controller.getSnapshot().dirty && restCanvas) {
+            session.writeJson(
+              canvasToJson(liveInputsRef.current.buildLatestCanvas()),
+              canvasToJson(restCanvas),
+            );
+          }
+          const adopted = session.readJson();
+          liveBaseRef.current = adopted;
+          liveInputsRef.current.applyLiveCanvas(adopted as unknown as CanvasData);
         } else {
           // The server owns seeding from the current REST revision. An empty
           // root means it could not provide a valid live canvas; keep the REST
@@ -460,12 +485,14 @@ export function useCanvasDocumentSession({
             flushLiveWriteRef.current();
             const merged = session.readJson();
             liveBaseRef.current = merged;
-            applyLiveCanvas(merged as unknown as CanvasData);
+            liveInputsRef.current.applyLiveCanvas(merged as unknown as CanvasData);
           }
         });
         setLiveSession(session);
       })
       .catch(() => {
+        opened?.destroy();
+        opened = null;
         // Best-effort; REST remains available.
       });
     return () => {
@@ -477,7 +504,7 @@ export function useCanvasDocumentSession({
       expectedLiveCanvasRef.current = null;
       setLiveSession(null);
     };
-  }, [applyLiveCanvas, client, controller, relativePath, restLoadedPath]);
+  }, [documentScope, readOnly, controller, relativePath, restLoadedPath]);
 
   useEffect(() => {
     if (!liveSession) return;
@@ -519,6 +546,7 @@ export function useCanvasDocumentSession({
       viewport: current.viewport,
     };
   }, []);
+  liveInputsRef.current.buildLatestCanvas = buildLatestCanvas;
   const pendingLiveWriteRef = useRef<(() => void) | null>(null);
   const flushLiveWrite = useCallback(() => {
     if (liveWriteTimerRef.current) clearTimeout(liveWriteTimerRef.current);
@@ -591,7 +619,7 @@ export function useCanvasDocumentSession({
   // no-op changes as clean, so they never autosave. Skipped while live (the CRDT
   // relay persists) or read-only.
   useEffect(() => {
-    if (!vault || !relativePath || readOnly || liveSession) return;
+    if (!documentScope || !relativePath || readOnly || liveSession) return;
     if (restLoadedPath !== relativePath) return;
     if (firstMarkAfterApplyRef.current) {
       firstMarkAfterApplyRef.current = false;
@@ -617,7 +645,7 @@ export function useCanvasDocumentSession({
     readOnly,
     relativePath,
     restLoadedPath,
-    vault,
+    documentScope,
     viewport,
   ]);
 

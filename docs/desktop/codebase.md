@@ -230,6 +230,16 @@ the save baseline and cached body, so acknowledging a revision does not falsely
 acknowledge different submitted bytes. Edits made during a server-merged save
 remain in the editor with both versions available for conflict review.
 
+Canvas live-session ownership uses vault/path/permission scope, with current
+render callbacks held separately. Local edits arriving during connection are
+merged from their REST base into live JSON before adopting that state; callback
+or vault-metadata identity changes do not reopen the session. The portable
+`collab-live::content_matches` and `merge_external_content` policies compare
+structured JSON values (including equivalent numeric forms), while note text
+retains exact byte semantics. The server applies these policies to REST/live
+reconciliation and suppresses formatting-only materialized revisions, after
+checking the current revision marker.
+
 `lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
 queues. Canvas only schedules nearby cards and discards obsolete hydration after
 source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,
