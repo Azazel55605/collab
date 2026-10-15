@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 webkit2gtk = { version = "2", features = ["v2_40"] }
 gtk = "0.18"
 # GTK3/WebKitGTK and our gesture adapter must share the glib 0.18 type family.
-glib = "0.18"
+glib = "0.22"
 gtk-sys = "0.18"
 tauri-plugin-drag = "2.1.1"
 # Both Linux keyring backends: kernel keyutils (silent default) and D-Bus Secret
@@ -60,7 +60,7 @@ hex = "0.4"
 thiserror = "2"
 parking_lot = "0.12"
 fuzzy-matcher = "0.3"
-zip = "4"
+zip = "9"
 argon2 = "0.6"
 rand = "0.10"
 base64 = "0.23"
@@ -88,7 +88,7 @@ tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 # JNI 0.22 requires a separate native-entrypoint/lifetime migration.
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 [dev-dependencies]
