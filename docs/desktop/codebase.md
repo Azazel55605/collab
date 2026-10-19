@@ -210,6 +210,22 @@ Desktop tab/page/vault transitions pass through `lib/documentNavigation.ts`.
 It flushes registered dirty controllers before unmounting their editors and
 keeps navigation blocked after a failed/conflicting save; acknowledged native
 offline queues permit the transition. This is not process-death draft recovery.
+Normal desktop quit also passes this boundary through
+`lib/useDesktopQuitGuard.ts`: `background_lifecycle.rs` emits a main-window quit
+request and waits for `background_complete_quit` before stopping transports or
+exiting. A readiness query catches requests sent during renderer startup. Failed
+saves retain the window. `useLiveDocumentStatus` registers checkpoint barriers
+with each controller; navigation waits for the current native offline CRDT
+checkpoint after preparing gestures, without making a REST write. Hide-to-tray
+stays immediate. Forced termination recovery and physical/server acknowledgement
+acceptance remain outside this handshake.
+
+`lib/ocrCache.ts` holds derived recognized/extracted text only in memory (64 entries,
+8 MiB, 30-minute expiry). `lib/useOcrCacheLifecycle.ts` subscribes to vault/account
+state at the App root, clears on close/lock/logout/membership loss and invalidates
+in-flight cache writes. Legacy plaintext IndexedDB result storage is deleted;
+installed model packs and saved OCR annotations have separate lifetimes.
+
 Native event registration uses `lib/nativeSubscription.ts` where late promises
 must clean themselves up after disposal.
 
@@ -409,7 +425,8 @@ missing a control, add it there using the interaction and theming rules in
 - `indentationPlugins` (indent guides, ASCII arrow ligatures, custom Tab indentation)
 - `markdownEditorViewConfig` (compartment setup, state creation, and hot-reconfigure helpers)
 - `snippetEngine` (placeholder-aware snippet sessions with Tab traversal)
-- `mathBlockCommands` (display-math shortcuts for LaTeX structures, `Ctrl+Enter` exact solver insertion, `Ctrl+Alt+Enter` approximation, and inline variable chooser events for ambiguous equations)
+- `mathShortcutHint` (muted inline exact/approximate shortcut discovery while editing a writable math block)
+- `mathBlockCommands` (pane/revision-owned solver choices and read-only-safe display-math shortcuts for LaTeX structures, `Ctrl+Enter` exact solver insertion, `Ctrl+Alt+Enter` approximation, and inline variable chooser events for ambiguous equations)
 - `mathSolver` (shared Nerdamer 2 scalar/equation evaluation; equation solutions use typed solution sets)
 - `textMerge` (three-way line edits from `diffArrays`; preserves disjoint edits and returns conflicts for overlapping changes)
 - `mathPlotSpec` / `MathPlot2D` / `MathPlot3D` (`%plot2d`/`%plot3d` metadata parsing plus 2D SVG and lazy-loaded 3D WebGL plot panels beneath display math)

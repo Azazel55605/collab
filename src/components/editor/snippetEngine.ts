@@ -175,6 +175,7 @@ export function insertSnippetTemplate(
   template: string,
   range?: { from: number; to: number },
 ) {
+  if (view.state.readOnly) return;
   const target = range ?? view.state.selection.main;
   const parsed = parseSnippetTemplate(template);
   const offsetPlaceholders = parsed.placeholders.map((placeholder) => ({

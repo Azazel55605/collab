@@ -265,3 +265,24 @@ it('waits for a save already in progress before leaving instead of rejecting ear
   controller.dispose();
   useDocumentStatusStore.setState({ statuses: {}, registrations: {} });
 });
+
+it('awaits live controller checkpoints even when REST saves are skipped', async () => {
+  useDocumentStatusStore.setState({ statuses: {}, registrations: {} });
+  const controller = register(async () => ({ version: 'v2' }));
+  controller.setLiveState('live-connected');
+  let finish!: () => void;
+  controller.registerLeaveBarrier(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const action = vi.fn();
+  const leaving = runDocumentNavigation(action);
+  expect(action).not.toHaveBeenCalled();
+  finish();
+  expect(await leaving).toBe(true);
+  expect(action).toHaveBeenCalledOnce();
+  controller.dispose();
+  useDocumentStatusStore.setState({ statuses: {}, registrations: {} });
+});

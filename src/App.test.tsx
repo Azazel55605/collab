@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
 
+vi.mock('./lib/useDesktopQuitGuard', () => ({ useDesktopQuitGuard: () => {} }));
+vi.mock('./lib/useOcrCacheLifecycle', () => ({ useOcrCacheLifecycle: () => {} }));
+
 const tauriCommandsMock = vi.hoisted(() => ({
   isAppImage: vi.fn(),
   shouldDisableBlur: vi.fn(),

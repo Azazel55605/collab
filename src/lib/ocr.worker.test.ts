@@ -11,7 +11,11 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../store/uiStore', () => ({ useUiStore: { getState: () => mocks.settings } }));
 vi.mock('tesseract.js', () => ({ createWorker: mocks.createWorker }));
-vi.mock('./ocrCache', () => ({ readOcrCache: mocks.readCache, writeOcrCache: mocks.writeCache }));
+vi.mock('./ocrCache', () => ({
+  readOcrCache: mocks.readCache,
+  scopeOcrCache: (scope: unknown) => scope,
+  writeOcrCache: mocks.writeCache,
+}));
 vi.mock('./tauri', () => ({
   tauriCommands: {
     recognizeImageDataUrlWords: mocks.native,

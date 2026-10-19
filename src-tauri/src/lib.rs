@@ -231,6 +231,8 @@ pub fn run() {
             commands::background::background_job_cancel,
             commands::background::background_job_aggregate,
             commands::background::background_status_snapshot,
+            commands::background::background_quit_pending,
+            commands::background::background_complete_quit,
             commands::background::background_settings_get,
             commands::background::background_settings_save,
             commands::background::background_sync_registered,
@@ -433,8 +435,22 @@ pub fn run() {
             commands::replica::replica_cleanup,
             commands::replica::replica_delete,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(not(mobile))]
+            if let tauri::RunEvent::ExitRequested {
+                api, code: None, ..
+            } = event
+            {
+                if !background_lifecycle::is_quitting(app) {
+                    api.prevent_exit();
+                    background_lifecycle::request_quit(app);
+                }
+            }
+            #[cfg(mobile)]
+            let _ = (app, event);
+        });
 }
 
 #[cfg(all(test, target_os = "linux"))]

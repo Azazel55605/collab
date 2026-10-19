@@ -309,6 +309,9 @@ export const tauriCommands = {
     invoke<BackgroundJobRecord>('background_job_cancel', { jobId }),
   backgroundJobAggregate: () => invoke<BackgroundJobAggregate>('background_job_aggregate'),
   backgroundStatusSnapshot: () => invoke<BackgroundStatusSnapshot>('background_status_snapshot'),
+  backgroundQuitPending: () => invoke<boolean>('background_quit_pending'),
+  backgroundCompleteQuit: (allowed: boolean) =>
+    invoke<void>('background_complete_quit', { allowed }),
   backgroundSettingsGet: () => invoke<BackgroundSettings>('background_settings_get'),
   backgroundSettingsSave: (settings: BackgroundSettings) =>
     invoke<BackgroundSettings>('background_settings_save', { settings }),

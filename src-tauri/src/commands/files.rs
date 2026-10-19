@@ -1237,6 +1237,26 @@ fn write_note_to_path(
 ) -> Result<WriteResult, String> {
     let lock = note_write_lock(full_path)?;
     let _write_guard = lock.lock();
+    let observed_hash = if expected_hash.is_some() {
+        match std::fs::read(full_path) {
+            Ok(bytes) => Some(sha256_bytes(&bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.to_string()),
+        }
+    } else {
+        None
+    };
+    if expected_hash.is_some() && observed_hash.is_none() {
+        return Ok(WriteResult {
+            hash: compute_hash(&content),
+            merged_content: None,
+            conflict: Some(ConflictInfo {
+                our_content: content,
+                their_content: String::new(),
+                relative_path: relative_path.to_string(),
+            }),
+        });
+    }
     let mut content_to_write = content;
     let mut merged_content: Option<String> = None;
 
@@ -1328,6 +1348,30 @@ fn write_note_to_path(
             .map_err(|e| e.to_string())?;
     std::io::Write::write_all(&mut staged, &bytes_to_write).map_err(|e| e.to_string())?;
     staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    // An external editor does not participate in our mutex. Recheck after the
+    // expensive validation/encryption/staging work; never knowingly replace an
+    // intervening change or resurrect a file deleted since it was opened.
+    if expected_hash.is_some()
+        && std::fs::read(full_path)
+            .ok()
+            .map(|bytes| sha256_bytes(&bytes))
+            != observed_hash
+    {
+        let their_content = if full_path.exists() {
+            read_note_from_path(full_path, relative_path, key_opt)?.content
+        } else {
+            String::new()
+        };
+        return Ok(WriteResult {
+            hash: compute_hash(&content_to_write),
+            merged_content: None,
+            conflict: Some(ConflictInfo {
+                our_content: content_to_write,
+                their_content,
+                relative_path: relative_path.to_string(),
+            }),
+        });
+    }
     staged.persist(full_path).map_err(|e| e.to_string())?;
 
     let hash = compute_hash(&content_to_write);
@@ -2338,6 +2382,23 @@ mod tests {
         assert!(std::sync::Arc::ptr_eq(&first, &second));
         let other = super::note_write_lock(&vault.resolve("Notes/Other.md")).unwrap();
         assert!(!std::sync::Arc::ptr_eq(&first, &other));
+    }
+
+    #[test]
+    fn stale_writer_does_not_resurrect_an_externally_deleted_note() {
+        let vault = TempVault::new().unwrap();
+        let target = vault.resolve("Notes/Deleted.md");
+        let result = write_note_to_path(
+            &target,
+            "Notes/Deleted.md",
+            "edited".to_string(),
+            Some(super::compute_hash("base")),
+            Some("base".to_string()),
+            None,
+        )
+        .unwrap();
+        assert!(result.conflict.is_some());
+        assert!(!target.exists());
     }
 
     #[test]

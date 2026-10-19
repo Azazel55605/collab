@@ -23,3 +23,14 @@ it('disposes late registration and ignores callbacks after cleanup', async () =>
   expect(cleanup).toHaveBeenCalledOnce();
   expect(handler).not.toHaveBeenCalled();
 });
+
+it('runs the readiness handshake only while its listener is still owned', async () => {
+  const cleanup = vi.fn();
+  mocks.listen.mockResolvedValue(cleanup);
+  const ready = vi.fn();
+  const dispose = listenSafely('ready', vi.fn(), ready);
+  await Promise.resolve();
+  expect(ready).toHaveBeenCalledOnce();
+  dispose();
+  expect(cleanup).toHaveBeenCalledOnce();
+});

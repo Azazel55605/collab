@@ -70,3 +70,31 @@ describe('useLiveDocumentStatus', () => {
     expect(doc.getSnapshot().status).toBe('idle');
   });
 });
+
+it('waits for the current live checkpoint and removes the barrier when the session changes', async () => {
+  const doc = controller();
+  const live = liveHandle('connected');
+  let finish!: () => void;
+  const checkpoint = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  live.handle.flushOfflineState = checkpoint;
+  const hook = renderHook(({ session }) => useLiveDocumentStatus(doc, session), {
+    initialProps: { session: live.handle as LiveDocumentHandle | null },
+  });
+  let done = false;
+  const leaving = doc.prepareToLeave().then(() => {
+    done = true;
+  });
+  expect(checkpoint).toHaveBeenCalledOnce();
+  expect(done).toBe(false);
+  finish();
+  await leaving;
+  expect(done).toBe(true);
+  hook.rerender({ session: null });
+  await doc.prepareToLeave();
+  expect(checkpoint).toHaveBeenCalledOnce();
+});

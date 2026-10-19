@@ -61,9 +61,11 @@ changes and automated verification live in
       implemented. Repeated edits/save/navigation/reopen must be confirmed with
       **both rebuilt desktop and server**. Process quit/death recovery remains open.
 
-- [ ] **UR14 open:** Keyboard-triggered formula evaluation in Markdown math
-      blocks does not work, as reported on **2026-10-15**. Reproduction/platform
-      and the exact pressed shortcut are not yet confirmed; no fix is claimed.
+- [x] **UR14:** User retest on 2026-10-19 confirms evaluation works again;
+      no original cause is claimed. Added a muted inline shortcut hint in active
+      editable math blocks, real-editor keyboard/undo coverage, pane-owned variable
+      choices and read-only/stale-result guards. Native keyboard-layout acceptance
+      remains a release check.
 
 Android counterparts of UR01–UR06/UR08–UR10 and web-specific consistency work
 are not closed by desktop checkboxes. The original source inventory follows.
@@ -257,8 +259,10 @@ serialization or retaining more renderer state.
 ### UR14 — Math-Block Evaluation Keyboard Shortcut
 
 Reported **2026-10-15**: evaluating a formula through the keyboard shortcut in a
-math block does not work. Keep this as a reported regression until the actual
-key combination, editor focus/state and affected platform are reproduced.
+math block does not work. **Retest 2026-10-19:** the user confirms it works again;
+rendered-editor Ctrl+Enter also works. No root cause for the transient report is
+claimed. The requested follow-up is an inline, muted shortcut hint while editing
+a math block, now implemented with keyboard/undo and read-only regression coverage.
 This concerns Markdown math blocks, separately from spreadsheet runtime fixes.
 
 [mathBlockCommands](../../src/components/editor/mathBlockCommands.ts) registers

@@ -1,8 +1,9 @@
-import { EditorState } from '@codemirror/state';
+import { EditorState, StateEffect } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  applyMathSolverChoice,
   getActiveMathBlock,
   handleMathBlockShortcutKeydown,
   insertMathFraction,
@@ -218,5 +219,44 @@ describe('mathBlockCommands', () => {
       variables: ['a', 'b', 'x'],
       range: { from: 3, to: 10 },
     });
+  });
+});
+
+describe('math command ownership and read-only boundaries', () => {
+  it('does not pair math delimiters inside code fences with real math blocks', () => {
+    const doc = '```md\n$$\nexample\n```\n\n$$\n2+2\n$$';
+    const view = createView(doc, doc.indexOf('2+2') + 3);
+    expect(solveActiveMathInput(view)).toBe(true);
+    expect(view.state.doc.toString()).toContain('2+2 = 4');
+    view.dispatch({ selection: { anchor: doc.indexOf('example') } });
+    expect(getActiveMathBlock(view)).toBeNull();
+  });
+
+  it('does not mutate read-only math through commands', () => {
+    const view = createView('$$\n2+2\n$$', 6);
+    view.dispatch({ effects: StateEffect.appendConfig.of(EditorState.readOnly.of(true)) });
+    expect(solveActiveMathInput(view)).toBe(false);
+    expect(insertMathFraction(view)).toBe(false);
+    expect(insertMathPlot2D(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe('$$\n2+2\n$$');
+  });
+
+  it('rejects a chooser result for another pane or an edited document', () => {
+    const view = createView('$$\nx+y=2\n$$', 8);
+    const other = createView('$$\nx+y=2\n$$', 8);
+    const detail = {
+      view,
+      document: view.state.doc,
+      source: 'x+y=2',
+      mode: 'exact' as const,
+      variables: ['x', 'y'],
+      range: { from: 3, to: 8 },
+      anchorRect: null,
+    };
+    expect(applyMathSolverChoice(other, detail, 'x')).toBe(false);
+    view.dispatch({ changes: { from: 3, to: 8, insert: 'x+y=3' } });
+    expect(applyMathSolverChoice(view, detail, 'x')).toBe(false);
+    expect(other.state.doc.toString()).toBe('$$\nx+y=2\n$$');
+    expect(view.state.doc.toString()).toBe('$$\nx+y=3\n$$');
   });
 });

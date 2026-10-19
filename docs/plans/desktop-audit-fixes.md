@@ -484,14 +484,89 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
   and was not rerun for these frontend-only changes. Existing servers/databases
   were untouched.
 
-## Newly Reported — Math Evaluation Shortcut
+## Batch 8 — Desktop Bug Completion And Math Discoverability (2026-10-19)
 
-- [ ] **UR14 / P2 — Open, reported 2026-10-15:** Formula evaluation via keyboard
-      shortcut in Markdown math blocks does not work. Track this separately from the
-      completed spreadsheet runtime ownership fix. Exact key/platform/focus
-      reproduction, keyboard-event dispatch coverage, result insertion and undo
-      acceptance remain open. See the
-      [reported regression](../audits/reported-regressions-2026-10-14.md#ur14--math-block-evaluation-keyboard-shortcut).
+- [x] **UR14:** The user confirms the shortcut works again. Rendered-editor
+      reproduction also evaluates `2+2` once with Ctrl+Enter. No speculative cause is
+      assigned to the earlier transient report. A muted inline hint now advertises
+      exact/approximate shortcuts while the caret is inside an editable math block;
+      it disappears in ordinary text, selections and read-only notes.
+- [x] **Math ownership/read-only bugs:** A variable chooser belongs to one editor
+      pane and one immutable document revision. Editing before choosing a variable
+      rejects the stale action. Invalid scalar input produces an error notification.
+      Math/snippet/formatting/context-menu/imperative edits respect read-only state;
+      an asynchronous paste cannot overwrite a changed document. Code-fenced examples
+      no longer alter display-math command delimiter pairing.
+- [x] **R08 / O48:** Derived OCR text and word boxes are memory-only for the
+      current vault/account context, with 64-entry, 8 MiB and 30-minute limits.
+      Lifecycle subscriptions clear results on vault close/lock/switch, logout/account
+      changes and observed membership loss. Generation-stamped jobs cannot repopulate
+      a cleared cache. The legacy plaintext database is deleted on app startup and
+      deletion failures/blocked upgrades remain retryable. Settings explains retention;
+      language packs and saved annotations remain installed/authoritative.
+- [x] **B01 normal quit:** Native window close in quit mode, tray quit and normal
+      system quit now request the renderer's save boundary before shutting down
+      background work/live transports. Failed/conflicting saves keep the main editor
+      open. Repeated requests coalesce; listener readiness checks recover early quit
+      requests. Hide-to-tray behavior is unchanged. This does not implement forced
+      process-death draft recovery or prove live-session durable acknowledgement.
+- [x] **B01 live checkpoints:** `useLiveDocumentStatus` registers a native offline
+      checkpoint barrier on each live controller. Navigation and quit await it after
+      materializing gestures, even when live ownership suppresses REST writes.
+      Checkpoint rejection blocks leaving; ordinary local saves still dispatch
+      immediately. Server receipt and physical restart acceptance remain open.
+- [x] **R03 additional corrections:** A stale expected revision cannot resurrect
+      an externally deleted file. Local writes compare observed bytes again after
+      validation/encryption/staging and reject intervening external changes. The
+      per-file app mutex remains; unrelated applications can still race the final
+      rename and cannot be made atomic participants with an advisory lock.
+- [x] **R09 investigation:** Hosted tag/link/word-count parity is a confirmed
+      capability gap. The manifest is a lightweight filename/revision index; server
+      full-text search is distinct. A shared content-metadata endpoint/cache design
+      is follow-on feature work. Do not fetch every hosted note on every tree refresh
+      merely to fill these fields, or claim empty fields are full index parity.
+
+Desktop **B01–B08 corrections are implemented**. The remaining work is explicit:
+**UR12/UR13 stays needs final testing** with rebuilt desktop and server; R03's
+cross-application storage contract, forced-death/durable-draft
+recovery needs further design; UR04/UR12 profiling belongs to performance work;
+UR05 asset fidelity, R09 hosted indexing and the broader UR06 component inventory
+are enhancements. Android UR11 and the web/mobile bug backlogs are outside this
+desktop batch. PDF/offline/reconnect/scrollbar/sidebar/platform acceptance still
+requires the native matrix; checkboxes do not assert it passed.
+
+Validation (2026-10-19):
+
+- Desktop/scripts: **2,365 passed, one intentional skip** across 332 files after
+  targeted correction/rerun. The first sandbox run had 14 timeouts in unchanged
+  Deck/Ink/sheet tests and one stale-module failure after the checkpoint addition.
+  A fresh host run passed those cases and caught a real local-save dispatch
+  regression in the new checkpoint wait. Restricting that wait to live sessions
+  fixed it; all 25 navigation/grid/live-status tests passed on rerun. The keyboard
+  test's unsupported query option was corrected after TypeScript rejected it;
+  its four tests passed again. No timeout or performance budget was relaxed.
+- Admin **81/81** and Android **258/258** passed. All three TypeScript checks and
+  frontend builds passed; output was directed to `/tmp`, preserving the unrelated
+  generated `dist-mobile/index.html` change.
+- Rust workspace tests, workspace check and formatting passed, including the
+  stale-writer/deleted-file regression. Version/crate-boundary guards, changed-file
+  Prettier and diff checks passed. Changed-file lint has zero errors and 14
+  warnings; running the same lint rules on HEAD confirmed all 14 already existed.
+- Rendered editor: Browser plugin unavailable, so Playwright used installed
+  Chrome against the actual MarkdownEditor in a disposable fixture at
+  `http://127.0.0.1:14865/__bugs` (title: **Collab math keyboard QA**).
+  Verified the hint, exact result once, undo, approximation, variable chooser and
+  ordinary-text behavior, with no console errors or error overlay. Screenshot
+  `/tmp/collab-math-hint.png` was inspected. Full-editor jsdom coverage additionally
+  checks pane ownership, read-only behavior and an asynchronous paste racing edits.
+- Compose config passed. Isolated smoke project
+  `collab-desktop-bugs-20261019`, port 18789 and a `/tmp` backup directory reached
+  the existing BuildKit `--allow=network.host` entitlement block before startup.
+  No smoke success or live PostgreSQL coverage is claimed. Existing running
+  servers/databases were not changed.
+- Native quit/storage, encrypted-profile upgrade/blocked legacy-cache deletion,
+  physical input/rendering/offline/reconnect acceptance and the canvas user retest
+  remain open. This batch does not establish performance improvements.
 
 ## Verification Boundary
 

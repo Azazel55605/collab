@@ -33,7 +33,8 @@ export function runDocumentNavigation(action: () => void): Promise<boolean> {
   const preparers = getRegisteredDocumentStatuses().flatMap((entry) =>
     entry.beforeLeave ? [entry.beforeLeave] : [],
   );
-  if (!flushing && dirty.length === 0 && preparers.length === 0) {
+  const hasLiveCheckpoint = controllers.some((controller) => controller.getSnapshot().liveState);
+  if (!flushing && dirty.length === 0 && preparers.length === 0 && !hasLiveCheckpoint) {
     action();
     return Promise.resolve(true);
   }
@@ -43,6 +44,13 @@ export function runDocumentNavigation(action: () => void): Promise<boolean> {
   void (async () => {
     try {
       if (preparers.length) await Promise.all(preparers.map((prepare) => prepare()));
+      // Materialize gestures before asking live sessions to checkpoint their latest state.
+      if (hasLiveCheckpoint)
+        await Promise.all(
+          controllers
+            .filter((controller) => controller.getSnapshot().liveState)
+            .map((controller) => controller.prepareToLeave?.()),
+        );
       // A preparer can materialize a paused gesture after the initial snapshot.
       for (const controller of controllers) {
         const state = controller.getSnapshot();

@@ -16,6 +16,8 @@ import { subscribeMediaQueryChange } from './lib/browserCompat';
 import { setLiveCollabDebug } from './lib/liveDebugLog';
 import { NOTE_PDF_EXPORT_EVENT } from './lib/notePdfExport';
 import { tauriCommands } from './lib/tauri';
+import { useDesktopQuitGuard } from './lib/useDesktopQuitGuard';
+import { useOcrCacheLifecycle } from './lib/useOcrCacheLifecycle';
 import { useServerAutoReconnect } from './lib/useServerAutoReconnect';
 import { useEditorStore } from './store/editorStore';
 import { useServerStore } from './store/serverStore';
@@ -94,6 +96,8 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 };
 
 export default function App() {
+  useDesktopQuitGuard();
+  useOcrCacheLifecycle();
   const activeView = useUiStore((state) => state.activeView);
   const exportNoteRelativePath = new URLSearchParams(window.location.search).get('print-note');
   const [activePrintNotePath, setActivePrintNotePath] = useState<string | null>(

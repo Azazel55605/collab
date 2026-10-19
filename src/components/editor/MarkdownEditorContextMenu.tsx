@@ -26,6 +26,7 @@ export function cutEditorSelection(
   view: EditorView,
   clipboard: ClipboardLike = navigator.clipboard,
 ) {
+  if (view.state.readOnly) return false;
   const { from, to } = view.state.selection.main;
   const text = view.state.sliceDoc(from, to);
   if (!text) return false;
@@ -48,7 +49,10 @@ export async function pasteClipboardAtCursor(
   view: EditorView,
   clipboard: Pick<ClipboardLike, 'readText'> = navigator.clipboard,
 ) {
+  if (view.state.readOnly) return '';
+  const document = view.state.doc;
   const text = await clipboard.readText();
+  if (view.state.readOnly || view.state.doc !== document) return '';
   const { from, to } = view.state.selection.main;
   view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } });
   view.focus();
@@ -66,25 +70,28 @@ export function addTagsLineEvent(target: Window = window) {
 }
 
 export function wrapBoldSelection(view: EditorView) {
+  if (view.state.readOnly) return;
   const { from, to } = view.state.selection.main;
   const sel = view.state.sliceDoc(from, to) || 'bold text';
   insertAroundSelection(view, '**', '**', sel);
 }
 
 export function wrapItalicSelection(view: EditorView) {
+  if (view.state.readOnly) return;
   const { from, to } = view.state.selection.main;
   const sel = view.state.sliceDoc(from, to) || 'italic text';
   insertAroundSelection(view, '_', '_', sel);
 }
 
 export function wrapStrikethroughSelection(view: EditorView) {
+  if (view.state.readOnly) return;
   const { from, to } = view.state.selection.main;
   const sel = view.state.sliceDoc(from, to) || 'strikethrough';
   insertAroundSelection(view, '~~', '~~', sel);
 }
 
 export function handleFormattingShortcutKeydown(event: EditorShortcutEventLike, view: EditorView) {
-  if (!hasPrimaryModifier(event) || event.altKey) return false;
+  if (view.state.readOnly || !hasPrimaryModifier(event) || event.altKey) return false;
 
   const key = getEditorShortcutKey(event);
   if (key === 'b') {

@@ -1,6 +1,6 @@
 import { type OcrPreprocessingMode, useUiStore } from '../store/uiStore';
 
-import { type OcrCacheScope, readOcrCache, writeOcrCache } from './ocrCache';
+import { type OcrCacheScope, readOcrCache, scopeOcrCache, writeOcrCache } from './ocrCache';
 import { tauriCommands } from './tauri';
 
 export interface OcrResult {
@@ -362,14 +362,14 @@ export async function recognizeImageText(
   const { ocrLanguage, ocrModelSource, ocrPreprocessingMode } = useUiStore.getState();
   const language = ocrLanguage || 'eng';
   const cacheScope = options.cacheScope
-    ? {
+    ? scopeOcrCache({
         ...options.cacheScope,
         language,
         modelSource: ocrModelSource,
         preprocessing: ocrPreprocessingMode,
         engine: 'tesseract.js-v7',
         resultMode: 'ocr',
-      }
+      })
     : null;
   const cachedResult = async (): Promise<OcrResult | null> => {
     if (!cacheScope || options.force) return null;

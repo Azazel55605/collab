@@ -21,7 +21,7 @@ that every line or every platform was exercised.
 
 ## Implementation Progress
 
-Updated **2026-10-15**, through implementation batches 1–7 in
+Updated **2026-10-19**, through implementation batches 1–8 in
 [Desktop Audit Fixes](../plans/desktop-audit-fixes.md). Keep these checkboxes current
 with each implementation batch. `[x]` means the described correction is
 implemented; it does not substitute for native acceptance or close adjacent
@@ -31,8 +31,9 @@ requirements. `[ ] Partial` and `[ ] Open` retain unfinished scope. The original
 ### Bug Corrections
 
 - [x] **B01:** Save-before-navigation/tab/page/vault and grid transitions, including
-      responsive pane removal. Every mounted pane participates. Process quit/death
-      and durable draft recovery remain open; canvas acceptance stays open below.
+      responsive pane removal, plus a native close/tray/system-quit save handshake.
+      Every mounted pane participates. Live document controllers also await their available native CRDT checkpoint.
+      Forced process death and durable draft recovery remain separate follow-up work; native quit/canvas acceptance stays open below.
 - [x] **B02:** Unicode-safe search excerpts.
 - [x] **B03:** Stale search responses rejected.
 - [x] **B04:** PDF loading-task cleanup and bounded resource reuse.
@@ -56,7 +57,10 @@ and server; it is not closed by these bug checkboxes.
       independently. Shared same-file sessions remain O15.
 - [ ] **R03 — Partial:** Same-process native note compare/merge/write serialized
       per canonical parent/file. Other processes, external editors and other
-      mutation paths remain outside this lock protocol.
+      mutation paths remain outside this lock protocol. Stale writers now reject
+      externally deleted files and recheck observed bytes after staging, before
+      publication. An uncooperative external writer can still race the final rename;
+      advisory locks cannot establish cross-application compare-and-swap.
 - [x] **R04:** One atomic, encrypted-as-needed preview record contains metadata
       and image bytes, with a complete-record integrity check. Legacy/missing/corrupt
       entries regenerate; source/renderer checks remain. Native storage QA and disk
@@ -69,8 +73,16 @@ and server; it is not closed by these bug checkboxes.
       A mounted workbook retains at most one active and one latest trailing request.
       Native execution/release stress and process-death acceptance remain open.
 - [x] **R07:** Scope/epoch ownership for snippet lists and mutations.
-- [ ] **R08 — Open:** Authorized OCR result retention/lifecycle policy.
-- [ ] **R09 — Open:** Hosted content-index capability parity.
+- [x] **R08:** OCR result text is memory-only, bounded to 64 entries / 8 MiB
+      for at most 30 minutes, scoped to the current vault/account lifetime.
+      Close/lock/logout/membership changes clear it and invalidate pending writes.
+      The old plaintext IndexedDB database is deleted; blocked deletion is retried
+      and the Settings clear action reports failures. Installed language packs and
+      saved annotations are unaffected. Native profile-upgrade acceptance remains.
+- [x] **R09 investigation:** Confirmed a capability gap: hosted manifests cannot
+      supply content-derived tags, links or word counts. The full-text server index
+      is separate. Hosted Graph/Tags/Backlinks parity remains **planned feature work**,
+      not a completed correction or a full content index.
 - [x] **R10:** Escaped Markdown renderer-error fallback; regression covers markup
       in an exception, without claiming a demonstrated production exploit.
 
@@ -572,8 +584,10 @@ instructions to optimize code before measuring it.
       concurrent job/init policy is missing. Use an explicit worker owner/job queue
       with per-job progress and language transitions. Measure peak WASM memory and
       idle release; do not just terminate a worker serving another request.
-- [ ] **O48 / P2 — Bound and reuse OCR result storage connections.**
-      **Status: Open.**
+- [x] **O48 / P2 — Bound and reuse OCR result storage connections.**
+      **Status: Superseded by R08 memory-only retention:** no result-storage
+      connections remain; the in-memory LRU has entry/byte/age limits. The
+      historical evidence and original proposal follow.
       [ocrCache](../../src/lib/ocrCache.ts) opens/closes IndexedDB for every operation,
       has a versioned key but no age/size eviction, and retains older-version records.
       Add bounded GC and a version-change-safe shared connection. Define R08 retention

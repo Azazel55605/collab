@@ -1,5 +1,6 @@
-import { EditorSelection, type Extension } from '@codemirror/state';
+import { EditorSelection, type Extension, type Text } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
+import { toast } from 'sonner';
 
 import {
   type EditorShortcutEventLike,
@@ -26,6 +27,8 @@ type MathSnippetCommand = {
 export const MATH_SOLVER_ACTION_EVENT = 'editor:math-solver-action';
 
 export type MathSolverActionDetail = {
+  view: EditorView;
+  document: Text;
   source: string;
   mode: MathSolveMode;
   variables: string[];
@@ -40,9 +43,23 @@ function isMathDelimiterLine(text: string) {
 export function getMathBlockAtPosition(view: EditorView, position: number): MathBlockRange | null {
   const lineAtPosition = view.state.doc.lineAt(position);
   const delimiterLines: number[] = [];
+  let fence: { character: string; length: number } | null = null;
 
   for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
-    if (isMathDelimiterLine(view.state.doc.line(lineNumber).text)) {
+    const text = view.state.doc.line(lineNumber).text;
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
+    if (marker) {
+      if (!fence) fence = { character: marker[1][0], length: marker[1].length };
+      else if (
+        marker[1][0] === fence.character &&
+        marker[1].length >= fence.length &&
+        !marker[2].trim()
+      )
+        fence = null;
+      continue;
+    }
+    if (fence) continue;
+    if (isMathDelimiterLine(text)) {
       delimiterLines.push(lineNumber);
     }
   }
@@ -149,6 +166,7 @@ function getAnchorRectAtPosition(view: EditorView, position: number) {
 }
 
 function insertMathTemplate(view: EditorView, buildTemplate: (selected: string) => string) {
+  if (view.state.readOnly) return false;
   const block = getActiveMathBlock(view);
   if (!block) return false;
 
@@ -216,6 +234,7 @@ export function insertMathMatrix(view: EditorView) {
 }
 
 export function insertOrUpdateMathPlotDirective(view: EditorView, kind: MathPlotKind) {
+  if (view.state.readOnly) return false;
   const block = getActiveMathBlock(view);
   if (!block) return false;
 
@@ -256,6 +275,18 @@ export function selectMathBlockContents(view: EditorView) {
 }
 
 export function solveActiveMathInput(view: EditorView, mode: MathSolveMode = 'exact') {
+  if (view.state.readOnly) return false;
+  try {
+    return solveMathAtSelection(view, mode);
+  } catch (error) {
+    toast.error(
+      `Could not evaluate math: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return true;
+  }
+}
+
+function solveMathAtSelection(view: EditorView, mode: MathSolveMode) {
   const block = getActiveMathBlock(view);
   if (!block) return false;
 
@@ -268,6 +299,8 @@ export function solveActiveMathInput(view: EditorView, mode: MathSolveMode = 'ex
     window.dispatchEvent(
       new CustomEvent<MathSolverActionDetail>(MATH_SOLVER_ACTION_EVENT, {
         detail: {
+          view,
+          document: view.state.doc,
           source,
           mode,
           variables: analysis.variables,
@@ -367,4 +400,38 @@ export function createMathBlockShortcutExtension(): Extension {
   ];
 
   return keymap.of(commands);
+}
+
+export function applyMathSolverChoice(
+  view: EditorView,
+  action: MathSolverActionDetail,
+  variable: string,
+) {
+  if (action.view !== view || view.state.readOnly) return false;
+  if (view.state.doc !== action.document) {
+    toast.error('The math block changed. Evaluate it again before choosing a variable.');
+    return false;
+  }
+  try {
+    const result = solveMathInput(action.source, action.mode, variable);
+    if (!result) return false;
+    const insert =
+      result.kind === 'equation'
+        ? `\n\\Rightarrow ${result.latex}`
+        : action.mode === 'approximate'
+          ? ` \\approx ${result.latex}`
+          : ` = ${result.latex}`;
+    view.dispatch({
+      changes: { from: action.range.to, insert },
+      selection: { anchor: action.range.to + insert.length },
+      scrollIntoView: true,
+    });
+    view.focus();
+    return true;
+  } catch (error) {
+    toast.error(
+      `Could not evaluate math: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
 }

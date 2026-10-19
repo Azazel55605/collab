@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-10-08
+Last reviewed: 2026-10-19
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -37,7 +37,8 @@ work from being mistaken for an active roadmap item.
 Reviewed separately on **2026-10-14**. The
 [desktop audit](../audits/desktop-performance-and-bugs-2026-10-14.md) is complete:
 8 bug entries, 10 investigation items and 70 optimization opportunities with
-source references and validation targets. **Fix implementation is in progress**
+source references and validation targets. **B01–B08 corrections are implemented;
+native acceptance and follow-up design remain open**
 in [Desktop Audit Fixes](./desktop-audit-fixes.md). Batch 1 implements guarded
 save-before-navigation, Unicode/search/listener fixes, unique staging writes,
 PDF lifetime/view settings, preview revision checks and canvas pixel bounds,
@@ -61,8 +62,11 @@ between desktop/Android, orders release after submitted work, coalesces trailing
 requests and isolates late results/workbook lifetimes. Native global formula
 locking/scheduling and explicit volatile recalculation remain open. Current checkboxes in the desktop audit and reported-regression
 supplement distinguish implemented, partial and open work. Native acceptance,
-process-death recovery, full-fidelity asset
-thumbnails and the remaining desktop/report backlog are still open.
+process-death recovery and full-fidelity asset thumbnails remain open. Batch 8
+adds bounded memory-only OCR result retention, native normal-quit save gating and
+stale/deleted-file write checks. R03 retains an external-writer atomicity boundary;
+R09 is a confirmed hosted indexing capability gap requiring feature work.
+Performance and broader UI inventories remain separate from bug corrections.
 Prioritize pending-edit loss during navigation, Unicode search panics, native
 staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
 merge/index/asset work. Establish native measurements before claiming speedups.
@@ -107,8 +111,9 @@ canvas save reliability, cache-first/offline freshness,
 external-drop targeting, PDF state retention and measured canvas/preview latency.
 The backlog also includes rendered internal previews, shared UI consistency,
 legacy chat/sidebar navigation, Kanban scrolling and mobile drawing-mode
-reconciliation. UR14 remains open for keyboard-event/focus reproduction and
-evaluation/result/undo acceptance; spreadsheet runtime fixes do not close it.
+reconciliation. UR14 is confirmed working by the user on 2026-10-19; a muted math-block shortcut
+hint and full-editor keyboard/undo/ownership guards are implemented. No cause is
+claimed for the earlier transient failure.
 Platform reproduction remains required; existing cache-first,
 auto-refresh, scrolling and shared ink mechanisms should be repaired/extended
 rather than assumed absent.

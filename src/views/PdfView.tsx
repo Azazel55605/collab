@@ -70,7 +70,7 @@ import {
 import { defaultToolState } from '../lib/ink/tools';
 import type { InkToolState } from '../lib/ink/tools';
 import { listenSafely } from '../lib/nativeSubscription';
-import { readOcrCache, writeOcrCache } from '../lib/ocrCache';
+import { readOcrCache, scopeOcrCache, writeOcrCache } from '../lib/ocrCache';
 import {
   annotatedPdfFileName,
   exportAnnotatedPdf,
@@ -2037,12 +2037,12 @@ export default function PdfView({ relativePath }: Props) {
       setOcrRegenerateAction({ kind: 'page', page: targetPage });
       setOcrProgress({ progress: 0, status: 'Checking PDF text' });
       try {
-        const pdfTextCacheScope = {
+        const pdfTextCacheScope = scopeOcrCache({
           kind: 'pdf-page-text',
           relativePath,
           documentCacheKey,
           page: targetPage,
-        };
+        });
         if (!force) {
           const cachedPdfText = await readOcrCache(pdfTextCacheScope);
           if (cachedPdfText) {
@@ -2090,6 +2090,7 @@ export default function PdfView({ relativePath }: Props) {
             force,
             cacheScope: {
               kind: 'pdf-page-ocr',
+              cacheSession: pdfTextCacheScope.cacheSession,
               relativePath,
               documentCacheKey,
               page: targetPage,
@@ -2148,6 +2149,7 @@ export default function PdfView({ relativePath }: Props) {
       setOcrOverlay(null);
       setOcrRegenerateAction({ kind: 'region', page: targetPage, region });
       setOcrProgress({ progress: 0, status: `Rendering region at ${ocrRenderScale}x` });
+      const cacheSession = scopeOcrCache({}).cacheSession;
       try {
         const renderedPage = await enqueuePdfRender(() =>
           renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation),
@@ -2167,6 +2169,7 @@ export default function PdfView({ relativePath }: Props) {
             force,
             cacheScope: {
               kind: 'pdf-region-ocr',
+              cacheSession,
               relativePath,
               documentCacheKey,
               page: targetPage,

@@ -33,6 +33,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { asciiArrowLigatures, handleTabKey } from './indentationPlugins';
 import { createMarkdownSearchPanel } from './MarkdownSearchPanel';
 import { createMathBlockShortcutExtension } from './mathBlockCommands';
+import { createMathShortcutHintExtension } from './mathShortcutHint';
 
 export type MarkdownEditorCompartments = {
   theme: Compartment;
@@ -127,7 +128,8 @@ export function createMarkdownEditorState({
     compartments,
     compartmentExtensions,
   );
-  // `readOnly` blocks document transactions; `editable.of(false)` also drops the
+  // Commands must respect `readOnly`; the facet alone does not block custom
+  // transactions. `editable.of(false)` also drops the
   // contenteditable affordance and caret so a viewer cannot type into the note.
   const readOnlyExtension = readOnly
     ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
@@ -157,6 +159,7 @@ export function createMarkdownEditorState({
           override: [slashCommandOverride, ...wikiAutocompleteOverride],
         }),
         createMathBlockShortcutExtension(),
+        createMathShortcutHintExtension(),
         keymap.of([
           { key: 'Tab', run: handleTabKey, shift: indentLess },
           ...defaultKeymap,
