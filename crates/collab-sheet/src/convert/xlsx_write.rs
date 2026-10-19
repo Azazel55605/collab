@@ -762,7 +762,10 @@ mod tests {
     fn writes_an_archive_with_the_required_parts() {
         let converted = export_xlsx(&workbook()).unwrap();
         let mut archive = zip::ZipArchive::new(Cursor::new(converted.value.clone())).unwrap();
-        let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .collect();
         for required in [
             "[Content_Types].xml",
             "_rels/.rels",

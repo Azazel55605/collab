@@ -19,6 +19,7 @@ import {
 import type { CellContentType, GridCellContent } from '../../store/gridStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { Input } from '../ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
@@ -147,7 +148,7 @@ export default function CellContentPicker({ children, onSelect }: Props) {
         <div className="p-2 space-y-1.5">
           <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-muted/40 border border-border/40">
             <Search size={11} className="text-muted-foreground shrink-0" />
-            <input
+            <Input
               type="text"
               placeholder="Search notes…"
               value={search}

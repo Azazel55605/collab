@@ -11,12 +11,14 @@ import {
   LocalVaultClient,
   requireRuntimeCapability,
 } from './vaultClient';
+import { onReplicaMutated, syncReplicaManifestDelta } from './vaultReplica';
 import { createAnchoredAnnotationDocument } from './viewAnnotations';
 
 vi.mock('./tauri', () => ({
   tauriCommands: {
     listVaultFiles: vi.fn(),
     readNote: vi.fn(),
+    generateDocumentPreview: vi.fn(),
     writeNote: vi.fn(),
     createNote: vi.fn(),
     createFolder: vi.fn(),
@@ -458,6 +460,51 @@ describe('HostedVaultClient', () => {
     );
   });
 
+  it('turns a rejected hosted revision into an authoritative conflict without cached rereads or retries', async () => {
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    const latest = {
+      ...hostedDocument,
+      currentRevision: { ...hostedDocument.currentRevision, sequence: 7 },
+    };
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockRejectedValueOnce('The document has changed since the supplied revision.')
+      .mockResolvedValueOnce({ file: latest, content: '# Remote' });
+    const result = await new HostedVaultClient(hostedVault).writeDocument(
+      'Notes/Test.md',
+      '# Mine',
+      '3',
+      '# Base',
+    );
+    expect(result.conflict).toEqual({
+      relativePath: 'Notes/Test.md',
+      ourContent: '# Mine',
+      theirContent: '# Remote',
+      theirVersion: '7',
+    });
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledTimes(2);
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
+      hostedVault.serverUrl,
+      'GET',
+      '/api/v1/vaults/hosted-vault/files/file-1',
+      undefined,
+    );
+    expect(tauriCommands.replicaEnqueueOperation).not.toHaveBeenCalled();
+  });
+
+  it('returns server-merged document bytes instead of acknowledging the submitted bytes', async () => {
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce({
+      file: {
+        ...hostedDocument,
+        currentRevision: { ...hostedDocument.currentRevision, sequence: 4 },
+      },
+      content: '# Mine and remote',
+    });
+    await expect(
+      new HostedVaultClient(hostedVault).writeDocument('Notes/Test.md', '# Mine', '3'),
+    ).resolves.toEqual({ version: '4', mergedContent: '# Mine and remote' });
+  });
+
   it('routes hosted logic component library operations through vault endpoints', async () => {
     const component = {
       id: 'component-1',
@@ -724,6 +771,165 @@ describe('HostedVaultClient', () => {
         ['vault.read', 'vault.offlineCopy'],
       ),
     );
+  });
+
+  it('does not refresh an optimistic offline draft from the server', async () => {
+    const manifest = mockHostedManifest();
+    manifest.files = manifest.files.map((file) =>
+      file.kind === 'document' && file.id === 'file-1'
+        ? { ...file, currentRevision: { ...file.currentRevision!, contentHash: 'offline' } }
+        : file,
+    );
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
+    vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue('# Draft');
+    await expect(
+      new HostedVaultClient(hostedVault).readDocument('Notes/Test.md'),
+    ).resolves.toMatchObject({ content: '# Draft', source: 'optimistic-replica' });
+    expect(tauriCommands.hostedVaultRequest).not.toHaveBeenCalled();
+  });
+
+  it('discards a background response when an offline edit arrives during its request', async () => {
+    let release!: (value: unknown) => void;
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue('# Cached');
+    vi.mocked(tauriCommands.replicaCachedContentStatus).mockResolvedValue({
+      present: true,
+      matchesExpectedHash: true,
+      actualSha256: 'hash-3',
+      sizeBytes: 8,
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockImplementation(
+      () =>
+        new Promise((done) => {
+          release = done;
+        }) as never,
+    );
+    await new HostedVaultClient(hostedVault).readDocument('Notes/Test.md');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([
+      { id: 'edit', fileId: 'file-1' },
+    ] as never);
+    release({ file: hostedDocument, content: '# Server' });
+    await new Promise((done) => setTimeout(done, 0));
+    expect(tauriCommands.replicaCacheDocument).not.toHaveBeenCalled();
+    expect(tauriCommands.replicaSeed).not.toHaveBeenCalled();
+  });
+
+  it.each(['pdf', 'view'])(
+    'opens cached %s annotations without waiting for the server',
+    async (kind) => {
+      const cached = {
+        state: {
+          schemaVersion: 2,
+          bookmarks: [],
+          highlights: [],
+          textAnnotations: [],
+          pageComments: [],
+        },
+        version: 3,
+      };
+      vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+      vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue(JSON.stringify(cached));
+      vi.mocked(tauriCommands.hostedVaultRequest).mockImplementation(
+        () => new Promise(() => {}) as never,
+      );
+      const client = new HostedVaultClient(hostedVault);
+      const read =
+        kind === 'pdf'
+          ? client.readPdfAnnotations('Notes/Test.md')
+          : client.readViewAnnotations('Notes/Test.md');
+      await expect(read).resolves.toEqual(cached);
+    },
+  );
+
+  it('refreshes cached annotations in the background and publishes the new sidecar', async () => {
+    const listener = vi.fn();
+    const unsubscribe = onReplicaMutated(listener, { kinds: ['manifest'] });
+    let release!: (value: unknown) => void;
+    const old = { state: { strokes: [] }, version: 3 };
+    const next = { state: { strokes: [{ id: 'remote' }] }, version: 4 };
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue(JSON.stringify(old));
+    vi.mocked(tauriCommands.hostedVaultRequest).mockImplementation(
+      () =>
+        new Promise((done) => {
+          release = done;
+        }) as never,
+    );
+    await expect(
+      new HostedVaultClient(hostedVault).readViewAnnotations('Notes/Test.md'),
+    ).resolves.toEqual(old);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release({ state: next.state, sequence: next.version });
+    await vi.waitFor(() =>
+      expect(tauriCommands.replicaCacheDocument).toHaveBeenCalledWith(
+        hostedVault.serverUrl,
+        hostedVault.hostedVaultId,
+        'file-1',
+        JSON.stringify(next),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(listener).toHaveBeenCalledWith({
+        kind: 'manifest',
+        fileIds: ['file-1'],
+        relativePaths: ['Notes/Test.md'],
+      }),
+    );
+    unsubscribe();
+  });
+
+  it('does not replace queued annotations with the older server sidecar', async () => {
+    const cached = { state: { strokes: [] }, version: 3, offlineQueued: true };
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue(JSON.stringify(cached));
+    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([
+      { id: 'edit', fileId: 'file-1' },
+    ] as never);
+    await expect(
+      new HostedVaultClient(hostedVault).readViewAnnotations('Notes/Test.md'),
+    ).resolves.toEqual(cached);
+    expect(tauriCommands.hostedVaultRequest).not.toHaveBeenCalled();
+    expect(tauriCommands.replicaCacheDocument).not.toHaveBeenCalled();
+  });
+
+  it('renders offline-backed previews before an unreachable server responds', async () => {
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.replicaCachedContentStatus).mockResolvedValue({
+      present: true,
+      matchesExpectedHash: true,
+      actualSha256: 'hash-3',
+      sizeBytes: 8,
+    });
+    vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue('# Offline');
+    vi.mocked(tauriCommands.generateDocumentPreview).mockResolvedValue('local-thumbnail');
+    let release!: (value: unknown) => void;
+    vi.mocked(tauriCommands.replicaReadSyncState).mockResolvedValue({
+      manifestSequence: 8,
+      status: 'idle',
+      lastSyncedAt: null,
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockImplementation(
+      () =>
+        new Promise((done) => {
+          release = done;
+        }) as never,
+    );
+    await expect(
+      new HostedVaultClient(hostedVault).readDocumentPreviewDataUrl('Notes/Test.md'),
+    ).resolves.toBe('local-thumbnail');
+    expect(tauriCommands.generateDocumentPreview).toHaveBeenCalledWith(
+      'Notes/Test.md',
+      '# Offline',
+    );
+    expect(
+      vi
+        .mocked(tauriCommands.hostedVaultRequest)
+        .mock.calls.some((call) => call[2].endsWith('/preview')),
+    ).toBe(false);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release({ vaultId: hostedVault.hostedVaultId, baseSequence: 8, sequence: 8, changedFiles: [] });
+    await syncReplicaManifestDelta(hostedVault);
   });
 
   it('ignores cached hosted documents that do not match the current revision hash', async () => {

@@ -52,6 +52,9 @@ export interface PdfPageComment {
 }
 
 export interface PdfViewerState {
+  /** Client-local scroll/pan position; excluded from shared hosted annotations. */
+  lastScrollTop?: number;
+  lastScrollLeft?: number;
   lastPage?: number | null;
   lastZoomMode?: 'custom' | 'fit-width' | 'fit-height' | 'fit-page' | null;
   lastZoom?: number | null;

@@ -302,6 +302,7 @@ pub fn sheet_convert_export(
         );
     }
 
+    let _mutation = crate::local_mutation::lock_path(Path::new(&target_path))?;
     if let Some(parent) = Path::new(&target_path).parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("Failed to prepare the destination folder: {error}"))?;

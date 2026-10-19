@@ -14,14 +14,26 @@ interface NoteSnippetState {
   deleteSnippet: (vaultPath: string | null | undefined, snippet: NoteSnippet) => Promise<void>;
 }
 
+let activeScope: string | null | undefined;
+let scopeEpoch = 0;
+let loadRequest = 0;
+
 export const useNoteSnippetStore = create<NoteSnippetState>((set) => ({
   snippets: [],
   isLoading: false,
   async loadSnippets(vaultPath) {
+    const scope = vaultPath ?? null;
+    if (activeScope !== scope) {
+      activeScope = scope;
+      scopeEpoch++;
+      set({ snippets: [] });
+    }
+    const request = ++loadRequest;
+    const current = () => request === loadRequest && activeScope === scope;
     set({ isLoading: true });
     try {
       const snippets = await tauriCommands.listNoteSnippets(vaultPath ?? null);
-      set({ snippets });
+      if (current()) set({ snippets });
     } catch (error) {
       // Hosted vaults intentionally request app-scoped snippets without a
       // filesystem path. Older native backends rejected that app-only listing
@@ -30,28 +42,41 @@ export const useNoteSnippetStore = create<NoteSnippetState>((set) => ({
         vaultPath == null &&
         String(error).includes('Vault path is required for vault note snippets')
       ) {
-        set({ snippets: [] });
+        if (current()) set({ snippets: [] });
         return;
       }
-      throw error;
+      if (current()) throw error;
     } finally {
-      set({ isLoading: false });
+      if (current()) set({ isLoading: false });
     }
   },
   async saveSnippet(vaultPath, snippet) {
-    const saved = await tauriCommands.saveNoteSnippet(vaultPath ?? null, snippet);
+    const scope = vaultPath ?? null;
+    const epoch = scopeEpoch;
+    const saved = await tauriCommands.saveNoteSnippet(scope, snippet);
+    if (activeScope !== scope || epoch !== scopeEpoch) return saved;
+    loadRequest++;
     set((state) => {
-      const next = state.snippets.filter((entry) => entry.id !== saved.id);
+      const next = state.snippets.filter(
+        (entry) => entry.id !== saved.id || entry.scope !== saved.scope,
+      );
       next.push(saved);
       next.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-      return { snippets: next };
+      return { snippets: next, isLoading: false };
     });
     return saved;
   },
   async deleteSnippet(vaultPath, snippet) {
-    await tauriCommands.deleteNoteSnippet(vaultPath ?? null, snippet.scope, snippet.id);
+    const scope = vaultPath ?? null;
+    const epoch = scopeEpoch;
+    await tauriCommands.deleteNoteSnippet(scope, snippet.scope, snippet.id);
+    if (activeScope !== scope || epoch !== scopeEpoch) return;
+    loadRequest++;
     set((state) => ({
-      snippets: state.snippets.filter((entry) => entry.id !== snippet.id),
+      snippets: state.snippets.filter(
+        (entry) => entry.id !== snippet.id || entry.scope !== snippet.scope,
+      ),
+      isLoading: false,
     }));
   },
 }));

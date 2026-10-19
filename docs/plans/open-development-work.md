@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-10-08
+Last reviewed: 2026-10-19
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -37,7 +37,40 @@ work from being mistaken for an active roadmap item.
 Reviewed separately on **2026-10-14**. The
 [desktop audit](../audits/desktop-performance-and-bugs-2026-10-14.md) is complete:
 8 bug entries, 10 investigation items and 70 optimization opportunities with
-source references and validation targets. **Fix implementation is not started.**
+source references and validation targets. **B01–B08 corrections are implemented;
+native acceptance and follow-up design remain open**
+in [Desktop Audit Fixes](./desktop-audit-fixes.md). Batch 1 implements guarded
+save-before-navigation, Unicode/search/listener fixes, unique staging writes,
+PDF lifetime/view settings, preview revision checks and canvas pixel bounds,
+plus initial native-drop, legacy-chat and Kanban overflow corrections. The user
+confirmed the external-drop follow-up working. Batch 2 adds replica reopening and
+offline-marker/checkpoint preservation, native-to-view refresh notifications,
+coalesced sync, cache-first annotations and pending-edit protection. Batch 3 adds
+canvas load/save/checkpoint guards and gesture serialization, bounded preview
+queues/revision caches, rendered internal thumbnails, PDF resource reuse and
+scroll restoration, safe hosted source refresh, shared UI controls and dynamic
+file-tree context. The recurring canvas save/merge fix remains **needs final testing** against both
+the rebuilt client and server. Batch 4 scopes note-index/file-tree/snippet
+publication, coalesces index jobs, escapes Markdown render errors and upgrades
+the dependencies flagged by PR #96's security scan. Batch 5 guards grid document
+replacement/workspace/layout/resize transitions, retains every pane's save
+registration, and serializes local compare-and-write operations within the app
+process. Batch 6 makes local preview metadata/payload publication atomic and
+integrity-checked, and serializes OCR initialization/jobs/language changes with
+per-worker progress and idle ownership. Batch 7 shares formula runtime ownership
+between desktop/Android, orders release after submitted work, coalesces trailing
+requests and isolates late results/workbook lifetimes. Native global formula
+locking/scheduling and explicit volatile recalculation remain open. Current checkboxes in the desktop audit and reported-regression
+supplement distinguish implemented, partial and open work. Native acceptance,
+process-death recovery and full-fidelity asset thumbnails remain open. Batch 8
+adds bounded memory-only OCR result retention, native normal-quit save gating and
+stale/deleted-file write checks. Batch 9 completes R03 app-owned mutation
+coordination across namespace/document/restore/import/export/encryption paths.
+External-writer atomicity and durable recovery remain separate
+[planned follow-up work](./local-file-external-writer-recovery.md);
+extensionless wikilink rename resolution is tracked separately in Batch 9.
+R09 is a confirmed hosted indexing capability gap requiring feature work.
+Performance and broader UI inventories remain separate from bug corrections.
 Prioritize pending-edit loss during navigation, Unicode search panics, native
 staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
 merge/index/asset work. Establish native measurements before claiming speedups.
@@ -61,7 +94,9 @@ Reviewed separately on **2026-10-14**. The
 [Android audit](../audits/mobile-performance-and-bugs-2026-10-14.md) is complete:
 9 bug entries, 10 investigation items and 50 optimization opportunities across
 the companion frontend, Android/native adapters and shared workloads.
-**Fix implementation is not started.** Prioritize stale vault loads, permanent
+**Targeted shared implementation has begun:** desktop batch 7 repairs mobile
+MR07 formula ownership/release ordering. The wider Android backlog remains open.
+Prioritize stale vault loads, permanent
 autosave retry loops, URI upload routing, unsaved note exits, scoped destinations,
 safe download completion and cumulative response limits. Then reduce hidden
 polling/resume duplication and measure startup/PDF/transfer memory. Device,
@@ -72,13 +107,18 @@ claim standalone local vaults or editor parity are implemented.
 ### Reported Regressions Across The App
 
 The [reported-issue reconciliation](../audits/reported-regressions-2026-10-14.md)
-tracks all 13 user reports received on **2026-10-14**, preserving existing audit
-IDs and adding explicit gaps under UR01–UR13. **Fix implementation is not
-started.** Prioritize canvas save reliability, cache-first/offline freshness,
+tracks **14 user reports**: the 13 received on **2026-10-14** and the
+**2026-10-15** math-block evaluation keyboard-shortcut failure (UR14). Existing
+audit IDs are preserved, with reported gaps tracked under UR01–UR14. **Desktop fix implementation is
+in progress** in [Desktop Audit Fixes](./desktop-audit-fixes.md). Prioritize
+canvas save reliability, cache-first/offline freshness,
 external-drop targeting, PDF state retention and measured canvas/preview latency.
 The backlog also includes rendered internal previews, shared UI consistency,
 legacy chat/sidebar navigation, Kanban scrolling and mobile drawing-mode
-reconciliation. Platform reproduction remains required; existing cache-first,
+reconciliation. UR14 is confirmed working by the user on 2026-10-19; a muted math-block shortcut
+hint and full-editor keyboard/undo/ownership guards are implemented. No cause is
+claimed for the earlier transient failure.
+Platform reproduction remains required; existing cache-first,
 auto-refresh, scrolling and shared ink mechanisms should be repaired/extended
 rather than assumed absent.
 

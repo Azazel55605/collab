@@ -352,3 +352,35 @@ mod tests {
         assert!(run_background_runtime_probe(dir.path(), "periodic-\u{2603}").is_err());
     }
 }
+
+#[tauri::command]
+pub fn background_complete_quit(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    allowed: bool,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Only the main editor can complete a quit request".to_string());
+    }
+    #[cfg(not(mobile))]
+    crate::background_lifecycle::complete_quit(&app, allowed);
+    #[cfg(mobile)]
+    let _ = (app, allowed);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn background_quit_pending(app: AppHandle, window: tauri::WebviewWindow) -> bool {
+    if window.label() != "main" {
+        return false;
+    }
+    #[cfg(not(mobile))]
+    {
+        crate::background_lifecycle::quit_pending(&app)
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        false
+    }
+}

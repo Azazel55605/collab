@@ -123,6 +123,7 @@ fn write_vault_config(vault_path: &str, config: &VaultConfig) -> Result<(), Stri
 }
 
 pub fn write_vault_config_pub(vault_path: &str, config: &VaultConfig) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(vault_path))?;
     let config_path = vault_config_path(vault_path);
     std::fs::create_dir_all(config_path.parent().unwrap()).map_err(|e| e.to_string())?;
     let data = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
@@ -133,6 +134,7 @@ fn ensure_open_vault_meta_with_recents(
     path: &str,
     recents_path: &std::path::Path,
 ) -> Result<VaultMeta, String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(path))?;
     let canonical = std::fs::canonicalize(path)
         .map_err(|e| format!("Cannot open vault path '{}': {}", path, e))?;
     let canonical_str = canonical.to_string_lossy().to_string();
@@ -213,6 +215,7 @@ fn create_vault_on_disk_with_recents(
     owner_user_color: Option<String>,
     recents_path: &std::path::Path,
 ) -> Result<VaultMeta, String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(path))?;
     std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
 
     let canonical = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
@@ -265,6 +268,7 @@ fn rename_vault_on_disk_with_recents(
     new_name: &str,
     recents_path: &std::path::Path,
 ) -> Result<VaultMeta, String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(vault_path))?;
     let mut config = read_vault_config(vault_path)?;
     config.name = new_name.to_string();
     write_vault_config(vault_path, &config)?;
@@ -293,8 +297,10 @@ pub fn open_vault(path: String, state: State<AppState>) -> Result<VaultMeta, Str
     let meta = ensure_open_vault_meta(&path)?;
 
     // Update AppState — clear any stale encryption key from the previous vault.
+    let mut active = state.active_vault.write();
     *state.encryption_key.write() = None;
-    *state.active_vault.write() = Some(meta.clone());
+    state.note_index.write().clear();
+    *active = Some(meta.clone());
 
     Ok(meta)
 }
@@ -318,8 +324,10 @@ pub fn create_vault(
     )?;
     let _ = app.emit("collab:config-changed", serde_json::json!({}));
 
+    let mut active = state.active_vault.write();
     *state.encryption_key.write() = None;
-    *state.active_vault.write() = Some(meta.clone());
+    state.note_index.write().clear();
+    *active = Some(meta.clone());
 
     Ok(meta)
 }
@@ -365,6 +373,10 @@ pub fn rename_vault(
 
 #[tauri::command]
 pub async fn export_vault(vault_path: String, dest_path: String) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_paths(&[
+        std::path::Path::new(&vault_path),
+        std::path::Path::new(&dest_path),
+    ])?;
     use collab_archive::{plan_export, ArchiveLimits, ArchivePathPolicy, ExportSource};
     use collab_vault_domain::EntryKind;
     use walkdir::WalkDir;
@@ -505,6 +517,38 @@ mod tests {
         test_support::TempVault,
     };
     use std::io::Read;
+
+    #[test]
+    fn vault_rename_preserves_an_encryption_flag_changed_while_waiting() {
+        let vault = TempVault::new().unwrap();
+        let recents = vault.resolve("recents.json");
+        write_vault_config_pub(&vault.path_string(), &VaultConfig::default()).unwrap();
+        write_recents_to_path(&recents, &[sample_meta(vault.path_string(), 1)]).unwrap();
+        std::thread::scope(|scope| {
+            let namespace = crate::local_mutation::lock_path(vault.path()).unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let writer_vault = &vault;
+            let writer_recents = &recents;
+            let rename = scope.spawn(move || {
+                tx.send(()).unwrap();
+                rename_vault_on_disk_with_recents(
+                    &writer_vault.path_string(),
+                    "Renamed",
+                    writer_recents,
+                )
+                .unwrap()
+            });
+            rx.recv().unwrap();
+            let mut config = read_vault_config_pub(&vault.path_string()).unwrap();
+            config.is_encrypted = true;
+            write_vault_config_pub(&vault.path_string(), &config).unwrap();
+            drop(namespace);
+            assert_eq!(rename.join().unwrap().name, "Renamed");
+        });
+        let config = read_vault_config_pub(&vault.path_string()).unwrap();
+        assert!(config.is_encrypted);
+        assert_eq!(config.name, "Renamed");
+    }
 
     fn sample_meta(path: String, index: u64) -> VaultMeta {
         VaultMeta {

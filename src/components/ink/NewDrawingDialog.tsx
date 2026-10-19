@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 const labelClass = 'text-xs font-medium text-muted-foreground';
 
@@ -133,19 +134,22 @@ export default function NewDrawingDialog({ open, onOpenChange, onCreate }: NewDr
               <label htmlFor="ink-template" className={labelClass}>
                 Saved template
               </label>
-              <select
-                id="ink-template"
-                value={templateId}
-                onChange={(event) => setTemplateId(event.target.value)}
-                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-xs"
+              <Select
+                value={templateId || '__paper__'}
+                onValueChange={(value) => setTemplateId(value === '__paper__' ? '' : value)}
               >
-                <option value="">Use the paper settings below</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="ink-template">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__paper__">Use the paper settings below</SelectItem>
+                  {templates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

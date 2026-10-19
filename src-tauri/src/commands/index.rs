@@ -130,28 +130,26 @@ fn count_words(content: &str) -> u32 {
 }
 
 fn make_excerpt(content: &str, query: &str, max_len: usize) -> String {
-    let lower_content = content.to_lowercase();
-    let lower_query = query.to_lowercase();
-
-    if let Some(pos) = lower_content.find(&lower_query) {
-        let start = pos.saturating_sub(40);
-        let end = (pos + query.len() + 80).min(content.len());
-        let excerpt = &content[start..end];
-        // Trim to word boundary
-        let trimmed = excerpt.trim();
-        if trimmed.len() > max_len {
-            format!("{}...", &trimmed[..max_len])
-        } else {
-            trimmed.to_string()
-        }
+    let folded = content.to_lowercase();
+    let query = query.to_lowercase();
+    let start = folded
+        .find(&query)
+        .and_then(|position| {
+            let mut folded_offset = 0;
+            content.chars().enumerate().find_map(|(index, character)| {
+                let folded_len: usize = character.to_lowercase().map(char::len_utf8).sum();
+                let contains = position < folded_offset + folded_len;
+                folded_offset += folded_len;
+                contains.then_some(index.saturating_sub(40))
+            })
+        })
+        .unwrap_or(0);
+    let mut chars = content.chars().skip(start);
+    let excerpt: String = chars.by_ref().take(max_len).collect();
+    if chars.next().is_some() {
+        format!("{}...", excerpt.trim())
     } else {
-        // Return first max_len chars
-        let first = content.chars().take(max_len).collect::<String>();
-        if content.len() > max_len {
-            format!("{}...", first.trim())
-        } else {
-            first.trim().to_string()
-        }
+        excerpt.trim().to_string()
     }
 }
 
@@ -160,6 +158,18 @@ pub fn build_note_index(
     vault_path: String,
     state: State<AppState>,
 ) -> Result<Vec<NoteMetadata>, String> {
+    let active = state.active_vault.read();
+    if active
+        .as_ref()
+        .is_some_and(|vault| vault.path != vault_path)
+    {
+        return Err("Vault changed before indexing started".into());
+    }
+    // Capture one key for this job; switching vaults must not change decryption
+    // midway through a directory scan. Publication is generation guarded below.
+    let encryption_key = *state.encryption_key.read();
+    let generation = state.note_index.write().begin(&vault_path);
+    drop(active);
     let base = Path::new(&vault_path);
     let mut index: Vec<NoteMetadata> = Vec::new();
 
@@ -171,6 +181,9 @@ pub fn build_note_index(
             !should_skip_walk_entry(&name, e.file_type().is_dir())
         })
     {
+        if !state.note_index.read().is_current(&vault_path, generation) {
+            return Err("Index request superseded".into());
+        }
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
 
@@ -197,9 +210,8 @@ pub fn build_note_index(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let key_guard = state.encryption_key.read();
         let content_bytes = if crypto::is_encrypted_data(&raw) {
-            match key_guard.as_ref() {
+            match encryption_key.as_ref() {
                 Some(key) => match crypto::decrypt_bytes(key, &raw) {
                     Ok(b) => b,
                     Err(_) => continue,
@@ -209,7 +221,6 @@ pub fn build_note_index(
         } else {
             raw
         };
-        drop(key_guard);
         let content = match String::from_utf8(content_bytes) {
             Ok(s) => s,
             Err(_) => continue,
@@ -244,17 +255,28 @@ pub fn build_note_index(
         });
     }
 
-    *state.note_index.write() = index.clone();
+    let active = state.active_vault.read();
+    if active
+        .as_ref()
+        .is_some_and(|vault| vault.path != vault_path)
+    {
+        return Err("Vault changed while indexing".into());
+    }
+    state
+        .note_index
+        .write()
+        .publish(&vault_path, generation, index.clone());
     Ok(index)
 }
 
 #[tauri::command]
 pub fn get_backlinks(
-    _vault_path: String,
+    vault_path: String,
     relative_path: String,
     state: State<AppState>,
 ) -> Result<Vec<String>, String> {
-    let index = state.note_index.read();
+    let cache = state.note_index.read();
+    let index = cache.notes_for(&vault_path);
 
     // The note's "name" without extension for matching [[NoteTitle]] links
     let note_stem = Path::new(&relative_path)
@@ -294,8 +316,17 @@ pub fn search_notes(
         return Ok(vec![]);
     }
 
+    let active = state.active_vault.read();
+    if active
+        .as_ref()
+        .is_some_and(|vault| vault.path != vault_path)
+    {
+        return Err("Vault changed before searching".into());
+    }
+    let encryption_key = *state.encryption_key.read();
+    let index = state.note_index.read().snapshot_for(&vault_path);
+    drop(active);
     let matcher = SkimMatcherV2::default();
-    let index = state.note_index.read();
     let mut results: Vec<SearchResult> = Vec::new();
     let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -327,9 +358,8 @@ pub fn search_notes(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let key_guard = state.encryption_key.read();
         let content_bytes = if crypto::is_encrypted_data(&raw) {
-            match key_guard.as_ref() {
+            match encryption_key.as_ref() {
                 Some(key) => match crypto::decrypt_bytes(key, &raw) {
                     Ok(b) => b,
                     Err(_) => continue,
@@ -339,7 +369,6 @@ pub fn search_notes(
         } else {
             raw
         };
-        drop(key_guard);
         let content = match String::from_utf8(content_bytes) {
             Ok(s) => s,
             Err(_) => continue,
@@ -448,5 +477,16 @@ mod tests {
         let excerpt = make_excerpt(content, "missing", 20);
 
         assert_eq!(excerpt, "This is the first se...");
+    }
+    #[test]
+    fn excerpts_use_original_unicode_character_boundaries() {
+        let content = format!("{}needle{}", "中".repeat(30), "😀".repeat(60));
+        let excerpt = make_excerpt(&content, "NEEDLE", 120);
+        assert!(excerpt.contains("needle"));
+        assert!(
+            make_excerpt(&format!("{}needle", "İ".repeat(60)), "needle", 80).contains("needle")
+        );
+        assert_eq!(make_excerpt("😀中é", "missing", 2), "😀中...");
+        assert_eq!(make_excerpt("😀", "😀", 0), "...");
     }
 }

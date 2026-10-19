@@ -22,7 +22,6 @@ import {
 import type { FinalConnectionState, OnConnectStartParams } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Layout, Loader2 } from 'lucide-react';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
 import {
   createSplitJunctionNode,
@@ -94,9 +93,6 @@ import type {
 } from '../types/canvas';
 import type { NoteFile } from '../types/vault';
 import { isVaultReadOnly, type KnownUser } from '../types/vault';
-
-const pdfWorkerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const CANVAS_GRID = 24;
 const CANVAS_HANDLE_AXIS_SWITCH_RATIO = 1.25;
@@ -491,47 +487,6 @@ function getAutoConnectEdge({
   };
 }
 
-function dataUrlToUint8Array(dataUrl: string) {
-  const [, encoded = ''] = dataUrl.split(',', 2);
-  const binary = atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-async function renderPdfPreview(dataUrl: string) {
-  const task = getDocument({ data: dataUrlToUint8Array(dataUrl) });
-  const pdf = await task.promise;
-
-  try {
-    const page = await pdf.getPage(1);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const maxWidth = 520;
-    const scale = Math.min(1.2, maxWidth / Math.max(baseViewport.width, 1));
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d', { alpha: false });
-    if (!context) throw new Error('Failed to get PDF preview canvas context');
-
-    canvas.width = Math.max(1, Math.floor(viewport.width));
-    canvas.height = Math.max(1, Math.floor(viewport.height));
-
-    await page.render({
-      canvas,
-      canvasContext: context,
-      viewport,
-    }).promise;
-
-    return canvas.toDataURL('image/png');
-  } finally {
-    // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns the
-    // worker teardown now.
-    await task.destroy().catch(() => {});
-  }
-}
-
 function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const vault = useVaultStore((state) => state.vault);
   const readOnly = isVaultReadOnly(vault);
@@ -697,6 +652,23 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     [setNodes],
   );
 
+  const isPreviewVisible = useCallback(
+    (node: FlowNode<CanvasNodeData>) => {
+      const bounds = viewportRef.current?.getBoundingClientRect();
+      if (!bounds?.width || !bounds.height) return true;
+      const margin = 300;
+      const x = node.position.x * viewport.zoom + viewport.x;
+      const y = node.position.y * viewport.zoom + viewport.y;
+      return (
+        x < bounds.width + margin &&
+        y < bounds.height + margin &&
+        x + (node.width ?? 360) * viewport.zoom > -margin &&
+        y + (node.height ?? 240) * viewport.zoom > -margin
+      );
+    },
+    [viewport],
+  );
+
   const {
     openExternalUrl,
     previews,
@@ -710,13 +682,13 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     setNodes,
     isMountedRef,
     fromFlowNode,
-    renderPdfPreview,
     openRelativePath,
     canvasWebCardDefaultMode,
     canvasWebCardAutoLoad,
     webPreviewsEnabled,
     hoverWebLinkPreviewsEnabled,
     backgroundWebPreviewPrefetchEnabled,
+    isVisible: isPreviewVisible,
   });
 
   const snapNodeToGrid = useCallback(
@@ -831,6 +803,8 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     controller: canvasController,
     snapshot: canvasSnapshot,
     onSaveAsNew,
+    beforeLeave,
+    loadError: canvasLoadError,
   } = useCanvasDocumentSession({
     reactFlow,
     vault,
@@ -863,9 +837,10 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       controller: canvasController as DocumentSessionController<unknown>,
       snapshot: canvasSnapshot as DocumentSessionSnapshot<unknown>,
       onSaveAsNew,
+      beforeLeave,
       readOnly,
     }),
-    [canvasController, canvasSnapshot, onSaveAsNew, readOnly],
+    [canvasController, canvasSnapshot, onSaveAsNew, beforeLeave, readOnly],
   );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
@@ -1755,7 +1730,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
             onResetZoom={resetZoom}
             onZoomIn={() => adjustZoom(1)}
             onFitView={fitCanvasView}
-            readOnly={readOnly}
+            readOnly={readOnly || !!canvasLoadError || canvasLoading}
           />
         }
       />
@@ -1849,6 +1824,18 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         />
 
         <CanvasEdgeLayoutProvider value={edgeLayout}>
+          {canvasLoadError && (
+            <div
+              role="alert"
+              className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background p-6 text-center"
+            >
+              <p className="font-medium">Could not load the canvas</p>
+              <p className="text-sm text-muted-foreground">{canvasLoadError}</p>
+              <p className="text-sm text-muted-foreground">
+                The file has not been changed. Reopen this tab to retry.
+              </p>
+            </div>
+          )}
           <ReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>
             nodes={displayNodes}
             edges={edges}
@@ -1883,9 +1870,9 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
             panOnScroll
             zoomOnScroll={false}
             deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
-            nodesDraggable={!readOnly}
+            nodesDraggable={!readOnly && !canvasLoadError}
             elementsSelectable={!readOnly}
-            nodesConnectable={!readOnly}
+            nodesConnectable={!readOnly && !canvasLoadError}
             edgesReconnectable={!readOnly}
             connectionLineComponent={StackedConnectionLine}
             connectionRadius={44}

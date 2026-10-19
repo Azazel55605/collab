@@ -41,6 +41,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
 
 import KanbanCardView from './KanbanCard';
 
@@ -328,7 +330,7 @@ export default function KanbanColumnView({ column }: Props) {
       <div
         ref={setNodeRef}
         style={style}
-        className="flex flex-col w-[272px] shrink-0 app-sortable-enter"
+        className="flex flex-col w-[272px] h-full min-h-0 shrink-0 app-sortable-enter"
       >
         {/* Column header */}
         <div className="flex items-center gap-1.5 px-2 pb-1.5 select-none">
@@ -362,7 +364,7 @@ export default function KanbanColumnView({ column }: Props) {
 
           {/* Title */}
           {editingTitle ? (
-            <input
+            <Input
               ref={titleInputRef}
               value={titleDraft}
               onChange={(e) => setTitleDraft(e.target.value)}
@@ -580,7 +582,7 @@ export default function KanbanColumnView({ column }: Props) {
         {/* Cards area */}
         <div
           className={cn(
-            'flex flex-col flex-1 rounded-lg bg-muted/20 border border-border/30 transition-colors overflow-hidden',
+            'flex flex-col flex-1 min-h-0 rounded-lg bg-muted/20 border border-border/30 transition-colors overflow-hidden',
             isOver && !isDragging && 'bg-primary/5 border-primary/30',
           )}
           style={
@@ -589,7 +591,7 @@ export default function KanbanColumnView({ column }: Props) {
               : undefined
           }
         >
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
             {swimlaneMode === 'none' ? (
               <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
                 <div className="flex flex-col gap-1.5 p-1.5 min-h-[60px]">
@@ -612,7 +614,7 @@ export default function KanbanColumnView({ column }: Props) {
             <div className="p-1.5 shrink-0">
               {addingCard ? (
                 <div className="flex flex-col gap-1.5">
-                  <textarea
+                  <Textarea
                     autoFocus
                     value={cardDraft}
                     onChange={(e) => setCardDraft(e.target.value)}
@@ -732,7 +734,7 @@ export default function KanbanColumnView({ column }: Props) {
 
             {/* Add tag input */}
             <div className="flex gap-2">
-              <input
+              <Input
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => {

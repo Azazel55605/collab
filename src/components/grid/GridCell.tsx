@@ -54,6 +54,12 @@ interface Props {
 
 export default function GridCell({ cell, onContainerRef }: Props) {
   const { setCellContent, clearCell } = useGridStore();
+  const scope = useVaultStore((state) =>
+    state.vault?.kind === 'hosted'
+      ? JSON.stringify([state.vault.serverUrl, state.vault.hostedVaultId])
+      : state.vault?.path,
+  );
+  const documentIdentity = JSON.stringify([scope, cell.content.type, cell.content.relativePath]);
   const fileTree = useVaultStore((state) => state.fileTree);
 
   // ── dnd-kit: make the grip handle draggable ──────────────────────────────
@@ -220,6 +226,7 @@ export default function GridCell({ cell, onContainerRef }: Props) {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <div
+          key={documentIdentity}
           className="h-full"
           onDragOver={(event) => {
             const relativePath =

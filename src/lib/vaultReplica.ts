@@ -465,7 +465,7 @@ export function classifyPendingOperationFailure(error: unknown): PendingOperatio
 }
 
 export async function readCachedReplicaManifest(
-  vault: HostedVaultMeta,
+  vault: Pick<HostedVaultMeta, 'serverUrl' | 'hostedVaultId'>,
 ): Promise<ReplicaManifest | null> {
   return tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
 }
@@ -485,12 +485,16 @@ export async function writeOptimisticReplicaManifest(
   vault: HostedVaultMeta,
   manifest: ReplicaManifest,
 ): Promise<void> {
+  const syncState = await tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId);
   await tauriCommands.replicaSeed(
     vault.serverUrl,
     vault.hostedVaultId,
     vault.name,
     manifest,
-    offlineSyncState(manifest.sequence),
+    {
+      ...offlineSyncState(manifest.sequence),
+      offlineAvailableAt: syncState.offlineAvailableAt ?? null,
+    },
     vault.role,
     vault.capabilities ?? [],
   );
@@ -807,18 +811,34 @@ export async function cleanupReplicaCache(
   return tauriCommands.replicaCleanup(vault.serverUrl, vault.hostedVaultId, budgetBytes);
 }
 
+async function assertNoPendingReplicaChanges(vault: HostedVaultMeta): Promise<void> {
+  const pending = await tauriCommands.replicaListPendingOperations(
+    vault.serverUrl,
+    vault.hostedVaultId,
+  );
+  if (pending.length)
+    throw new Error('Synchronize pending changes before replacing replica metadata.');
+}
+
 export async function seedReplicaFromManifest(vault: HostedVaultMeta): Promise<void> {
+  const state = await tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId);
+  await assertNoPendingReplicaChanges(vault);
   const manifest = await tauriCommands.hostedVaultRequest<ReplicaManifest>(
     vault.serverUrl,
     'GET',
     `/api/v1/vaults/${vault.hostedVaultId}/manifest`,
   );
+  await assertNoPendingReplicaChanges(vault);
   await tauriCommands.replicaSeed(
     vault.serverUrl,
     vault.hostedVaultId,
     vault.name,
     manifest,
-    initialSyncState(manifest.sequence),
+    {
+      ...initialSyncState(manifest.sequence),
+      offlineAvailableAt: state.offlineAvailableAt ?? null,
+      manifestSequence: state.offlineAvailableAt ? state.manifestSequence : manifest.sequence,
+    },
     vault.role,
     vault.capabilities ?? [],
   );
@@ -841,6 +861,7 @@ async function markOfflineAvailable(
   vault: HostedVaultMeta,
   manifestSequence: number,
 ): Promise<void> {
+  await assertNoPendingReplicaChanges(vault);
   const syncState = await tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId);
   await tauriCommands.replicaWriteSyncState(vault.serverUrl, vault.hostedVaultId, {
     ...syncState,
@@ -886,12 +907,14 @@ async function cacheActiveFilesForOffline(
         alreadyCached += 1;
         continue;
       }
+      await assertNoPendingReplicaChanges(vault);
       if (kind === 'document') {
         const document = await tauriCommands.hostedVaultRequest<{ content: string }>(
           vault.serverUrl,
           'GET',
           `/api/v1/vaults/${vault.hostedVaultId}/files/${file.id}`,
         );
+        await assertNoPendingReplicaChanges(vault);
         await tauriCommands.replicaCacheDocument(
           vault.serverUrl,
           vault.hostedVaultId,
@@ -905,6 +928,7 @@ async function cacheActiveFilesForOffline(
           vault.hostedVaultId,
           file.id,
         );
+        await assertNoPendingReplicaChanges(vault);
         await tauriCommands.replicaCacheAsset(
           vault.serverUrl,
           vault.hostedVaultId,
@@ -948,6 +972,8 @@ export async function makeHostedVaultAvailableOffline(
   const report = await cacheActiveFilesForOffline(vault, manifest.files, (completed, total) =>
     onProgress?.(completed, total),
   );
+  if (report.skipped)
+    throw new Error(`Offline copy incomplete: ${report.skipped} files could not be downloaded.`);
   try {
     const components = await tauriCommands.hostedVaultRequest<LogicComponentDefinition[]>(
       vault.serverUrl,
@@ -965,7 +991,23 @@ export async function makeHostedVaultAvailableOffline(
   return report;
 }
 
-export async function syncReplicaManifestDelta(
+const syncsInFlight = new Map<string, Promise<ReplicaManifest>>();
+
+export function syncReplicaManifestDelta(
+  vault: HostedVaultMeta,
+  onProgress?: (progress: ReplicaSyncProgress) => void,
+): Promise<ReplicaManifest> {
+  const key = JSON.stringify([vault.serverUrl, vault.hostedVaultId]);
+  const existing = syncsInFlight.get(key);
+  if (existing) return existing;
+  const task = runReplicaManifestSync(vault, onProgress).finally(() => {
+    if (syncsInFlight.get(key) === task) syncsInFlight.delete(key);
+  });
+  syncsInFlight.set(key, task);
+  return task;
+}
+
+async function runReplicaManifestSync(
   vault: HostedVaultMeta,
   onProgress?: (progress: ReplicaSyncProgress) => void,
 ): Promise<ReplicaManifest> {
@@ -1013,7 +1055,7 @@ export async function syncReplicaManifestDelta(
   if (!manifest) throw new Error('Replica manifest was not available after synchronization.');
   if (current.changed !== 0) {
     emitReplicaMutated({
-      kind: 'sync',
+      kind: 'manifest',
       fileIds: manifest.files.map((file) => file.id),
       relativePaths: manifest.files
         .map((file) => (typeof file.relativePath === 'string' ? file.relativePath : null))
@@ -1036,6 +1078,7 @@ async function syncReplicaManifestDeltaWithAdapter(
   await replayPendingOperations(vault, onProgress).catch((error) => {
     if (!isLikelyConnectivityError(error)) throw error;
   });
+  await assertNoPendingReplicaChanges(vault);
   const [cachedManifest, syncState] = await Promise.all([
     tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId),
     tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId),
@@ -1091,22 +1134,36 @@ async function syncReplicaManifestDeltaWithAdapter(
     sequence: delta.sequence,
     files: Array.from(filesById.values()),
   };
+  await assertNoPendingReplicaChanges(vault);
   await tauriCommands.replicaSeed(
     vault.serverUrl,
     vault.hostedVaultId,
     vault.name,
     nextManifest,
-    initialSyncState(delta.sequence),
+    { ...syncState, status: 'syncing' },
     vault.role,
     vault.capabilities ?? [],
   );
   if (shouldMaintainOfflineCache) {
-    await cacheActiveFilesForOffline(vault, delta.changedFiles, (completed, total, detail) => {
-      onProgress?.({ direction: 'download', completed, total, detail });
-    });
+    const report = await cacheActiveFilesForOffline(
+      vault,
+      nextManifest.files,
+      (completed, total, detail) => {
+        onProgress?.({ direction: 'download', completed, total, detail });
+      },
+    );
+    if (report.skipped)
+      throw new Error(`Offline copy incomplete: ${report.skipped} files could not be downloaded.`);
     await markOfflineAvailable(vault, delta.sequence);
     await cleanupReplicaCache(vault);
   }
+  await assertNoPendingReplicaChanges(vault);
+  await tauriCommands.replicaWriteSyncState(vault.serverUrl, vault.hostedVaultId, {
+    ...(await tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId)),
+    manifestSequence: delta.sequence,
+    lastSyncedAt: new Date().toISOString(),
+    status: 'idle',
+  });
   emitReplicaMutated({
     kind: 'manifest',
     fileIds: delta.changedFiles.map((file) => file.id),

@@ -3554,6 +3554,26 @@ pub(crate) async fn persist_materialized_document(
     {
         return Ok(MaterializeDocumentOutcome::Unchanged(current_marker));
     }
+    // CRDT JSON serialization is compact and may order keys differently from
+    // REST/editor JSON. A no-op sync must not manufacture a new revision.
+    let kind = collab_live::LiveDocumentKind::from_document_type(
+        current.get::<Option<String>, _>("document_type").as_deref(),
+    );
+    if kind.is_structured() {
+        if let Some(marker) = current_marker.as_ref() {
+            if let Some(previous) = blobs
+                .get(&marker.content_hash)
+                .await
+                .map_err(|_| ApiFailure::server(request_id.clone()))?
+            {
+                if let Ok(previous) = std::str::from_utf8(&previous) {
+                    if collab_live::content_matches(kind, previous, content) {
+                        return Ok(MaterializeDocumentOutcome::Unchanged(current_marker));
+                    }
+                }
+            }
+        }
+    }
     let digest = blobs
         .put(bytes)
         .await

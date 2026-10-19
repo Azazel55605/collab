@@ -43,6 +43,7 @@ fn compute_hash(content: &str) -> String {
 }
 
 fn persist_chat_message(vault_path: &str, message: &ChatMessage) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     let dir = chat_dir(vault_path);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let file_path = dir.join("messages.json");
@@ -76,6 +77,7 @@ pub fn write_presence(
     user_id: String,
     entry: PresenceEntry,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let dir = presence_dir(&vault_path);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let file_path = dir.join(format!("{}.json", user_id));
@@ -115,6 +117,7 @@ pub fn read_all_presence(vault_path: String) -> Result<Vec<PresenceEntry>, Strin
 
 #[tauri::command]
 pub fn clear_presence(vault_path: String, user_id: String) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let file_path = presence_dir(&vault_path).join(format!("{}.json", user_id));
     if file_path.exists() {
         std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
@@ -165,6 +168,7 @@ pub fn register_known_user(
     user_color: String,
     app: AppHandle,
 ) -> Result<VaultConfig, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let mut config = get_vault_config(vault_path.clone())?;
     let now = now_ms();
 
@@ -226,6 +230,7 @@ pub fn create_snapshot(
     author_name: String,
     label: Option<String>,
 ) -> Result<SnapshotMeta, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let now = now_ms();
     let hash = compute_hash(&content);
     let id = format!("{}_{}", now, &hash[..8]);
@@ -313,6 +318,7 @@ pub fn delete_snapshot(
     relative_path: String,
     snapshot_id: String,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let dir = history_dir(&vault_path).join(path_key(&relative_path));
     let index_path = dir.join("index.json");
 
@@ -348,6 +354,7 @@ pub fn delete_snapshot(
 
 #[tauri::command]
 pub fn clear_snapshot_history(vault_path: String, relative_path: String) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let dir = history_dir(&vault_path).join(path_key(&relative_path));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -364,6 +371,7 @@ pub fn restore_snapshot(
     restoring_user_name: String,
     state: State<AppState>,
 ) -> Result<WriteResult, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let snapshot_content = read_snapshot(vault_path.clone(), relative_path.clone(), snapshot_id)?;
 
     // Auto-snapshot the current state so the restore can be undone
@@ -395,26 +403,15 @@ pub fn restore_snapshot(
         );
     }
 
-    // Write the restored content, encrypting if a vault key is active
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
-    let bytes: Vec<u8> = if let Some(key) = key_opt {
-        crypto::encrypt_bytes(&key, snapshot_content.as_bytes()).map_err(|e| e.to_string())?
-    } else {
-        snapshot_content.as_bytes().to_vec()
-    };
-
-    if let Some(parent) = full_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let tmp = full_path.with_extension("tmp");
-    std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &full_path).map_err(|e| e.to_string())?;
-
-    Ok(WriteResult {
-        hash: compute_hash(&snapshot_content),
-        merged_content: None,
-        conflict: None,
-    })
+    super::files::write_note_to_path(
+        &full_path,
+        &relative_path,
+        snapshot_content,
+        None,
+        None,
+        key_opt,
+    )
 }
 
 #[cfg(test)]

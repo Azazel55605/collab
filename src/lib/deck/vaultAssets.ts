@@ -9,7 +9,7 @@ import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
 import type { NoteFile, VaultMeta } from '../../types/vault';
 import { parseSheetDocument } from '../sheet/document';
-import { buildSheetFormulaRequest } from '../sheet/useSheetFormulaEngine';
+import { buildSheetFormulaRequest } from '../sheet/formulaRequest';
 import { tauriCommands } from '../tauri';
 import type { VaultClient } from '../vaultClient';
 

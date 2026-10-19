@@ -1,3 +1,4 @@
+import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 function createStorageMock() {
@@ -44,6 +45,7 @@ if (typeof window !== 'undefined') {
   });
 
   afterEach(() => {
+    cleanup();
     document.body.innerHTML = '';
   });
 

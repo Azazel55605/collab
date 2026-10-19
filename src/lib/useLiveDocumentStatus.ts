@@ -26,7 +26,14 @@ export function useLiveDocumentStatus<TDocument>(
     };
 
     sync(liveSession.getStatus());
-    return liveSession.onStatus(sync);
+    const offStatus = liveSession.onStatus(sync);
+    const offCheckpoint = controller.registerLeaveBarrier(async () => {
+      await liveSession.flushOfflineState?.();
+    });
+    return () => {
+      offStatus();
+      offCheckpoint();
+    };
   }, [controller, liveSession]);
 
   return status;

@@ -10,6 +10,7 @@ import type {
   HandoutSlidesPerPage,
 } from '../../lib/deck/output';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -173,11 +174,10 @@ export function DeckExportDialog({
             <>
               <span />
               <label className="flex items-center gap-1.5 text-xs">
-                <input
-                  type="checkbox"
+                <Checkbox
                   className="accent-primary"
                   checked={includeHidden}
-                  onChange={(event) => setIncludeHidden(event.target.checked)}
+                  onCheckedChange={(checked) => setIncludeHidden(checked === true)}
                 />
                 Include hidden slides
               </label>
@@ -206,13 +206,12 @@ export function DeckExportDialog({
                   </SelectContent>
                 </Select>
                 <label className="flex items-center gap-1.5 text-xs">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     className="accent-primary"
                     checked={notes}
-                    onChange={(event) => {
-                      setNotes(event.target.checked);
-                      if (event.target.checked && perPage > 3) setPerPage(3);
+                    onCheckedChange={(checked) => {
+                      setNotes(checked === true);
+                      if (checked === true && perPage > 3) setPerPage(3);
                     }}
                   />
                   Speaker notes

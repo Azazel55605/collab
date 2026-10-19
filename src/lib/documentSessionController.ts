@@ -165,6 +165,8 @@ export interface DocumentSessionControllerOptions<TDocument> {
   }): Promise<DocumentWriteOutcome>;
   /** Serialize a document to the string content written to the vault. */
   serialize(doc: TDocument): string;
+  /** Materialize deferred gesture state at a save boundary. */
+  prepareSave?(): void;
   /** Parse vault content into a document. */
   deserialize(content: string): TDocument;
   /**
@@ -231,25 +233,37 @@ export function createExclusiveSaveRunner(callbacks?: { onBusy?(): void; onIdle?
   let saving = false;
   let pending: null | (() => Promise<void>) = null;
 
-  async function run(save: () => Promise<void>): Promise<void> {
+  let completion: Promise<void> | null = null;
+  function run(save: () => Promise<void>): Promise<void> {
     if (saving) {
       pending = save;
-      return;
+      return completion!;
     }
     saving = true;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const done = new Promise<void>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    completion = done;
     callbacks?.onBusy?.();
-    try {
-      let current: (() => Promise<void>) | null = save;
-      while (current) {
+    void (async () => {
+      try {
+        let current: (() => Promise<void>) | null = save;
+        while (current) {
+          pending = null;
+          await current();
+          current = pending;
+        }
+      } finally {
+        saving = false;
         pending = null;
-        await current();
-        current = pending;
+        completion = null;
+        callbacks?.onIdle?.();
       }
-    } finally {
-      saving = false;
-      pending = null;
-      callbacks?.onIdle?.();
-    }
+    })().then(resolve, reject);
+    return done;
   }
 
   return {
@@ -286,6 +300,7 @@ export class DocumentSessionController<TDocument> {
   private readonly options: DocumentSessionControllerOptions<TDocument>;
   private readonly runner: ReturnType<typeof createExclusiveSaveRunner>;
   private readonly listeners = new Set<() => void>();
+  private readonly leaveBarriers = new Set<() => Promise<void>>();
 
   private loadedVersion: string | null = null;
   private lastSavedContent: string | null = null;
@@ -383,7 +398,9 @@ export class DocumentSessionController<TDocument> {
    */
   markLocalChange(doc: TDocument): void {
     this.currentDocument = doc;
-    this.currentContent = this.options.serialize(doc);
+    const nextContent = this.options.serialize(doc);
+    if (nextContent !== this.currentContent) this.offlineQueued = false;
+    this.currentContent = nextContent;
     this.dirty =
       this.lastSavedContent === null
         ? true
@@ -395,12 +412,37 @@ export class DocumentSessionController<TDocument> {
     this.invalidate();
   }
 
+  /** Mark an in-progress gesture dirty without serializing the graph on every frame. */
+  markTransientChange(): void {
+    this.dirty = true;
+    this.offlineQueued = false;
+    this.justSaved = false;
+    this.clearAutosave();
+    this.invalidate();
+  }
+
   /** Requests a save now. Manual saves flush the debounce and run immediately. */
+  registerLeaveBarrier(barrier: () => Promise<void>): () => void {
+    this.leaveBarriers.add(barrier);
+    return () => {
+      this.leaveBarriers.delete(barrier);
+    };
+  }
+
+  async prepareToLeave(): Promise<void> {
+    await Promise.all([...this.leaveBarriers].map((barrier) => barrier()));
+  }
+
   requestSave(_reason: SaveReason = 'manual'): Promise<void> {
     if (this.conflicted) return Promise.resolve();
     // Live sessions persist through the server relay; the REST write path is
     // disabled so it never races the CRDT materialization with a stale version.
     if (this.options.isLive?.()) return Promise.resolve();
+    try {
+      this.options.prepareSave?.();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (this.currentContent === null) return Promise.resolve();
     this.clearAutosave();
     if (this.runner.isBusy()) {
@@ -436,10 +478,25 @@ export class DocumentSessionController<TDocument> {
     }
 
     this.offlineQueued = false;
-    const saved = outcome.mergedContent ?? content;
+    // Establish the baseline in the editor's serialized form, just like its
+    // initial load. Server formatting must not manufacture another local edit.
+    const saved =
+      outcome.mergedContent === undefined
+        ? content
+        : this.options.serialize(this.options.deserialize(outcome.mergedContent));
     this.loadedVersion = outcome.version;
     this.lastSavedContent = saved;
     if (saved !== content && !this.contentEqual(saved, content)) {
+      if (this.currentContent !== null && !this.contentEqual(this.currentContent, content)) {
+        // New edits arrived while the server merged this write. Preserve both
+        // versions for review rather than replacing those edits or overwriting
+        // the server merge with an automatic trailing save.
+        this.setConflict(
+          { theirContent: saved, theirVersion: outcome.version, baseContent: content },
+          this.currentContent,
+        );
+        return;
+      }
       // The backend auto-merged concurrent non-overlapping edits; adopt the
       // merged document as the new source of truth.
       this.currentContent = saved;
@@ -727,6 +784,7 @@ export class DocumentSessionController<TDocument> {
 
   /** Cancels pending timers. Call on unmount. */
   dispose(): void {
+    this.leaveBarriers.clear();
     this.clearAutosave();
     this.listeners.clear();
   }
@@ -833,6 +891,7 @@ export function useDocumentSessionController<TDocument>(
     const proxy: DocumentSessionControllerOptions<TDocument> = {
       write: (args) => optionsRef.current.write(args),
       serialize: (doc) => optionsRef.current.serialize(doc),
+      prepareSave: () => optionsRef.current.prepareSave?.(),
       deserialize: (content) => optionsRef.current.deserialize(content),
       applyDocument: (candidate) => optionsRef.current.applyDocument(candidate),
       read: () => (optionsRef.current.read ? optionsRef.current.read() : Promise.resolve(null)),

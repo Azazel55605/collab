@@ -63,6 +63,7 @@ import {
   sheetFormulaResultKey,
   type SheetFormulaValueMap,
 } from '../../types/sheetFormula';
+import { Input } from '../ui/input';
 
 import SheetFormulaIntellisense, { type SheetFormulaSuggestion } from './SheetFormulaIntellisense';
 
@@ -1680,7 +1681,7 @@ export default function SheetGrid({
 
           {editing && editorStyle && (
             <>
-              <input
+              <Input
                 ref={editorRef}
                 value={editing.text}
                 aria-label="Cell editor"
@@ -1736,7 +1737,7 @@ export default function SheetGrid({
                   event.stopPropagation();
                 }}
                 onBlur={() => commitEditing(null)}
-                className="absolute z-10 border-2 border-primary bg-background px-1 font-mono text-[13px] outline-none"
+                className="absolute z-10 min-h-0 rounded-none border-2 border-primary bg-background px-1 font-mono text-[13px] shadow-none outline-none focus-visible:ring-0"
                 style={editorStyle}
               />
               {editorIntellisenseStyle && (

@@ -30,12 +30,11 @@ import {
 } from './markdownEditorViewConfig';
 import { openNonVaultMarkdownPreviewLink } from './markdownLinkOpen';
 import {
+  applyMathSolverChoice,
   handleMathBlockShortcutKeydown,
   MATH_SOLVER_ACTION_EVENT,
   type MathSolverActionDetail,
 } from './mathBlockCommands';
-import { solveMathInput } from './mathSolver';
-import type { MathSolveMode } from './mathSolver';
 import { createSlashCommandSource } from './slashCommands';
 import { createSnippetSessionExtension } from './snippetEngine';
 import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
@@ -275,14 +274,6 @@ function openToolbarAction(action: EditorToolbarAction) {
   };
 }
 
-function buildMathSolverInsertion(
-  mode: MathSolveMode,
-  result: NonNullable<ReturnType<typeof solveMathInput>>,
-) {
-  if (result.kind === 'equation') return `\n\\Rightarrow ${result.latex}`;
-  return mode === 'approximate' ? ` \\approx ${result.latex}` : ` = ${result.latex}`;
-}
-
 function MathSolverActionPopover({
   action,
   onSelect,
@@ -509,7 +500,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const handleDocumentKeydown = (event: KeyboardEvent) => {
         const view = viewRef.current;
         const container = containerRef.current;
-        if (!view || !container) return;
+        if (!view || !container || view.state.readOnly) return;
 
         const active = document.activeElement;
         if (!(active instanceof Node) || !container.contains(active)) return;
@@ -532,7 +523,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     useEffect(() => {
       const handleMathSolverAction = (event: Event) => {
         const detail = (event as CustomEvent<MathSolverActionDetail>).detail;
-        if (!detail) return;
+        if (!detail || detail.view !== viewRef.current) return;
         setMathSolverAction(detail);
       };
       window.addEventListener(MATH_SOLVER_ACTION_EVENT, handleMathSolverAction);
@@ -544,19 +535,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const view = viewRef.current;
       if (!action || !view) return;
 
-      const result = solveMathInput(action.source, action.mode, variable);
-      if (!result) {
-        setMathSolverAction(null);
-        view.focus();
-        return;
-      }
-
-      const insert = buildMathSolverInsertion(action.mode, result);
-      view.dispatch({
-        changes: { from: action.range.to, insert },
-        selection: { anchor: action.range.to + insert.length },
-        scrollIntoView: true,
-      });
+      applyMathSolverChoice(view, action, variable);
       setMathSolverAction(null);
       view.focus();
     };
@@ -592,6 +571,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           return false;
         },
         keydown(event: KeyboardEvent, view: EditorView) {
+          if (view.state.readOnly) return false;
           return (
             handleEditorToolbarShortcutKeydown(event) ||
             handleMathBlockShortcutKeydown(event, view) ||

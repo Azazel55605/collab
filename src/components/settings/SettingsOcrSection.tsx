@@ -312,7 +312,7 @@ export default function SettingsOcrSection({
       <SectionLabel>Cache</SectionLabel>
       <OptionRow
         label="OCR result cache"
-        description="Clears cached recognized and extracted text. Language packs stay installed."
+        description="Recognized text is cached only in memory for the current vault/account session. Clear it here; language packs stay installed."
       >
         <Button
           type="button"

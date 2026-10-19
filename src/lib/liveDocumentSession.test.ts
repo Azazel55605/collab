@@ -410,3 +410,57 @@ describe('openLiveNoteSession offline replica reconnect sync', () => {
     session.destroy();
   });
 });
+
+describe('durable live checkpoint ordering', () => {
+  it('waits for an older write and coalesces the final state before acknowledging a flush', async () => {
+    const { session } = await connectSession();
+    let finish!: () => void;
+    vi.mocked(tauriCommands.replicaCacheCrdtState)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((done) => {
+            finish = done;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    session.text.insert(0, 'first');
+    const first = session.flushOfflineState!();
+    session.text.insert(5, ' latest');
+    let complete = false;
+    const latest = session.flushOfflineState!().then(() => {
+      complete = true;
+    });
+    await Promise.resolve();
+    expect(complete).toBe(false);
+    expect(tauriCommands.replicaCacheCrdtState).toHaveBeenCalledTimes(1);
+    finish();
+    await Promise.all([first, latest]);
+    const calls = vi.mocked(tauriCommands.replicaCacheCrdtState).mock.calls;
+    const data = calls[calls.length - 1][3];
+    const doc = new Y.Doc();
+    Y.applyUpdate(
+      doc,
+      Uint8Array.from(atob(data), (value) => value.charCodeAt(0)),
+    );
+    expect(doc.getText('content').toString()).toBe('first latest');
+    session.destroy();
+  });
+
+  it('clears a rejected seed only after its in-flight checkpoint completes', async () => {
+    const { session } = await connectSession();
+    let finish!: () => void;
+    vi.mocked(tauriCommands.replicaCacheCrdtState).mockImplementationOnce(
+      () =>
+        new Promise<void>((done) => {
+          finish = done;
+        }),
+    );
+    const pending = session.flushOfflineState!();
+    session.discardOfflineState();
+    expect(tauriCommands.replicaClearCrdtState).not.toHaveBeenCalled();
+    finish();
+    await pending;
+    expect(tauriCommands.replicaClearCrdtState).toHaveBeenCalledOnce();
+    session.destroy();
+  });
+});

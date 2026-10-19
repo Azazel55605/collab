@@ -131,9 +131,10 @@ export function useInkSession({
         baseContent ?? undefined,
       );
       if (result.conflict) {
-        let theirVersion: string | null = null;
+        let theirVersion: string | null = result.conflict.theirVersion ?? null;
         try {
-          theirVersion = (await client.readDocument(relativePath)).version;
+          if (theirVersion === null)
+            theirVersion = (await client.readDocument(relativePath)).version;
         } catch {
           // Best-effort; a null version makes a keep-mine resolution overwrite.
         }

@@ -1,4 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type GridCell as GridCellType, useGridStore } from '../../store/gridStore';
@@ -10,6 +12,7 @@ const canvasPageMock = vi.fn();
 const kanbanPageMock = vi.fn();
 const logicDiagramViewMock = vi.fn();
 const imageViewMock = vi.fn();
+const imageLifetimeMock = vi.fn(() => imageViewMock.mock.calls.length);
 const pdfViewMock = vi.fn();
 
 vi.mock('../../views/CanvasPage', () => ({
@@ -34,9 +37,15 @@ vi.mock('../../views/LogicDiagramView', () => ({
 }));
 
 vi.mock('../../views/ImageView', () => ({
-  default: (props: { relativePath: string }) => {
+  default: function ImageView(props: { relativePath: string }) {
     imageViewMock(props);
-    return <div data-testid="image-view">{props.relativePath}</div>;
+    const [initialPath] = useState(props.relativePath);
+    const [lifetime] = useState(() => imageLifetimeMock());
+    return (
+      <div data-testid="image-view" data-initial-path={initialPath} data-lifetime={lifetime}>
+        {props.relativePath}
+      </div>
+    );
   },
 }));
 
@@ -135,6 +144,26 @@ describe('GridCell', () => {
       lastOpenedVaultPath: null,
       isLoading: false,
     });
+  });
+
+  it('creates a fresh document lifetime when a cell changes files or vaults', () => {
+    const cell: GridCellType = {
+      id: 'cell-lifetime',
+      content: { type: 'image', relativePath: 'first.png', title: 'first' },
+    };
+    const { rerender } = render(<GridCell cell={cell} />);
+    rerender(
+      <GridCell cell={{ ...cell, content: { ...cell.content, relativePath: 'second.png' } }} />,
+    );
+    expect(screen.getByTestId('image-view').dataset.initialPath).toBe('second.png');
+    const previousLifetime = screen.getByTestId('image-view').dataset.lifetime;
+    act(() =>
+      useVaultStore.setState({
+        vault: { id: 'other', path: '/other', name: 'Other', isEncrypted: false, lastOpened: 0 },
+      }),
+    );
+    expect(screen.getByTestId('image-view').dataset.initialPath).toBe('second.png');
+    expect(screen.getByTestId('image-view').dataset.lifetime).not.toBe(previousLifetime);
   });
 
   it('renders canvas cells with their board path', () => {

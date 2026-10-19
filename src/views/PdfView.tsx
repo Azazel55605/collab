@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { listen } from '@tauri-apps/api/event';
 import {
   Bookmark,
   BookmarkPlus,
@@ -31,7 +30,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  getDocument,
   GlobalWorkerOptions,
   PixelsPerInch,
   RenderingCancelledException,
@@ -71,7 +69,8 @@ import {
 } from '../lib/documentSessionController';
 import { defaultToolState } from '../lib/ink/tools';
 import type { InkToolState } from '../lib/ink/tools';
-import { readOcrCache, writeOcrCache } from '../lib/ocrCache';
+import { listenSafely } from '../lib/nativeSubscription';
+import { readOcrCache, scopeOcrCache, writeOcrCache } from '../lib/ocrCache';
 import {
   annotatedPdfFileName,
   exportAnnotatedPdf,
@@ -79,6 +78,7 @@ import {
 } from '../lib/pdfAnnotatedExport';
 import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
 import { createPdfInkDocument, migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
+import { acquirePdfDocument } from '../lib/pdfResourceCache';
 import {
   appendMarkdownBlock,
   appendPdfQuoteTextNode,
@@ -88,12 +88,14 @@ import {
 } from '../lib/pdfWorkspace';
 import { interactiveCanvasDeviceScale } from '../lib/rendering';
 import { tauriCommands } from '../lib/tauri';
+import { useHostedAssetRevision } from '../lib/useHostedAssetRevision';
 import { cn } from '../lib/utils';
 import { createVaultClient } from '../lib/vaultClient';
 import type { VaultPdfAnnotations } from '../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useEditorStore } from '../store/editorStore';
+import { useServerStore } from '../store/serverStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 import type { CanvasData } from '../types/canvas';
@@ -112,7 +114,10 @@ import { enqueuePdfRender } from './pdfRenderQueue';
 import {
   buildPdfPageRenderCacheKey,
   buildPdfViewerState,
+  flushPdfViewerStates,
   type PdfPageRenderCacheEntry,
+  readPdfViewerState,
+  rememberPdfViewerState,
   resolvePdfBookmarksOpen,
 } from './pdfViewSession';
 import type { LayoutMode, ZoomMode } from './pdfViewTypes';
@@ -928,6 +933,11 @@ interface Props {
 
 export default function PdfView({ relativePath }: Props) {
   const { vault, fileTree } = useVaultStore();
+  const accountId = useServerStore((state) =>
+    vault?.kind === 'hosted' ? state.statusFor(vault.serverUrl)?.user?.id : undefined,
+  );
+  const viewerStateKey = `${vault?.path ?? ''}:${accountId ?? 'local'}:${relativePath}`;
+  useEffect(() => () => flushPdfViewerStates(), [viewerStateKey]);
   // Local PDF sidecars live under `.collab/pdf/`. Hosted sidecars use the
   // permission-enforced API; this flag only controls native file watching and
   // local viewer-state persistence.
@@ -950,6 +960,7 @@ export default function PdfView({ relativePath }: Props) {
     setRevealEditorPath,
   } = useEditorStore();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRef = useRef<{ top: number; left: number } | null>(null);
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const pageCanvasRefs = useRef<Record<number, HTMLCanvasElement | null>>({});
   const pinchScaleRef = useRef(1);
@@ -1061,7 +1072,10 @@ export default function PdfView({ relativePath }: Props) {
 
   const applyPdfSession = useCallback(
     (candidate: RemoteCandidate<PdfSidecarState>) => {
-      const sidecar = normalizePdfState(candidate.document);
+      const sidecar = {
+        ...normalizePdfState(candidate.document),
+        viewerState: readPdfViewerState(viewerStateKey) ?? candidate.document.viewerState,
+      };
       setPdfState(sidecar);
       setBookmarksOpen(resolvePdfBookmarksOpen(sidecar.viewerState));
       if (sidecar.viewerState?.lastPage && pageCount > 0) {
@@ -1091,7 +1105,7 @@ export default function PdfView({ relativePath }: Props) {
         setRotation(sidecar.viewerState.lastRotation);
       }
     },
-    [normalizePdfState, pageCount],
+    [normalizePdfState, pageCount, viewerStateKey],
   );
 
   const readPdfSession = useCallback(async (): Promise<{
@@ -1191,6 +1205,12 @@ export default function PdfView({ relativePath }: Props) {
     );
   }, [activeTabPath, openTabs]);
 
+  const assetRevision = useHostedAssetRevision(
+    vault,
+    relativePath,
+    !pdfSessionSnapshot.dirty && !pdfSessionSnapshot.saving && !pdfSessionSnapshot.conflicted,
+  );
+
   useEffect(() => {
     if (!vault || !relativePath) {
       setDocumentProxy(null);
@@ -1201,6 +1221,7 @@ export default function PdfView({ relativePath }: Props) {
     }
 
     let cancelled = false;
+    let releasePdf: (() => void) | null = null;
     setLoading(true);
     setError(null);
     setDocumentProxy(null);
@@ -1244,23 +1265,36 @@ export default function PdfView({ relativePath }: Props) {
     ])
       .then(async ([dataUrl, annotations]) => {
         const data = dataUrlToUint8Array(dataUrl);
-        const task = getDocument({ data });
-        const pdf = await task.promise;
+        const lease = await acquirePdfDocument(viewerStateKey, data);
+        releasePdf = lease.release;
+        if (cancelled) {
+          releasePdf();
+          return;
+        }
+        const pdf = await lease.promise;
         if (cancelled) {
           // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns
           // the worker teardown now.
-          await task.destroy().catch(() => {});
+          releasePdf();
           return;
         }
 
         const migration = migratePdfSidecar(annotations.state, relativePath, pdf.numPages);
-        const sidecar = migration.state;
+        const sidecar = {
+          ...migration.state,
+          viewerState: readPdfViewerState(viewerStateKey) ?? migration.state.viewerState,
+        };
         if (migration.warnings.length > 0) {
           toast.warning('Some PDF annotations needed repair.', {
             description: migration.warnings.slice(0, 3).join(' '),
           });
         }
 
+        const viewer = sidecar.viewerState;
+        pendingScrollRef.current = {
+          top: Number.isFinite(viewer?.lastScrollTop) ? Math.max(0, viewer!.lastScrollTop!) : 0,
+          left: Number.isFinite(viewer?.lastScrollLeft) ? Math.max(0, viewer!.lastScrollLeft!) : 0,
+        };
         const firstPage = await pdf.getPage(1);
         if (cancelled) return;
         const initialViewport = firstPage.getViewport({ scale: 1, rotation: 0 });
@@ -1303,6 +1337,7 @@ export default function PdfView({ relativePath }: Props) {
       })
       .catch((loadError) => {
         if (cancelled) return;
+        releasePdf?.();
         setDocumentProxy(null);
         setError(String(loadError));
       })
@@ -1312,26 +1347,34 @@ export default function PdfView({ relativePath }: Props) {
 
     return () => {
       cancelled = true;
+      releasePdf?.();
     };
   }, [
+    assetRevision,
     normalizePdfState,
     pdfSessionController,
     relativePath,
     serializePdfSession,
     supportsSidecars,
     vault?.path,
+    viewerStateKey,
   ]);
 
   useEffect(() => {
     if (!vault || !relativePath || !sidecarLoaded) return;
-    latestViewerStateRef.current = buildPdfViewerState({
-      pageNumber,
-      zoomMode,
-      zoom,
-      layoutMode,
-      rotation,
-      bookmarksOpen,
-    });
+    latestViewerStateRef.current = {
+      ...buildPdfViewerState({
+        pageNumber,
+        zoomMode,
+        zoom,
+        layoutMode,
+        rotation,
+        bookmarksOpen,
+      }),
+      lastScrollTop: pendingScrollRef.current?.top ?? viewportRef.current?.scrollTop ?? 0,
+      lastScrollLeft: pendingScrollRef.current?.left ?? viewportRef.current?.scrollLeft ?? 0,
+    };
+    rememberPdfViewerState(viewerStateKey, latestViewerStateRef.current);
     pdfSessionController.markLocalChange({
       ...pdfState,
       viewerState: latestViewerStateRef.current,
@@ -1345,6 +1388,7 @@ export default function PdfView({ relativePath }: Props) {
     relativePath,
     rotation,
     sidecarLoaded,
+    viewerStateKey,
     vault,
     zoom,
     zoomMode,
@@ -1352,17 +1396,11 @@ export default function PdfView({ relativePath }: Props) {
 
   useEffect(() => {
     if (!vault || !supportsSidecars || !relativePath) return;
-    let unlisten: (() => void) | undefined;
-    listen<{ path: string }>('vault:file-modified', async (event) => {
+    return listenSafely<{ path: string }>('vault:file-modified', async (event) => {
       if (event.payload?.path !== relativePath) return;
       if (Date.now() - pdfSessionController.getSnapshot().lastLocalWriteStartedAt < 2000) return;
       await pdfSessionController.handleExternalMutation('rest');
-    }).then((cleanup) => {
-      unlisten = cleanup;
     });
-    return () => {
-      unlisten?.();
-    };
   }, [pdfSessionController, relativePath, supportsSidecars, vault]);
 
   useEffect(() => {
@@ -1999,12 +2037,12 @@ export default function PdfView({ relativePath }: Props) {
       setOcrRegenerateAction({ kind: 'page', page: targetPage });
       setOcrProgress({ progress: 0, status: 'Checking PDF text' });
       try {
-        const pdfTextCacheScope = {
+        const pdfTextCacheScope = scopeOcrCache({
           kind: 'pdf-page-text',
           relativePath,
           documentCacheKey,
           page: targetPage,
-        };
+        });
         if (!force) {
           const cachedPdfText = await readOcrCache(pdfTextCacheScope);
           if (cachedPdfText) {
@@ -2052,6 +2090,7 @@ export default function PdfView({ relativePath }: Props) {
             force,
             cacheScope: {
               kind: 'pdf-page-ocr',
+              cacheSession: pdfTextCacheScope.cacheSession,
               relativePath,
               documentCacheKey,
               page: targetPage,
@@ -2110,6 +2149,7 @@ export default function PdfView({ relativePath }: Props) {
       setOcrOverlay(null);
       setOcrRegenerateAction({ kind: 'region', page: targetPage, region });
       setOcrProgress({ progress: 0, status: `Rendering region at ${ocrRenderScale}x` });
+      const cacheSession = scopeOcrCache({}).cacheSession;
       try {
         const renderedPage = await enqueuePdfRender(() =>
           renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation),
@@ -2129,6 +2169,7 @@ export default function PdfView({ relativePath }: Props) {
             force,
             cacheScope: {
               kind: 'pdf-region-ocr',
+              cacheSession,
               relativePath,
               documentCacheKey,
               page: targetPage,
@@ -2223,6 +2264,18 @@ export default function PdfView({ relativePath }: Props) {
     },
     [],
   );
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const pending = pendingScrollRef.current;
+    if (!viewport || !pending || loading || !documentProxy) return;
+    const frame = requestAnimationFrame(() => {
+      viewport.scrollTop = pending.top;
+      viewport.scrollLeft = pending.left;
+      pendingScrollRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [documentProxy, loading, workspaceMetrics.width, workspaceMetrics.height]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -3098,7 +3151,7 @@ export default function PdfView({ relativePath }: Props) {
                 </div>
               )}
               {!ocrLoading && (
-                <textarea
+                <Textarea
                   readOnly
                   value={ocrText || 'No text recognized.'}
                   className="mt-2 h-52 w-full resize-none rounded-lg border border-input bg-background/70 px-3 py-2 text-xs leading-relaxed outline-none"
@@ -3411,6 +3464,15 @@ export default function PdfView({ relativePath }: Props) {
           ref={viewportRef}
           tabIndex={0}
           className="relative min-h-0 h-full overflow-auto bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.08),transparent_42%),linear-gradient(to_bottom,color-mix(in_oklch,var(--background)_92%,black_8%),var(--background))]"
+          onScroll={(event) => {
+            if (!sidecarLoaded || pendingScrollRef.current) return;
+            latestViewerStateRef.current = {
+              ...latestViewerStateRef.current,
+              lastScrollTop: event.currentTarget.scrollTop,
+              lastScrollLeft: event.currentTarget.scrollLeft,
+            };
+            rememberPdfViewerState(viewerStateKey, latestViewerStateRef.current);
+          }}
           onPointerDown={() => viewportRef.current?.focus()}
           onPointerDownCapture={handleWorkspacePointerDown}
         >

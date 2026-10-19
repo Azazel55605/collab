@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { startFileDragOut } from '../../lib/dragOut';
@@ -247,6 +247,17 @@ describe('FileTree folder collapse state', () => {
       chatMessages: [],
       chatTypingUntil: null,
     });
+  });
+
+  it('reveals a newly activated document from stale trash and collapsed folders', async () => {
+    useUiStore.setState({ fileTreeCollapsedPathsByVault: { '/vault': ['Docs'] } });
+    render(<FileTree />);
+    fireEvent.click(screen.getByRole('button', { name: /^Trash$/ }));
+    expect(screen.getByTestId('trash-panel')).toBeTruthy();
+    act(() => useEditorStore.setState({ activeTabPath: 'Docs/child.md' }));
+    await waitFor(() => expect(screen.queryByTestId('trash-panel')).toBeNull());
+    expect(screen.getByText('child.md')).toBeTruthy();
+    expect(useUiStore.getState().fileTreeCollapsedPathsByVault['/vault']).not.toContain('Docs');
   });
 
   it('does not scan the vault for references when selecting a file', async () => {

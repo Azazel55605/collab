@@ -18,8 +18,22 @@ export function boundedCanvasDeviceScale(
   const width = Math.max(1, Number.isFinite(cssWidth) ? cssWidth : 1);
   const height = Math.max(1, Number.isFinite(cssHeight) ? cssHeight : 1);
   const requested = Math.max(0.5, Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1);
-  const pixelBudgetScale = Math.sqrt(maxPixels / (width * height));
-  return Math.max(0.5, Math.min(requested, maxDeviceScale, pixelBudgetScale));
+  const budget =
+    Number.isFinite(maxPixels) && maxPixels >= 1 ? maxPixels : MAX_INTERACTIVE_CANVAS_PIXELS;
+  const ceiling = Number.isFinite(maxDeviceScale) && maxDeviceScale > 0 ? maxDeviceScale : 2;
+  const pixelBudgetScale = Math.sqrt(budget / width / height);
+  let scale = Math.min(requested, ceiling, pixelBudgetScale);
+  if (Math.ceil(width * scale) * Math.ceil(height * scale) > budget) {
+    let low = 0;
+    let high = scale;
+    for (let step = 0; step < 48; step++) {
+      const middle = (low + high) / 2;
+      if (Math.ceil(width * middle) * Math.ceil(height * middle) <= budget) low = middle;
+      else high = middle;
+    }
+    scale = low;
+  }
+  return scale;
 }
 
 export function interactiveCanvasDeviceScale(cssWidth: number, cssHeight: number) {

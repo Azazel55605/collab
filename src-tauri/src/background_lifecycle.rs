@@ -22,6 +22,7 @@ const TRAY_QUIT_ID: &str = "background-quit";
 
 pub struct DesktopBackgroundLifecycle {
     quitting: AtomicBool,
+    quit_pending: AtomicBool,
     pause_item: MenuItem<tauri::Wry>,
     status_item: MenuItem<tauri::Wry>,
     last_dispatch: Mutex<Option<Instant>>,
@@ -72,17 +73,48 @@ pub fn apply_settings(app: &tauri::AppHandle, settings: &BackgroundSettings) {
     }
 }
 
-fn request_quit(app: &tauri::AppHandle) {
-    if let Some(lifecycle) = app.try_state::<DesktopBackgroundLifecycle>() {
-        if lifecycle.quitting.swap(true, Ordering::AcqRel) {
-            return;
-        }
+pub fn request_quit(app: &tauri::AppHandle) {
+    let lifecycle = app.state::<DesktopBackgroundLifecycle>();
+    if lifecycle.quitting.load(Ordering::Acquire)
+        || lifecycle.quit_pending.swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+    // Never shut down transports before the renderer has flushed its documents.
+    show_main_window(app);
+    if app
+        .emit_to("main", "background:quit-requested", ())
+        .is_err()
+    {
+        lifecycle.quit_pending.store(false, Ordering::Release);
+    }
+}
+
+pub fn complete_quit(app: &tauri::AppHandle, allowed: bool) {
+    let lifecycle = app.state::<DesktopBackgroundLifecycle>();
+    if !lifecycle.quit_pending.swap(false, Ordering::AcqRel) || !allowed {
+        return;
+    }
+    if lifecycle.quitting.swap(true, Ordering::AcqRel) {
+        return;
     }
     let state = app.state::<AppState>();
     state.background.shutdown();
     state.live_ws.abort_all();
     let _ = app.emit("background:quitting", ());
     app.exit(0);
+}
+
+pub fn quit_pending(app: &tauri::AppHandle) -> bool {
+    app.state::<DesktopBackgroundLifecycle>()
+        .quit_pending
+        .load(Ordering::Acquire)
+}
+
+pub fn is_quitting(app: &tauri::AppHandle) -> bool {
+    app.state::<DesktopBackgroundLifecycle>()
+        .quitting
+        .load(Ordering::Acquire)
 }
 
 fn toggle_pause(app: &tauri::AppHandle) {
@@ -253,6 +285,7 @@ pub fn setup_background_lifecycle(app: &mut tauri::App) -> tauri::Result<()> {
 
     app.manage(DesktopBackgroundLifecycle {
         quitting: AtomicBool::new(false),
+        quit_pending: AtomicBool::new(false),
         pause_item: pause,
         status_item: status,
         last_dispatch: Mutex::new(None),
@@ -295,6 +328,7 @@ pub fn setup_background_lifecycle(app: &mut tauri::App) -> tauri::Result<()> {
                     }
                     let _ = app_handle.emit("background:window-hidden", ());
                 } else {
+                    api.prevent_close();
                     request_quit(&app_handle);
                 }
             }

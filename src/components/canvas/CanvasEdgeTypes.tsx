@@ -1083,7 +1083,13 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
         </path>
       ) : null}
       <BaseEdge
-        {...props}
+        id={props.id}
+        label={props.label}
+        labelStyle={props.labelStyle}
+        labelShowBg={props.labelShowBg}
+        labelBgStyle={props.labelBgStyle}
+        labelBgPadding={props.labelBgPadding}
+        labelBgBorderRadius={props.labelBgBorderRadius}
         path={path}
         labelX={labelPosition.x}
         labelY={labelPosition.y}

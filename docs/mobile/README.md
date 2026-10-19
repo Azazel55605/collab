@@ -9,7 +9,8 @@ expansion is planned; local vaults and full rich-file authoring are not shipped.
 
 - [Android performance, memory and bug audit](../audits/mobile-performance-and-bugs-2026-10-14.md)
   — source-backed correctness/resource backlog, controlled reproductions and
-  physical-device measurement targets; fix implementation has not started.
+  physical-device measurement targets. Targeted shared formula lifetime fixes
+  are implemented; the wider Android backlog and device acceptance remain open.
 - [Full mobile app overhaul](../plans/mobile-full-app-plan.md) — audited gaps,
   local storage architecture, staged editor expansion and acceptance gates.
 - [Android companion plan](../plans/android-companion-app-plan.md) — product scope,
@@ -97,3 +98,11 @@ matrices. The completed [accounts/previews plan](../archive/accounts-and-preview
 is archived; optional preview expansion is tracked in
 [Open Development Work](../plans/open-development-work.md#document-preview-expansion).
 Android comes first; iOS discovery and live voice/video are deferred.
+
+Formula request construction and runtime ownership are shared with desktop in
+`src/lib/sheet/formulaRequest.ts`, `formulaSession.ts` and
+`useSheetFormulaSession.ts`. The mobile adapter supplies its IPC wrappers, device
+timezone and 120 ms debounce without importing the desktop UI store. Closing a
+sheet waits for submitted native work before release; obsolete pending requests
+and late results are discarded. Native runtime stress/memory testing remains a
+physical-device acceptance requirement.

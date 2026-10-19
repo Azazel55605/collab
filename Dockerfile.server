@@ -12,12 +12,14 @@ RUN --mount=type=cache,id=collab-cargo-registry,target=/usr/local/cargo/registry
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 COPY src-tauri/Cargo.toml src-tauri/build.rs ./src-tauri/
 RUN mkdir -p src-tauri/src && touch src-tauri/src/lib.rs
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
+COPY vendor ./vendor
 RUN --mount=type=cache,id=collab-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=collab-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     attempts=0; \

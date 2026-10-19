@@ -21,6 +21,7 @@ export function insertAroundSelection(
   after: string,
   placeholder: string,
 ) {
+  if (view.state.readOnly) return;
   const { from, to } = view.state.selection.main;
   const selected = view.state.sliceDoc(from, to);
   const text = selected.length ? before + selected + after : before + placeholder + after;
@@ -34,6 +35,7 @@ export function insertAroundSelection(
 }
 
 export function toggleLinePrefix(view: EditorView, prefix: string) {
+  if (view.state.readOnly) return;
   const { from, to } = view.state.selection.main;
   const line = view.state.doc.lineAt(from);
   const existing = view.state.sliceDoc(line.from, line.from + prefix.length);
@@ -58,6 +60,7 @@ export function insertSnippetAtSelection(view: EditorView, text: string) {
 }
 
 export function replaceEditorRange(view: EditorView, range: SelectionRange, text: string) {
+  if (view.state.readOnly) return;
   view.dispatch({
     changes: { from: range.from, to: range.to, insert: text },
     selection: { anchor: range.from + text.length },
@@ -139,7 +142,7 @@ export function useMarkdownEditorHandle({
       insertFootnote() {
         const view = viewRef.current;
         if (!view) return;
-        insertOrNavigateFootnote(view);
+        if (!view.state.readOnly) insertOrNavigateFootnote(view);
       },
 
       focus() {

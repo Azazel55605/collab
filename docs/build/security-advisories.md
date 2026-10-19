@@ -56,6 +56,60 @@ patched, the patch and a regression test must be committed alongside it.
 There are currently no Rust advisory ignores. The RSA dependency was removed
 from the resolved graph by the SQLx upgrade described below.
 
+## ZIP extraction vulnerabilities resolved in the 2026-10-19 PR #96 follow-up
+
+The refreshed PR scan found three vulnerabilities in `zip` 4.6.1:
+
+- **RUSTSEC-2026-0367:** extraction preserves attacker-supplied SUID/SGID bits.
+- **RUSTSEC-2026-0368:** extraction can create symlinks outside its destination.
+- **RUSTSEC-2026-0369:** extraction can change permissions through those symlinks.
+
+All workspace ZIP users now resolve to **9.0.5** (patched in `>= 9.0.0`).
+The Windows Tauri updater calls the affected extraction API. Upstream updater
+2.13.1 and 2.14.0 still require ZIP 4, so a lockfile-only update cannot remove it.
+The narrowly scoped [vendored updater backport](../../vendor/tauri-plugin-updater/UPSTREAM.md)
+changes only that dependency requirement to ZIP 9. The original 2.13.1 Rust
+source, permissions, build script and licenses remain unchanged and have a
+checksum regression; its version still matches the JavaScript bindings.
+No update format is disabled and no Rust audit ignore is added. Extraction
+regressions exercise external symlink rejection and privileged permission-bit
+stripping. Remove the backport when compatible upstream updater support lands.
+Native signed-update acceptance remains required before release.
+The XLSX and hosted vault importers propagate ZIP 9's fallible entry-name decoding
+errors instead of skipping malformed entries; conversion fixtures use the same
+updated API.
+
+The refreshed local audit reports **zero vulnerabilities and six informational
+warnings**, listed below. `.cargo/audit.toml` remains empty of ignores.
+
+## Vulnerabilities resolved in the 2026-10-15 PR #96 follow-up
+
+The failing PR dependency scan reported **nine Rust vulnerabilities**. Compatible
+lockfile upgrades resolve all nine without adding audit ignores:
+
+- **`quinn-proto` 0.11.15 → 0.11.18** resolves
+  [RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338.html),
+  [RUSTSEC-2026-0339](https://rustsec.org/advisories/RUSTSEC-2026-0339.html),
+  [RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340.html),
+  [RUSTSEC-2026-0341](https://rustsec.org/advisories/RUSTSEC-2026-0341.html) and
+  [RUSTSEC-2026-0342](https://rustsec.org/advisories/RUSTSEC-2026-0342.html).
+  These cover peer-triggered panics and bypasses of receive/reassembly memory
+  limits. The compatible update also resolves its newer random-number helper
+  dependencies within the same lockfile.
+- **`rustls` 0.23.45 → 0.23.46** resolves
+  [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html),
+  [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html),
+  [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) and
+  [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html).
+  These address session-secret debug output, rejected-ECH buffering,
+  unauthenticated certificate-decompression allocation and key-exchange downgrade
+  handling.
+
+That scan reported **zero vulnerabilities**, with three informational warnings
+at that time. `.cargo/audit.toml` still ignores
+nothing. The PR's JavaScript and container vulnerability checks passed before
+this follow-up; the failing check was the Rust dependency audit.
+
 ## Vulnerabilities resolved in the 2026-10-07 review
 
 - **GHSA-68fv-2mgg-jv7q — `source-map-js` (high).** Raised from **1.2.1**
@@ -132,6 +186,10 @@ current scan.
   0.28.0 in the shipped collaboration runtime. Replacing it requires upstream
   `yrs` changes or a reviewed fork; `compact_str`/`smol_str` are different APIs,
   not drop-in lockfile substitutions. This is not a build-time-only dependency.
+- **RUSTSEC-2026-0370 / RUSTSEC-2026-0371 / RUSTSEC-2026-0372 — `zvariant`
+  5.10.0, `zbus_names` 4.3.1 and `zvariant_derive` 5.10.0 (`unmaintained`).**
+  These remain in Tauri's desktop integration dependency graph. They require a
+  coordinated upstream D-Bus dependency migration; they are not suppressed.
 
 The `httpmock` 0.8 migration removes `async-std` and its
 RUSTSEC-2025-0052 warning. No new Rust audit ignores were added. GLib stays
@@ -199,4 +257,4 @@ shipped, and delete the corresponding entry here. Also re-scan the non-failing
 warnings for newly available upgrades (e.g. a maintained fork or a Tauri release
 that moves off GTK3 / old `phf`).
 
-_Last reviewed: 2026-10-07._
+_Last reviewed: 2026-10-19._

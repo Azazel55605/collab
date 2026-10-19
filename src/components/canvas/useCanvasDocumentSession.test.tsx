@@ -1,6 +1,14 @@
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { Node as FlowNode } from '@xyflow/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { runDocumentNavigation } from '../../lib/documentNavigation';
+import type { DocumentSessionController } from '../../lib/documentSessionController';
+import { type JsonObject, mergeLiveJsonEdits } from '../../lib/liveJsonDocument';
+import { HostedVaultClient } from '../../lib/vaultClient';
+import { useDocumentStatusStore } from '../../store/documentStatusStore';
 
 import type { CanvasFlowEdge } from './CanvasEdgeTypes';
 import type { CanvasNodeData } from './CanvasNodeTypes';
@@ -39,7 +47,8 @@ vi.mock('../../lib/tauri', () => ({
   },
 }));
 
-vi.mock('../../lib/liveJsonDocument', () => ({
+vi.mock('../../lib/liveJsonDocument', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/liveJsonDocument')>()),
   openLiveJsonSession: liveMocks.openLiveJsonSession,
 }));
 
@@ -85,6 +94,7 @@ describe('useCanvasDocumentSession', () => {
 
   afterEach(() => {
     cleanup();
+    useDocumentStatusStore.setState({ statuses: {} });
     vi.useRealTimers();
   });
 
@@ -174,74 +184,43 @@ describe('useCanvasDocumentSession', () => {
     expect(setViewport).toHaveBeenCalledWith({ x: 1, y: 2, zoom: 0.9 });
   });
 
-  it('persists a repaired canvas when load removes dangling edges', async () => {
+  it('sanitizes dangling edges in memory without rewriting the source on open', async () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
-        nodes: [
-          {
-            id: 'node-a',
-            type: 'text',
-            content: 'A',
-            position: { x: 0, y: 0 },
-            width: 100,
-            height: 100,
-          },
-        ],
-        edges: [{ id: 'edge-broken', source: 'node-a', target: 'missing-node' }],
-        viewport: { x: 1, y: 2, zoom: 0.9 },
+        nodes: [],
+        edges: [{ id: 'broken', source: 'missing', target: 'missing' }],
+        viewport: { x: 0, y: 0, zoom: 1 },
       }),
       hash: 'hash-1',
       modifiedAt: 1,
     });
-    tauriMocks.writeNote.mockResolvedValue({ hash: 'hash-repaired' });
+    const options = baseLocalOptions();
+    renderHook(() => useCanvasDocumentSession(options));
+    await waitFor(() =>
+      expect(options.setSavedHash).toHaveBeenCalledWith('Boards/test.canvas', 'hash-1'),
+    );
+    expect(tauriMocks.writeNote).not.toHaveBeenCalled();
+  });
 
-    const setSavedHash = vi.fn();
+  it.each([new Error('permission denied'), new Error('offline')])(
+    'never enables autosave after a failed load: %s',
+    async (error) => {
+      tauriMocks.readNote.mockRejectedValue(error);
+      const options = baseLocalOptions();
+      const hook = renderHook(() => useCanvasDocumentSession(options));
+      await waitFor(() => expect(hook.result.current.loadError).toBe(String(error)));
+      await hook.result.current.beforeLeave();
+      await hook.result.current.controller.requestSave('flush');
+      expect(tauriMocks.writeNote).not.toHaveBeenCalled();
+      expect(options.markSaved).not.toHaveBeenCalled();
+    },
+  );
 
-    renderHook(() => useCanvasDocumentSession(baseLocalOptions({ setSavedHash })));
-
-    await waitFor(() => {
-      expect(tauriMocks.writeNote).toHaveBeenCalledWith(
-        '/vault',
-        'Boards/test.canvas',
-        JSON.stringify(
-          {
-            nodes: [
-              {
-                id: 'node-a',
-                type: 'text',
-                content: 'A',
-                position: { x: 0, y: 0 },
-                width: 100,
-                height: 100,
-              },
-            ],
-            edges: [],
-            viewport: { x: 1, y: 2, zoom: 0.9 },
-          },
-          null,
-          2,
-        ),
-        'hash-1',
-        JSON.stringify({
-          nodes: [
-            {
-              id: 'node-a',
-              type: 'text',
-              content: 'A',
-              position: { x: 0, y: 0 },
-              width: 100,
-              height: 100,
-            },
-          ],
-          edges: [{ id: 'edge-broken', source: 'node-a', target: 'missing-node' }],
-          viewport: { x: 1, y: 2, zoom: 0.9 },
-        }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(setSavedHash).toHaveBeenCalledWith('Boards/test.canvas', 'hash-repaired');
-    });
+  it('reports invalid JSON without replacing the document with an empty canvas', async () => {
+    tauriMocks.readNote.mockResolvedValue({ content: '{broken', hash: 'hash', modifiedAt: 1 });
+    const hook = renderHook(() => useCanvasDocumentSession(baseLocalOptions()));
+    await waitFor(() => expect(hook.result.current.loadError).toBeTruthy());
+    expect(tauriMocks.writeNote).not.toHaveBeenCalled();
   });
 
   it('autosaves current canvas content and creates a snapshot on success', async () => {
@@ -323,7 +302,112 @@ describe('useCanvasDocumentSession', () => {
     );
   });
 
+  it('ignores a slow response from a previously selected canvas', async () => {
+    let release!: (value: unknown) => void;
+    tauriMocks.readNote.mockImplementation((_vault, path) =>
+      path === 'old.canvas'
+        ? new Promise((done) => {
+            release = done;
+          })
+        : Promise.resolve({
+            content: JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }),
+            hash: 'new',
+            modifiedAt: 1,
+          }),
+    );
+    const options = baseLocalOptions();
+    const hook = renderHook(
+      ({ path }) => useCanvasDocumentSession({ ...options, relativePath: path }),
+      { initialProps: { path: 'old.canvas' } },
+    );
+    hook.rerender({ path: 'new.canvas' });
+    await waitFor(() => expect(options.setSavedHash).toHaveBeenCalledWith('new.canvas', 'new'));
+    await act(async () => release({ content: '{}', hash: 'old', modifiedAt: 1 }));
+    expect(options.setSavedHash).not.toHaveBeenCalledWith('old.canvas', 'old');
+  });
+
+  it('serializes a drag at its checkpoint and saves the final authoritative position', async () => {
+    const options = baseLocalOptions({
+      viewport: { x: 1, y: 2, zoom: 0.9 },
+      fromFlowNode: vi.fn((node) => ({
+        id: node.id,
+        type: 'text' as const,
+        content: node.data.content ?? '',
+        position: node.position,
+        width: 100,
+        height: 100,
+      })),
+    });
+    tauriMocks.writeNote.mockResolvedValue({ hash: 'hash-2' });
+    const hook = renderHook(
+      ({ nodes, pause }: { nodes: FlowNode<CanvasNodeData>[]; pause: boolean }) =>
+        useCanvasDocumentSession({ ...options, nodes, pauseAutosave: pause }),
+      { initialProps: { nodes: [] as FlowNode<CanvasNodeData>[], pause: false } },
+    );
+    await waitFor(() => expect(options.setSavedHash).toHaveBeenCalled());
+    vi.mocked(options.fromFlowNode).mockClear();
+    for (let x = 0; x < 100; x++) {
+      hook.rerender({
+        nodes: [
+          {
+            id: 'node',
+            type: 'textCard',
+            data: { content: 'keep' },
+            position: { x, y: 20 },
+          } as FlowNode<CanvasNodeData>,
+        ],
+        pause: true,
+      });
+    }
+    expect(options.fromFlowNode).not.toHaveBeenCalled();
+    expect(hook.result.current.snapshot.dirty).toBe(true);
+    await act(async () => {
+      await hook.result.current.controller.requestSave('manual');
+    });
+    const saved = JSON.parse(tauriMocks.writeNote.mock.calls[0][2]);
+    expect(saved.nodes[0]).toMatchObject({ content: 'keep', position: { x: 99, y: 20 } });
+    tauriMocks.readNote.mockResolvedValue({
+      content: JSON.stringify(saved),
+      hash: 'hash-2',
+      modifiedAt: 2,
+    });
+    hook.unmount();
+    const reopened = baseLocalOptions({
+      fromFlowNode: options.fromFlowNode,
+      buildFlowNode: (canvas) =>
+        canvas.nodes.map(
+          (node) =>
+            ({ id: node.id, data: {}, position: node.position }) as FlowNode<CanvasNodeData>,
+        ),
+    });
+    renderHook(() => useCanvasDocumentSession(reopened));
+    await waitFor(() =>
+      expect(reopened.setNodes).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ position: { x: 99, y: 20 } })]),
+      ),
+    );
+  });
+
   function hostedLiveOptions(overrides: Partial<SessionOptions> = {}): SessionOptions {
+    vi.spyOn(HostedVaultClient.prototype, 'readDocument').mockResolvedValue({
+      relativePath: 'Boards/test.canvas',
+      version: '3',
+      modifiedAt: 1,
+      content: JSON.stringify({
+        nodes: [
+          {
+            id: 'node-1',
+            type: 'text',
+            content: 'server',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
+        ],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    });
     return {
       reactFlow: { setViewport: vi.fn() },
       vault: {
@@ -374,6 +458,208 @@ describe('useCanvasDocumentSession', () => {
     };
   }
 
+  function renderHostedFallback(unstableInputs = false) {
+    const options = hostedLiveOptions();
+    vi.spyOn(HostedVaultClient.prototype, 'createSnapshot').mockResolvedValue({} as never);
+    return renderHook(() => {
+      const [nodes, setNodes] = useState<FlowNode<CanvasNodeData>[]>([]);
+      const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+      const session = useCanvasDocumentSession({
+        ...options,
+        ...(unstableInputs
+          ? {
+              vault: { ...options.vault! },
+              buildFlowNode: (canvas: Parameters<SessionOptions['buildFlowNode']>[0]) =>
+                options.buildFlowNode(canvas),
+            }
+          : {}),
+        nodes,
+        setNodes,
+        viewport,
+        setViewport,
+      });
+      return {
+        ...session,
+        edit: () =>
+          setNodes((old) =>
+            old.map((node) => ({ ...node, data: { ...node.data, content: 'mine' } })),
+          ),
+      };
+    });
+  }
+
+  it('hands edits made during connection to one stable live session instead of competing REST saves', async () => {
+    let connect!: (session: unknown) => void;
+    liveMocks.openLiveJsonSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          connect = resolve;
+        }),
+    );
+    const restWrite = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockResolvedValue({ version: '4' });
+    const hook = renderHostedFallback(true);
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    let json: JsonObject = {
+      nodes: [
+        {
+          id: 'node-1',
+          type: 'text',
+          content: 'server',
+          position: { x: 0, y: 0 },
+          width: 100,
+          height: 100,
+        },
+        {
+          id: 'remote',
+          type: 'text',
+          content: 'remote card',
+          position: { x: 0, y: 0 },
+          width: 100,
+          height: 100,
+        },
+      ],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    };
+    const session = {
+      readJson: () => json,
+      writeJson: vi.fn((local: JsonObject, base: JsonObject) => {
+        json = mergeLiveJsonEdits(base, local, json) as JsonObject;
+      }),
+      onChange: () => () => {},
+      awareness: { setLocalStateField: vi.fn() },
+      getStatus: () => 'connected',
+      onStatus: () => () => {},
+      destroy: vi.fn(),
+    };
+    await act(async () => {
+      connect(session);
+    });
+    await waitFor(() => expect(hook.result.current.liveSession).toBe(session));
+    expect(json.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'node-1', content: 'mine' }),
+        expect.objectContaining({ id: 'remote', content: 'remote card' }),
+      ]),
+    );
+    hook.rerender();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    });
+    expect(liveMocks.openLiveJsonSession).toHaveBeenCalledTimes(1);
+    expect(session.destroy).not.toHaveBeenCalled();
+    expect(restWrite).not.toHaveBeenCalled();
+  });
+
+  it('rebases a stale hosted revision only when authoritative canvas content matches the saved base, then allows leaving', async () => {
+    const write = vi.spyOn(HostedVaultClient.prototype, 'writeDocument');
+    write
+      .mockImplementationOnce(async (path, content, _version, base) => ({
+        version: '3',
+        conflict: {
+          relativePath: path,
+          ourContent: content,
+          theirContent: base!,
+          theirVersion: '7',
+        },
+      }))
+      .mockResolvedValue({ version: '8' });
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    useDocumentStatusStore.getState().setDocumentStatus('Boards/test.canvas', {
+      status: 'dirty',
+      controller: hook.result.current.controller as DocumentSessionController<unknown>,
+      beforeLeave: hook.result.current.beforeLeave,
+    });
+    const leave = vi.fn();
+    await act(async () => {
+      expect(await runDocumentNavigation(leave)).toBe(true);
+    });
+    expect(leave).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write.mock.calls[1][2]).toBe('7');
+    expect(hook.result.current.snapshot.dirty).toBe(false);
+    expect(hook.result.current.snapshot.loadedVersion).toBe('8');
+  });
+
+  it('stops after one stale-base retry if the server changes again', async () => {
+    const write = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockImplementation(async (path, content, version, base) => ({
+        version: version!,
+        conflict: {
+          relativePath: path,
+          ourContent: content,
+          theirContent: base!,
+          theirVersion: version === '3' ? '7' : '8',
+        },
+      }));
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    await act(async () => {
+      await hook.result.current.controller.requestSave();
+    });
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.snapshot.conflicted).toBe(true);
+  });
+
+  it('acknowledges already-persisted canvas content without another write', async () => {
+    const write = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockImplementation(async (path, content) => ({
+        version: '3',
+        conflict: {
+          relativePath: path,
+          ourContent: content,
+          theirContent: content,
+          theirVersion: '7',
+        },
+      }));
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    await act(async () => {
+      await hook.result.current.controller.requestSave();
+    });
+    expect(write).toHaveBeenCalledOnce();
+    expect(hook.result.current.snapshot.dirty).toBe(false);
+    expect(hook.result.current.snapshot.loadedVersion).toBe('7');
+  });
+
+  it('shows real concurrent canvas edits as a conflict and keeps the authoritative version for keep mine', async () => {
+    const write = vi
+      .spyOn(HostedVaultClient.prototype, 'writeDocument')
+      .mockImplementation(async (path, content, _version, base) => {
+        const remote = JSON.parse(base!);
+        remote.nodes[0].content = 'remote';
+        return {
+          version: '3',
+          conflict: {
+            relativePath: path,
+            ourContent: content,
+            theirContent: JSON.stringify(remote),
+            theirVersion: '7',
+          },
+        };
+      });
+    const hook = renderHostedFallback();
+    await waitFor(() => expect(hook.result.current.snapshot.loadedVersion).toBe('3'));
+    act(() => hook.result.current.edit());
+    await act(async () => {
+      await hook.result.current.controller.requestSave();
+    });
+    expect(write).toHaveBeenCalledOnce();
+    expect(hook.result.current.snapshot.conflicted).toBe(true);
+    act(() => hook.result.current.controller.keepMine());
+    expect(hook.result.current.snapshot.loadedVersion).toBe('7');
+    expect(hook.result.current.snapshot.dirty).toBe(true);
+  });
+
   it('opens a hosted canvas live session but only writes after hydration', async () => {
     const writeJson = vi.fn();
     liveMocks.openLiveJsonSession.mockResolvedValue({
@@ -401,7 +687,7 @@ describe('useCanvasDocumentSession', () => {
 
     const options = hostedLiveOptions();
 
-    const { rerender } = renderHook(
+    const { rerender, unmount } = renderHook(
       ({ nodes }: { nodes: FlowNode<CanvasNodeData>[] }) =>
         useCanvasDocumentSession({ ...options, nodes }),
       { initialProps: { nodes: [] as FlowNode<CanvasNodeData>[] } },
@@ -427,7 +713,9 @@ describe('useCanvasDocumentSession', () => {
 
     // A genuine post-hydration edit is pushed into the live doc.
     rerender({ nodes: [{ ...hydratedNode, data: { title: 'Text', content: 'edited' } }] });
-    await waitFor(() => expect(writeJson).toHaveBeenCalledTimes(1));
+    unmount();
+    expect(writeJson).toHaveBeenCalledTimes(1);
+    expect(writeJson.mock.calls[0][0].nodes[0].content).toBe('edited');
   });
 
   it('publishes the selected node ids as ephemeral canvas awareness', async () => {

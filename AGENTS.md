@@ -26,6 +26,11 @@ platform, Docker with Compose for the server, and `curl` for smoke tests.
 
 ## Verification
 
+Finish implementation and regression-test changes for a batch before running
+its test suites. Run suites at the end, rerunning only checks affected by a
+failure or subsequent correction. Update the audit checkboxes and implementation
+tracker alongside each batch; preserve outstanding native acceptance explicitly.
+
 Run the full set before claiming work is done:
 
 ```bash

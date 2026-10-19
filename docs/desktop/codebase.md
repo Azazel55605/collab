@@ -206,6 +206,172 @@ keystroke → onChange → markDirty → 600ms debounce → tauriCommands.writeN
 manual save (Ctrl+S) → immediate write + createSnapshot
 ```
 
+Native local filesystem mutations share `src-tauri/src/local_mutation.rs`.
+It reserves canonical path scopes, including vault roots for multi-file/namespace
+operations and absolute destinations for exports. Ancestor/descendant conflicts
+serialize; disjoint vaults remain independent. All outer scopes are acquired
+atomically; contained nested helpers are reentrant, but widening a nested scope
+fails to avoid lock-order deadlocks. Older overlapping waiters take priority over
+new writers. RAII guards release reservations on failure/unwind and cannot cross
+threads or an await. Guards precede revision checks, directory creation and key
+snapshots. Snapshot restores use the same validating atomic note writer. The
+coordinator replaces the former note-only mutex registry; it does not lock out
+external programs, roll back multi-file failures or provide a recovery journal.
+See [external-writer policy](../plans/local-file-external-writer-recovery.md).
+
+The workspace patches `tauri-plugin-updater` to the published 2.13.1 source in
+`vendor/tauri-plugin-updater`, excluded from workspace membership. Only its Windows
+ZIP dependency requirement changes to the patched ZIP 9 family. Provenance and
+removal criteria live in its `UPSTREAM.md`; script tests verify retained upstream
+file hashes and version alignment, and native ZIP tests cover malicious archive
+extraction. Server Docker planner/builder stages copy the patch because Cargo
+resolves the whole workspace even when building only `collab-server`.
+
+Desktop tab/page/vault transitions pass through `lib/documentNavigation.ts`.
+It flushes registered dirty controllers before unmounting their editors and
+keeps navigation blocked after a failed/conflicting save; acknowledged native
+offline queues permit the transition. This is not process-death draft recovery.
+Normal desktop quit also passes this boundary through
+`lib/useDesktopQuitGuard.ts`: `background_lifecycle.rs` emits a main-window quit
+request and waits for `background_complete_quit` before stopping transports or
+exiting. A readiness query catches requests sent during renderer startup. Failed
+saves retain the window. `useLiveDocumentStatus` registers checkpoint barriers
+with each controller; navigation waits for the current native offline CRDT
+checkpoint after preparing gestures, without making a REST write. Hide-to-tray
+stays immediate. Forced termination recovery and physical/server acknowledgement
+acceptance remain outside this handshake.
+
+`lib/ocrCache.ts` holds derived recognized/extracted text only in memory (64 entries,
+8 MiB, 30-minute expiry). `lib/useOcrCacheLifecycle.ts` subscribes to vault/account
+state at the App root, clears on close/lock/logout/membership loss and invalidates
+in-flight cache writes. Legacy plaintext IndexedDB result storage is deleted;
+installed model packs and saved OCR annotations have separate lifetimes.
+
+Native event registration uses `lib/nativeSubscription.ts` where late promises
+must clean themselves up after disposal.
+
+Canvas registers a `beforeLeave` preparer through `documentStatusStore`: transient
+React Flow gestures materialize into the controller before the navigation guard
+collects dirty documents. `createExclusiveSaveRunner` returns a shared completion
+promise covering the active and coalesced trailing save. Live canvas checkpoints
+use the same serialization rule before navigation; `liveJsonDocument` can merge
+local edits against their base into the latest remote JSON. Load errors leave the
+source untouched and disable autosave.
+
+Hosted revision conflicts include the authoritative server content and its
+`theirVersion` token, fetched directly rather than through cache-first document
+reads. Editors retain that token for explicit conflict resolution. Canvas only
+rebases automatically once when the remote canvas equals its saved base (or
+acknowledges an already-persisted identical edit). Server-merged content becomes
+the save baseline and cached body, so acknowledging a revision does not falsely
+acknowledge different submitted bytes. Edits made during a server-merged save
+remain in the editor with both versions available for conflict review.
+
+Canvas live-session ownership uses vault/path/permission scope, with current
+render callbacks held separately. Local edits arriving during connection are
+merged from their REST base into live JSON before adopting that state; callback
+or vault-metadata identity changes do not reopen the session. The portable
+`collab-live::content_matches` and `merge_external_content` policies compare
+structured JSON values (including equivalent numeric forms), while note text
+retains exact byte semantics. The server applies these policies to REST/live
+reconciliation and suppresses formatting-only materialized revisions, after
+checking the current revision marker.
+
+`lib/useVaultNoteIndex.ts` centralizes shell index loading and file/replica event
+refreshes. Scope includes hosted server identity; one active job coalesces later
+requests, and disposed/stale generations cannot publish notes or loading status.
+Native `state/note_index.rs` owns a single vault-tagged, generation-guarded index.
+Local vault transitions clear it, obsolete scans stop early, and backlinks/search
+cannot read a different vault's cached metadata. Each scan/search captures its
+key once; search shares an immutable metadata snapshot before disk I/O rather
+than holding the shared index lock throughout. File-tree refreshes and `noteSnippetStore` also reject
+stale scope/request completions; snippet mutations compare both ID and app/vault
+scope and invalidate older listings.
+
+Local document previews use one `.collab/previews/documents/*.entry` record in
+`commands/files/sidecars.rs`: versioned framing, bounded JSON metadata, raw image
+bytes and SHA-256 integrity trailer. `write_vault_bytes` encrypts when needed and
+publishes the whole record by atomic staging/rename. Cache parse/decrypt/read
+failure is a miss; source metadata and renderer version still gate reuse. Legacy
+`.json`/`.bin` pairs are ignored and retained for older clients; disk GC remains
+separate work. Authoritative annotation sidecars retain their existing format.
+
+`lib/ocr.ts` owns one serialized recognition queue (eight active/queued jobs),
+including preprocessing and native fallback. Completed cache hits bypass the
+queue; queued requests recheck results before recognizing. Worker initialization,
+language changes and idle termination share queue ownership. Progress belongs to
+the current worker/job, is cleared on completion/failure, and retired workers
+cannot report into another pane. Only an empty queue schedules the three-minute
+idle shutdown. The queue recovers after failures and rejects overload visibly.
+This does not bound native subprocess duration, image bytes or persistent OCR
+result retention; those remain separate audit items.
+
+`lib/sheet/formulaRequest.ts` constructs framework-free formula requests for
+desktop, Android and deck snapshots. `formulaSession.ts` owns a unique runtime per
+mounted workbook, one submitted evaluation and at most one latest trailing
+request. Disposal discards pending inputs, waits for the active IPC response, then
+releases once; it never submits again after disposal. Requests bind volatile
+time at dispatch. `useSheetFormulaSession.ts` handles debounce, scoped result
+publication and StrictMode-safe ownership. Last computed values remain while
+recalculating the same workbook; scope changes hide them immediately. Removing
+the last formula releases the runtime. Desktop/mobile adapters supply their own
+IPC wrappers, timezone and 80/120 ms delays; Android and deck request builders no
+longer import the desktop hook/UI store. Native registry locking, global job
+limits, running-job cancellation and explicit volatile recalculation remain
+separate work.
+
+`lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
+queues. Canvas only schedules nearby cards and discards obsolete hydration after
+source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,
+content hash and renderer version (64 entries/16 MiB). Cached manifest/body data
+can produce previews before network requests. Shared Rust thumbnail renderer v2
+adds bounded canvas/logic, Kanban and deck geometry; deck image/chart/table
+placeholders remain intentionally limited.
+
+`lib/pdfResourceCache.ts` shares unchanged PDF loading resources across tab
+switches (two entries/64 MiB source bytes, reference counted; mounted consumers
+are not evicted). This is not a total worker-memory ceiling. PDF view state keeps
+client-local scroll/pan as well as page/zoom/layout settings.
+`lib/useHostedAssetRevision.ts` observes cached manifest revisions for mounted
+PDF/image source refresh, deferring reload while local overlays are dirty,
+saving or conflicted. `webPreviewCache` bounds completed results to 128 with
+success/error expiry; PDF preview raster and data URL caches are bounded too.
+
+PDF viewer settings are separate from shared annotations: `views/pdfViewSession.ts`
+keeps up to 128 identity-scoped settings records in memory and debounced
+sessionStorage. Hosted annotations continue to exclude private viewer settings.
+Native document writes use uniquely created sibling temporary files before
+atomic replacement. External file-tree drops use visible row geometry from
+`components/vault/nativeDropTarget.ts`; file rows target their containing folder.
+File-tree hover/drop and Markdown editor insertion share
+`lib/nativeDropCoordinates.ts`. The `native_drop_viewport` IPC returns native
+WebView bounds without converting their units: GTK/WKWebView use logical units,
+WebView2 uses physical pixels. Mapping those bounds to the CSS viewport includes
+both display scaling and WebView zoom; dividing every event by devicePixelRatio
+would shift Linux drop targets. Hover geometry is briefly cached/coalesced, while
+enter and committed drops query fresh bounds. Disposal and vault changes discard
+in-flight lookups, and unavailable geometry reports an error rather than guessing
+an import destination. Both handlers subscribe to one native event source with
+window fallback. This bridge requires an updated native desktop binary.
+
+Hosted replica synchronization is coalesced by server URL and vault ID in
+`lib/vaultReplica.ts`. Reopening an existing replica reconciles/replays it instead
+of reseeding it. Optimistic writes and metadata seeding preserve the explicit
+offline-copy marker; download checkpoints advance after successful body refresh.
+Partial initial downloads cannot be labelled ready. Native publication checks
+for queued edits after network waits and defers to replay if edits arrived.
+`lib/nativeReplicaSync.ts`, installed by AppShell, maps matching
+`background:vault-synced` events to the manifest mutation channel used by mounted
+document controllers and file lists. Zero-change syncs do not refresh views.
+
+Hosted document refreshes skip optimistic drafts and reject responses after a
+queued edit or a newer cached revision. Cached assets open before a background
+manifest sync; PDF and image annotation caches open before their background
+sidecar requests. Annotation refresh publishes changed sidecars through the
+existing controller conflict policy and leaves queued sidecars intact. Native
+and frontend publication checks are not a cross-process transaction; process
+recovery and broader replica concurrency remain separate acceptance work.
+
 ---
 
 ## Components
@@ -280,7 +446,8 @@ missing a control, add it there using the interaction and theming rules in
 - `indentationPlugins` (indent guides, ASCII arrow ligatures, custom Tab indentation)
 - `markdownEditorViewConfig` (compartment setup, state creation, and hot-reconfigure helpers)
 - `snippetEngine` (placeholder-aware snippet sessions with Tab traversal)
-- `mathBlockCommands` (display-math shortcuts for LaTeX structures, `Ctrl+Enter` exact solver insertion, `Ctrl+Alt+Enter` approximation, and inline variable chooser events for ambiguous equations)
+- `mathShortcutHint` (muted inline exact/approximate shortcut discovery while editing a writable math block)
+- `mathBlockCommands` (pane/revision-owned solver choices and read-only-safe display-math shortcuts for LaTeX structures, `Ctrl+Enter` exact solver insertion, `Ctrl+Alt+Enter` approximation, and inline variable chooser events for ambiguous equations)
 - `mathSolver` (shared Nerdamer 2 scalar/equation evaluation; equation solutions use typed solution sets)
 - `textMerge` (three-way line edits from `diffArrays`; preserves disjoint edits and returns conflicts for overlapping changes)
 - `mathPlotSpec` / `MathPlot2D` / `MathPlot3D` (`%plot2d`/`%plot3d` metadata parsing plus 2D SVG and lazy-loaded 3D WebGL plot panels beneath display math)
@@ -608,7 +775,7 @@ a positioned popover.
 | `components/canvas/useCanvasViewportControls.ts`    | Shared canvas viewport controls and keyboard shortcut hook for pan, zoom, fit, reset, picker toggles, and delete actions                                           | React hooks, React Flow viewport API                                         |
 | `components/canvas/useCanvasNodeCommands.ts`        | Shared canvas node creation and drop/picker command hook for content cards, planning nodes, and starter presets                                                    | React hooks, React Flow positioning                                          |
 | `components/canvas/canvasPlanning.ts`               | Shared planning-node labels, defaults, and starter-preset builders for the mixed diagramming canvas                                                                | Canvas types                                                                 |
-| `components/canvas/useCanvasPreviews.ts`            | Shared canvas preview state and hydration hook for web/file/note previews, external preview requests, and preview reset behavior                                   | React hooks, opener, Tauri wrappers, web preview cache                       |
+| `components/canvas/useCanvasPreviews.ts`            | Shared canvas preview state and hydration hook for web/file/note previews, external preview requests, and preview reset behavior                                   | React hooks, preview queues, Tauri wrappers, web preview cache               |
 | `components/canvas/useCanvasDocumentSession.ts`     | Shared canvas document/session hook for initial load, external reload, autosave scheduling, conflict handling, and snapshot creation                               | React hooks, watcher events, Tauri wrappers, document session state          |
 | `components/canvas/CanvasFlowNodeUtils.ts`          | Shared mapping helpers between persisted canvas nodes and React Flow node models                                                                                   | Canvas types, preview helpers, UI store mode                                 |
 | `components/image/ImageViewUtils.ts`                | Shared image-view geometry, file/output, crop, overlay label, and dirty-state helpers                                                                              | Image types                                                                  |
@@ -772,6 +939,16 @@ createWorkspace | deleteWorkspace | renameWorkspace | setActiveWorkspace
 setLayout(wsId, layout) | setCellContent(wsId, cellIdx, content)
 swapCells | reorderCells | clearCell | activateSplit
 ```
+
+Grid store operations that can unmount/remount a document use
+`runDocumentNavigation`; deferred changes retain their originating workspace.
+GridCell keys its editor subtree by vault/server, type and path. Responsive grid
+fallback waits for saves before removing panes. Document status registrations
+have per-pane owners while retaining the path-based status projection for UI;
+navigation collects every mounted controller, including duplicate-file panes.
+Native `commands/files.rs` uses weakly retained per-path locks around each note
+compare/merge/publish operation. Canonical parent directories share locks across
+path aliases. These are process-local locks, not an external-editor protocol.
 
 ### `kanbanStore` (`src/store/kanbanStore.ts`)
 
