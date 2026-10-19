@@ -353,6 +353,9 @@ enter and committed drops query fresh bounds. Disposal and vault changes discard
 in-flight lookups, and unavailable geometry reports an error rather than guessing
 an import destination. Both handlers subscribe to one native event source with
 window fallback. This bridge requires an updated native desktop binary.
+Tauri's `Webview::bounds()` API is desktop-only. The shared command keeps its IPC
+name on Android/iOS but returns an unsupported error; its bounds query compiles
+only under `cfg(desktop)`, preserving the desktop coordinate units.
 
 Hosted replica synchronization is coalesced by server URL and vault ID in
 `lib/vaultReplica.ts`. Reopening an existing replica reconciles/replays it instead

@@ -13,17 +13,27 @@ pub struct NativeDropViewport {
 
 /// Wry's drop points use the platform view's units, not uniformly physical pixels.
 /// Preserve the bounds' units: GTK/WKWebView are logical, WebView2 is physical.
+/// Tauri exposes these bounds only on desktop; mobile has no native OS file-drop
+/// coordinate contract and must not substitute unrelated window dimensions.
 #[tauri::command]
 pub async fn native_drop_viewport(webview: tauri::Webview) -> Result<NativeDropViewport, String> {
-    let bounds = webview.bounds().map_err(|error| error.to_string())?;
-    let (width, height) = match bounds.size {
-        tauri::Size::Logical(size) => (size.width, size.height),
-        tauri::Size::Physical(size) => (size.width as f64, size.height as f64),
-    };
-    if width <= 0.0 || height <= 0.0 {
-        return Err("The native drop viewport is not available.".into());
+    #[cfg(desktop)]
+    {
+        let bounds = webview.bounds().map_err(|error| error.to_string())?;
+        let (width, height) = match bounds.size {
+            tauri::Size::Logical(size) => (size.width, size.height),
+            tauri::Size::Physical(size) => (size.width as f64, size.height as f64),
+        };
+        if width <= 0.0 || height <= 0.0 {
+            return Err("The native drop viewport is not available.".into());
+        }
+        Ok(NativeDropViewport { width, height })
     }
-    Ok(NativeDropViewport { width, height })
+    #[cfg(mobile)]
+    {
+        let _ = webview;
+        Err("Native file-drop coordinates are only available on desktop.".into())
+    }
 }
 
 /// Returns the host operating system (`std::env::consts::OS`, e.g. "linux",

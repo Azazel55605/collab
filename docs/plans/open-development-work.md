@@ -49,8 +49,15 @@ coalesced sync, cache-first annotations and pending-edit protection. Batch 3 add
 canvas load/save/checkpoint guards and gesture serialization, bounded preview
 queues/revision caches, rendered internal thumbnails, PDF resource reuse and
 scroll restoration, safe hosted source refresh, shared UI controls and dynamic
-file-tree context. The recurring canvas save/merge fix remains **needs final testing** against both
-the rebuilt client and server. Batch 4 scopes note-index/file-tree/snippet
+file-tree context. On **2026-10-19**, after merging PR #96 and updating the installed git build,
+the user reports the recurring canvas live-edit/save issue is no longer observed
+and the application feels substantially faster, especially with repeated/stale
+loading removed. This closes the reported live-editing symptom; measured
+performance, navigation/reopen/restart and the broader native acceptance matrix
+remain open. **Hosted non-live canvas saving also passed the user retest on
+2026-10-19:** after confirming the server had not received the merged fixes,
+the user updated the test server and reports the issue appears fixed. This
+closes the reported recurring-conflict symptom. Batch 4 scopes note-index/file-tree/snippet
 publication, coalesces index jobs, escapes Markdown render errors and upgrades
 the dependencies flagged by PR #96's security scan. Batch 5 guards grid document
 replacement/workspace/layout/resize transitions, retains every pane's save
