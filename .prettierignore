@@ -25,6 +25,9 @@ flatpak-repo
 # Local server state.
 server-data
 
+# Published upstream source is checksum-verified, not reformatted locally.
+vendor
+
 # SVGs have no Prettier parser and are hand-crafted brand assets; leave them
 # untouched.
 *.svg

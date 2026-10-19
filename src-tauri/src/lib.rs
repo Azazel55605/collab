@@ -10,6 +10,7 @@ mod crypto;
 mod desktop_notifications;
 mod hosted_client;
 mod hosted_session;
+mod local_mutation;
 mod models;
 mod notifications;
 mod server_token_store;
@@ -17,6 +18,8 @@ mod state;
 #[cfg(test)]
 pub mod test_support;
 mod widgets;
+#[cfg(test)]
+mod zip_security_tests;
 
 use state::AppState;
 

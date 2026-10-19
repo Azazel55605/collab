@@ -21,7 +21,7 @@ that every line or every platform was exercised.
 
 ## Implementation Progress
 
-Updated **2026-10-19**, through implementation batches 1–8 in
+Updated **2026-10-19**, through implementation batches 1–9 in
 [Desktop Audit Fixes](../plans/desktop-audit-fixes.md). Keep these checkboxes current
 with each implementation batch. `[x]` means the described correction is
 implemented; it does not substitute for native acceptance or close adjacent
@@ -55,12 +55,15 @@ and server; it is not closed by these bug checkboxes.
 - [x] **R02:** Identity-keyed grid editor lifetime and save-gated replacement,
       workspace/layout/swap/resize transitions. Same-file registrations are retained
       independently. Shared same-file sessions remain O15.
-- [ ] **R03 — Partial:** Same-process native note compare/merge/write serialized
-      per canonical parent/file. Other processes, external editors and other
-      mutation paths remain outside this lock protocol. Stale writers now reject
-      externally deleted files and recheck observed bytes after staging, before
-      publication. An uncooperative external writer can still race the final rename;
-      advisory locks cannot establish cross-application compare-and-swap.
+- [x] **R03 native coordination:** One process-local coordinator reserves vault
+      namespaces through compare/merge/write, rename/reference rewrites, folder
+      deletion, trash/restore, creation/import, image/sidecar writes, snapshot
+      restore and encryption transitions. Overlapping absolute exports participate;
+      separate vaults stay independent. Creation never truncates an existing note.
+      Stale/deleted-file checks remain. Arbitrary external-editor races and durable
+      recovery have a separate [policy and follow-up](../plans/local-file-external-writer-recovery.md);
+      this checkbox does not promise cross-process compare-and-swap or rollback
+      of partial multi-file operations. Native platform acceptance remains open.
 - [x] **R04:** One atomic, encrypted-as-needed preview record contains metadata
       and image bytes, with a complete-record integrity check. Legacy/missing/corrupt
       entries regenerate; source/renderer checks remain. Native storage QA and disk

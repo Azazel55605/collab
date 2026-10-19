@@ -206,6 +206,27 @@ keystroke → onChange → markDirty → 600ms debounce → tauriCommands.writeN
 manual save (Ctrl+S) → immediate write + createSnapshot
 ```
 
+Native local filesystem mutations share `src-tauri/src/local_mutation.rs`.
+It reserves canonical path scopes, including vault roots for multi-file/namespace
+operations and absolute destinations for exports. Ancestor/descendant conflicts
+serialize; disjoint vaults remain independent. All outer scopes are acquired
+atomically; contained nested helpers are reentrant, but widening a nested scope
+fails to avoid lock-order deadlocks. Older overlapping waiters take priority over
+new writers. RAII guards release reservations on failure/unwind and cannot cross
+threads or an await. Guards precede revision checks, directory creation and key
+snapshots. Snapshot restores use the same validating atomic note writer. The
+coordinator replaces the former note-only mutex registry; it does not lock out
+external programs, roll back multi-file failures or provide a recovery journal.
+See [external-writer policy](../plans/local-file-external-writer-recovery.md).
+
+The workspace patches `tauri-plugin-updater` to the published 2.13.1 source in
+`vendor/tauri-plugin-updater`, excluded from workspace membership. Only its Windows
+ZIP dependency requirement changes to the patched ZIP 9 family. Provenance and
+removal criteria live in its `UPSTREAM.md`; script tests verify retained upstream
+file hashes and version alignment, and native ZIP tests cover malicious archive
+extraction. Server Docker planner/builder stages copy the patch because Cargo
+resolves the whole workspace even when building only `collab-server`.
+
 Desktop tab/page/vault transitions pass through `lib/documentNavigation.ts`.
 It flushes registered dirty controllers before unmounting their editors and
 keeps navigation blocked after a failed/conflicting save; acknowledged native

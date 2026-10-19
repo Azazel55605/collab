@@ -270,6 +270,9 @@ fn write_template_to_scope(
     board: Value,
     state: &State<AppState>,
 ) -> Result<KanbanTemplate, String> {
+    let _mutation = vault_path
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     let path = template_path(vault_path, source, name)?;
     let stored = StoredKanbanTemplate {
         version: 1,
@@ -346,6 +349,9 @@ fn write_note_snippet_to_scope(
     body: String,
     state: &State<AppState>,
 ) -> Result<NoteSnippet, String> {
+    let _mutation = vault_path
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     let id = snippet_id
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| generate_note_snippet_id(&name));
@@ -403,6 +409,9 @@ fn write_filter_preset_to_scope(
     spec: Value,
     state: &State<AppState>,
 ) -> Result<KanbanFilterPreset, String> {
+    let _mutation = vault_path
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     if source == &TemplateSource::Builtin {
         return Err("Built-in presets cannot be modified".into());
     }
@@ -457,6 +466,9 @@ fn write_automation_preset_to_scope(
     rule: Value,
     state: &State<AppState>,
 ) -> Result<KanbanAutomationPreset, String> {
+    let _mutation = vault_path
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     if source == &TemplateSource::Builtin {
         return Err("Built-in presets cannot be modified".into());
     }
@@ -693,6 +705,10 @@ pub fn delete_kanban_template(
     source: TemplateSource,
     template_name: String,
 ) -> Result<(), String> {
+    let _mutation = vault_path
+        .as_deref()
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     if source == TemplateSource::Builtin {
         return Err("Built-in templates cannot be deleted".into());
     }
@@ -747,6 +763,7 @@ pub fn export_kanban_template_to_file(
     file_path: String,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&file_path))?;
     let template = read_template_by_name(vault_path.as_deref(), &source, &template_name, &state)?;
     let payload = json!({
         "version": 1,
@@ -767,6 +784,7 @@ pub fn apply_kanban_template(
     destination_relative_path: String,
     state: State<AppState>,
 ) -> Result<NoteFile, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let template = read_template_by_name(Some(&vault_path), &source, &template_name, &state)?;
     let full_path = resolve_vault_path(&vault_path, &destination_relative_path)?;
 
@@ -883,6 +901,10 @@ pub fn delete_kanban_filter_preset(
     source: TemplateSource,
     preset_name: String,
 ) -> Result<(), String> {
+    let _mutation = vault_path
+        .as_deref()
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     if source == TemplateSource::Builtin {
         return Err("Built-in presets cannot be deleted".into());
     }
@@ -969,6 +991,10 @@ pub fn delete_kanban_automation_preset(
     source: TemplateSource,
     preset_name: String,
 ) -> Result<(), String> {
+    let _mutation = vault_path
+        .as_deref()
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     if source == TemplateSource::Builtin {
         return Err("Built-in presets cannot be deleted".into());
     }
@@ -1067,6 +1093,10 @@ pub fn delete_note_snippet(
     scope: NoteSnippetScope,
     snippet_id: String,
 ) -> Result<(), String> {
+    let _mutation = vault_path
+        .as_deref()
+        .map(|root| crate::local_mutation::lock_path(Path::new(root)))
+        .transpose()?;
     let path = snippet_path(vault_path.as_deref(), &scope, &snippet_id)?;
     if !path.exists() {
         return Ok(());
@@ -1130,6 +1160,7 @@ pub fn save_logic_component(
     component: Value,
     state: State<AppState>,
 ) -> Result<Value, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let id = logic_component_string_field(&component, "id")?.to_string();
     let name = logic_component_string_field(&component, "name")?.to_string();
     let now = now_ms();
@@ -1170,6 +1201,7 @@ pub fn save_logic_component(
 
 #[tauri::command]
 pub fn delete_logic_component(vault_path: String, component_id: String) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let path = logic_component_path(&vault_path, &component_id)?;
     if !path.exists() {
         return Ok(());

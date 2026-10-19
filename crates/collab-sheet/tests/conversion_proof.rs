@@ -592,7 +592,10 @@ fn a_round_trip_through_the_sheet_document_keeps_the_same_content() {
 fn an_export_never_carries_anything_executable() {
     let exported = export_xlsx(&source_workbook()).unwrap();
     let mut archive = zip::ZipArchive::new(Cursor::new(exported.value)).unwrap();
-    let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    let names: Vec<String> = archive
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     for forbidden in [
         "vbaProject",
         "connections",

@@ -55,3 +55,7 @@ Caddyfile* text eol=lf
 # reviewable, since advisory tracking depends on seeing them.
 pnpm-lock.yaml linguist-generated
 Cargo.lock linguist-generated
+
+# Retained upstream files are checksum-verified; preserve their published bytes.
+vendor/tauri-plugin-updater/** linguist-vendored
+vendor/tauri-plugin-updater/CHANGELOG.md whitespace=-blank-at-eol

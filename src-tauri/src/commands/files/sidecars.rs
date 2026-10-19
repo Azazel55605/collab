@@ -245,6 +245,7 @@ pub fn write_image_overlay(
     content: String,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let relative_path = overlay_relative_path(&image_relative_path);
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
@@ -253,6 +254,7 @@ pub fn write_image_overlay(
 
 #[tauri::command]
 pub fn delete_image_overlay(vault_path: String, image_relative_path: String) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let relative_path = overlay_relative_path(&image_relative_path);
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     if full_path.exists() {
@@ -285,6 +287,7 @@ pub fn write_pdf_sidecar_state(
     state: PdfSidecarState,
     app_state: State<AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let relative_path = pdf_sidecar_relative_path(&pdf_relative_path);
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let key_opt: Option<[u8; 32]> = *app_state.encryption_key.read();
@@ -315,6 +318,7 @@ pub fn write_cached_document_preview_data_url(
     expected_hash: Option<String>,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let source_path = resolve_vault_path(&vault_path, &relative_path)?;
     let cache_path = resolve_vault_path(
         &vault_path,

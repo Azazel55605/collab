@@ -36,7 +36,15 @@ pub(super) fn parse_vault_zip(
         })?;
         metadata.push(ArchiveEntryMetadata {
             source_index: index,
-            raw_path: entry.name().to_owned(),
+            raw_path: entry
+                .name()
+                .map_err(|_| {
+                    ApiFailure::validation(
+                        "Vault ZIP entry name could not be decoded.",
+                        request_id.to_owned(),
+                    )
+                })?
+                .into_owned(),
             kind: zip_entry_kind(&entry),
             declared_size: entry.size(),
         });

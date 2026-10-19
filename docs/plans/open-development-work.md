@@ -64,7 +64,11 @@ locking/scheduling and explicit volatile recalculation remain open. Current chec
 supplement distinguish implemented, partial and open work. Native acceptance,
 process-death recovery and full-fidelity asset thumbnails remain open. Batch 8
 adds bounded memory-only OCR result retention, native normal-quit save gating and
-stale/deleted-file write checks. R03 retains an external-writer atomicity boundary;
+stale/deleted-file write checks. Batch 9 completes R03 app-owned mutation
+coordination across namespace/document/restore/import/export/encryption paths.
+External-writer atomicity and durable recovery remain separate
+[planned follow-up work](./local-file-external-writer-recovery.md);
+extensionless wikilink rename resolution is tracked separately in Batch 9.
 R09 is a confirmed hosted indexing capability gap requiring feature work.
 Performance and broader UI inventories remain separate from bug corrections.
 Prioritize pending-edit loss during navigation, Unicode search panics, native

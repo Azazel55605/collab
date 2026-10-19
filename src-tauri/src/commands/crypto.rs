@@ -12,6 +12,7 @@ pub async fn unlock_vault(
     password: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(&vault_path))?;
     let key = crypto::load_key_from_password(&vault_path, &password)?;
     *state.encryption_key.write() = Some(key);
     Ok(())
@@ -25,6 +26,7 @@ pub async fn enable_vault_encryption(
     password: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(&vault_path))?;
     let mut config = read_vault_config_pub(&vault_path)?;
     if config.is_encrypted {
         return Err("Vault is already encrypted".to_string());
@@ -59,6 +61,7 @@ pub async fn disable_vault_encryption(
     password: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(&vault_path))?;
     let mut config = read_vault_config_pub(&vault_path)?;
     if !config.is_encrypted {
         return Err("Vault is not encrypted".to_string());
@@ -90,6 +93,7 @@ pub async fn change_vault_password(
     new_password: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(std::path::Path::new(&vault_path))?;
     let config = read_vault_config_pub(&vault_path)?;
     if !config.is_encrypted {
         return Err("Vault is not encrypted".to_string());

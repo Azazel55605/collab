@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/tauri-plugin-updater"]
 members = [
   "crates/collab-circuit",
   "crates/collab-core",
@@ -70,4 +71,9 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 unicode-normalization = "0.1"
 url = "2.5"
 yrs = "0.28"
-zip = "4"
+zip = "9"
+
+# Upstream 2.13.1 source, with only its Windows ZIP requirement upgraded.
+# Remove once an API-compatible upstream release uses patched ZIP.
+[patch.crates-io]
+tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }

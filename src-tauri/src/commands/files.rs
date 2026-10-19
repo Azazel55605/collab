@@ -10,10 +10,8 @@ use collab_vault_domain::{
     PathChangeKind,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
@@ -188,6 +186,7 @@ fn write_vault_bytes(
     bytes: &[u8],
     key_opt: Option<[u8; 32]>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(full_path)?;
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -617,6 +616,7 @@ fn move_path_to_trash(
     remove_references: bool,
     key_opt: Option<[u8; 32]>,
 ) -> Result<TrashEntry, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     plan_state_transition(DomainEntryState::Active, DomainEntryState::Trashed)
         .map_err(|error| error.to_string())?;
     let normalized = normalize_relative_path(relative_path)?;
@@ -765,6 +765,7 @@ fn restore_trashed_item_inner(
     target_relative_path: Option<String>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<String, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     plan_state_transition(DomainEntryState::Trashed, DomainEntryState::Active)
         .map_err(|error| error.to_string())?;
     let entry = read_trash_entry(vault_path, entry_id, key_opt)?;
@@ -815,6 +816,7 @@ fn purge_trashed_item_inner(
     remove_references: bool,
     key_opt: Option<[u8; 32]>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     plan_state_transition(DomainEntryState::Trashed, DomainEntryState::Tombstoned)
         .map_err(|error| error.to_string())?;
     let entry = read_trash_entry(vault_path, entry_id, key_opt)?;
@@ -839,6 +841,7 @@ fn purge_trashed_item_inner(
 }
 
 fn purge_all_trash_inner(vault_path: &str, key_opt: Option<[u8; 32]>) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     let items = list_trash_entries_inner(vault_path, key_opt)?;
     for entry in items {
         purge_trashed_item_inner(vault_path, &entry.id, false, key_opt)?;
@@ -987,7 +990,7 @@ fn rewrite_all_references(
                 if next == note.content {
                     None
                 } else {
-                    Some(next)
+                    Some((next, note.hash))
                 }
             }
             "kanban" => {
@@ -1000,7 +1003,7 @@ fn rewrite_all_references(
                 if next == note.content {
                     None
                 } else {
-                    Some(next)
+                    Some((next, note.hash))
                 }
             }
             "canvas" => {
@@ -1013,22 +1016,25 @@ fn rewrite_all_references(
                 if next == note.content {
                     None
                 } else {
-                    Some(next)
+                    Some((next, note.hash))
                 }
             }
             _ => None,
         };
 
-        if let Some(next_content) = updated {
+        if let Some((next_content, expected_hash)) = updated {
             let full_path = resolve_vault_path(vault_path, &entry.relative_path)?;
-            write_note_to_path(
+            let result = write_note_to_path(
                 &full_path,
                 &entry.relative_path,
                 next_content,
-                None,
+                Some(expected_hash),
                 None,
                 key_opt,
             )?;
+            if result.conflict.is_some() {
+                return Err(format!("Reference update stopped: {} changed outside Collab. Its content was preserved. Some earlier reference updates may have completed; review the affected paths before retrying.", entry.relative_path));
+            }
         }
     }
 
@@ -1206,28 +1212,7 @@ fn try_auto_merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
     Some(merged)
 }
 
-// Protect the entire compare/merge/atomic-publish operation across IPC callers.
-// Weak entries share locks for active writers without retaining visited paths.
-fn note_write_lock(full_path: &Path) -> Result<Arc<parking_lot::Mutex<()>>, String> {
-    static LOCKS: LazyLock<parking_lot::Mutex<HashMap<PathBuf, Weak<parking_lot::Mutex<()>>>>> =
-        LazyLock::new(|| parking_lot::Mutex::new(HashMap::new()));
-    let parent = full_path.parent().ok_or("Missing parent directory")?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let identity = parent
-        .canonicalize()
-        .map_err(|error| error.to_string())?
-        .join(full_path.file_name().ok_or("Missing file name")?);
-    let mut locks = LOCKS.lock();
-    locks.retain(|_, lock| lock.strong_count() > 0);
-    if let Some(lock) = locks.get(&identity).and_then(Weak::upgrade) {
-        return Ok(lock);
-    }
-    let lock = Arc::new(parking_lot::Mutex::new(()));
-    locks.insert(identity, Arc::downgrade(&lock));
-    Ok(lock)
-}
-
-fn write_note_to_path(
+pub(super) fn write_note_to_path(
     full_path: &Path,
     relative_path: &str,
     content: String,
@@ -1235,8 +1220,7 @@ fn write_note_to_path(
     base_content: Option<String>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<WriteResult, String> {
-    let lock = note_write_lock(full_path)?;
-    let _write_guard = lock.lock();
+    let _mutation = crate::local_mutation::lock_path(full_path)?;
     let observed_hash = if expected_hash.is_some() {
         match std::fs::read(full_path) {
             Ok(bytes) => Some(sha256_bytes(&bytes)),
@@ -1387,6 +1371,7 @@ fn create_note_at_path(
     relative_path: &str,
     key_opt: Option<[u8; 32]>,
 ) -> Result<NoteFile, String> {
+    let _mutation = crate::local_mutation::lock_path(full_path)?;
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -1402,7 +1387,17 @@ fn create_note_at_path(
     } else {
         initial_content.into_bytes()
     };
-    std::fs::write(full_path, &bytes_to_write).map_err(|e| e.to_string())?;
+    let mut staged =
+        tempfile::NamedTempFile::new_in(full_path.parent().ok_or("Missing parent directory")?)
+            .map_err(|error| error.to_string())?;
+    std::io::Write::write_all(&mut staged, &bytes_to_write).map_err(|error| error.to_string())?;
+    staged
+        .as_file()
+        .sync_all()
+        .map_err(|error| error.to_string())?;
+    staged
+        .persist_noclobber(full_path)
+        .map_err(|error| error.to_string())?;
 
     let metadata = std::fs::metadata(full_path).map_err(|e| e.to_string())?;
     let modified_at = metadata.modified().map(system_time_to_ms).unwrap_or(0);
@@ -1654,6 +1649,7 @@ pub fn write_downloaded_file(
     destination_path: String,
     content_base64: String,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&destination_path))?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_base64.as_bytes())
         .map_err(|e| format!("Failed to decode file contents: {}", e))?;
@@ -1710,6 +1706,7 @@ pub fn save_generated_image(
     suggested_file_name: Option<String>,
     state: State<AppState>,
 ) -> Result<String, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let (mime, encoded) = parse_data_url(&data_url)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
@@ -1754,6 +1751,7 @@ pub fn import_asset_into_vault(
     target_folder: Option<String>,
     state: State<AppState>,
 ) -> Result<String, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let source = Path::new(&source_path);
     if !source.is_file() {
         return Err(format!(
@@ -2373,15 +2371,163 @@ mod tests {
     }
 
     #[test]
-    fn note_writers_share_lock_across_parent_directory_aliases() {
+    fn rename_and_folder_delete_do_not_allow_waiting_saves_to_resurrect_paths() {
+        for rename in [true, false] {
+            let vault = TempVault::new().unwrap();
+            vault.write_text("Notes/Test.md", "base").unwrap();
+            std::thread::scope(|scope| {
+                let namespace = crate::local_mutation::lock_path(vault.path()).unwrap();
+                let (started_tx, started_rx) = std::sync::mpsc::channel();
+                let writer_vault = &vault;
+                let writer = scope.spawn(move || {
+                    started_tx.send(()).unwrap();
+                    write_note_to_path(
+                        &writer_vault.resolve("Notes/Test.md"),
+                        "Notes/Test.md",
+                        "pending edit".into(),
+                        Some(super::compute_hash("base")),
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                });
+                started_rx.recv().unwrap();
+                if rename {
+                    super::rename_note_inner(&vault.path_string(), "Notes", "Archive", false, None)
+                        .unwrap();
+                } else {
+                    super::delete_note_inner(&vault.path_string(), "Notes", false, None).unwrap();
+                }
+                drop(namespace);
+                assert!(writer.join().unwrap().conflict.is_some());
+            });
+            assert!(!vault.exists("Notes"));
+            if rename {
+                assert_eq!(vault.read_text("Archive/Test.md").unwrap(), "base");
+            }
+        }
+    }
+
+    #[test]
+    fn reference_rewrite_and_waiting_edit_preserve_both_changes() {
         let vault = TempVault::new().unwrap();
-        let target = vault.resolve("Notes/Test.md");
-        let first = super::note_write_lock(&target).unwrap();
-        let alias = vault.resolve("Notes/./Test.md");
-        let second = super::note_write_lock(&alias).unwrap();
-        assert!(std::sync::Arc::ptr_eq(&first, &second));
-        let other = super::note_write_lock(&vault.resolve("Notes/Other.md")).unwrap();
-        assert!(!std::sync::Arc::ptr_eq(&first, &other));
+        let base = "[Target](Target.md)\nbody\n";
+        vault.write_text("Notes/Target.md", "target").unwrap();
+        vault.write_text("Notes/Ref.md", base).unwrap();
+        std::thread::scope(|scope| {
+            let namespace = crate::local_mutation::lock_path(vault.path()).unwrap();
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let writer_vault = &vault;
+            let writer = scope.spawn(move || {
+                started_tx.send(()).unwrap();
+                write_note_to_path(
+                    &writer_vault.resolve("Notes/Ref.md"),
+                    "Notes/Ref.md",
+                    "[Target](Target.md)\nchanged body\n".into(),
+                    Some(super::compute_hash(base)),
+                    Some(base.into()),
+                    None,
+                )
+                .unwrap()
+            });
+            started_rx.recv().unwrap();
+            super::rename_note_inner(
+                &vault.path_string(),
+                "Notes/Target.md",
+                "Notes/Renamed.md",
+                true,
+                None,
+            )
+            .unwrap();
+            drop(namespace);
+            assert!(writer.join().unwrap().conflict.is_none());
+        });
+        let saved = vault.read_text("Notes/Ref.md").unwrap();
+        assert!(saved.contains("Renamed"), "{saved}");
+        assert!(saved.contains("changed body"), "{saved}");
+    }
+
+    #[test]
+    fn competing_restores_do_not_replace_the_first_restored_file() {
+        let vault = TempVault::new().unwrap();
+        vault.write_text("Notes/A.md", "first").unwrap();
+        vault.write_text("Notes/B.md", "second").unwrap();
+        let first = move_path_to_trash(&vault.path_string(), "Notes/A.md", None, None, false, None)
+            .unwrap();
+        let second =
+            move_path_to_trash(&vault.path_string(), "Notes/B.md", None, None, false, None)
+                .unwrap();
+        let results = std::thread::scope(|scope| {
+            let jobs = [&first, &second].map(|entry| {
+                let vault = &vault;
+                scope.spawn(move || {
+                    restore_trashed_item_inner(
+                        &vault.path_string(),
+                        &entry.id,
+                        Some("Restored.md".into()),
+                        None,
+                    )
+                })
+            });
+            jobs.map(|job| job.join().unwrap())
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(matches!(
+            vault.read_text("Restored.md").unwrap().as_str(),
+            "first" | "second"
+        ));
+        assert_eq!(
+            list_trash_entries_inner(&vault.path_string(), None)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn absolute_download_waits_for_a_vault_namespace_mutation() {
+        let vault = TempVault::new().unwrap();
+        vault.write_text("Notes/Test.md", "before").unwrap();
+        std::thread::scope(|scope| {
+            let namespace = crate::local_mutation::lock_path(vault.path()).unwrap();
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let (done_tx, done_rx) = std::sync::mpsc::channel();
+            let writer_vault = &vault;
+            scope.spawn(move || {
+                started_tx.send(()).unwrap();
+                super::write_downloaded_file(
+                    writer_vault
+                        .resolve("Notes/Test.md")
+                        .to_string_lossy()
+                        .into_owned(),
+                    "YWZ0ZXI=".into(),
+                )
+                .unwrap();
+                done_tx.send(()).unwrap();
+            });
+            started_rx.recv().unwrap();
+            assert!(done_rx
+                .recv_timeout(std::time::Duration::from_millis(30))
+                .is_err());
+            assert_eq!(vault.read_text("Notes/Test.md").unwrap(), "before");
+            drop(namespace);
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+        });
+        assert_eq!(vault.read_text("Notes/Test.md").unwrap(), "after");
+    }
+
+    #[test]
+    fn create_note_never_truncates_an_existing_document() {
+        let vault = TempVault::new().unwrap();
+        vault
+            .write_text("Notes/Test.md", "keep my content")
+            .unwrap();
+        assert!(
+            create_note_at_path(&vault.resolve("Notes/Test.md"), "Notes/Test.md", None).is_err()
+        );
+        assert_eq!(vault.read_text("Notes/Test.md").unwrap(), "keep my content");
     }
 
     #[test]
@@ -2833,6 +2979,7 @@ pub fn write_note(
     base_content: Option<String>,
     state: State<AppState>,
 ) -> Result<WriteResult, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     write_note_to_path(
@@ -2851,6 +2998,7 @@ pub fn create_note(
     relative_path: String,
     state: State<AppState>,
 ) -> Result<NoteFile, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     create_note_at_path(&full_path, &relative_path, key_opt)
@@ -2863,12 +3011,29 @@ pub fn delete_note(
     remove_references: Option<bool>,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    delete_note_inner(
+        &vault_path,
+        &relative_path,
+        remove_references.unwrap_or(false),
+        key_opt,
+    )
+}
+
+fn delete_note_inner(
+    vault_path: &str,
+    relative_path: &str,
+    remove_references: bool,
+    key_opt: Option<[u8; 32]>,
+) -> Result<(), String> {
+    let full_path = resolve_vault_path(vault_path, relative_path)?;
+    let _mutation = crate::local_mutation::lock_paths(&[Path::new(vault_path), &full_path])?;
     let normalized = normalize_relative_path(&relative_path)?;
     if normalized == PathBuf::from("Pictures") {
         return Err("The Pictures folder is managed by the app and cannot be deleted".into());
     }
-    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
-    if remove_references.unwrap_or(false) {
+    if remove_references {
         rewrite_all_references(&vault_path, &relative_path, None, key_opt)?;
     }
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
@@ -2901,6 +3066,7 @@ pub fn move_note_to_trash(
     remove_references: Option<bool>,
     state: State<AppState>,
 ) -> Result<TrashEntry, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     move_path_to_trash(
         &vault_path,
@@ -2928,6 +3094,7 @@ pub fn restore_trashed_item(
     target_relative_path: Option<String>,
     state: State<AppState>,
 ) -> Result<String, String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     restore_trashed_item_inner(&vault_path, &entry_id, target_relative_path, key_opt)
 }
@@ -2939,6 +3106,7 @@ pub fn purge_trashed_item(
     remove_references: Option<bool>,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     purge_trashed_item_inner(
         &vault_path,
@@ -2950,6 +3118,7 @@ pub fn purge_trashed_item(
 
 #[tauri::command]
 pub fn purge_all_trash(vault_path: String, state: State<AppState>) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     purge_all_trash_inner(&vault_path, key_opt)
 }
@@ -2983,10 +3152,28 @@ pub fn rename_note(
     update_references: Option<bool>,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let base = Path::new(&vault_path);
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    rename_note_inner(
+        &vault_path,
+        &old_path,
+        &new_path,
+        update_references.unwrap_or(true),
+        key_opt,
+    )
+}
+
+fn rename_note_inner(
+    vault_path: &str,
+    old_path: &str,
+    new_path: &str,
+    update_references: bool,
+    key_opt: Option<[u8; 32]>,
+) -> Result<(), String> {
+    let base = Path::new(vault_path);
     let old_full = base.join(normalize_relative_path(&old_path)?);
     let new_full = base.join(normalize_relative_path(&new_path)?);
-    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    let _mutation = crate::local_mutation::lock_paths(&[base, &old_full, &new_full])?;
     let metadata = std::fs::metadata(&old_full).map_err(|e| e.to_string())?;
     plan_path_change(
         &old_path,
@@ -3004,7 +3191,7 @@ pub fn rename_note(
 
     std::fs::rename(&old_full, &new_full).map_err(|e| e.to_string())?;
 
-    if update_references.unwrap_or(true) {
+    if update_references {
         rewrite_all_references(&vault_path, &old_path, Some(&new_path), key_opt)?;
     }
 
@@ -3025,6 +3212,7 @@ pub fn rename_note(
 
 #[tauri::command]
 pub fn create_folder(vault_path: String, relative_path: String) -> Result<(), String> {
+    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     std::fs::create_dir_all(&full_path).map_err(|e| e.to_string())
 }

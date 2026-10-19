@@ -14,6 +14,7 @@ Start with
 - [Logic And Circuit Diagram Editor](./logic-circuit-diagram-plan.md)
 - [Collab Presentations](./presentation-tool-plan.md)
 - [User Calendar](./user-calendar-feature-plan.md)
+- [Local Files And External-Writer Recovery](./local-file-external-writer-recovery.md)
 
 Completed plans move to [the archive](../archive/README.md) rather than remaining
 mixed with current work.

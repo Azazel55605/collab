@@ -14,8 +14,8 @@ formualizer-workbook = { version = "0.10.1", default-features = false, features 
 # the filesystem, or a database, so the domain-crate boundary is unaffected.
 quick-xml.workspace = true
 serde_json.workspace = true
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 serde_json.workspace = true
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }

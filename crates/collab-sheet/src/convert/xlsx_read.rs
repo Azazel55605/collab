@@ -175,7 +175,11 @@ impl BoundedArchive {
                 limit: limits.archive_entries,
             });
         }
-        let names = zip.file_names().map(str::to_string).collect::<Vec<_>>();
+        let names = zip
+            .file_names()
+            .map(|name| name.map(|name| name.into_owned()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ConversionError::Malformed(error.to_string()))?;
         // Path traversal has no meaning for an in-memory read — nothing is
         // written to disk — but an entry name that escapes the package is a
         // strong signal the file is hostile rather than merely unusual.

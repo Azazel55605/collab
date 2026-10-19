@@ -527,9 +527,9 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
       merely to fill these fields, or claim empty fields are full index parity.
 
 Desktop **B01–B08 corrections are implemented**. The remaining work is explicit:
-**UR12/UR13 stays needs final testing** with rebuilt desktop and server; R03's
-cross-application storage contract, forced-death/durable-draft
-recovery needs further design; UR04/UR12 profiling belongs to performance work;
+**UR12/UR13 stays needs final testing** with rebuilt desktop and server; external
+writer coordination and forced-death/durable-draft recovery have a separate
+follow-up policy below; UR04/UR12 profiling belongs to performance work;
 UR05 asset fidelity, R09 hosted indexing and the broader UR06 component inventory
 are enhancements. Android UR11 and the web/mobile bug backlogs are outside this
 desktop batch. PDF/offline/reconnect/scrollbar/sidebar/platform acceptance still
@@ -567,6 +567,72 @@ Validation (2026-10-19):
 - Native quit/storage, encrypted-profile upgrade/blocked legacy-cache deletion,
   physical input/rendering/offline/reconnect acceptance and the canvas user retest
   remain open. This batch does not establish performance improvements.
+
+## Batch 9 — R03 Local Mutation Coordination (2026-10-19)
+
+- [x] Replaced the note-only mutex registry with one native path-scope coordinator.
+      Namespace reservations cover the whole vault operation, including path
+      planning, reference read/rewrites, metadata/sidecars and final mutation.
+      Ancestor/descendant paths and canonical aliases conflict. Disjoint vaults
+      remain independent; pending namespace operations cannot be starved by newer
+      overlapping writes. Guards are thread-bound, reentrant for contained helpers,
+      released on error/unwind and reject nested scope expansion.
+- [x] Coordinated note writes/creation, rename/move/reference updates, folder
+      deletion, trash/restore/purge, generated/imported images, annotations and
+      preview publication, snapshot restore/history, vault-scoped templates and
+      encryption/key transitions. Absolute download/template/sheet/vault export
+      destinations participate if they overlap a reserved vault namespace.
+- [x] Snapshot restore uses the validating, uniquely staged note writer. Note
+      creation uses atomic no-clobber publication. Reference rewrites supply the
+      revision read and surface a conflict instead of discarding that result.
+- [x] Added regressions for same-base writers, rename/folder-delete versus waiting
+      saves, reference rewrites versus edits, competing restores, existing-file
+      creation, absolute downloads, aliases, nested scope ordering, independent
+      vault progress and guard cleanup after panic.
+- [x] R03's app-owned coordination scope is complete. Arbitrary external writers,
+      process-death recovery and partial multi-file repair now have a separate
+      [explicit contract and recovery policy](./local-file-external-writer-recovery.md).
+      The journal described there is planned, not shipped. Existing fingerprint
+      checks still have an external check/replace gap. **Canvas stays needs final testing.**
+
+Separate finding from this batch (outside R03's mutation-ordering scope):
+
+- [ ] **Link rewrite follow-up:** Renaming `Notes/Target.md` leaves an
+      extensionless `[[Target]]` reference unchanged in the native rewrite path.
+      Reference discovery and rewriting need the same unambiguous target resolver,
+      including aliases, headings and duplicate basenames. The concurrency
+      regression uses an explicit `[Target](Target.md)` target; it does not assert
+      shorthand-wikilink rename coverage. Preserve the historical audit IDs/counts.
+
+PR security follow-up: migrated ZIP to 9.0.5, including a manifest-only updater
+2.13.1 backport so Windows ZIP updates remain available and Rust/JS versions
+stay aligned. Retained upstream files have checksum guards; extraction
+regressions cover the newly reported symlink and permission advisories. No Rust
+audit ignore was added. See the [advisory record](../build/security-advisories.md).
+
+End-of-batch validation:
+
+- Desktop/scripts: **2,367 passed, one intentional skip**, after the targeted
+  Tauri compatibility rerun and two added updater provenance/dependency guards.
+  The first full desktop run caught a temporary resolver downgrade of the Rust
+  updater; the backport restores 2.13.1 and all five compatibility checks pass.
+- Admin **81/81** and Android **258/258** tests pass. All three TypeScript
+  surfaces, the admin build, formatting, changed-file lint, version manifests,
+  crate boundaries and diff checks pass. No performance budget was relaxed.
+- Rust workspace tests, check and formatting pass with ZIP 9, including **247
+  native desktop tests** and both malicious extraction regressions. ZIP 9's
+  fallible entry-name APIs are handled in XLSX and hosted vault import paths.
+  The patched updater also passes `cargo check -p tauri-plugin-updater --target
+x86_64-pc-windows-gnu --locked`; this is compilation, not a real signed update.
+- Fresh Rust audit: **zero vulnerabilities**, six documented informational
+  warnings and no Rust ignores. The JavaScript security gate passes with the
+  existing reproducible `braces` patch and its documented registry ignore.
+- Compose config passes. Isolated smoke remains blocked before startup by the
+  existing BuildKit `network.host` entitlement requirement. No smoke success or
+  new live PostgreSQL coverage is claimed.
+
+Native Windows/Wayland concurrent mutation, crypto transition, filesystem failure
+and real signed-update acceptance remain open. **Canvas needs final testing.**
 
 ## Verification Boundary
 

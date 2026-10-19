@@ -6,6 +6,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
+      - 'vendor/**'
       - 'src-tauri/Cargo.toml'
       - 'scripts/check-rust-crate-boundaries.mjs'
   push:
@@ -15,6 +16,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
+      - 'vendor/**'
       - 'src-tauri/Cargo.toml'
       - 'scripts/check-rust-crate-boundaries.mjs'
 
