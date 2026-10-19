@@ -33,7 +33,7 @@ requirements. `[ ] Partial` and `[ ] Open` retain unfinished scope. The original
 - [x] **B01:** Save-before-navigation/tab/page/vault and grid transitions, including
       responsive pane removal, plus a native close/tray/system-quit save handshake.
       Every mounted pane participates. Live document controllers also await their available native CRDT checkpoint.
-      Forced process death and durable draft recovery remain separate follow-up work; native quit/canvas acceptance stays open below.
+      Forced process death and durable draft recovery remain separate follow-up work; native quit and broader canvas acceptance stay open below.
 - [x] **B02:** Unicode-safe search excerpts.
 - [x] **B03:** Stale search responses rejected.
 - [x] **B04:** PDF loading-task cleanup and bounded resource reuse.
@@ -43,9 +43,15 @@ requirements. `[ ] Partial` and `[ ] Open` retain unfinished scope. The original
 - [x] **B08:** Canvas backing dimensions obey the pixel ceiling after rounding.
 
 Native storage/GPU/lifecycle soak and the platform matrix remain release
-acceptance. The user's external-drop fix is confirmed working. **Canvas repeated
-save/merge/navigation remains needs final testing**, requiring the rebuilt client
-and server; it is not closed by these bug checkboxes.
+acceptance. The user's external-drop fix is confirmed working. **User retest, 2026-10-19:**
+after merging PR #96 and updating the installed git build, the recurring canvas
+live-edit/save issue is no longer observed. The user also reports a substantially
+faster, snappier app, particularly from avoiding repeated/stale loading. This is
+observed installed-app feedback, not measured performance. Explicit navigation,
+reopen/restart, offline/failure and broader platform acceptance remain open.
+**Hosted non-live saving user-retested, 2026-10-19:** the user reports the issue
+appears fixed on the updated test server. Close the reported recurring-conflict
+symptom; no additional persistence change was needed for this follow-up.
 
 ### Investigation Follow-Up
 
@@ -290,6 +296,11 @@ controlled reproducer before treating its impact as confirmed.
 Each opportunity has a source, a concrete change and a verification target. Where
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
+
+Checklist reconciled **2026-10-19**: **O39 and O47 are implemented; O48 is
+superseded by R08**. All three are checked off. The other **67 entries remain
+open or partial**; completed portions are described in their status lines and
+the implementation tracker, without closing the unfinished scope.
 
 ### Startup, Bundles And Packaged Assets
 

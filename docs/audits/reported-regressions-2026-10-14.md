@@ -53,13 +53,20 @@ changes and automated verification live in
 - [x] **UR10 desktop:** Kanban flex height constraints and scrolling card region
       implemented. Native scrollbar/drag auto-scroll/touch acceptance remains.
 - [ ] **UR11 open:** Android stale drawing modes remain mobile work.
-- [ ] **UR12 — needs final testing:** Canvas gesture serialization, bounded
+- [ ] **UR12 — profiling open:** Canvas gesture serialization, bounded
       hydration and pixel limits implemented. Native CPU/heap/GPU profiling and
       large-board interactions remain; do not close the performance report yet.
-- [ ] **UR13 — needs final testing:** Load/save/navigation guards, coalesced live
-      checkpoints, semantic REST/live JSON comparison and connection ownership fixes
-      implemented. Repeated edits/save/navigation/reopen must be confirmed with
-      **both rebuilt desktop and server**. Process quit/death recovery remains open.
+- [x] **UR13 — reported live-editing symptom user-retested, 2026-10-19:**
+      After merging PR #96 and updating the installed git build, the user reports
+      canvas live editing no longer exhibits the recurring save/merge issue.
+      Load/save/navigation guards, coalesced live checkpoints, semantic REST/live
+      JSON comparison and connection ownership corrections are implemented.
+      Explicit navigation/reopen/restart, offline/conflict/failure and platform
+      acceptance remain open; durable process-death recovery is separate work.
+- [x] **UR13 hosted non-live — user-retested, 2026-10-19:** After updating the
+      test server, the user reports the recurring save-conflict issue appears
+      fixed. The earlier desktop-only update had left the server fixes undeployed.
+      Close this reported symptom; broader acceptance above remains open.
 
 - [x] **UR14:** User retest on 2026-10-19 confirms evaluation works again;
       no original cause is claimed. Added a muted inline shortcut hint in active
@@ -231,6 +238,18 @@ pinch/selection, old drawing documents and annotations without removing intended
 input settings merely because they look old.
 
 ### UR12–UR13 — Canvas Performance And Save Reliability
+
+**User retest, 2026-10-19:** after merging PR #96 and updating the installed git
+build, the recurring live-edit/save symptom is no longer observed. The user
+reports a much faster, snappier application and attributes a major difference to
+avoiding repeated/stale loading. Record this as observed responsiveness, not
+CPU/heap/GPU measurements. UR12 profiling and the broader acceptance matrix below
+remain open.
+
+**Hosted non-live follow-up, 2026-10-19:** the user confirmed the server had not
+been updated, then reports the issue appears fixed on the updated test server.
+Close the reported recurring-conflict symptom alongside the live-editing retest.
+No additional persistence change was made; broader acceptance remains open.
 
 [CanvasPage](../../src/views/CanvasPage.tsx) combines ReactFlow nodes, previews,
 viewport and collaboration state. Existing audit O59/O60 tracks expensive

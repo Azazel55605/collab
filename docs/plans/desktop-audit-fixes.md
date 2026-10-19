@@ -6,11 +6,30 @@ the [desktop audit](../audits/desktop-performance-and-bugs-2026-10-14.md) and
 audit counts/IDs remain historical inventories; current checkboxes live in the
 audit documents, with implementation evidence here and in [Open Development Work](./open-development-work.md).
 
+## User Retest — 2026-10-19
+
+After merging PR #96 and updating the installed git build, the user reports that
+canvas live editing no longer exhibits the recurring save/merge issue. This
+closes the reported UR13 live-editing symptom. The user also reports a much
+faster, snappier application, particularly from avoiding repeated and stale
+loading. These are observations from the installed app, not measured latency,
+CPU, heap or GPU results.
+
+**Hosted non-live saves — user-retested, 2026-10-19:** the user subsequently
+reported the same conflict without live editing and confirmed the server had
+not been updated. After updating the test server, the user reports the issue
+appears fixed. Close this reported symptom. The REST/live JSON comparison fix
+runs on the server; no additional persistence change was made in this follow-up.
+
+UR12 profiling, large-board/resource soak, explicit navigation/reopen/restart,
+offline/conflict/storage-failure cases and the broader native platform matrix
+remain open. External-writer and process-death recovery remain separate work.
+
 ## Batch 1 — Save And Viewer Correctness
 
 | Finding    | Implemented change                                                                                                                                                                                                                                                                                           | Remaining acceptance                                                                                                                                                     |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| B01 / UR13 | Tab open/switch/close, page navigation and vault open/close wait for registered dirty document controllers. Write failure/conflict keeps the editor mounted; acknowledged native offline queues permit leaving. A subsequent edit clears the older queue acknowledgement.                                    | Process quit/death and durable draft recovery; live-save lifetime; remaining intermittent canvas failures beyond navigation.                                             |
+| B01 / UR13 | Tab open/switch/close, page navigation and vault open/close wait for registered dirty document controllers. Write failure/conflict keeps the editor mounted; acknowledged native offline queues permit leaving. A subsequent edit clears the older queue acknowledgement.                                    | Process quit/death and durable draft recovery; broader live/offline, navigation/reopen and storage-failure acceptance.                                                   |
 | B02        | Search excerpts map lowercase byte positions back to original Unicode character indices and clip by characters.                                                                                                                                                                                              | Native UI search across representative scripts; Rust regression tests cover CJK, emoji and expanding lowercase.                                                          |
 | B03        | SearchPanel invalidates old asynchronous results on query/vault change and unmount.                                                                                                                                                                                                                          | Native search interaction QA; regression covers reversed responses and cleared input.                                                                                    |
 | B04        | PdfView retains/destroys loading tasks on errors and unmount; canvas PDF preview enters cleanup before awaiting load.                                                                                                                                                                                        | Repeated native open/close resource soak and corrupt/slow PDF fixtures.                                                                                                  |
@@ -246,9 +265,10 @@ BuildKit entitlement limitation described above.
 
 ## Hosted Canvas Source-Cause Correction — 2026-10-15
 
-Status: **needs final testing**. Keep this report open until the user confirms
-repeated edits, saves, navigation and reopen against the updated desktop and
-server. Automated regression results below do not close this acceptance gate.
+Status: **User-retested, 2026-10-19:** the recurring canvas live-edit/save issue
+is no longer observed after the merge and installed-app update. The user report
+closes that symptom; it does not establish the full navigation/reopen/restart,
+offline, failure or platform matrix. See the user-retest record above.
 
 The previous revision-recovery change did not stop recurring merge prompts.
 Tracing both writers identified server comparisons between compact live JSON and
@@ -288,12 +308,14 @@ its tests; existing databases and running services were untouched.
 
 **Both the desktop client and server must be rebuilt/deployed** for this fix.
 An older server retains the raw-text comparison even with the newer desktop.
-Native user acceptance remains open; the earlier recovery patch alone is not
-considered a resolution of the recurring-merge report.
+The 2026-10-19 user retest confirms the recurring live-editing symptom is no
+longer observed. Broader native acceptance remains open; the earlier recovery
+patch alone was not considered a resolution of the recurring-merge report.
 
 ## Batch 4 — Scoped Indexing, Snippets And Render Errors
 
-Implemented **2026-10-15** while the canvas report remains **needs final testing**:
+Implemented **2026-10-15** while canvas was awaiting user retest (completed for the reported live-editing
+symptom on 2026-10-19):
 
 - **R01 / O18:** `useVaultNoteIndex` owns initial loads and file/replica refreshes
   for the active vault/server scope. It clears notes when closing/locking/switching,
@@ -340,7 +362,7 @@ Native UI/resource/crypto acceptance and the wider audit backlog remain open.
 
 ## Batch 5 — Grid Lifetimes And Local Save Serialization
 
-Implemented **2026-10-15**. Canvas remains **needs final testing**.
+Implemented **2026-10-15**. Canvas was awaiting user retest at this batch; see the 2026-10-19 retest above.
 
 - **R02 / B01:** Grid editor subtrees are keyed by vault/server, document type and
   path. Cell replacement/clear, swaps, reorders, workspace creation/switch/deletion,
@@ -390,7 +412,7 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
 
 ## Batch 6 — Atomic Preview Records And OCR Ownership
 
-Implemented **2026-10-15**. Canvas remains **needs final testing**.
+Implemented **2026-10-15**. Canvas was awaiting user retest at this batch; see the 2026-10-19 retest above.
 
 - **R04:** Preview metadata and image bytes are encoded in one integrity-checked
   `.entry` record, published by the existing encrypted/atomic staging helper.
@@ -440,7 +462,7 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
 
 ## Batch 7 — Formula Lifetime And Queued Work
 
-Implemented **2026-10-15**. Canvas remains **needs final testing**.
+Implemented **2026-10-15**. Canvas was awaiting user retest at this batch; see the 2026-10-19 retest above.
 
 - **R06 / mobile MR07:** A shared owner controls each mounted formula runtime.
   Closing/removing formulas cancels debounce/trailing requests, waits for an
@@ -527,7 +549,8 @@ Implemented **2026-10-15**. Canvas remains **needs final testing**.
       merely to fill these fields, or claim empty fields are full index parity.
 
 Desktop **B01–B08 corrections are implemented**. The remaining work is explicit:
-**UR12/UR13 stays needs final testing** with rebuilt desktop and server; external
+**UR13 recurring live-edit/save symptom is user-retested**; UR12 profiling and
+the broader native acceptance matrix remain open. External
 writer coordination and forced-death/durable-draft recovery have a separate
 follow-up policy below; UR04/UR12 profiling belongs to performance work;
 UR05 asset fidelity, R09 hosted indexing and the broader UR06 component inventory
@@ -565,8 +588,8 @@ Validation (2026-10-19):
   No smoke success or live PostgreSQL coverage is claimed. Existing running
   servers/databases were not changed.
 - Native quit/storage, encrypted-profile upgrade/blocked legacy-cache deletion,
-  physical input/rendering/offline/reconnect acceptance and the canvas user retest
-  remain open. This batch does not establish performance improvements.
+  physical input/rendering/offline/reconnect acceptance and the broader canvas
+  matrix remain open; the reported live-editing symptom passed user retest above. This batch does not establish measured performance improvements.
 
 ## Batch 9 — R03 Local Mutation Coordination (2026-10-19)
 
@@ -593,7 +616,7 @@ Validation (2026-10-19):
       process-death recovery and partial multi-file repair now have a separate
       [explicit contract and recovery policy](./local-file-external-writer-recovery.md).
       The journal described there is planned, not shipped. Existing fingerprint
-      checks still have an external check/replace gap. **Canvas stays needs final testing.**
+      checks still have an external check/replace gap. **Canvas live-editing symptom passed user retest; broader acceptance remains open.**
 
 Separate finding from this batch (outside R03's mutation-ordering scope):
 
@@ -632,7 +655,34 @@ x86_64-pc-windows-gnu --locked`; this is compilation, not a real signed update.
   new live PostgreSQL coverage is claimed.
 
 Native Windows/Wayland concurrent mutation, crypto transition, filesystem failure
-and real signed-update acceptance remain open. **Canvas needs final testing.**
+and real signed-update acceptance remain open. **Canvas live-editing symptom passed user retest; broader acceptance remains open.**
+
+## Android Compile Follow-Up — 2026-10-19
+
+- [x] Guard the desktop-only `Webview::bounds()` query in the shared native
+      `native_drop_viewport` command. Mobile keeps the command registered and returns
+      an unsupported error; it does not guess a drop target using window dimensions.
+      Desktop bounds and display-scale/zoom conversion are preserved.
+- [x] Reconcile completed performance entries: O39 and O47 remain checked as
+      implemented; O48 remains checked as superseded by R08's bounded memory cache.
+      Open/partial items and their remaining native acceptance stay unchecked. UR13's
+      reported live-edit/save symptom passed the user retest recorded above.
+
+End-of-batch validation:
+
+- ARM64 Android native release library builds successfully with the installed NDK,
+  API 24 and `tauri/custom-protocol` (`--target aarch64-linux-android --lib
+--release --locked`). This directly checks the platform that rejected `bounds()`;
+  APK packaging, installation and physical-device behavior were not tested here.
+- Rust workspace tests, workspace check and formatting pass, including all **247
+  native desktop tests**. Desktop/scripts **2,367 passed, one intentional skip**;
+  admin **81/81** and mobile **258/258** pass, including existing desktop native
+  drop-coordinate regressions. Suites ran after implementation; timing suites
+  waited for native compilation. No test budget was relaxed.
+- All three TypeScript surfaces, the admin build, repository formatting,
+  version/crate-boundary guards and diff checks pass. The unrelated generated
+  `dist-mobile/index.html` change is preserved. No new live PostgreSQL or server
+  smoke coverage is claimed for this native UI build fix.
 
 ## Verification Boundary
 

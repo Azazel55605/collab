@@ -276,6 +276,17 @@ canvas/logic editing remain desktop-first or later mobile work.
 
 ## Troubleshooting
 
+### `Webview::bounds()` Is Not Available On Android
+
+The desktop external-file-drop geometry command is registered in the shared
+native library. Tauri exposes `Webview::bounds()` only on desktop, so calling it
+unconditionally breaks Android compilation. The command now guards that query
+with `cfg(desktop)` and returns an explicit unsupported error on mobile. Update
+the native sources and rebuild; changing SDK/NDK versions does not fix this API
+availability error. Desktop drop-coordinate scaling is preserved.
+Mobile Vitest covers the frontend; it does not compile shared Rust commands.
+Shared native API changes also need an Android-target compile check or build.
+
 ### Missing Android NDK Compiler
 
 If Cargo reports that it cannot find `aarch64-linux-android-clang`, the NDK is
