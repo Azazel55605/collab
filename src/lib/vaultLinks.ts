@@ -1,6 +1,8 @@
 import type { ActiveView } from '../store/uiStore';
 import type { NoteFile } from '../types/vault';
 
+import { vaultTreeIndex } from './vaultTreeIndex';
+
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
@@ -69,20 +71,7 @@ function stripLinkSuffix(path: string) {
 }
 
 export function flattenVaultFiles(nodes: NoteFile[]): NoteFile[] {
-  const flat: NoteFile[] = [];
-
-  const visit = (items: NoteFile[]) => {
-    for (const item of items) {
-      if (item.isFolder) {
-        if (item.children?.length) visit(item.children);
-        continue;
-      }
-      flat.push(item);
-    }
-  };
-
-  visit(nodes);
-  return flat;
+  return vaultTreeIndex(nodes).files;
 }
 
 export function getVaultDocumentTabType(relativePath: string): VaultDocumentTabType {

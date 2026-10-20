@@ -1,6 +1,7 @@
 import type { SnapshotMeta } from '../types/collab';
 import type { InkAnnotationDocument } from '../types/ink';
 import type { LogicComponentDefinition } from '../types/logicDiagram';
+import type { NoteIndexDelta, SearchPage } from '../types/note';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PdfSidecarState } from '../types/pdf';
 import type {
@@ -170,7 +171,9 @@ export interface VaultClient {
    * derive a lightweight path/title index from the manifest (content-derived
    * fields such as wikilinks/tags/wordCount are not populated for hosted).
    */
-  buildNoteIndex(): Promise<NoteMetadata[]>;
+  buildNoteIndex(force?: boolean): Promise<NoteMetadata[]>;
+  updateNoteIndex?(paths: string[]): Promise<NoteIndexDelta>;
+  searchPage?(query: string, offset?: number, limit?: number): Promise<SearchPage>;
   readDocument(relativePath: string): Promise<VaultDocument>;
   writeDocument(
     relativePath: string,
@@ -298,6 +301,23 @@ interface HostedManifest {
   vaultId: string;
   sequence: number;
   files: HostedFileEntry[];
+}
+
+const manifestIndexes = new WeakMap<
+  HostedFileEntry[],
+  { byId: Map<string, HostedFileEntry>; byPath: Map<string, HostedFileEntry> }
+>();
+function manifestIndex(manifest: HostedManifest) {
+  let cached = manifestIndexes.get(manifest.files);
+  if (!cached) {
+    cached = { byId: new Map(), byPath: new Map() };
+    for (const file of manifest.files) {
+      cached.byId.set(file.id, file);
+      cached.byPath.set(`${file.state}\0${file.relativePath}`, file);
+    }
+    manifestIndexes.set(manifest.files, cached);
+  }
+  return cached;
 }
 
 interface HostedTextDocument {
@@ -432,6 +452,7 @@ function toNoteFile(entry: HostedFileEntry): NoteFile {
     extension: entry.kind === 'folder' ? '' : extension(entry.name),
     modifiedAt: timestamp(entry.updatedAt),
     size: entry.currentRevision?.sizeBytes ?? 0,
+    contentRevision: entry.currentRevision?.contentHash,
     isFolder: entry.kind === 'folder',
   };
 }
@@ -809,7 +830,7 @@ export class HostedVaultClient implements VaultClient {
     const cached = await readCachedReplicaManifest(this.vault).catch(() => null);
     if (!cached) return;
     const manifest = asHostedManifest(cached);
-    const existing = manifest.files.find((entry) => entry.id === file.id);
+    const existing = manifestIndex(manifest).byId.get(file.id);
     if (
       existing &&
       existing.currentRevision?.sequence === file.currentRevision?.sequence &&
@@ -860,7 +881,7 @@ export class HostedVaultClient implements VaultClient {
         const document = await this.request<HostedTextDocument>('GET', `/files/${fileId}`);
         if (await this.hasPendingFileChanges(fileId)) return;
         const manifest = await this.cachedManifest();
-        const current = manifest.files.find((file) => file.id === fileId);
+        const current = manifestIndex(manifest).byId.get(fileId);
         if (
           !current ||
           current.currentRevision?.contentHash === 'offline' ||
@@ -934,9 +955,7 @@ export class HostedVaultClient implements VaultClient {
     relativePath: string,
     state: HostedFileState = 'active',
   ) {
-    const file = manifest.files.find(
-      (entry) => entry.relativePath === relativePath && entry.state === state,
-    );
+    const file = manifestIndex(manifest).byPath.get(`${state}\0${relativePath}`);
     if (!file) throw new Error(`Hosted vault item not found: ${relativePath}`);
     return file;
   }
@@ -1480,9 +1499,8 @@ export class HostedVaultClient implements VaultClient {
 
   async restoreTrash(entryId: string, targetRelativePath?: string): Promise<void> {
     const manifest = await this.onlineOrCachedManifest();
-    const target = manifest.files.find(
-      (entry) => entry.id === entryId && entry.state === 'trashed',
-    );
+    const found = manifestIndex(manifest).byId.get(entryId);
+    const target = found?.state === 'trashed' ? found : undefined;
     if (!target) throw new Error(`Hosted trashed item not found: ${entryId}`);
     if (targetRelativePath && targetRelativePath !== target.relativePath) {
       throw new Error('Hosted trash items currently restore to their original path.');
@@ -1492,9 +1510,8 @@ export class HostedVaultClient implements VaultClient {
 
   async purgeTrash(entryId: string, removeReferences?: boolean): Promise<void> {
     const manifest = await this.onlineOrCachedManifest();
-    const target = manifest.files.find(
-      (entry) => entry.id === entryId && entry.state === 'trashed',
-    );
+    const found = manifestIndex(manifest).byId.get(entryId);
+    const target = found?.state === 'trashed' ? found : undefined;
     if (!target) throw new Error(`Hosted trashed item not found: ${entryId}`);
     await this.applyOperation(target.relativePath, 'purge', { removeReferences });
   }
@@ -2089,8 +2106,14 @@ export class LocalVaultClient implements VaultClient {
     return tauriCommands.listVaultFiles(this.vault.path);
   }
 
-  buildNoteIndex() {
-    return tauriCommands.buildNoteIndex(this.vault.path);
+  buildNoteIndex(force = false) {
+    return tauriCommands.buildNoteIndex(this.vault.path, force);
+  }
+  updateNoteIndex(paths: string[]) {
+    return tauriCommands.updateNoteIndex(this.vault.path, paths);
+  }
+  searchPage(query: string, offset = 0, limit = 50) {
+    return tauriCommands.searchNotesPage(this.vault.path, query, offset, limit);
   }
 
   async readDocument(relativePath: string): Promise<VaultDocument> {

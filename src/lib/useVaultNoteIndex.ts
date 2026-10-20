@@ -7,12 +7,14 @@ import { subscribeToNativeReplicaSync } from './nativeReplicaSync';
 import { listenSafely } from './nativeSubscription';
 import { createVaultClient } from './vaultClient';
 import { onReplicaMutated } from './vaultReplica';
+import { coalescePaths } from './vaultTreeIndex';
 
-/** One index job per mounted vault scope; obsolete results never reach the store. */
+/** Single flight plus a replaceable trailing batch. Pending paths are retained
+ * until publication, including when an event invalidates an in-flight delta. */
 export function useVaultNoteIndex(
   vault: VaultMeta | null,
   locked: boolean,
-  refreshFiles: () => Promise<void>,
+  refreshFiles: (paths?: string[]) => Promise<void>,
 ) {
   const inputs = useRef({ vault, refreshFiles });
   inputs.current = { vault, refreshFiles };
@@ -20,35 +22,50 @@ export function useVaultNoteIndex(
     vault?.kind === 'hosted' ? JSON.stringify([vault.serverUrl, vault.hostedVaultId]) : vault?.path;
   useEffect(() => {
     const { vault, refreshFiles } = inputs.current;
-    const { setNotes, setIndexing } = useNoteIndexStore.getState();
+    const { setNotes, setIndexing, applyDelta } = useNoteIndexStore.getState();
     setNotes([]);
     setIndexing(false);
     if (!vault || locked) return;
-    let disposed = false;
-    let requested = 0;
-    let running = false;
-    let refreshPending = false;
+    let disposed = false,
+      requested = 0,
+      running = false,
+      initialized = false;
+    let full = true,
+      refreshPending = false;
+    const pending = new Set<string>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const client = createVaultClient(vault);
-    const request = (refresh = false) => {
-      requested++;
-      refreshPending ||= refresh;
-      if (running) return;
+    const request = () => {
+      if (running || disposed) return;
       running = true;
       setIndexing(true);
       void (async () => {
         try {
           while (!disposed) {
             const generation = requested;
-            const refresh = refreshPending;
-            refreshPending = false;
+            const paths = coalescePaths(pending);
+            const rebuild = full || !initialized || !client.updateNoteIndex;
             try {
-              if (refresh) await refreshFiles();
+              if (refreshPending) await refreshFiles(full ? undefined : paths);
               if (disposed) return;
-              const notes = await client.buildNoteIndex();
-              if (!disposed && generation === requested) setNotes(notes);
+              if (rebuild) {
+                const notes = await client.buildNoteIndex(refreshPending);
+                if (!disposed && generation === requested) {
+                  setNotes(notes);
+                  initialized = true;
+                }
+              } else {
+                const delta = await client.updateNoteIndex!(paths);
+                if (!disposed && generation === requested) applyDelta(delta);
+              }
+              if (generation === requested) {
+                full = false;
+                refreshPending = false;
+                pending.clear();
+              }
             } catch {
-              /* A later event can retry; never publish another scope's notes. */
+              // An unknown gap requires reconciliation on the next event.
+              full = true;
             }
             if (generation === requested || timer) break;
           }
@@ -58,24 +75,61 @@ export function useVaultNoteIndex(
         }
       })();
     };
-    const refresh = () => {
-      // Invalidate the in-flight read immediately, before the debounce fires.
+    const refresh = (paths?: string[]) => {
       requested++;
+      refreshPending = true;
+      if (!paths?.length || paths.includes('')) full = true;
+      else paths.forEach((path) => pending.add(path));
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = undefined;
-        request(true);
+        request();
       }, 150);
     };
-    request();
     const unsubscribers = [
       'vault:file-created',
       'vault:file-deleted',
       'vault:file-renamed',
       'vault:file-modified',
-    ].map((event) => listenSafely(event, refresh));
-    unsubscribers.push(onReplicaMutated(refresh, { kinds: ['manifest', 'replica'] }));
+    ].map((name) =>
+      listenSafely<{ path?: string; oldPath?: string; newPath?: string; vaultPath?: string }>(
+        name,
+        (event) => {
+          const payload = event?.payload;
+          if (payload?.vaultPath && payload.vaultPath !== vault.path) return;
+          refresh(
+            payload
+              ? [payload.path, payload.oldPath, payload.newPath].filter(
+                  (p): p is string => p !== undefined,
+                )
+              : undefined,
+          );
+        },
+      ),
+    );
+    unsubscribers.push(
+      onReplicaMutated(
+        () => {
+          if (vault.kind !== 'hosted') return;
+          refresh(); // manifest-derived hosted metadata already uses the replica delta
+        },
+        { kinds: ['manifest', 'replica'] },
+      ),
+    );
+    let nativeGeneration = -1;
+    unsubscribers.push(
+      listenSafely<{ vaultPath: string; generation: number; processed: number }>(
+        'vault:index-progress',
+        (event) => {
+          if (event.payload.vaultPath !== vault.path || event.payload.generation < nativeGeneration)
+            return;
+          nativeGeneration = event.payload.generation;
+          useNoteIndexStore.setState({ indexedCount: event.payload.processed });
+        },
+      ),
+    );
     if (vault.kind === 'hosted') unsubscribers.push(subscribeToNativeReplicaSync(vault));
+    request();
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);

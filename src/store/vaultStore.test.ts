@@ -8,6 +8,7 @@ const tauriCommandsMock = vi.hoisted(() => ({
   unwatchVault: vi.fn(),
   openVault: vi.fn(),
   listVaultFiles: vi.fn(),
+  listVaultPaths: vi.fn(),
   watchVault: vi.fn(),
   unlockVault: vi.fn(),
   getRecentVaults: vi.fn(),
@@ -71,6 +72,40 @@ describe('vaultStore Flatpak reopen fallback', () => {
     tauriCommandsMock.replicaCacheDocument.mockResolvedValue(undefined);
     tauriCommandsMock.replicaCacheAsset.mockResolvedValue(undefined);
     tauriCommandsMock.hostedVaultAssetDataUrl.mockResolvedValue('data:image/png;base64,YXNzZXQ=');
+  });
+
+  it('patches known paths without a full listing and invalidates equal-stamp content only there', async () => {
+    const file = (relativePath: string): NoteFile => ({
+      relativePath,
+      name: relativePath,
+      extension: 'kanban',
+      modifiedAt: 1,
+      size: 10,
+      isFolder: false,
+    });
+    const a = file('a.kanban'),
+      b = file('b.kanban');
+    useVaultStore.setState({
+      vault: { id: 'v', path: '/v', name: 'V', isEncrypted: false, lastOpened: 1 },
+      fileTree: [a, b],
+    });
+    tauriCommandsMock.listVaultPaths.mockResolvedValue([
+      { relativePath: 'a.kanban', node: { ...a } },
+    ]);
+    await useVaultStore.getState().refreshFileTree(['a.kanban']);
+    const tree = useVaultStore.getState().fileTree;
+    expect(tauriCommandsMock.listVaultFiles).not.toHaveBeenCalled();
+    expect(tree[0]).not.toBe(a);
+    expect(tree[0].contentRevision).toMatch(/^event:/);
+    expect(tree[1]).toBe(b);
+    tauriCommandsMock.listVaultPaths.mockResolvedValue([{ relativePath: 'a.kanban', node: null }]);
+    await useVaultStore.getState().refreshFileTree(['a.kanban']);
+    expect(useVaultStore.getState().fileTree).toEqual([b]);
+    tauriCommandsMock.listVaultPaths.mockRejectedValueOnce(new Error('unknown gap'));
+    tauriCommandsMock.listVaultFiles.mockResolvedValueOnce([file('new.kanban')]);
+    await useVaultStore.getState().refreshFileTree(['missing']);
+    expect(tauriCommandsMock.listVaultFiles).toHaveBeenCalledOnce();
+    expect(useVaultStore.getState().fileTree[0].relativePath).toBe('new.kanban');
   });
 
   it('ignores a file-tree refresh completed after switching vaults', async () => {

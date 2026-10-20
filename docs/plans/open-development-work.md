@@ -106,8 +106,11 @@ Batch 3 in the implementation tracker. The **React State, Session Ownership And 
 (**2026-10-20**) in Performance Batch 4: narrow subscriptions, deferred/bounded view metadata,
 transactional tab close, serialized detached session recovery, shared pane read/live
 resources and local frame-coalesced resize geometry. Validation and outstanding
-native acceptance are tracked there. The next category is **Vault Listing,
-Indexing And Search (O17–O28)**.
+native acceptance are tracked there. **Vault Listing, Indexing And Search (O17–O28)** is implemented in Performance
+Batch 5: path deltas, persistent encrypted-aware local search records, result
+paging, reverse links, bounded native workers, windowed tree rows, revision maps
+and attachment discovery. See [validation and remaining native acceptance](../desktop/vault-listing-performance.md).
+The next category is **Markdown, Math And Graph (O29–O36)**.
 
 ### Web Interface Performance And Correctness Audit
 

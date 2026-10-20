@@ -788,4 +788,35 @@ describe('FileTree folder collapse state', () => {
     await waitFor(() => expect(importExternalFilesIntoVault).toHaveBeenCalled());
     expect(importExternalFilesIntoVault.mock.calls[0][1]).toEqual(['/desktop/cat.png']);
   });
+  it('mounts a bounded window for 10k rows and retains offscreen range selection', async () => {
+    const files = Array.from({ length: 10000 }, (_, i) => ({
+      relativePath: `${i}.md`,
+      name: `${i}.md`,
+      extension: 'md',
+      modifiedAt: 1,
+      size: 1,
+      isFolder: false,
+    }));
+    useVaultStore.setState({ fileTree: files });
+    render(<FileTree />);
+    const tree = screen.getByRole('tree', { name: 'Vault files' });
+    expect(screen.getAllByRole('treeitem').length).toBeLessThan(40);
+    const source = screen.getByRole('treeitem', { name: '0.md' });
+    fireEvent.click(source);
+    fireEvent.dragStart(source, { dataTransfer: createDataTransfer() });
+    Object.defineProperty(tree, 'scrollTop', {
+      value: 5000 * 28,
+      writable: true,
+      configurable: true,
+    });
+    fireEvent.scroll(tree);
+    expect(source.isConnected).toBe(true);
+    fireEvent.dragEnd(source);
+    const target = screen.getByRole('treeitem', { name: '5000.md' });
+    fireEvent.click(target, { shiftKey: true });
+    expect(target.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getAllByRole('treeitem').length).toBeLessThan(45);
+    // Rendered rows keep the native file-drop attributes after scrolling.
+    expect(target.getAttribute('data-tree-drop-folder')).toBe('');
+  });
 });

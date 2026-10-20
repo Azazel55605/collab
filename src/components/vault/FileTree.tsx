@@ -31,6 +31,7 @@ import { documentSessionRetention } from '../../lib/documentSessionRetention';
 import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
+import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
@@ -43,6 +44,7 @@ import {
   getVaultDocumentView,
 } from '../../lib/vaultLinks';
 import { flattenVaultFiles } from '../../lib/vaultLinks';
+import { vaultTreeIndex } from '../../lib/vaultTreeIndex';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useKanbanStore } from '../../store/kanbanStore';
@@ -83,6 +85,7 @@ import { nativeDropFolderAtPoint } from './nativeDropTarget';
 import TrashPanel from './TrashPanel';
 import { useNativeFileDrop } from './useNativeFileDrop';
 import { ConfirmDeleteDialog, InputDialog, RenameMovePreviewDialog } from './VaultDialogs';
+import { TREE_ROW_HEIGHT, treeWindow, visibleTreeRows } from './virtualTree';
 
 type DialogState =
   | { type: 'none' }
@@ -107,6 +110,7 @@ interface TaskAttachmentRef {
   card: KanbanCard;
 }
 
+const EMPTY_PATHS: string[] = [];
 const IMAGE_FILE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -130,6 +134,17 @@ function isPdfFile(node: Pick<NoteFile, 'isFolder' | 'extension'>): boolean {
 
 function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath'>): boolean {
   return node.isFolder && node.relativePath === 'Pictures';
+}
+
+const boardRevisions = new WeakMap<NoteFile, string>();
+let boardRevisionCounter = 0;
+function boardRevision(file: NoteFile) {
+  let revision = boardRevisions.get(file);
+  if (!revision) {
+    revision = String(++boardRevisionCounter);
+    boardRevisions.set(file, revision);
+  }
+  return revision;
 }
 
 export default function FileTree() {
@@ -171,7 +186,9 @@ export default function FileTree() {
     apply: () => Promise<void>;
   } | null>(null);
   const [historyModalPath, setHistoryModalPath] = useState<string | null>(null);
-  const collapsedPaths = vault?.path ? (fileTreeCollapsedPathsByVault[vault.path] ?? []) : [];
+  const collapsedPaths = vault?.path
+    ? (fileTreeCollapsedPathsByVault[vault.path] ?? EMPTY_PATHS)
+    : EMPTY_PATHS;
   const collapsed = useMemo(() => new Set(collapsedPaths), [collapsedPaths]);
   const filteredFileTree = useMemo(
     () => filterFileTreeByType(fileTree, fileTypeFilters),
@@ -188,20 +205,10 @@ export default function FileTree() {
     [collapsedPaths, setFileTreeCollapsedPathsForVault, vault?.path],
   );
 
-  function flatten(nodes: NoteFile[]): NoteFile[] {
-    const flattened: NoteFile[] = [];
-    for (const node of nodes) {
-      flattened.push(node);
-      if (node.children?.length) {
-        flattened.push(...flatten(node.children));
-      }
-    }
-    return flattened;
-  }
-
+  const treeIndex = useMemo(() => vaultTreeIndex(fileTree), [fileTree]);
+  const filteredIndex = useMemo(() => vaultTreeIndex(filteredFileTree), [filteredFileTree]);
   const selectedNode = selectedRelativePath
-    ? (flatten(filteredFileTree).find((entry) => entry.relativePath === selectedRelativePath) ??
-      null)
+    ? (filteredIndex.byPath.get(selectedRelativePath) ?? null)
     : null;
   const hostedReferenceRefreshKey =
     vault?.kind === 'hosted'
@@ -210,19 +217,14 @@ export default function FileTree() {
 
   // Flattened list of nodes currently visible in the tree (respecting collapsed
   // folders), in display order — used for shift-range multi-selection.
-  const visibleNodes = useMemo(() => {
-    const out: NoteFile[] = [];
-    const walk = (nodes: NoteFile[]) => {
-      for (const node of nodes) {
-        out.push(node);
-        if (node.isFolder && !collapsed.has(node.relativePath) && node.children?.length) {
-          walk(node.children);
-        }
-      }
-    };
-    walk(filteredFileTree);
-    return out;
-  }, [filteredFileTree, collapsed]);
+  const rows = useMemo(
+    () => visibleTreeRows(filteredFileTree, collapsed),
+    [filteredFileTree, collapsed],
+  );
+  const visibleNodes = useMemo(() => rows.map((row) => row.node), [rows]);
+  const [viewport, setViewport] = useState({ top: 0, height: 600 });
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
+  const focusedIndex = rows.findIndex((row) => row.node.relativePath === focusedPath);
 
   const toggleCollapsePath = useCallback(
     (path: string) => {
@@ -260,6 +262,14 @@ export default function FileTree() {
   // ── Drag-and-drop state ────────────────────────────────────────────────────
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null | '__root__'>('__root__');
+  const windowIndexes = treeWindow(rows.length, viewport.top, viewport.height, focusedIndex);
+  const draggingIndex = draggingPath
+    ? rows.findIndex((row) => row.node.relativePath === draggingPath)
+    : -1;
+  // HTML drag ownership belongs to the source DOM node. Keep it mounted when
+  // autoscrolling beyond its window, just as we retain keyboard focus.
+  if (draggingIndex >= 0 && !windowIndexes.includes(draggingIndex))
+    windowIndexes.push(draggingIndex);
   const [conversionReport, setConversionReport] = useState<{
     title: string;
     subtitle?: string;
@@ -267,6 +277,30 @@ export default function FileTree() {
   } | null>(null);
   // null = no target, '__root__' = root of vault
   const treeContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const container = treeContainerRef.current;
+    if (!container) return;
+    const measure = () =>
+      setViewport({ top: container.scrollTop, height: container.clientHeight || 600 });
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    measure();
+    return () => observer.disconnect();
+  }, [mode]);
+  useEffect(() => {
+    const index = rows.findIndex((row) => row.node.relativePath === activeTabPath);
+    const container = treeContainerRef.current;
+    if (index < 0 || !container) return;
+    const top = index * TREE_ROW_HEIGHT;
+    if (
+      top < container.scrollTop ||
+      top + TREE_ROW_HEIGHT > container.scrollTop + container.clientHeight
+    ) {
+      container.scrollTop = top;
+      setViewport((previous) => ({ ...previous, top }));
+    }
+  }, [activeTabPath, rows]);
+
   const readOnly = isVaultReadOnly(vault);
 
   // ── External file import (images, PDFs, markdown, canvas, Kanban) ──────────
@@ -278,7 +312,7 @@ export default function FileTree() {
           targetFolder,
           // Lets a converted `.xlsx`/`.csv` pick a free name instead of colliding
           // with a workbook that is already in the vault.
-          existingFiles: flatten(fileTree),
+          existingFiles: treeIndex.all,
         });
         await refreshFileTree();
         // A conversion is never guaranteed lossless, so its report is surfaced
@@ -304,7 +338,7 @@ export default function FileTree() {
         toast.error(`Failed to import files: ${error}`);
       }
     },
-    [fileTree, refreshFileTree, vault],
+    [treeIndex.all, refreshFileTree, vault],
   );
 
   const handleImportButton = useCallback(async () => {
@@ -485,7 +519,7 @@ export default function FileTree() {
   };
 
   const requestDeleteForPaths = (paths: string[]) => {
-    const all = flatten(fileTree);
+    const all = treeIndex.all;
     const files = dedupeNested(
       paths
         .map((path) => all.find((entry) => entry.relativePath === path))
@@ -814,72 +848,64 @@ export default function FileTree() {
     [getAffectedOpenTabs, refreshFileTree, renameTab, shouldSkipMovePreview, vault],
   );
 
+  const attachmentScope = vault ? documentVaultIdentity(vault) : '';
+  const attachmentReader = useMemo(
+    () => new RevisionReader<Array<{ path: string; ref: TaskAttachmentRef }>>(3),
+    [attachmentScope],
+  );
+  useEffect(() => () => attachmentReader.prune(new Set()), [attachmentReader]);
   useEffect(() => {
-    if (!vault) return;
-    let cancelled = false;
-
-    function flatten(nodes: NoteFile[]): NoteFile[] {
-      const flattened: NoteFile[] = [];
-      for (const node of nodes) {
-        flattened.push(node);
-        if (node.children?.length) {
-          flattened.push(...flatten(node.children));
-        }
-      }
-      return flattened;
+    if (!vault) {
+      setTaskAttachmentsByPath({});
+      return;
     }
-
-    const kanbanFiles = flatten(fileTree).filter(
-      (node) => !node.isFolder && node.extension === 'kanban',
-    );
-
+    let cancelled = false;
+    const kanbanFiles = treeIndex.files.filter((node) => node.extension === 'kanban');
+    attachmentReader.prune(new Set(kanbanFiles.map((file) => file.relativePath)));
+    const client = createVaultClient(vault);
+    // Only three reads may run across overlapping reconciliation passes. File
+    // identity changes on every affected path even for equal-size/timestamp writes.
     void Promise.all(
-      kanbanFiles.map(async (file) => {
-        try {
-          const { content } = await createVaultClient(vault).readDocument(file.relativePath);
-          const board = JSON.parse(content) as KanbanBoard;
-          return board.columns.reduce<Array<{ path: string; ref: TaskAttachmentRef }>>(
-            (items, column) => {
-              column.cards.forEach((card) => {
-                getCardAttachmentPaths(card).forEach((path) => {
-                  items.push({
-                    path,
-                    ref: {
-                      boardPath: file.relativePath,
-                      boardName: file.name,
-                      columnId: column.id,
-                      columnTitle: column.title,
-                      cardId: card.id,
-                      cardTitle: card.title,
-                      card,
-                    },
+      kanbanFiles.map((file) =>
+        attachmentReader
+          .read(file.relativePath, boardRevision(file), async () => {
+            const { content } = await client.readDocument(file.relativePath);
+            const board = JSON.parse(content) as KanbanBoard;
+            return board.columns.reduce<Array<{ path: string; ref: TaskAttachmentRef }>>(
+              (items, column) => {
+                column.cards.forEach((card) => {
+                  getCardAttachmentPaths(card).forEach((path) => {
+                    items.push({
+                      path,
+                      ref: {
+                        boardPath: file.relativePath,
+                        boardName: file.name,
+                        columnId: column.id,
+                        columnTitle: column.title,
+                        cardId: card.id,
+                        cardTitle: card.title,
+                        card,
+                      },
+                    });
                   });
                 });
-              });
-              return items;
-            },
-            [],
-          );
-        } catch {
-          return [];
-        }
-      }),
-    ).then((attachedLists) => {
+                return items;
+              },
+              [],
+            );
+          })
+          .catch(() => []),
+      ),
+    ).then((lists) => {
       if (cancelled) return;
       const next: Record<string, TaskAttachmentRef[]> = {};
-      for (const attachedList of attachedLists) {
-        for (const item of attachedList) {
-          next[item.path] ??= [];
-          next[item.path].push(item.ref);
-        }
-      }
+      for (const list of lists) for (const item of list) (next[item.path] ??= []).push(item.ref);
       setTaskAttachmentsByPath(next);
     });
-
     return () => {
       cancelled = true;
     };
-  }, [vault?.path, fileTree]);
+  }, [attachmentReader, treeIndex, vault?.path]);
 
   // Reflect the active tab as the tree selection, but only when the active tab
   // actually changes — not when the user adjusts the selection in the tree
@@ -887,15 +913,15 @@ export default function FileTree() {
   const lastSyncedActiveTab = useRef<string | null>(null);
   useEffect(() => {
     if (!activeTabPath) return;
-    if (lastSyncedActiveTab.current === activeTabPath) return;
-    const existing = flatten(fileTree).find((entry) => entry.relativePath === activeTabPath);
+    const identity = `${vault ? documentVaultIdentity(vault) : ''}\0${activeTabPath}`;
+    if (lastSyncedActiveTab.current === identity) return;
+    const existing = treeIndex.byPath.get(activeTabPath);
     if (!existing) return;
-    lastSyncedActiveTab.current = activeTabPath;
+    lastSyncedActiveTab.current = identity;
     setMode('files');
     // Opening a document from tabs/search must reveal it even if a previous
     // file-type filter or collapsed ancestor would hide its row.
-    if (!flatten(filteredFileTree).some((entry) => entry.relativePath === activeTabPath))
-      setFileTypeFilters(new Set());
+    if (!filteredIndex.byPath.has(activeTabPath)) setFileTypeFilters(new Set());
     setCollapsed((previous) => {
       const next = new Set(previous);
       const parts = activeTabPath.split('/');
@@ -904,7 +930,7 @@ export default function FileTree() {
     });
     setSelectedRelativePath(activeTabPath);
     setSelectedPaths(new Set([activeTabPath]));
-  }, [activeTabPath, fileTree, mode]);
+  }, [activeTabPath, treeIndex, filteredIndex, setCollapsed, vault]);
 
   // Press Delete to trash the selected files, or the file under the cursor when
   // nothing is selected. A latest-state ref keeps the global listener stable.
@@ -1253,8 +1279,67 @@ export default function FileTree() {
       ) : (
         <div
           ref={treeContainerRef}
+          role="tree"
+          aria-label="Vault files"
+          onScroll={(event) => {
+            const top = event.currentTarget.scrollTop;
+            setViewport((previous) => ({ ...previous, top }));
+          }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) setFocusedPath(null);
+          }}
+          onFocus={(event) =>
+            setFocusedPath(
+              (event.target as HTMLElement).closest<HTMLElement>('[data-tree-path]')?.dataset
+                .treePath ?? null,
+            )
+          }
+          onKeyDown={(event) => {
+            if (!(event.target instanceof HTMLElement) || !event.target.matches('[data-tree-path]'))
+              return;
+            const index = rows.findIndex((row) => row.node.relativePath === focusedPath);
+            if (index < 0) return;
+            const { node } = rows[index];
+            let next = index;
+            if (event.key === 'ArrowDown') next = Math.min(rows.length - 1, index + 1);
+            else if (event.key === 'ArrowUp') next = Math.max(0, index - 1);
+            else if (event.key === 'Home') next = 0;
+            else if (event.key === 'End') next = rows.length - 1;
+            else if (event.key === 'ArrowRight' && node.isFolder) {
+              if (collapsed.has(node.relativePath)) toggleCollapsePath(node.relativePath);
+              else next = Math.min(rows.length - 1, index + 1);
+            } else if (event.key === 'ArrowLeft') {
+              if (node.isFolder && !collapsed.has(node.relativePath))
+                toggleCollapsePath(node.relativePath);
+              else
+                next = rows.findIndex(
+                  (row) =>
+                    row.node.relativePath === node.relativePath.split('/').slice(0, -1).join('/'),
+                );
+            } else if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              handleNodeClick(node, event);
+              return;
+            } else return;
+            event.preventDefault();
+            if (next >= 0) {
+              const path = rows[next].node.relativePath;
+              setFocusedPath(path);
+              const container = event.currentTarget;
+              container.scrollTop = Math.max(
+                0,
+                next * TREE_ROW_HEIGHT - container.clientHeight / 2,
+              );
+              setViewport((previous) => ({ ...previous, top: container.scrollTop }));
+              requestAnimationFrame(() =>
+                Array.from(container.querySelectorAll<HTMLElement>('[data-tree-path]'))
+                  .find((element) => element.dataset.treePath === path)
+                  ?.focus(),
+              );
+            }
+          }}
           className={cn(
-            'flex-1 overflow-y-auto py-1 transition-colors duration-100 app-motion-fast',
+            'flex-1 min-h-0 overflow-y-auto py-1 transition-colors duration-100 app-motion-fast',
             dropTargetPath === '__root__' && draggingPath ? 'bg-primary/5' : '',
             isDraggingFiles ? 'ring-2 ring-inset ring-primary/40 bg-primary/5' : '',
           )}
@@ -1303,43 +1388,58 @@ export default function FileTree() {
               )}
             </div>
           ) : (
-            filteredFileTree.map((node) => (
-              <FileTreeNode
-                key={node.relativePath}
-                node={node}
-                depth={0}
-                collapsed={collapsed}
-                setCollapsed={setCollapsed}
-                onOpenFile={handleOpenFile}
-                onCreateNote={handleCreateNote}
-                onCreateCanvas={handleCreateCanvas}
-                onCreateKanban={handleCreateKanban}
-                onCreateLogic={handleCreateLogic}
-                onCreateSheet={handleCreateSheet}
-                onCreateInk={handleCreateInk}
-                onCreateDeck={handleCreateDeck}
-                onCreateFolder={handleCreateFolder}
-                onDelete={handleDelete}
-                onRename={handleRename}
-                onReveal={handleReveal}
-                onDownload={handleDownload}
-                onDuplicate={handleDuplicate}
-                canDuplicate={!readOnly}
-                onDragOut={handleDragOut}
-                canReveal={isLocalVault}
-                onViewHistory={setHistoryModalPath}
-                onNodeClick={handleNodeClick}
-                selectedPaths={selectedPaths}
-                onHover={setHoveredPath}
-                draggingPath={draggingPath}
-                dropTargetPath={dropTargetPath}
-                taskAttachmentsByPath={taskAttachmentsByPath}
-                setDraggingPath={setDraggingPath}
-                setDropTargetPath={setDropTargetPath}
-                onMove={handleMove}
-                fileTreeHoverPreviewsEnabled={fileTreeHoverPreviewsEnabled}
-              />
-            ))
+            <div className="relative" style={{ height: rows.length * TREE_ROW_HEIGHT }}>
+              {windowIndexes.map((index) => {
+                const { node, depth, position, siblings } = rows[index];
+                return (
+                  <div
+                    key={node.relativePath}
+                    className="absolute inset-x-0"
+                    style={{ top: index * TREE_ROW_HEIGHT, height: TREE_ROW_HEIGHT }}
+                  >
+                    <FileTreeNode
+                      key={node.relativePath}
+                      node={node}
+                      depth={depth}
+                      position={position}
+                      siblings={siblings}
+                      tabStop={
+                        focusedPath ? focusedPath === node.relativePath : index === windowIndexes[0]
+                      }
+                      collapsed={collapsed}
+                      setCollapsed={setCollapsed}
+                      onCreateNote={handleCreateNote}
+                      onCreateCanvas={handleCreateCanvas}
+                      onCreateKanban={handleCreateKanban}
+                      onCreateLogic={handleCreateLogic}
+                      onCreateSheet={handleCreateSheet}
+                      onCreateInk={handleCreateInk}
+                      onCreateDeck={handleCreateDeck}
+                      onCreateFolder={handleCreateFolder}
+                      onDelete={handleDelete}
+                      onRename={handleRename}
+                      onReveal={handleReveal}
+                      onDownload={handleDownload}
+                      onDuplicate={handleDuplicate}
+                      canDuplicate={!readOnly}
+                      onDragOut={handleDragOut}
+                      canReveal={isLocalVault}
+                      onViewHistory={setHistoryModalPath}
+                      onNodeClick={handleNodeClick}
+                      selectedPaths={selectedPaths}
+                      onHover={setHoveredPath}
+                      draggingPath={draggingPath}
+                      dropTargetPath={dropTargetPath}
+                      taskAttachmentsByPath={taskAttachmentsByPath}
+                      setDraggingPath={setDraggingPath}
+                      setDropTargetPath={setDropTargetPath}
+                      onMove={handleMove}
+                      fileTreeHoverPreviewsEnabled={fileTreeHoverPreviewsEnabled}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -1368,9 +1468,11 @@ export default function FileTree() {
 interface FileTreeNodeProps {
   node: NoteFile;
   depth: number;
+  position: number;
+  siblings: number;
+  tabStop: boolean;
   collapsed: Set<string>;
   setCollapsed: React.Dispatch<React.SetStateAction<Set<string>>>;
-  onOpenFile: (file: NoteFile) => void;
   onCreateNote: (parentPath?: string) => void;
   onCreateCanvas: (parentPath?: string) => void;
   onCreateKanban: (parentPath?: string) => void;
@@ -1415,9 +1517,11 @@ interface FileTreeNodeProps {
 const FileTreeNode = memo(function FileTreeNode({
   node,
   depth,
+  position,
+  siblings,
+  tabStop,
   collapsed,
   setCollapsed,
-  onOpenFile,
   onCreateNote,
   onCreateCanvas,
   onCreateKanban,
@@ -1551,6 +1655,14 @@ const FileTreeNode = memo(function FileTreeNode({
       <ContextMenuTrigger>
         <div>
           <div
+            role="treeitem"
+            tabIndex={tabStop ? 0 : -1}
+            aria-level={depth + 1}
+            aria-posinset={position}
+            aria-setsize={siblings}
+            aria-expanded={node.isFolder ? !isCollapsed : undefined}
+            aria-selected={isSelected}
+            data-tree-path={node.relativePath}
             draggable={!suppressHtmlDrag}
             data-tree-folder-path={node.isFolder ? node.relativePath : undefined}
             data-tree-drop-folder={
@@ -1661,9 +1773,9 @@ const FileTreeNode = memo(function FileTreeNode({
                 ctrlKey: event.ctrlKey,
               });
             }}
-            style={{ paddingLeft: `${depth * 14 + 6}px` }}
+            style={{ paddingLeft: `${depth * 14 + 6}px`, height: TREE_ROW_HEIGHT }}
             className={cn(
-              'group flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm mx-1 transition-colors app-motion-fast select-none',
+              'group flex items-center gap-1 pr-2 cursor-pointer rounded-sm mx-1 transition-colors app-motion-fast select-none',
               'app-list-item-enter',
               isDraggingThis && 'opacity-40',
               isDropTarget && 'bg-primary/20 ring-1 ring-primary/40 ring-inset',
@@ -1765,49 +1877,6 @@ const FileTreeNode = memo(function FileTreeNode({
               fileTreeHoverPreviewsEnabled && (isPdfAsset || isImageAsset || isInternalPreview)
             }
           />
-
-          {/* Children */}
-          {node.isFolder && !isCollapsed && node.children && (
-            <div className="app-sidebar-panel-enter">
-              {node.children.map((child) => (
-                <FileTreeNode
-                  key={child.relativePath}
-                  node={child}
-                  depth={depth + 1}
-                  collapsed={collapsed}
-                  setCollapsed={setCollapsed}
-                  onOpenFile={onOpenFile}
-                  onCreateNote={onCreateNote}
-                  onCreateCanvas={onCreateCanvas}
-                  onCreateKanban={onCreateKanban}
-                  onCreateLogic={onCreateLogic}
-                  onCreateSheet={onCreateSheet}
-                  onCreateInk={onCreateInk}
-                  onCreateDeck={onCreateDeck}
-                  onCreateFolder={onCreateFolder}
-                  onDelete={onDelete}
-                  onRename={onRename}
-                  onReveal={onReveal}
-                  onDownload={onDownload}
-                  onDuplicate={onDuplicate}
-                  canDuplicate={canDuplicate}
-                  onDragOut={onDragOut}
-                  canReveal={canReveal}
-                  onViewHistory={onViewHistory}
-                  onNodeClick={onNodeClick}
-                  selectedPaths={selectedPaths}
-                  onHover={onHover}
-                  draggingPath={draggingPath}
-                  dropTargetPath={dropTargetPath}
-                  taskAttachmentsByPath={taskAttachmentsByPath}
-                  setDraggingPath={setDraggingPath}
-                  setDropTargetPath={setDropTargetPath}
-                  onMove={onMove}
-                  fileTreeHoverPreviewsEnabled={fileTreeHoverPreviewsEnabled}
-                />
-              ))}
-            </div>
-          )}
         </div>
       </ContextMenuTrigger>
 

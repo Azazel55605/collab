@@ -38,6 +38,14 @@ pub async fn enable_vault_encryption(
 
     let key = crypto::derive_key(&password, &salt)?;
 
+    // Dispose of the plaintext search side index before changing encryption.
+    // The root mutation lock also excludes index-cache writes in flight.
+    let search_cache = std::path::Path::new(&vault_path).join(".collab/search");
+    if search_cache.exists() {
+        std::fs::remove_dir_all(search_cache).map_err(|e| e.to_string())?;
+    }
+    state.note_index.write().clear();
+
     // Encrypt all note files.
     crypto::encrypt_vault_files(&vault_path, &key)?;
 
@@ -68,6 +76,7 @@ pub async fn disable_vault_encryption(
     }
 
     let key = crypto::load_key_from_password(&vault_path, &password)?;
+    state.note_index.write().clear();
     crypto::decrypt_vault_files(&vault_path, &key)?;
 
     // Remove vault.enc.
@@ -101,6 +110,7 @@ pub async fn change_vault_password(
 
     let old_key = crypto::load_key_from_password(&vault_path, &old_password)?;
 
+    state.note_index.write().clear();
     // Decrypt everything with old key.
     crypto::decrypt_vault_files(&vault_path, &old_key)?;
 

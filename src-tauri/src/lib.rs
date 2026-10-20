@@ -254,6 +254,7 @@ pub fn run() {
             commands::vault::show_save_dialog,
             // files
             commands::files::list_vault_files,
+            commands::files::list_vault_paths,
             commands::files::read_note,
             commands::files::read_note_asset_data_url,
             commands::files::resolve_vault_file_path,
@@ -353,6 +354,8 @@ pub fn run() {
             commands::templates::delete_logic_component,
             // index
             commands::index::build_note_index,
+            commands::index::update_note_index,
+            commands::index::search_notes_page,
             commands::index::get_backlinks,
             commands::index::search_notes,
             // watcher

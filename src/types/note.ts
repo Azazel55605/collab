@@ -25,3 +25,15 @@ export interface SearchResult {
   score: number;
   matchType: string;
 }
+
+export interface NoteIndexDelta {
+  /** Entire path scopes reconciled, including already-absent native entries. */
+  reconciledPaths?: string[];
+  upserted: NoteMetadata[];
+  removed: string[];
+}
+export interface SearchPage {
+  results: SearchResult[];
+  total: number;
+  nextOffset: number | null;
+}

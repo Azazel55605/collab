@@ -1285,18 +1285,48 @@ fn create_note_at_path(
 
 /// Build a flat list of NoteFile entries from the vault, excluding .collab/ and hidden dirs.
 fn collect_entries(vault_path: &str) -> Result<Vec<NoteFile>, String> {
-    let base = Path::new(vault_path);
-    let mut entries: Vec<NoteFile> = Vec::new();
+    collect_entries_at(vault_path, "", &|| true)
+}
 
-    for entry in WalkDir::new(base)
-        .min_depth(1)
+fn collect_entries_at(
+    vault_path: &str,
+    relative: &str,
+    current: &dyn Fn() -> bool,
+) -> Result<Vec<NoteFile>, String> {
+    let base = Path::new(vault_path);
+    if relative
+        .split('/')
+        .any(|name| !name.is_empty() && (name.starts_with('.') || is_ignored_dir_name(name)))
+    {
+        return Ok(vec![]);
+    }
+    let root = resolve_vault_path(vault_path, relative)?;
+    if !root.exists() {
+        return Ok(vec![]);
+    }
+    if !root
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        .starts_with(base.canonicalize().map_err(|e| e.to_string())?)
+    {
+        return Err("Listing path escapes vault".into());
+    }
+    let mut entries: Vec<NoteFile> = Vec::new();
+    for entry in WalkDir::new(root)
+        .min_depth(if relative.is_empty() { 1 } else { 0 })
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
             !should_skip_walk_entry(&name, e.file_type().is_dir())
         })
     {
+        if !current() {
+            return Err("Listing request superseded".into());
+        }
         let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_type().is_symlink() {
+            continue;
+        }
         let path = entry.path();
 
         let relative_path = path
@@ -1350,109 +1380,91 @@ fn collect_entries(vault_path: &str) -> Result<Vec<NoteFile>, String> {
 
 /// Build a tree from the flat list. Folders get their children nested.
 fn build_tree(entries: Vec<NoteFile>) -> Vec<NoteFile> {
-    // Separate folders and files
-    let mut folders: Vec<NoteFile> = entries.iter().filter(|e| e.is_folder).cloned().collect();
-    let files: Vec<NoteFile> = entries.into_iter().filter(|e| !e.is_folder).collect();
+    build_tree_at(entries, "")
+}
 
-    // Sort folders by depth descending so we can nest deepest first
-    folders.sort_by(|a, b| {
-        let depth_a = a.relative_path.matches('/').count();
-        let depth_b = b.relative_path.matches('/').count();
-        depth_b.cmp(&depth_a)
-    });
-
-    // Assign files to their parent folders
-    let mut orphan_files: Vec<NoteFile> = Vec::new();
-    let mut file_pool: Vec<NoteFile> = files;
-
-    // We'll use an index-based approach: build a map of folder path -> children
-    // Then assemble from deepest to root.
-    use std::collections::HashMap;
-    let mut folder_children: HashMap<String, Vec<NoteFile>> = HashMap::new();
-
-    for f in &folders {
-        folder_children.entry(f.relative_path.clone()).or_default();
+fn build_tree_at(entries: Vec<NoteFile>, root: &str) -> Vec<NoteFile> {
+    let mut buckets = std::collections::HashMap::<String, Vec<NoteFile>>::new();
+    for entry in entries {
+        let parent = entry
+            .relative_path
+            .rsplit_once('/')
+            .map(|(p, _)| p)
+            .unwrap_or("")
+            .to_owned();
+        buckets.entry(parent).or_default().push(entry);
     }
-
-    // Place each file into its parent folder bucket
-    for file in file_pool.drain(..) {
-        let parent = Path::new(&file.relative_path)
-            .parent()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-
-        if parent.is_empty() || !folder_children.contains_key(&parent) {
-            orphan_files.push(file);
-        } else {
-            folder_children.get_mut(&parent).unwrap().push(file);
-        }
-    }
-
-    // Now nest folders: assign sub-folders as children of their parents
-    // Process in order of deepest first
-    let folder_paths: Vec<String> = folders.iter().map(|f| f.relative_path.clone()).collect();
-
-    for folder_path in &folder_paths {
-        let parent = Path::new(folder_path)
-            .parent()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-
-        if parent.is_empty() || !folder_children.contains_key(&parent) {
-            continue;
-        }
-
-        // Take children of this folder and build the NoteFile
-        let children = folder_children.remove(folder_path).unwrap_or_default();
-        let folder_entry = folders
-            .iter_mut()
-            .find(|f| &f.relative_path == folder_path)
-            .unwrap();
-        folder_entry.children = Some(children);
-
-        // Clone to move into parent
-        let folder_clone = folder_entry.clone();
-        folder_children.get_mut(&parent).unwrap().push(folder_clone);
-    }
-
-    // Collect root-level folders (those whose parent has no folder bucket)
-    let mut root: Vec<NoteFile> = Vec::new();
-    for mut folder in folders {
-        let parent = Path::new(&folder.relative_path)
-            .parent()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-
-        if parent.is_empty() {
-            // Ensure children are set from our map (may have been updated)
-            if let Some(children) = folder_children.remove(&folder.relative_path) {
-                folder.children = Some(children);
-            }
-            root.push(folder);
-        }
-    }
-
-    // Add orphan files (files at root level)
-    root.extend(orphan_files);
-
-    fn sort_tree_alphabetically(nodes: &mut [NoteFile]) {
-        nodes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        for node in nodes.iter_mut() {
-            if let Some(children) = node.children.as_mut() {
-                sort_tree_alphabetically(children);
+    fn assemble(
+        parent: &str,
+        buckets: &mut std::collections::HashMap<String, Vec<NoteFile>>,
+    ) -> Vec<NoteFile> {
+        let mut nodes = buckets.remove(parent).unwrap_or_default();
+        nodes.sort_by_cached_key(|node| node.name.to_lowercase());
+        for node in &mut nodes {
+            if node.is_folder {
+                node.children = Some(assemble(&node.relative_path, buckets));
             }
         }
+        nodes
     }
+    assemble(root, &mut buckets)
+}
 
-    sort_tree_alphabetically(&mut root);
-
-    root
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedPath {
+    relative_path: String,
+    node: Option<NoteFile>,
 }
 
 #[tauri::command]
-pub fn list_vault_files(vault_path: String) -> Result<Vec<NoteFile>, String> {
-    let entries = collect_entries(&vault_path)?;
-    Ok(build_tree(entries))
+pub async fn list_vault_files(
+    vault_path: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<NoteFile>, String> {
+    let active = state.active_vault.clone();
+    super::vault_jobs::run(move || {
+        let current = || {
+            active
+                .read()
+                .as_ref()
+                .is_some_and(|vault| vault.path == vault_path)
+        };
+        Ok(build_tree(collect_entries_at(&vault_path, "", &current)?))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_vault_paths(
+    vault_path: String,
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ListedPath>, String> {
+    let active = state.active_vault.clone();
+    super::vault_jobs::run(move || {
+        let current = || {
+            active
+                .read()
+                .as_ref()
+                .is_some_and(|vault| vault.path == vault_path)
+        };
+        paths
+            .into_iter()
+            .map(|relative_path| {
+                let parent = relative_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+                let mut nodes = build_tree_at(
+                    collect_entries_at(&vault_path, &relative_path, &current)?,
+                    parent,
+                );
+                Ok(ListedPath {
+                    relative_path,
+                    node: nodes.pop(),
+                })
+            })
+            .collect()
+    })
+    .await
 }
 
 #[tauri::command]

@@ -29,6 +29,7 @@ import type {
 import type { ChatMessage, PresenceEntry, SnapshotMeta } from '../types/collab';
 import type { KanbanBoard } from '../types/kanban';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
+import type { NoteIndexDelta, SearchPage } from '../types/note';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/noteSnippet';
 import type {
@@ -554,6 +555,11 @@ export const tauriCommands = {
     invoke<void>('change_vault_password', { vaultPath, oldPassword, newPassword }),
 
   // Files
+  listVaultPaths: (vaultPath: string, paths: string[]) =>
+    invoke<Array<{ relativePath: string; node: NoteFile | null }>>('list_vault_paths', {
+      vaultPath,
+      paths,
+    }),
   listVaultFiles: (vaultPath: string) => invoke<NoteFile[]>('list_vault_files', { vaultPath }),
   readNote: (vaultPath: string, relativePath: string) =>
     invoke<NoteContent>('read_note', { vaultPath, relativePath }),
@@ -901,7 +907,12 @@ export const tauriCommands = {
   },
 
   // Index
-  buildNoteIndex: (vaultPath: string) => invoke<NoteMetadata[]>('build_note_index', { vaultPath }),
+  buildNoteIndex: (vaultPath: string, force = false) =>
+    invoke<NoteMetadata[]>('build_note_index', { vaultPath, force }),
+  updateNoteIndex: (vaultPath: string, paths: string[]) =>
+    invoke<NoteIndexDelta>('update_note_index', { vaultPath, paths }),
+  searchNotesPage: (vaultPath: string, query: string, offset = 0, limit = 50) =>
+    invoke<SearchPage>('search_notes_page', { vaultPath, query, offset, limit }),
   getBacklinks: (vaultPath: string, relativePath: string) =>
     invoke<string[]>('get_backlinks', { vaultPath, relativePath }),
   searchNotes: (vaultPath: string, query: string) =>

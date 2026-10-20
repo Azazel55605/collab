@@ -300,9 +300,9 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-20**: **O01–O16, O39, O47 and O64 are implemented;
-O48 is superseded by R08**. These 20 implementation items are checked off; the
-other **50 entries remain open or partial**. Native release acceptance is tracked
+Checklist reconciled **2026-10-20**: **O01–O28, O39, O47 and O64 are implemented;
+O48 is superseded by R08**. These 32 implementation items are checked off; the
+other **38 entries remain open or partial**. Native release acceptance is tracked
 separately below and in the implementation tracker; checkboxes do not claim
 measured startup/RSS gains or certification on every platform.
 
@@ -426,76 +426,61 @@ recorded in [Performance Batch 4](../plans/desktop-audit-fixes.md) and
 
 ### Vault Listing, Indexing And Search
 
-- [ ] **O17 / P1 — Replace whole-vault rebuilds for individual file changes.**
-      **Status: Open.**
-      [AppShell](../../src/components/layout/AppShell.tsx) debounces all file event
-      types into `refreshFileTree` plus `buildNoteIndex`. Payload paths are discarded.
-      Maintain per-path index updates, rename/removal handling and a coalesced full
-      fallback. Measure filesystem reads for one edited note in a 10k-note vault.
-- [ ] **O18 / P1 — Bound indexing concurrency and reject obsolete jobs.**
-      **Status: Partial — coalesced scoped index refreshes and obsolete-job checks implemented; global native job budget remains.**
-      The same effect can start a new scan while a previous scan is awaiting IPC.
-      Add single-flight/coalescing and vault generations across shell/native index
-      code. Test burst writes, vault switches and cancellation; retain latest work.
-- [ ] **O19 / P1 — Use a persistent/incremental local content search index.**
-      **Status: Open.**
-      [index.rs](../../src-tauri/src/commands/index.rs), `search_notes`, rereads and
-      decrypts title-unmatched notes for every query while holding the note-index
-      read lock. Index normalized content/tokens under the correct encryption policy.
-      Measure cold/warm query I/O, memory and lock wait; fix B02/B03/R01 first.
-- [ ] **O20 / P2 — Bound search result construction and delivery.**
-      **Status: Open.**
-      `search_notes` collects/sorts every result; [SearchPanel](../../src/components/vault/SearchPanel.tsx)
-      renders them all. Use top-k/page APIs with explicit total/continuation semantics.
-      Verify deterministic ordering and ability to reach later results.
-- [ ] **O21 / P2 — Build reverse-link lookup indexes.**
-      **Status: Open.**
-      `get_backlinks` in [index.rs](../../src-tauri/src/commands/index.rs) scans every
-      note and repeatedly lowercases paths/links. Normalize once and maintain reverse
-      adjacency by vault. Verify stem ambiguity, aliases and renames.
-- [ ] **O22 / P2 — Avoid full character-vector allocation for wikilink extraction.**
-      **Status: Open.**
-      `extract_wikilinks` collects all characters before scanning in
-      [index.rs](../../src-tauri/src/commands/index.rs). Use a streaming/slice parser
-      with correct Unicode handling and explicit malformed-markup rules. Compare
-      allocations on large notes; preserve existing extraction tests.
-- [ ] **O23 / P2 — Reduce redundant index copies across native/IPC/frontend layers.**
-      **Status: Partial — native search shares immutable metadata without cloning/holding the index lock across I/O; IPC/frontend copies remain.**
-      `build_note_index` clones the full vector into global state and returns another
-      payload. Consider a scoped native index plus compact DTO/page/delta delivery.
-      Measure resident and serialized bytes; keep metadata available for Graph/Tags.
-- [ ] **O24 / P1 — Virtualize visible file-tree rows.**
-      **Status: Open.**
-      [FileTree](../../src/components/vault/FileTree.tsx) recursively mounts expanded
-      nodes. Flatten visible rows once and window them with overscan. Preserve focus,
-      range selection, drag targets, disclosures and accessibility; test deeply nested
-      and 10k-visible-item trees.
-- [ ] **O25 / P2 — Maintain path/id maps instead of repeated tree flatten/find work.**
-      **Status: Open.**
-      [FileTree](../../src/components/vault/FileTree.tsx),
-      [noteAssets](../../src/lib/noteAssets.ts) and hosted manifest lookups repeat
-      traversals. Cache derived maps per manifest/tree revision; avoid copying every
-      subtree to gain an index. Benchmark large image-heavy notes and move previews.
-- [ ] **O26 / P1 — Incrementalize kanban attachment discovery.**
-      **Status: Open.**
-      [FileTree](../../src/components/vault/FileTree.tsx)'s file-tree effect reads every
-      kanban via unbounded `Promise.all`. Maintain board revision/attachment indexes
-      and a bounded reader pool. Count rereads after unrelated file changes and retain
-      error isolation for one unreadable board.
-- [ ] **O27 / P2 — Stop generated-directory churn from triggering visible-vault scans.**
-      **Status: Open.**
-      [watcher.rs](../../src-tauri/src/commands/watcher.rs) watches the entire root
-      recursively and bubbles ignored nested paths to visible parents. Distinguish
-      atomic-save temp files from sustained node_modules/build activity; prune
-      directories at the watcher strategy where possible. Test edits and renames
-      from external editors before suppressing events.
-- [ ] **O28 / P2 — Move heavy local listing/index/search into bounded native jobs.**
-      **Status: Open.**
-      [files.rs](../../src-tauri/src/commands/files.rs) and
-      [index.rs](../../src-tauri/src/commands/index.rs) expose synchronous filesystem
-      scans. Give long jobs explicit scheduling, cancellation/progress and bounded
-      concurrency. Measure actual IPC responsiveness on each native platform; do not
-      claim a specific Tauri executor freeze merely from a synchronous signature.
+Implemented **2026-10-20**. Validation, measurements, limitations and native
+acceptance are recorded in [Performance Batch 5](../plans/desktop-audit-fixes.md)
+and [Vault Listing And Search](../desktop/vault-listing-performance.md).
+
+- [x] **O17 / P1 — Replace whole-vault rebuilds for individual file changes.**
+      Known watcher paths use subtree listing and note-index deltas. Rename batches
+      cover old/new paths and removals; unknown gaps and missing parents reconcile
+      fully. Pending paths survive overlapping invalidated reads.
+- [x] **O18 / P1 — Bound indexing concurrency and reject obsolete jobs.**
+      Frontend single-flight/coalescing plus native vault/request generations.
+      Two process-wide listing/index/search worker slots bound retired jobs as well.
+      Obsolete scans stop between entries and cannot publish into another vault.
+- [x] **O19 / P1 — Use a persistent/incremental local content search index.**
+      Native text/folded text is updated at changed paths; queries read no source
+      files. Disposable per-note records validate source stamps, path and content
+      hash; encrypted vaults encrypt records. Enabling encryption removes plaintext
+      records under the same root mutation lock used by cache writers.
+- [x] **O20 / P2 — Bound search result construction and delivery.**
+      Local search selects lightweight top candidates and constructs excerpts only
+      for a page (maximum 100, sidebar 50). Total/next offset and stable score/path
+      ordering allow later pages. Quick-open retains a bounded 100-result contract.
+      Hosted search retains the server's existing 50-result API limit.
+- [x] **O21 / P2 — Build reverse-link lookup indexes.**
+      Vault-scoped reverse adjacency updates changed edges only; lookups union
+      normalized path, path-without-extension and stem matches with deduplication.
+      Ambiguous stems preserve the previous all-matching behavior.
+- [x] **O22 / P2 — Avoid full character-vector allocation for wikilink extraction.**
+      Slice scanning allocates only link targets; UTF-8 delimiters, aliases and
+      unterminated links retain their established behavior.
+- [x] **O23 / P2 — Reduce redundant index copies across native/IPC/frontend layers.**
+      One native metadata/text record per note, shared through immutable snapshots.
+      Initial metadata is delivered once; updates send changed metadata/removals.
+      Unchanged frontend metadata and tree nodes retain identity for Graph/Tags.
+- [x] **O24 / P1 — Virtualize visible file-tree rows.**
+      Iterative flattened visible rows, 28px geometry, eight-row overscan and a
+      pinned keyboard-focus/drag-source rows. Range selection still uses the full visible order;
+      rows preserve drop attributes, context menus, disclosure and tree semantics.
+- [x] **O25 / P2 — Maintain path/id maps instead of repeated tree flatten/find work.**
+      WeakMap revision caches supply file/path/case-folded lookups and hosted
+      manifest ID/state-path maps. Sorting and subtree patching preserve unchanged
+      subtrees; asset resolution preserves prior candidate precedence.
+- [x] **O26 / P1 — Incrementalize kanban attachment discovery.**
+      Per-board revision promises share three reader slots across overlapping
+      passes. Unchanged boards reuse parsed attachments, removed revisions prune,
+      obsolete queued reads skip I/O and unreadable boards fail independently.
+- [x] **O27 / P2 — Stop generated-directory churn from triggering visible-vault scans.**
+      Generated and unrelated hidden paths never bubble to visible parents. Known
+      editor staging names still reconcile parents; final visible edits/renames
+      remain observed. Supported notify backends unwatch ignored descendants;
+      portable event filtering remains in place when pruning is unsupported.
+- [x] **O28 / P2 — Move heavy local listing/index/search into bounded native jobs.**
+      Async commands acquire the shared native budget before blocking filesystem/
+      CPU work. Listing checks active vault ownership; indexing checks request
+      generations, emits processed-note progress and rejects stale publication.
+      Native per-platform IPC latency/RSS certification remains under O70.
 
 ### Markdown, Math And Graph
 
@@ -819,6 +804,11 @@ The review does not recommend undoing work already present:
   Do not switch all platforms to forced acceleration to hide a measured regression.
 
 ## Suggested Delivery Order
+
+The original priority grouping follows. **O01–O28, O39/O47 and O64 are now
+implemented (O48 superseded)**; use the checkboxes and
+[open development work](../plans/open-development-work.md) for current scope.
+The next requested category is **Markdown, Math And Graph (O29–O36)**.
 
 1. **Correctness first:** B01 autosave/session ownership; B02 Unicode; B06 staging
    collisions; B04 PDF lifetimes; B03/B05 stale requests/listeners. Validate the
