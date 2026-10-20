@@ -217,15 +217,27 @@ export function renderMermaidInto(target: HTMLElement, source: string): MermaidR
   };
 }
 
-export function renderMermaidBlocks(root: HTMLElement): MermaidRenderJob {
+const retainedBlockJobs = new WeakMap<HTMLElement, { revision: string; job: MermaidRenderJob }>();
+export function renderMermaidBlocks(root: HTMLElement, revision?: string): MermaidRenderJob {
   let cancelled = false;
   const jobs: MermaidRenderJob[] = [];
+  const figures: Array<{ figure: HTMLElement; job: MermaidRenderJob }> = [];
 
   for (const figure of root.querySelectorAll<HTMLElement>('.md-mermaid-block')) {
     const source = renderedBlockSources.get(figure);
     const canvas = figure.querySelector<HTMLElement>('.md-mermaid-canvas');
     if (source !== undefined && canvas) {
-      jobs.push(renderMermaidInto(canvas, source));
+      const retained = retainedBlockJobs.get(figure);
+      if (revision !== undefined && retained?.revision === revision) {
+        jobs.push(retained.job);
+        figures.push({ figure, job: retained.job });
+      } else {
+        retained?.job.cancel();
+        const job = renderMermaidInto(canvas, source);
+        retainedBlockJobs.set(figure, { revision: revision ?? '', job });
+        jobs.push(job);
+        figures.push({ figure, job });
+      }
     }
   }
 
@@ -237,7 +249,10 @@ export function renderMermaidBlocks(root: HTMLElement): MermaidRenderJob {
     figure.appendChild(canvas);
     renderedBlockSources.set(figure, source);
     sourceBlock.replaceWith(figure);
-    jobs.push(renderMermaidInto(canvas, source));
+    const job = renderMermaidInto(canvas, source);
+    retainedBlockJobs.set(figure, { revision: revision ?? '', job });
+    jobs.push(job);
+    figures.push({ figure, job });
   }
 
   return {
@@ -245,7 +260,13 @@ export function renderMermaidBlocks(root: HTMLElement): MermaidRenderJob {
     cancel() {
       if (cancelled) return;
       cancelled = true;
-      for (const job of jobs) job.cancel();
+      // Defer until React has reconciled/detached blocks. Text-only updates
+      // keep their in-flight diagram; removed blocks/unmounts cancel theirs.
+      if (revision === undefined) for (const job of jobs) job.cancel();
+      else
+        queueMicrotask(() => {
+          for (const { figure, job } of figures) if (!figure.isConnected) job.cancel();
+        });
     },
   };
 }

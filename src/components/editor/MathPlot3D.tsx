@@ -6,8 +6,17 @@ import {
   useState,
 } from 'react';
 
+import { useUiStore } from '../../store/uiStore';
+import { Button } from '../ui/button';
+
 import type { MathPlot3DSpec, Sampled3DPlot } from './mathPlotSpec';
-import { samplePlot3D } from './mathPlotSpec';
+import {
+  createPlotInvalidator,
+  PLOT_PIXEL_BUDGET,
+  usePlotLease,
+  usePlotVisibility,
+} from './plotLifecycle';
+import { useMathPlotSamples } from './useMathPlotSamples';
 
 interface MathPlot3DProps {
   spec: MathPlot3DSpec;
@@ -82,10 +91,16 @@ function buildAxes(THREE: typeof import('three')) {
 }
 
 export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3DProps) {
+  const theme = useUiStore((state) => state.theme);
+  const accent = useUiStore((state) => state.accentColor);
   const isModal = variant === 'modal';
   const plotHeight = isModal ? 540 : 320;
   const mountRef = useRef<HTMLDivElement | null>(null);
   const resetRef = useRef<(() => void) | null>(null);
+  const visible = usePlotVisibility(mountRef);
+  const { active, activate } = usePlotLease(visible);
+  const { sampled: sampledResult, error: sampleError } = useMathPlotSamples(spec, active);
+  const cameraView = useRef({ ...INITIAL_VIEW });
   const [error, setError] = useState<string | null>(null);
   // Inline plots are user-resizable via the drag bar below the canvas. The live
   // renderer follows this height through its ResizeObserver, so we never rebuild
@@ -114,13 +129,15 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
   };
 
   useEffect(() => {
+    if (!active || !sampledResult) return;
     let disposed = false;
+    const resources: Array<() => void> = [];
     let cleanup: (() => void) | null = null;
     setError(null);
 
     async function renderPlot() {
       try {
-        const sampled = samplePlot3D(spec);
+        const sampled = sampledResult as Sampled3DPlot;
         const THREE = await import('three');
         if (disposed || !mountRef.current) return;
 
@@ -130,7 +147,17 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        resources.push(() => {
+          renderer.dispose();
+          renderer.forceContextLoss();
+        });
+        renderer.setPixelRatio(
+          Math.min(
+            window.devicePixelRatio || 1,
+            2,
+            Math.sqrt(PLOT_PIXEL_BUDGET / (width * height)),
+          ),
+        );
         renderer.setSize(width, height);
         renderer.domElement.style.width = '100%';
         renderer.domElement.style.height = '100%';
@@ -138,6 +165,7 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
         mount.replaceChildren(renderer.domElement);
 
         const surfaceGeometry = buildSurfaceGeometry(THREE, sampled);
+        resources.push(() => surfaceGeometry.dispose());
         const surfaceMaterial = new THREE.MeshStandardMaterial({
           color: 0x8b5cf6,
           metalness: 0.05,
@@ -146,33 +174,41 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
           transparent: true,
           opacity: 0.9,
         });
+        resources.push(() => surfaceMaterial.dispose());
         const surface = new THREE.Mesh(surfaceGeometry, surfaceMaterial);
         scene.add(surface);
 
         const wireGeometry = surfaceGeometry.clone();
+        resources.push(() => wireGeometry.dispose());
         const wireMaterial = new THREE.MeshBasicMaterial({
           color: 0xffffff,
           wireframe: true,
           transparent: true,
           opacity: 0.1,
         });
+        resources.push(() => wireMaterial.dispose());
         const wire = new THREE.Mesh(wireGeometry, wireMaterial);
         scene.add(wire);
 
         const axes = buildAxes(THREE);
+        resources.push(() => {
+          axes.geometry.dispose();
+          (axes.material as import('three').Material).dispose();
+        });
         scene.add(axes);
         scene.add(new THREE.AmbientLight(0xffffff, 1.7));
         const light = new THREE.DirectionalLight(0xffffff, 1.9);
         light.position.set(3, 5, 4);
         scene.add(light);
 
-        let yaw = INITIAL_VIEW.yaw;
-        let pitch = INITIAL_VIEW.pitch;
-        let distance = INITIAL_VIEW.distance;
+        let yaw = cameraView.current.yaw;
+        let pitch = cameraView.current.pitch;
+        let distance = cameraView.current.distance;
         let dragging = false;
         let lastX = 0;
         let lastY = 0;
-        let frame = 0;
+        const drawing = createPlotInvalidator(() => renderer.render(scene, camera));
+        resources.push(() => drawing.dispose());
 
         const updateCamera = () => {
           const clampedPitch = Math.max(-1.15, Math.min(1.15, pitch));
@@ -183,6 +219,8 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
             Math.cos(yaw) * Math.cos(pitch) * distance,
           );
           camera.lookAt(0, 0, 0);
+          cameraView.current = { yaw, pitch, distance };
+          drawing.invalidate();
         };
 
         const onPointerDown = (event: PointerEvent) => {
@@ -219,7 +257,15 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
           const nextHeight = Math.max(180, Math.floor(mount.clientHeight || plotHeight));
           camera.aspect = nextWidth / nextHeight;
           camera.updateProjectionMatrix();
+          renderer.setPixelRatio(
+            Math.min(
+              window.devicePixelRatio || 1,
+              2,
+              Math.sqrt(PLOT_PIXEL_BUDGET / (nextWidth * nextHeight)),
+            ),
+          );
           renderer.setSize(nextWidth, nextHeight);
+          drawing.invalidate();
         };
         const resizeObserver = new ResizeObserver(applySize);
         resizeObserver.observe(mount);
@@ -230,12 +276,6 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
         renderer.domElement.addEventListener('pointercancel', onPointerUp);
         renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
-        const animate = () => {
-          if (disposed) return;
-          frame = window.requestAnimationFrame(animate);
-          renderer.render(scene, camera);
-        };
-
         // Expose a reset that returns the camera to its initial framing.
         resetRef.current = () => {
           yaw = INITIAL_VIEW.yaw;
@@ -245,28 +285,24 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
         };
 
         updateCamera();
-        animate();
+        drawing.invalidate();
         setError(null);
 
         cleanup = () => {
           resetRef.current = null;
-          window.cancelAnimationFrame(frame);
+          drawing.dispose();
           resizeObserver.disconnect();
           renderer.domElement.removeEventListener('pointerdown', onPointerDown);
           renderer.domElement.removeEventListener('pointermove', onPointerMove);
           renderer.domElement.removeEventListener('pointerup', onPointerUp);
           renderer.domElement.removeEventListener('pointercancel', onPointerUp);
           renderer.domElement.removeEventListener('wheel', onWheel);
-          surfaceGeometry.dispose();
-          surfaceMaterial.dispose();
-          wireGeometry.dispose();
-          wireMaterial.dispose();
-          (axes.geometry as import('three').BufferGeometry).dispose();
-          (axes.material as import('three').Material).dispose();
-          renderer.dispose();
+          for (const dispose of resources.splice(0).reverse()) dispose();
           mount.replaceChildren();
         };
       } catch (err) {
+        cleanup?.();
+        for (const dispose of resources.splice(0).reverse()) dispose();
         if (!disposed) setError(String(err instanceof Error ? err.message : err));
       }
     }
@@ -277,7 +313,7 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
       disposed = true;
       cleanup?.();
     };
-  }, [spec, plotHeight]);
+  }, [sampledResult, active, plotHeight, theme, accent]);
 
   const handleClick = onShiftClick
     ? (event: ReactMouseEvent) => {
@@ -299,7 +335,9 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
         <div className={`flex min-w-0 items-center gap-2 ${isModal ? 'ml-auto' : ''}`}>
           {!isModal && <span className="truncate font-mono">z = {spec.expression}</span>}
           {!error && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
@@ -309,41 +347,77 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
               title="Reset the camera to its default angle"
             >
               Reset view
-            </button>
+            </Button>
           )}
         </div>
       </div>
-      {error ? (
-        <div className="rounded-md border border-destructive/35 bg-destructive/8 px-3 py-2 text-xs text-destructive">
-          Could not render 3D plot: {error}
-        </div>
-      ) : (
-        <>
-          <div
-            ref={mountRef}
-            className="w-full overflow-hidden rounded-md bg-muted/15"
-            style={{ height: isModal ? plotHeight : areaHeight }}
-          />
-          {!isModal && (
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Resize plot height"
-              onPointerDown={handleResizePointerDown}
-              onPointerMove={handleResizePointerMove}
-              onPointerUp={handleResizePointerUp}
-              onPointerCancel={handleResizePointerUp}
-              className="group mt-1 flex h-3 w-full cursor-row-resize items-center justify-center rounded-sm hover:bg-muted/40"
-              title="Drag to resize the plot height"
-            >
-              <span className="h-0.5 w-8 rounded-full bg-border/70 transition-colors group-hover:bg-foreground/40" />
-            </div>
-          )}
-          <p className="mt-1 text-center text-[10px] text-muted-foreground/70">
-            Drag to rotate · scroll to zoom
-          </p>
-        </>
+      {(error || sampleError) && (
+        <p role="alert" className="text-xs text-destructive">
+          Could not render 3D plot: {error || sampleError}
+        </p>
       )}
+      <div className="relative">
+        <div
+          ref={mountRef}
+          data-plot-state={
+            error || sampleError
+              ? 'error'
+              : !active
+                ? 'paused'
+                : sampledResult
+                  ? 'active'
+                  : 'pending'
+          }
+          className="w-full overflow-hidden rounded-md bg-muted/15"
+          style={{ height: isModal ? plotHeight : areaHeight }}
+        />
+        {!active && (
+          <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+            {visible ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  activate();
+                }}
+              >
+                Activate plot
+              </Button>
+            ) : (
+              'Plot paused outside the viewport'
+            )}
+          </div>
+        )}
+        {active && !sampledResult && !sampleError && (
+          <p
+            role="status"
+            className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground"
+          >
+            Sampling plot…
+          </p>
+        )}
+      </div>
+      <>
+        {!isModal && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize plot height"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerUp}
+            onPointerCancel={handleResizePointerUp}
+            className="group mt-1 flex h-3 w-full cursor-row-resize items-center justify-center rounded-sm hover:bg-muted/40"
+            title="Drag to resize the plot height"
+          >
+            <span className="h-0.5 w-8 rounded-full bg-border/70 transition-colors group-hover:bg-foreground/40" />
+          </div>
+        )}
+        <p className="mt-1 text-center text-[10px] text-muted-foreground/70">
+          Drag to rotate · scroll to zoom
+        </p>
+      </>
     </div>
   );
 }

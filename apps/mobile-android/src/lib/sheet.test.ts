@@ -99,7 +99,13 @@ describe('mobile sheet documents', () => {
     const columnId = worksheet.columnOrder[1];
     expect(worksheet.cells[`${worksheet.rowOrder[1]}:${columnId}`]?.formula).toBe('=B1*2');
     // Computed values are never persisted.
-    expect(CONTENT).not.toContain('2400');
+    expect(
+      JSON.parse(CONTENT)
+        .worksheets.flatMap((sheet: { cells: Record<string, { value?: unknown }> }) =>
+          Object.values(sheet.cells),
+        )
+        .some((cell: { value?: unknown }) => cell.value === 2400),
+    ).toBe(false);
   });
 
   it('opens a newer schema version read-only instead of normalizing it', () => {

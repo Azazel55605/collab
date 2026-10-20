@@ -1,6 +1,7 @@
 import { EditorState, StateEffect } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyMathSolverChoice,
@@ -20,6 +21,39 @@ import {
   solveActiveMathInput,
 } from './mathBlockCommands';
 import { createSnippetSessionExtension } from './snippetEngine';
+
+beforeEach(() => {
+  Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] });
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => new DOMRect(),
+  });
+});
+
+vi.mock('./mathWorkerClient', async () => {
+  const { analyzeMathInput, solveMathInput } = await import('./mathSolver');
+  return {
+    evaluateMath: async (
+      source: string,
+      mode: 'exact' | 'approximate',
+      signal: AbortSignal,
+      variable?: string,
+    ) => {
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const analysis = analyzeMathInput(source);
+      return {
+        analysis,
+        result:
+          analysis.kind === 'equation' &&
+          !analysis.defaultVariable &&
+          analysis.variables.length > 1 &&
+          !variable
+            ? null
+            : solveMathInput(source, mode, variable),
+      };
+    },
+  };
+});
 
 let views: EditorView[] = [];
 
@@ -180,28 +214,32 @@ describe('mathBlockCommands', () => {
     );
   });
 
-  it('appends an evaluated expression result on Ctrl+Enter command', () => {
+  it('appends an evaluated expression result on Ctrl+Enter command', async () => {
     const view = createView('$$\n2+2\n$$', 6);
 
     expect(solveActiveMathInput(view)).toBe(true);
-    expect(view.state.doc.toString()).toBe('$$\n2+2 = 4\n$$');
+    await waitFor(() => expect(view.state.doc.toString()).toBe('$$\n2+2 = 4\n$$'));
   });
 
-  it('appends an approximated expression result for approximate command', () => {
+  it('appends an approximated expression result for approximate command', async () => {
     const view = createView('$$\n\\frac{1}{2}\n$$', 13);
 
     expect(solveActiveMathInput(view, 'approximate')).toBe(true);
-    expect(view.state.doc.toString()).toBe('$$\n\\frac{1}{2} \\approx 0.5\n$$');
+    await waitFor(() =>
+      expect(view.state.doc.toString()).toBe('$$\n\\frac{1}{2} \\approx 0.5\n$$'),
+    );
   });
 
-  it('appends an equation solution on Ctrl+Enter command', () => {
+  it('appends an equation solution on Ctrl+Enter command', async () => {
     const view = createView('$$\nx+1=3\n$$', 8);
 
     expect(solveActiveMathInput(view)).toBe(true);
-    expect(view.state.doc.toString()).toBe('$$\nx+1=3\n\\Rightarrow x = 2\n$$');
+    await waitFor(() =>
+      expect(view.state.doc.toString()).toBe('$$\nx+1=3\n\\Rightarrow x = 2\n$$'),
+    );
   });
 
-  it('opens a variable chooser for multi-variable equations', () => {
+  it('opens a variable chooser for multi-variable equations', async () => {
     const view = createView('$$\na*x+b=0\n$$', 11);
     let detail: unknown = null;
     const handler = (event: Event) => {
@@ -211,6 +249,7 @@ describe('mathBlockCommands', () => {
 
     expect(solveActiveMathInput(view)).toBe(true);
 
+    await waitFor(() => expect(detail).not.toBeNull());
     window.removeEventListener(MATH_SOLVER_ACTION_EVENT, handler);
     expect(view.state.doc.toString()).toBe('$$\na*x+b=0\n$$');
     expect(detail).toMatchObject({
@@ -223,11 +262,11 @@ describe('mathBlockCommands', () => {
 });
 
 describe('math command ownership and read-only boundaries', () => {
-  it('does not pair math delimiters inside code fences with real math blocks', () => {
+  it('does not pair math delimiters inside code fences with real math blocks', async () => {
     const doc = '```md\n$$\nexample\n```\n\n$$\n2+2\n$$';
     const view = createView(doc, doc.indexOf('2+2') + 3);
     expect(solveActiveMathInput(view)).toBe(true);
-    expect(view.state.doc.toString()).toContain('2+2 = 4');
+    await waitFor(() => expect(view.state.doc.toString()).toContain('2+2 = 4'));
     view.dispatch({ selection: { anchor: doc.indexOf('example') } });
     expect(getActiveMathBlock(view)).toBeNull();
   });
@@ -259,4 +298,17 @@ describe('math command ownership and read-only boundaries', () => {
     expect(other.state.doc.toString()).toBe('$$\nx+y=2\n$$');
     expect(view.state.doc.toString()).toBe('$$\nx+y=3\n$$');
   });
+});
+
+it('rejects a completed evaluation after intervening edits or editor disposal', async () => {
+  const view = createView('$$\n2+2\n$$', 6);
+  solveActiveMathInput(view);
+  view.dispatch({ changes: { from: 3, to: 6, insert: '3+3' } });
+  await Promise.resolve();
+  expect(view.state.doc.toString()).toBe('$$\n3+3\n$$');
+  solveActiveMathInput(view);
+  view.destroy();
+  views = views.filter((candidate) => candidate !== view);
+  await Promise.resolve();
+  expect(view.state.doc.toString()).toBe('$$\n3+3\n$$');
 });

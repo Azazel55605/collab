@@ -1,386 +1,288 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import * as d3 from 'd3';
 
 import type { NoteMetadata } from '../../types/note';
+import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
+import {
+  createGraphDataBuilder,
+  GRAPH_LINK_LIMIT,
+  type GraphLink,
+  type GraphNode,
+} from './graphData';
+import type { GraphLayoutRequest } from './graphLayout.worker';
+
+export { buildGraphData } from './graphData';
 interface GraphViewProps {
   notes: NoteMetadata[];
-  onNodeClick: (relativePath: string, title: string) => void;
+  onNodeClick: (path: string, title: string) => void;
 }
-
-interface GraphNode extends d3.SimulationNodeDatum {
-  id: string;
-  title: string;
-  relativePath: string;
-  tags: string[];
-  linkCount: number;
-}
-
-interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
-  source: string | GraphNode;
-  target: string | GraphNode;
-}
-
-const LABEL_ALWAYS_VISIBLE_NODE_LIMIT = 120;
-const LABEL_DETAIL_SCALE_THRESHOLD = 1.15;
-const GRAPH_COLORS = {
-  emptyState: 'var(--muted-foreground)',
-  linkStroke: 'color-mix(in oklch, var(--primary) 22%, var(--muted-foreground) 78%)',
-  nodeFill: 'var(--primary)',
-  taggedNodeFill: 'var(--primary)',
-  nodeStroke: 'var(--primary)',
-  labelFill: 'var(--muted-foreground)',
-  nodeGlow: 'color-mix(in oklch, var(--primary) 26%, transparent)',
-} as const;
-
-function normalizeGraphLinkTarget(value: string) {
-  return value.trim().split(/[?#]/, 1)[0]?.replace(/\\/g, '/').toLowerCase() ?? '';
-}
-
-function stripMarkdownExtension(relativePath: string) {
-  return relativePath.replace(/\.md$/i, '');
-}
-
-function buildUniqueLookup(entries: Array<readonly [string, string]>) {
-  const counts = new Map<string, { path: string; count: number }>();
-
-  for (const [rawKey, path] of entries) {
-    const key = normalizeGraphLinkTarget(rawKey);
-    if (!key) continue;
-    const existing = counts.get(key);
-    if (!existing) {
-      counts.set(key, { path, count: 1 });
-      continue;
-    }
-    if (existing.path !== path) existing.count += 1;
-  }
-
-  return new Map(
-    Array.from(counts.entries())
-      .filter(([, value]) => value.count === 1)
-      .map(([key, value]) => [key, value.path] as const),
-  );
-}
-
-export function buildGraphData(notes: NoteMetadata[]) {
-  const visibleNotes = notes.slice(0, 500);
-  const exactRelativePathToPath = new Map<string, string>();
-  const exactRelativeStemToPath = new Map<string, string>();
-
-  for (const note of visibleNotes) {
-    exactRelativePathToPath.set(normalizeGraphLinkTarget(note.relativePath), note.relativePath);
-    exactRelativeStemToPath.set(
-      normalizeGraphLinkTarget(stripMarkdownExtension(note.relativePath)),
-      note.relativePath,
-    );
-  }
-
-  const basenameToPath = buildUniqueLookup(
-    visibleNotes.map(
-      (note) => [note.relativePath.split('/').pop() ?? '', note.relativePath] as const,
-    ),
-  );
-  const stemToPath = buildUniqueLookup(
-    visibleNotes.map(
-      (note) =>
-        [
-          stripMarkdownExtension(note.relativePath.split('/').pop() ?? ''),
-          note.relativePath,
-        ] as const,
-    ),
-  );
-  const titleToPath = buildUniqueLookup(
-    visibleNotes.map((note) => [note.title, note.relativePath] as const),
-  );
-
-  const nodes: GraphNode[] = visibleNotes.map((n) => ({
-    id: n.relativePath,
-    title: n.title,
-    relativePath: n.relativePath,
-    tags: n.tags,
-    linkCount: n.wikilinksOut.length,
-  }));
-
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const linkKeys = new Set<string>();
-  const links: GraphLink[] = [];
-
-  for (const note of visibleNotes) {
-    for (const wikilink of note.wikilinksOut) {
-      const normalizedTarget = normalizeGraphLinkTarget(wikilink);
-      if (!normalizedTarget) continue;
-
-      const targetPath =
-        exactRelativePathToPath.get(normalizedTarget) ??
-        exactRelativeStemToPath.get(normalizedTarget) ??
-        basenameToPath.get(normalizedTarget) ??
-        stemToPath.get(normalizedTarget) ??
-        titleToPath.get(normalizedTarget);
-
-      if (targetPath && targetPath !== note.relativePath && nodeIds.has(targetPath)) {
-        const linkKey = `${note.relativePath}->${targetPath}`;
-        if (linkKeys.has(linkKey)) continue;
-        linkKeys.add(linkKey);
-        links.push({ source: note.relativePath, target: targetPath });
-      }
-    }
-  }
-
-  return { nodes, links };
-}
+type Position = { id: string; x: number; y: number };
 
 export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const graphData = useMemo(() => buildGraphData(notes), [notes]);
+  const callback = useRef(onNodeClick);
+  callback.current = onNodeClick;
+  const [builder] = useState(createGraphDataBuilder);
+  const graph = useMemo(() => builder(notes), [builder, notes]);
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const marker = useId().replace(/:/g, '');
+  const worker = useRef<Worker | null>(null);
+  const generation = useRef(0);
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
+  const update = useRef<() => void>(() => {});
+  const positions = useRef(new Map<string, Position>());
+  const selected = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-
-    const { width, height } = svgRef.current.getBoundingClientRect();
-    const { nodes, links } = graphData;
-
-    if (nodes.length === 0) {
-      svg
-        .append('text')
-        .attr('x', width / 2)
-        .attr('y', height / 2)
-        .attr('text-anchor', 'middle')
-        .style('fill', GRAPH_COLORS.emptyState)
-        .attr('font-size', 14)
-        .text('No notes found. Create some notes to see the graph.');
-      return;
-    }
-
-    // Setup zoom
-    const g = svg.append('g');
-    const shouldAlwaysShowLabels = nodes.length <= LABEL_ALWAYS_VISIBLE_NODE_LIMIT;
-    let currentScale = 1;
-
-    const nodeRadius = d3.scaleSqrt().domain([0, 20]).range([5, 16]).clamp(true);
-
-    const linkLayer = g.append('g');
-    const nodeLayer = g.append('g');
-
-    // Links
-    const link = linkLayer
-      .selectAll('line')
-      .data(links)
-      .join('line')
-      .style('stroke', GRAPH_COLORS.linkStroke)
-      .attr('stroke-opacity', links.length > 300 ? 0.5 : 0.8)
-      .attr('stroke-width', links.length > 300 ? 0.8 : 1);
-
-    const applyInteractionDetail = (interacting: boolean, scale = currentScale) => {
-      const showLabels =
-        !interacting && (shouldAlwaysShowLabels || scale >= LABEL_DETAIL_SCALE_THRESHOLD);
-      label.attr('display', showLabels ? null : 'none');
-
-      link.attr('marker-end', interacting ? null : 'url(#arrowhead)');
+    const element = svgRef.current;
+    if (!element) return;
+    const svg = d3.select(element);
+    const group = svg.append('g').attr('transform', d3.zoomTransform(element).toString());
+    const linksLayer = group.append('g');
+    const nodesLayer = group.append('g');
+    const defs = svg.append('defs');
+    defs
+      .append('marker')
+      .attr('id', marker)
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 18)
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-5L10,0L0,5')
+      .attr('fill', 'var(--muted-foreground)');
+    let frame: number | null = null;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
+    let scale = 1;
+    const draw = () => {
+      frame = null;
+      nodesLayer.selectAll<SVGGElement, GraphNode>('g').attr('transform', (node) => {
+        const point = positions.current.get(node.id);
+        return `translate(${point?.x ?? 0},${point?.y ?? 0})`;
+      });
+      linksLayer.selectAll<SVGLineElement, GraphLink>('line').each(function (link) {
+        const source = positions.current.get(String(link.source));
+        const target = positions.current.get(String(link.target));
+        d3.select(this)
+          .attr('x1', source?.x ?? 0)
+          .attr('y1', source?.y ?? 0)
+          .attr('x2', target?.x ?? 0)
+          .attr('y2', target?.y ?? 0);
+      });
     };
-
+    const schedule = () => {
+      if (frame === null) frame = requestAnimationFrame(draw);
+    };
+    const detail = (interacting = false) => {
+      nodesLayer
+        .selectAll('text')
+        .attr(
+          'display',
+          interacting || (graphRef.current.nodes.length > 120 && scale < 1.15) ? 'none' : null,
+        );
+      linksLayer.selectAll('line').attr('marker-end', interacting ? null : `url(#${marker})`);
+    };
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
-      .on('start', () => applyInteractionDetail(true))
+      .on('start', () => detail(true))
       .on('zoom', (event) => {
-        currentScale = event.transform.k;
-        g.attr('transform', event.transform);
+        scale = event.transform.k;
+        group.attr('transform', event.transform.toString());
       })
-      .on('end', (event) => {
-        currentScale = event.transform.k;
-        applyInteractionDetail(false, currentScale);
-      });
+      .on('end', () => detail());
     svg.call(zoom);
-
-    // Arrow marker
-    svg
-      .append('defs')
-      .append('marker')
-      .attr('id', 'arrowhead')
-      .attr('viewBox', '-0 -5 10 10')
-      .attr('refX', 10)
-      .attr('refY', 0)
-      .attr('orient', 'auto')
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .append('path')
-      .attr('d', 'M 0,-5 L 10,0 L 0,5')
-      .style('fill', GRAPH_COLORS.linkStroke);
-
-    // Nodes
-    const node = nodeLayer
-      .selectAll('g')
-      .data(nodes)
-      .join('g')
-      .attr('cursor', 'pointer')
-      .on('click', (_, d) => {
-        setSelectedNode(d.id);
-        onNodeClick(d.relativePath, d.title);
+    const send = (request: GraphLayoutRequest) => worker.current?.postMessage(request);
+    const visibility = () =>
+      send({ kind: 'visibility', hidden: document.visibilityState === 'hidden' });
+    const size = () => ({ width: element.clientWidth || 800, height: element.clientHeight || 600 });
+    const fail = (message: string) => {
+      clearTimeout(watchdog);
+      worker.current?.terminate();
+      worker.current = null;
+      if (!disposed) setError(message);
+    };
+    try {
+      worker.current = new Worker(new URL('./graphLayout.worker.ts', import.meta.url), {
+        type: 'module',
       });
-
-    node
-      .append('circle')
-      .attr('r', (d) => nodeRadius(d.linkCount))
-      .style('fill', (d) =>
-        d.tags.length > 0 ? GRAPH_COLORS.taggedNodeFill : GRAPH_COLORS.nodeFill,
-      )
-      .style('fill-opacity', (d) => (d.tags.length > 0 ? 0.95 : 0.72))
-      .style('stroke', GRAPH_COLORS.nodeStroke)
-      .style('stroke-opacity', 0.42)
-      .style('filter', `drop-shadow(0 0 8px ${GRAPH_COLORS.nodeGlow})`)
-      .attr('stroke-width', 4);
-
-    const label = node
-      .append('text')
-      .text((d) => (d.title.length > 20 ? d.title.slice(0, 17) + '\u2026' : d.title))
-      .attr('x', (d) => nodeRadius(d.linkCount) + 4)
-      .attr('y', 4)
-      .attr('font-size', 11)
-      .style('fill', GRAPH_COLORS.labelFill)
-      .attr('pointer-events', 'none');
-
-    applyInteractionDetail(false);
-
-    // Drag behaviour
-    const drag = d3
-      .drag<SVGGElement, GraphNode>()
-      .on('start', (event, d) => {
-        applyInteractionDetail(true);
-        if (!event.active) simulation.alphaTarget(0.12).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-      })
-      .on('drag', (event, d) => {
-        d.fx = event.x;
-        d.fy = event.y;
-      })
-      .on('end', (event, d) => {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-        applyInteractionDetail(false);
-      });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    node.call(drag as any);
-
-    let frameId: number | null = null;
-    const renderPositions = () => {
-      frameId = null;
-      link
-        .attr('x1', (d) => {
-          const source = d.source as GraphNode;
-          const target = d.target as GraphNode;
-          const sx = source.x ?? 0;
-          const sy = source.y ?? 0;
-          const tx = target.x ?? 0;
-          const ty = target.y ?? 0;
-          const dx = tx - sx;
-          const dy = ty - sy;
-          const distance = Math.hypot(dx, dy) || 1;
-          const sourceOffset = nodeRadius(source.linkCount) + 2;
-          return sx + (dx / distance) * sourceOffset;
+      worker.current.onmessage = (event) => {
+        if (disposed || event.data.generation !== generation.current) return;
+        clearTimeout(watchdog);
+        if (event.data.error) {
+          fail(event.data.error);
+          return;
+        }
+        setError(null);
+        positions.current = new Map(
+          (event.data.positions as Position[]).map((point) => [point.id, point]),
+        );
+        schedule();
+      };
+      worker.current.onerror = () => fail('Graph layout failed. Retry to restart it.');
+      worker.current.onmessageerror = () => fail('Graph layout returned an unreadable result.');
+    } catch {
+      fail('Graph layout workers are unavailable. Retry to restart it.');
+    }
+    update.current = () => {
+      const { nodes, links } = graphRef.current;
+      const surviving = new Set(nodes.map((node) => node.id));
+      for (const id of positions.current.keys())
+        if (!surviving.has(id)) positions.current.delete(id);
+      if (selected.current && !surviving.has(selected.current)) selected.current = null;
+      linksLayer
+        .selectAll<SVGLineElement, GraphLink>('line')
+        .data(links, (link) => `${link.source}->${link.target}`)
+        .join('line')
+        .attr('stroke', 'var(--muted-foreground)')
+        .attr('stroke-opacity', 0.45)
+        .attr('stroke-width', 1);
+      const node = nodesLayer
+        .selectAll<SVGGElement, GraphNode>('g')
+        .data(nodes, (node) => node.id)
+        .join((enter) => {
+          const group = enter.append('g');
+          group.append('circle');
+          group.append('text');
+          return group;
         })
-        .attr('y1', (d) => {
-          const source = d.source as GraphNode;
-          const target = d.target as GraphNode;
-          const sx = source.x ?? 0;
-          const sy = source.y ?? 0;
-          const tx = target.x ?? 0;
-          const ty = target.y ?? 0;
-          const dx = tx - sx;
-          const dy = ty - sy;
-          const distance = Math.hypot(dx, dy) || 1;
-          const sourceOffset = nodeRadius(source.linkCount) + 2;
-          return sy + (dy / distance) * sourceOffset;
-        })
-        .attr('x2', (d) => {
-          const source = d.source as GraphNode;
-          const target = d.target as GraphNode;
-          const sx = source.x ?? 0;
-          const sy = source.y ?? 0;
-          const tx = target.x ?? 0;
-          const ty = target.y ?? 0;
-          const dx = tx - sx;
-          const dy = ty - sy;
-          const distance = Math.hypot(dx, dy) || 1;
-          const targetOffset = nodeRadius(target.linkCount) + 1;
-          return tx - (dx / distance) * targetOffset;
-        })
-        .attr('y2', (d) => {
-          const source = d.source as GraphNode;
-          const target = d.target as GraphNode;
-          const sx = source.x ?? 0;
-          const sy = source.y ?? 0;
-          const tx = target.x ?? 0;
-          const ty = target.y ?? 0;
-          const dx = tx - sx;
-          const dy = ty - sy;
-          const distance = Math.hypot(dx, dy) || 1;
-          const targetOffset = nodeRadius(target.linkCount) + 1;
-          return ty - (dy / distance) * targetOffset;
+        .attr('role', 'button')
+        .attr('tabindex', 0)
+        .attr('aria-label', (node) => node.title)
+        .attr('data-path', (node) => node.id)
+        .attr('cursor', 'pointer');
+      const open = (node: GraphNode) => {
+        selected.current = node.id;
+        nodesLayer
+          .selectAll('circle')
+          .attr('stroke-width', (d) => ((d as GraphNode).id === node.id ? 4 : 1));
+        callback.current(node.relativePath, node.title);
+      };
+      node
+        .on('click', (_, node) => open(node))
+        .on('keydown', (event, node) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            open(node);
+          }
         });
-      node.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
-    };
-
-    const scheduleRender = () => {
-      if (frameId !== null) return;
-      frameId = window.requestAnimationFrame(renderPositions);
-    };
-
-    // Force simulation
-    const simulation = d3
-      .forceSimulation<GraphNode>(nodes)
-      .alphaDecay(0.08)
-      .velocityDecay(0.45)
-      .force(
-        'link',
+      node
+        .select('circle')
+        .attr('r', (node) => 5 + Math.sqrt(Math.min(20, node.linkCount) / 20) * 11)
+        .attr('fill', 'var(--primary)')
+        .attr('fill-opacity', (node) => (node.tags.length ? 0.95 : 0.72))
+        .attr('stroke', 'var(--foreground)')
+        .attr('stroke-width', (node) => (selected.current === node.id ? 4 : 1));
+      node
+        .select('text')
+        .text((node) => (node.title.length > 20 ? `${node.title.slice(0, 17)}…` : node.title))
+        .attr('x', 22)
+        .attr('y', 4)
+        .attr('font-size', 11)
+        .attr('fill', 'var(--muted-foreground)')
+        .attr('pointer-events', 'none');
+      node.call(
         d3
-          .forceLink<GraphNode, GraphLink>(links)
-          .id((d) => d.id)
-          .distance(80),
-      )
-      .force('charge', d3.forceManyBody().strength(-150))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force(
-        'collision',
-        d3.forceCollide<GraphNode>().radius((d) => nodeRadius(d.linkCount) + 8),
-      )
-      .on('tick', scheduleRender);
-
-    scheduleRender();
-
-    simulationRef.current = simulation;
-
-    return () => {
-      if (frameId !== null) window.cancelAnimationFrame(frameId);
-      simulation.stop();
+          .drag<SVGGElement, GraphNode>()
+          .subject((event, node) => ({
+            ...node,
+            x: positions.current.get(node.id)?.x ?? event.x,
+            y: positions.current.get(node.id)?.y ?? event.y,
+          }))
+          .on('start', () => detail(true))
+          .on('drag', (event, node) => {
+            positions.current.set(node.id, { id: node.id, x: event.x, y: event.y });
+            schedule();
+            send({ kind: 'pin', id: node.id, x: event.x, y: event.y });
+          })
+          .on('end', (_, node) => {
+            send({ kind: 'pin', id: node.id, x: null, y: null });
+            detail();
+          }),
+      );
+      detail();
+      schedule();
+      generation.current++;
+      if (worker.current) {
+        send({ kind: 'update', generation: generation.current, nodes, links, ...size() });
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => fail('Graph layout timed out. Retry to restart it.'), 8000);
+      }
     };
-  }, [graphData, onNodeClick]);
-
-  // Suppress unused-variable warning for selectedNode — kept for future highlight logic
-  void selectedNode;
-
+    visibility();
+    document.addEventListener('visibilitychange', visibility);
+    const observer = new ResizeObserver(() => send({ kind: 'resize', ...size() }));
+    observer.observe(element);
+    update.current();
+    return () => {
+      disposed = true;
+      clearTimeout(watchdog);
+      if (frame !== null) cancelAnimationFrame(frame);
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', visibility);
+      worker.current?.terminate();
+      worker.current = null;
+      svg.on('.zoom', null);
+      group.remove();
+      defs.remove();
+      update.current = () => {};
+    };
+  }, [marker, attempt]);
+  useEffect(() => {
+    update.current();
+  }, [graph]);
+  useEffect(() => {
+    const query = search.trim().toLowerCase();
+    d3.select(svgRef.current)
+      .selectAll<SVGGElement, GraphNode>('g[role="button"]')
+      .attr('opacity', (node) =>
+        !query ||
+        `${node.title} ${node.relativePath} ${node.tags.join(' ')}`.toLowerCase().includes(query)
+          ? 1
+          : 0.12,
+      );
+  }, [search, graph]);
   return (
-    <div className="relative w-full h-full bg-background">
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-2 rounded-xl border border-border/60 bg-background/88 px-2.5 py-2 shadow-lg shadow-black/5 backdrop-blur-xs-webkit app-panel-enter">
+    <div className="relative h-full w-full bg-background">
+      <div className="absolute left-4 top-4 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-background/95 px-2.5 py-2">
         <Input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Filter nodes..."
-          className="w-56 bg-background/80"
+          aria-label="Filter graph nodes"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Filter nodes…"
+          className="w-56"
         />
-        <span className="rounded-md border border-border/50 bg-card/40 px-2 py-1 text-xs text-muted-foreground">
-          {notes.length} notes
+        <span
+          title={`Showing up to 500 notes and ${GRAPH_LINK_LIMIT} links`}
+          className="text-xs text-muted-foreground"
+        >
+          {graph.nodes.length} of {notes.length} notes · {graph.links.length} links
         </span>
+        {error && (
+          <>
+            <span role="alert" className="text-xs text-destructive">
+              {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>
+              Retry
+            </Button>
+          </>
+        )}
       </div>
-      <svg ref={svgRef} className="w-full h-full" />
+      {!graph.nodes.length && (
+        <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+          No notes found. Create some notes to see the graph.
+        </p>
+      )}
+      <svg ref={svgRef} role="group" aria-label="Note graph" className="h-full w-full" />
     </div>
   );
 }

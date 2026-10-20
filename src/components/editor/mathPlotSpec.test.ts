@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildDefaultPlotDirective,
-  parseMathPlots,
-  samplePlot2D,
-  samplePlot3D,
-} from './mathPlotSpec';
+import { samplePlot2D, samplePlot3D } from './mathPlotSampling';
+import { buildDefaultPlotDirective, parseMathPlots } from './mathPlotSpec';
 
 describe('mathPlotSpec', () => {
   it('parses inferred 2D directives', () => {

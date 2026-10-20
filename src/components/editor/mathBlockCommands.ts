@@ -8,7 +8,8 @@ import {
   hasPrimaryModifier,
 } from './editorShortcutKeys';
 import { buildDefaultPlotDirective, type MathPlotKind } from './mathPlotSpec';
-import { analyzeMathInput, type MathSolveMode, solveMathInput } from './mathSolver';
+import type { MathSolveMode, MathSolveResult } from './mathSolver';
+import { evaluateMath } from './mathWorkerClient';
 import { insertSnippetTemplate } from './snippetEngine';
 
 export type MathBlockRange = {
@@ -294,27 +295,18 @@ function solveMathAtSelection(view: EditorView, mode: MathSolveMode) {
   const source = selectedMathText(view, range);
   if (!source.trim()) return true;
 
-  const analysis = analyzeMathInput(source);
-  if (analysis.kind === 'equation' && !analysis.defaultVariable && analysis.variables.length > 1) {
-    window.dispatchEvent(
-      new CustomEvent<MathSolverActionDetail>(MATH_SOLVER_ACTION_EVENT, {
-        detail: {
-          view,
-          document: view.state.doc,
-          source,
-          mode,
-          variables: analysis.variables,
-          range,
-          anchorRect: getAnchorRectAtPosition(view, range.to),
-        },
-      }),
-    );
-    return true;
-  }
+  const document = view.state.doc;
+  runEvaluation(view, document, source, mode, range);
+  return true;
+}
 
-  const result = solveMathInput(source, mode);
-  if (!result) return true;
-
+const evaluations = new WeakMap<EditorView, AbortController>();
+function insertEvaluation(
+  view: EditorView,
+  range: { from: number; to: number },
+  mode: MathSolveMode,
+  result: MathSolveResult,
+) {
   const insert =
     result.kind === 'equation'
       ? `\n\\Rightarrow ${result.latex}`
@@ -327,7 +319,62 @@ function solveMathAtSelection(view: EditorView, mode: MathSolveMode) {
     scrollIntoView: true,
   });
   view.focus();
-  return true;
+}
+function runEvaluation(
+  view: EditorView,
+  document: Text,
+  source: string,
+  mode: MathSolveMode,
+  range: { from: number; to: number },
+  variable?: string,
+) {
+  evaluations.get(view)?.abort();
+  const request = new AbortController();
+  evaluations.set(view, request);
+  const pending = toast.loading('Evaluating math…');
+  void evaluateMath(source, mode, request.signal, variable)
+    .then(({ analysis, result }) => {
+      if (
+        request.signal.aborted ||
+        !view.dom.isConnected ||
+        view.state.readOnly ||
+        view.state.doc !== document
+      )
+        return;
+      if (
+        analysis.kind === 'equation' &&
+        !analysis.defaultVariable &&
+        analysis.variables.length > 1 &&
+        !variable
+      ) {
+        window.dispatchEvent(
+          new CustomEvent<MathSolverActionDetail>(MATH_SOLVER_ACTION_EVENT, {
+            detail: {
+              view,
+              document,
+              source,
+              mode,
+              variables: analysis.variables,
+              range,
+              anchorRect: getAnchorRectAtPosition(view, range.to),
+            },
+          }),
+        );
+      } else if (result) insertEvaluation(view, range, mode, result);
+    })
+    .catch((error) => {
+      if (!request.signal.aborted && view.dom.isConnected)
+        toast.error(
+          `Could not evaluate math: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    })
+    .finally(() => {
+      toast.dismiss(pending);
+      if (evaluations.get(view) === request) evaluations.delete(view);
+    });
+}
+export function cancelMathEvaluation(view: EditorView) {
+  evaluations.get(view)?.abort();
 }
 
 export function handleMathBlockShortcutKeydown(event: EditorShortcutEventLike, view: EditorView) {
@@ -412,26 +459,6 @@ export function applyMathSolverChoice(
     toast.error('The math block changed. Evaluate it again before choosing a variable.');
     return false;
   }
-  try {
-    const result = solveMathInput(action.source, action.mode, variable);
-    if (!result) return false;
-    const insert =
-      result.kind === 'equation'
-        ? `\n\\Rightarrow ${result.latex}`
-        : action.mode === 'approximate'
-          ? ` \\approx ${result.latex}`
-          : ` = ${result.latex}`;
-    view.dispatch({
-      changes: { from: action.range.to, insert },
-      selection: { anchor: action.range.to + insert.length },
-      scrollIntoView: true,
-    });
-    view.focus();
-    return true;
-  } catch (error) {
-    toast.error(
-      `Could not evaluate math: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return false;
-  }
+  runEvaluation(view, action.document, action.source, action.mode, action.range, variable);
+  return true;
 }

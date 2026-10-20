@@ -100,40 +100,99 @@ export {
 } from './nerdFontIconQuery';
 
 const SEARCH_CACHE = new Map<string, NerdFontIconEntry[]>();
-
+const CACHE_LIMIT = 64;
+const CACHE_RESULT_LIMIT = 8192;
+let cachedReferences = 0;
+let postings: Map<string, Uint32Array> | undefined;
+let preparing: Promise<void> | undefined;
+/** Build in small background slices so the first typed query never pays one long index task. */
+export function prepareIconSearchIndex(): Promise<void> {
+  if (postings) return Promise.resolve();
+  if (preparing) return preparing;
+  preparing = new Promise((resolve) => {
+    const building = new Map<string, number[]>();
+    let position = 0;
+    const slice = () => {
+      const end = Math.min(position + 100, NERD_FONT_ICONS.length);
+      for (; position < end; position++) {
+        const entry = NERD_FONT_ICONS[position];
+        const grams = new Set<string>();
+        for (let i = 0; i < entry.searchText.length; i++) {
+          grams.add(entry.searchText[i]);
+          if (i + 3 <= entry.searchText.length) grams.add(entry.searchText.slice(i, i + 3));
+        }
+        for (const gram of grams) {
+          const list = building.get(gram);
+          if (list) list.push(position);
+          else building.set(gram, [position]);
+        }
+      }
+      if (position < NERD_FONT_ICONS.length) setTimeout(slice, 0);
+      else {
+        postings = new Map([...building].map(([gram, values]) => [gram, Uint32Array.from(values)]));
+        resolve();
+      }
+    };
+    setTimeout(slice, 0);
+  });
+  return preparing;
+}
+export function iconSearchStats() {
+  return {
+    entries: SEARCH_CACHE.size,
+    references: cachedReferences,
+    indexBytes: postings
+      ? [...postings.values()].reduce((sum, values) => sum + values.byteLength, 0)
+      : 0,
+  };
+}
 export function searchNerdFontIcons(rawQuery: string, limit = 240) {
+  limit = Number.isFinite(limit) ? Math.max(0, Math.min(1000, Math.floor(limit))) : 240;
+  if (!limit) return [];
   const query = rawQuery
     .trim()
     .replace(/^(?:icons?|glyphs?|symbols?|nf)\b\s*/i, '')
     .toLowerCase();
   if (!query) return NERD_FONT_ICONS.slice(0, limit);
+  if (query.length > 512) return [];
   const cacheKey = `${limit}:${query}`;
   const cached = SEARCH_CACHE.get(cacheKey);
-  if (cached) return cached;
-
-  const buckets = new Map<number, NerdFontIconEntry[]>();
-  for (const entry of NERD_FONT_ICONS) {
-    const score = scoreEntry(entry, query);
-    if (score == null) continue;
-    const bucket = buckets.get(score);
-    if (bucket) bucket.push(entry);
-    else buckets.set(score, [entry]);
+  if (cached) {
+    SEARCH_CACHE.delete(cacheKey);
+    SEARCH_CACHE.set(cacheKey, cached);
+    return cached;
   }
-
-  const results: NerdFontIconEntry[] = [];
-  const sortedScores = Array.from(buckets.keys()).sort((a, b) => a - b);
-  for (const score of sortedScores) {
-    const entries = buckets.get(score);
-    if (!entries) continue;
-    for (const entry of entries) {
-      results.push(entry);
-      if (results.length >= limit) {
-        SEARCH_CACHE.set(cacheKey, results);
-        return results;
-      }
+  void prepareIconSearchIndex();
+  const index = postings;
+  let candidates: Uint32Array | undefined;
+  const size = query.length >= 3 ? 3 : 1;
+  for (let offset = 0; index && offset <= query.length - size; offset++) {
+    const list = index.get(query.slice(offset, offset + size));
+    if (!list) {
+      candidates = new Uint32Array();
+      break;
     }
+    if (!candidates || list.length < candidates.length) candidates = list;
   }
-
+  const buckets = new Map<number, NerdFontIconEntry[]>();
+  for (const position of candidates ?? NERD_FONT_ICONS.keys()) {
+    const entry = NERD_FONT_ICONS[position];
+    const score = scoreEntry(entry, query);
+    if (score === null) continue;
+    const bucket = buckets.get(score);
+    if (!bucket) buckets.set(score, [entry]);
+    else if (bucket.length < limit) bucket.push(entry);
+  }
+  const results = [...buckets.keys()]
+    .sort((a, b) => a - b)
+    .flatMap((score) => buckets.get(score)!)
+    .slice(0, limit);
   SEARCH_CACHE.set(cacheKey, results);
+  cachedReferences += results.length;
+  while (SEARCH_CACHE.size > CACHE_LIMIT || cachedReferences > CACHE_RESULT_LIMIT) {
+    const first = SEARCH_CACHE.keys().next().value!;
+    cachedReferences -= SEARCH_CACHE.get(first)!.length;
+    SEARCH_CACHE.delete(first);
+  }
   return results;
 }

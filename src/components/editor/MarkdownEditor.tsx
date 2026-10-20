@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { syntaxHighlighting } from '@codemirror/language';
-import { EditorState, type Extension } from '@codemirror/state';
+import { EditorState, type Extension, type Text } from '@codemirror/state';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
 
 import '../../generated/katex.css';
@@ -31,6 +31,7 @@ import {
 import { openNonVaultMarkdownPreviewLink } from './markdownLinkOpen';
 import {
   applyMathSolverChoice,
+  cancelMathEvaluation,
   handleMathBlockShortcutKeydown,
   MATH_SOLVER_ACTION_EVENT,
   type MathSolverActionDetail,
@@ -67,6 +68,11 @@ export interface MarkdownEditorHandle {
 interface MarkdownEditorProps {
   content: string;
   onChange: (value: string) => void;
+  /** Immutable transaction snapshots; avoids serializing on every keystroke. */
+  onDocumentChange?: (document: Text) => void;
+  sourceDocument?: Text | null;
+  /** Explicit external adoption, including reloads to the same last-published text. */
+  externalRevision?: number;
   onSave: (value: string) => Promise<void>;
   relativePath: string;
   initialViewState?: MarkdownEditorViewState | null;
@@ -393,6 +399,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     {
       content,
       onChange,
+      onDocumentChange,
+      sourceDocument,
+      externalRevision,
       onSave,
       relativePath,
       initialViewState = null,
@@ -413,6 +422,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const [mathSolverAction, setMathSolverAction] = useState<MathSolverActionState | null>(null);
     const contentRef = useRef(content);
     const onChangeRef = useRef(onChange);
+    const onDocumentChangeRef = useRef(onDocumentChange);
+    const applyingExternal = useRef(false);
     const onSaveRef = useRef(onSave);
     const onViewStateChangeRef = useRef(onViewStateChange);
     const compartmentsRef = useRef(createMarkdownEditorCompartments());
@@ -432,6 +443,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
 
     onChangeRef.current = onChange;
+    onDocumentChangeRef.current = onDocumentChange;
     onSaveRef.current = onSave;
     onViewStateChangeRef.current = onViewStateChange;
 
@@ -596,10 +608,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       ]);
 
       const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
-        if (update.docChanged) {
-          const val = update.state.doc.toString();
-          contentRef.current = val;
-          onChangeRef.current(val);
+        if (update.docChanged) cancelMathEvaluation(update.view);
+        if (update.docChanged && !applyingExternal.current) {
+          if (onDocumentChangeRef.current) onDocumentChangeRef.current(update.state.doc);
+          else {
+            const val = update.state.doc.toString();
+            contentRef.current = val;
+            onChangeRef.current(val);
+          }
         }
         if ((update.selectionSet || update.docChanged) && onViewStateChangeRef.current) {
           onViewStateChangeRef.current(captureEditorViewState(update.view));
@@ -686,6 +702,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       return () => {
         view.scrollDOM.removeEventListener('scroll', handleScroll);
         if (frame !== null) window.cancelAnimationFrame(frame);
+        cancelMathEvaluation(view);
         view.destroy();
         viewRef.current = null;
         setEditorView(null);
@@ -700,16 +717,20 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       if (collabExtension) return;
       const view = viewRef.current;
       if (!view) return;
-      const current = view.state.doc.toString();
-      if (current !== content && content !== contentRef.current) {
-        try {
-          view.dispatch({ changes: { from: 0, to: current.length, insert: content } });
-        } catch (err) {
-          console.error('[MarkdownEditor] dispatch failed:', err);
-        }
+      if (sourceDocument) {
         contentRef.current = content;
+        return;
       }
-    }, [content]);
+      if (!onDocumentChangeRef.current && content === contentRef.current) return;
+      contentRef.current = content;
+      if (view.state.doc.eq(EditorState.create({ doc: content }).doc)) return;
+      applyingExternal.current = true;
+      try {
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } });
+      } finally {
+        applyingExternal.current = false;
+      }
+    }, [content, sourceDocument, externalRevision, collabExtension]);
 
     // Absolutely fill the position:relative wrapper in NoteView.
     // Using position:absolute with inset:0 gives a deterministic height/width

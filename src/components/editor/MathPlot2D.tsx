@@ -3,7 +3,9 @@ import { type MouseEvent, useId, useLayoutEffect, useRef, useState } from 'react
 import * as d3 from 'd3';
 
 import type { MathPlot2DSpec } from './mathPlotSpec';
-import { samplePlot2D } from './mathPlotSpec';
+import type { Sampled2DPlot } from './mathPlotSpec';
+import { usePlotVisibility } from './plotLifecycle';
+import { useMathPlotSamples } from './useMathPlotSamples';
 
 interface MathPlot2DProps {
   spec: MathPlot2DSpec;
@@ -22,6 +24,9 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
   const clipId = useId();
   const plotRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState(FALLBACK_SIZE);
+  const visible = usePlotVisibility(plotRef);
+  const { sampled: result, error } = useMathPlotSamples(spec, visible);
+  const sampled = result as Sampled2DPlot | undefined;
   const margin = { top: 16, right: 24, bottom: 34, left: 44 };
 
   // Track the actual pixel size of the (possibly user-resized) plot area so the
@@ -32,7 +37,11 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
     if (!node) return;
     const measure = (width: number, height: number) => {
       if (width > 0 && height > 0)
-        setSize({ width: Math.round(width), height: Math.round(height) });
+        setSize((previous) =>
+          previous.width === Math.round(width) && previous.height === Math.round(height)
+            ? previous
+            : { width: Math.round(width), height: Math.round(height) },
+        );
     };
     // Seed synchronously to avoid a first-frame aspect flash, then track changes.
     const rect = node.getBoundingClientRect();
@@ -44,17 +53,6 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
     return () => observer.disconnect();
   }, []);
 
-  let sampled;
-  try {
-    sampled = samplePlot2D(spec);
-  } catch (err) {
-    return (
-      <div className="rounded-md border border-destructive/35 bg-destructive/8 px-3 py-2 text-xs text-destructive">
-        Could not render 2D plot: {String(err instanceof Error ? err.message : err)}
-      </div>
-    );
-  }
-
   const { width, height } = size;
   const xScale = d3
     .scaleLinear()
@@ -62,7 +60,10 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
     .range([margin.left, width - margin.right]);
   const yScale = d3
     .scaleLinear()
-    .domain([sampled.yDomain.min, sampled.yDomain.max])
+    .domain([
+      (sampled?.yDomain ?? { min: -1, max: 1 }).min,
+      (sampled?.yDomain ?? { min: -1, max: 1 }).max,
+    ])
     .range([height - margin.bottom, margin.top]);
   const line = d3
     .line<{ x: number; y: number }>()
@@ -71,7 +72,11 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
   const xTicks = xScale.ticks(7);
   const yTicks = yScale.ticks(5);
   const zeroX = spec.x.min <= 0 && spec.x.max >= 0 ? xScale(0) : null;
-  const zeroY = sampled.yDomain.min <= 0 && sampled.yDomain.max >= 0 ? yScale(0) : null;
+  const zeroY =
+    (sampled?.yDomain ?? { min: -1, max: 1 }).min <= 0 &&
+    (sampled?.yDomain ?? { min: -1, max: 1 }).max >= 0
+      ? yScale(0)
+      : null;
 
   const handleClick = onShiftClick
     ? (event: MouseEvent) => {
@@ -99,6 +104,16 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
         className={isModal ? 'h-[540px] w-full' : 'w-full resize-y overflow-hidden rounded-md'}
         style={isModal ? undefined : { height: INLINE_INITIAL_HEIGHT, minHeight: MIN_PLOT_HEIGHT }}
       >
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            Could not render 2D plot: {error}
+          </p>
+        )}
+        {!sampled && !error && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {visible ? 'Sampling plot…' : 'Plot paused outside the viewport'}
+          </p>
+        )}
         <svg
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
@@ -179,7 +194,7 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
             />
           )}
           <g clipPath={`url(#${clipId})`}>
-            {sampled.segments.map((segment, index) => (
+            {(sampled?.segments ?? []).map((segment, index) => (
               <path
                 key={index}
                 d={line(segment) ?? undefined}

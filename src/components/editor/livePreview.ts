@@ -1267,6 +1267,13 @@ export function createLivePreviewPlugin(noteRelativePath: string) {
     },
 
     update(decos, tr) {
+      if (
+        !tr.docChanged &&
+        tr.selection &&
+        tr.startState.doc.lineAt(tr.startState.selection.main.head).number ===
+          tr.state.doc.lineAt(tr.state.selection.main.head).number
+      )
+        return decos;
       if (tr.docChanged || tr.selection) {
         return buildDecorations(tr.state, noteRelativePath);
       }

@@ -170,6 +170,8 @@ export interface DocumentSessionControllerOptions<TDocument> {
   serialize(doc: TDocument): string;
   /** Materialize deferred gesture state at a save boundary. */
   prepareSave?(): void;
+  /** Materialize buffered editor transactions before any persistence/merge boundary. */
+  flushPendingChanges?(): void;
   /** Parse vault content into a document. */
   deserialize(content: string): TDocument;
   /**
@@ -394,6 +396,7 @@ export class DocumentSessionController<TDocument> {
 
   /** Initial reads revalidate a retained session without discarding its edits. */
   initialize(content: string, version: string | null, source: DocumentSource = 'rest'): void {
+    this.flushPendingChanges();
     if (this.currentContent === null) this.load(content, version, source);
     else if (!this.options.isLive?.()) {
       this.replay();
@@ -426,6 +429,7 @@ export class DocumentSessionController<TDocument> {
   }
 
   replay(): void {
+    this.flushPendingChanges();
     if (this.options.isLive?.() || this.currentContent === null || this.currentDocument === null)
       return;
     this.options.applyDocument({
@@ -448,6 +452,7 @@ export class DocumentSessionController<TDocument> {
     const nextContent = this.options.serialize(doc);
     if (nextContent !== this.currentContent) this.offlineQueued = false;
     this.currentContent = nextContent;
+    if (this.conflict) this.conflict = { ...this.conflict, ourContent: nextContent };
     this.dirty =
       this.lastSavedContent === null
         ? true
@@ -481,6 +486,7 @@ export class DocumentSessionController<TDocument> {
   }
 
   requestSave(_reason: SaveReason = 'manual'): Promise<void> {
+    this.flushPendingChanges();
     if (this.conflicted) return Promise.resolve();
     // Live sessions persist through the server relay; the REST write path is
     // disabled so it never races the CRDT materialization with a stale version.
@@ -499,6 +505,10 @@ export class DocumentSessionController<TDocument> {
     return this.runner.run(() => this.performSave());
   }
 
+  flushPendingChanges(): void {
+    this.options.flushPendingChanges?.();
+  }
+
   private async performSave(): Promise<void> {
     const content = this.currentContent;
     if (content === null || this.conflicted) return;
@@ -510,8 +520,9 @@ export class DocumentSessionController<TDocument> {
       baseContent: base,
     });
 
+    this.flushPendingChanges();
     if (outcome.conflict) {
-      this.setConflict(outcome.conflict, content);
+      this.setConflict(outcome.conflict, this.currentContent ?? content);
       return;
     }
 
@@ -577,6 +588,7 @@ export class DocumentSessionController<TDocument> {
    * - dirty document → `queued` as pending remote (merge UX is Phase 3).
    */
   handleRemoteCandidate(candidate: RemoteCandidate<TDocument>): RemoteDecision {
+    this.flushPendingChanges();
     if (candidate.source !== 'live' && this.options.isLive?.()) return 'ignored';
 
     // Live seeds/updates are authoritative for their document and bypass the
@@ -663,6 +675,7 @@ export class DocumentSessionController<TDocument> {
 
   /** Forcefully applies the queued pending remote, discarding local edits. */
   applyRemoteNow(): void {
+    this.flushPendingChanges();
     if (!this.pendingRemote) return;
     const candidate = this.pendingRemote;
     this.pendingRemote = null;
@@ -681,6 +694,7 @@ export class DocumentSessionController<TDocument> {
    * a conflict or a queued pending-remote is currently active.
    */
   getReconciliation(): Reconciliation | null {
+    this.flushPendingChanges();
     return deriveReconciliation(this.getSnapshot());
   }
 
@@ -705,6 +719,7 @@ export class DocumentSessionController<TDocument> {
    * hard-conflict on the next autosave.
    */
   keepMine(): void {
+    this.flushPendingChanges();
     if (this.conflict) {
       this.resolveConflict('keep-local');
       return;
@@ -774,6 +789,7 @@ export class DocumentSessionController<TDocument> {
 
   /** Resolves an active conflict (or a pending remote) per the user's choice. */
   resolveConflict(choice: ConflictChoice): void {
+    this.flushPendingChanges();
     const conflict = this.conflict;
     if (!conflict) return;
     if (choice === 'load-remote') {
@@ -831,6 +847,7 @@ export class DocumentSessionController<TDocument> {
 
   /** Cancels pending timers. Call on unmount. */
   dispose(): void {
+    this.flushPendingChanges();
     this.leaveBarriers.clear();
     this.clearAutosave();
     this.listeners.clear();
@@ -941,6 +958,7 @@ export function useDocumentSessionController<TDocument>(
       write: (args) => optionsRef.current.write(args),
       serialize: (doc) => optionsRef.current.serialize(doc),
       prepareSave: () => optionsRef.current.prepareSave?.(),
+      flushPendingChanges: () => optionsRef.current.flushPendingChanges?.(),
       deserialize: (content) => optionsRef.current.deserialize(content),
       applyDocument: (candidate) => optionsRef.current.applyDocument(candidate),
       read: () => (optionsRef.current.read ? optionsRef.current.read() : Promise.resolve(null)),
@@ -977,6 +995,7 @@ export function useDocumentSessionController<TDocument>(
     });
     return () => {
       attached = false;
+      controller.flushPendingChanges();
       if (identity) documentSessionRetention.put(identity, controller.getSnapshot(), epoch.current);
       controller.dispose();
     };
