@@ -308,9 +308,9 @@ swaps also replayed a fade from transparent. Remote-refresh classes could replac
 the document entrance animation and restart it when the refresh pulse ended.
 
 Removed those routine-content entrances, including nested folder/tag rows and
-search results; removed the now-unused view/sidebar/document keyframes. Floating
-modal/menu motion, hover/selection transitions and non-blanking refresh pulses
-remain. Document/vault/pane keys and save/session boundaries remain unchanged.
+search results; removed the now-unused view/sidebar/document keyframes. Menu
+motion, hover/selection transitions and non-blanking refresh pulses remain.
+Document/vault/pane keys and save/session boundaries remain unchanged.
 
 The same Chromium interaction check recorded minimum effective opacity **0**
 before and **1** after for folder expansion, view switching and settings-category
@@ -320,6 +320,18 @@ WebKitGTK 2.54.1 also held effective opacity at **1** for all 30 frame samples p
 action (software rendering, synthetic IPC). Installed compositor,
 font-loading and physical platform acceptance remain distinct from this rendered
 synthetic-IPC result.
+
+Modal follow-up **2026-10-20**: the user confirmed routine flicker is mostly
+gone, but opening settings/math/table builders still flashes. Rendered checks
+reproduced zero opacity on all three shared dialogs. Settings additionally used
+its own fade, with cold imports animating a loading dialog before the full window.
+Shared dialog/backdrop fades and scale animations, plus Settings’ extra entrance,
+are removed. Cold/repeated Chromium openings now remain at opacity **1**, with no
+entrance animations or runtime errors; Escape dismisses all three. Offscreen
+Linux WebKitGTK **2.54.1** likewise held opacity at **1** across 45 sampled frames
+per opening (both dialog and overlay), with working close buttons. These checks
+use synthetic IPC/software rendering; installed native compositor confirmation
+remains open.
 
 ## Follow-Up Order And Validation Boundary
 

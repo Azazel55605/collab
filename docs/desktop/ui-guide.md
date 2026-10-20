@@ -241,8 +241,10 @@ For canvas-like or graph-like interactions:
   panels/settings categories and switching document views must not fade the new
   content from zero opacity or stack parent/child entrance animations. Keep
   document keys for correct session ownership; do not fix flashes by reusing an
-  editor across different documents. Reserve entrance motion for floating
-  surfaces, and use hover/selection/geometry transitions for routine navigation.
+  editor across different documents. Use hover/selection/geometry transitions
+  for routine navigation. Dialogs and their backdrops appear fully opaque; do not
+  add entrance/exit fades or scale animations to modal surfaces, including
+  deferred loading dialogs. Menus may retain entrance motion.
 - A transient refresh indicator must not replace a document entrance animation
   and restart that entrance when the indicator clears.
 - Good motion includes:
