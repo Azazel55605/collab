@@ -63,6 +63,17 @@ export default function SettingsGeneralSection({
         />
       </OptionRow>
 
+      <OptionRow
+        label="Hover previews for links"
+        description="Preview linked vault files and, when web previews are enabled, websites"
+      >
+        <ToggleSwitch
+          checked={hoverWebLinkPreviewsEnabled}
+          onToggle={() => setHoverWebLinkPreviewsEnabled(!hoverWebLinkPreviewsEnabled)}
+          animated
+        />
+      </OptionRow>
+
       <div className="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
         Web previews
       </div>
@@ -73,19 +84,6 @@ export default function SettingsGeneralSection({
         <ToggleSwitch
           checked={webPreviewsEnabled}
           onToggle={() => setWebPreviewsEnabled(!webPreviewsEnabled)}
-          animated
-        />
-      </OptionRow>
-
-      <OptionRow
-        label="Hover previews for links"
-        description="Show a small website preview below external links when hovering over them"
-        disabled={!webPreviewsEnabled}
-      >
-        <ToggleSwitch
-          checked={hoverWebLinkPreviewsEnabled}
-          onToggle={() => setHoverWebLinkPreviewsEnabled(!hoverWebLinkPreviewsEnabled)}
-          disabled={!webPreviewsEnabled}
           animated
         />
       </OptionRow>

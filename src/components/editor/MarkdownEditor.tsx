@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 
 import { createPortal } from 'react-dom';
 
@@ -11,8 +11,8 @@ import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import type { EditorToolbarAction } from '../../lib/editorToolbarActions';
 import { getMarkdownImageTarget } from '../../lib/noteAssets';
 import { EDITOR_FONTS, useUiStore } from '../../store/uiStore';
-import { PdfLinkPreviewPopover } from '../previews/PdfLinkPreviewPopover';
-import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
+import { MarkdownLinkPreviews } from '../previews/MarkdownLinkPreviews';
+import { useMarkdownLinkPreviews } from '../previews/useMarkdownLinkPreviews';
 
 import { type ParsedCodeBlockAtCursor, parseFenceInfoLanguage } from './codeBlockUtils';
 import { createColorPreviewExtension } from './colorPreview';
@@ -405,9 +405,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const [editorView, setEditorView] = useState<EditorView | null>(null);
-    const [hoveredUrl, setHoveredUrl] = useState<string | null>(null);
-    const [hoveredPdfRelativePath, setHoveredPdfRelativePath] = useState<string | null>(null);
-    const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+    const linkPreviews = useMarkdownLinkPreviews(relativePath);
+    const buildRelativeImageMarkdown = useCallback(
+      (path: string) => buildImageMarkdown(path, relativePath),
+      [relativePath],
+    );
     const [mathSolverAction, setMathSolverAction] = useState<MathSolverActionState | null>(null);
     const contentRef = useRef(content);
     const onChangeRef = useRef(onChange);
@@ -426,8 +428,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       colorPreviewShowSwatch,
       colorPreviewTintText,
       colorPreviewFormats,
-      webPreviewsEnabled,
-      hoverWebLinkPreviewsEnabled,
     } = useUiStore();
     const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
 
@@ -437,14 +437,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     useMarkdownEditorIntegrations({
       view: editorView,
-      webPreviewsEnabled,
-      hoverWebLinkPreviewsEnabled,
-      setHoveredUrl,
-      setHoveredPdfRelativePath,
-      setHoverRect,
+      onPreviewHover: linkPreviews.move,
+      onPreviewLeave: linkPreviews.clear,
       getDroppedFilePaths,
       isImageLikePath,
-      buildImageMarkdown: (nextRelativePath) => buildImageMarkdown(nextRelativePath, relativePath),
+      buildImageMarkdown: buildRelativeImageMarkdown,
       currentDocumentRelativePath: relativePath,
       readOnly,
     });
@@ -723,16 +720,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     return (
       <>
         <MarkdownEditorContextMenu containerRef={containerRef} viewRef={viewRef} />
-        <WebLinkPreviewPopover
-          anchorRect={hoverRect}
-          url={hoveredUrl}
-          enabled={webPreviewsEnabled && hoverWebLinkPreviewsEnabled}
-        />
-        <PdfLinkPreviewPopover
-          anchorRect={hoverRect}
-          relativePath={hoveredPdfRelativePath}
-          enabled={hoverWebLinkPreviewsEnabled}
-        />
+        <MarkdownLinkPreviews preview={linkPreviews.preview} />
         <MathSolverActionPopover
           action={mathSolverAction}
           onSelect={applyMathSolverAction}

@@ -468,7 +468,7 @@ missing a control, add it there using the interaction and theming rules in
 | `components/editor/MarkdownEditor.tsx`               | CodeMirror 6 wrapper                                                                                                                                                                                    | content, onChange, onSave, relativePath                                           | — (CodeMirror only)     |
 | `components/editor/EditorToolbar.tsx`                | Format buttons, footnote/callout insertion, and note snippet management entry points                                                                                                                    | editorRef (MarkdownEditorHandle)                                                  | Tooltip, Button, Dialog |
 | `components/editor/MarkdownPreview.tsx`              | Rendered markdown panel, including async Mermaid diagrams                                                                                                                                               | content, relativePath                                                             | — (markdown-it + hljs)  |
-| `components/editor/livePreview.ts`                   | CodeMirror ViewPlugin for inline markdown decorations and Mermaid code-block widgets                                                                                                                    | —                                                                                 | —                       |
+| `components/editor/livePreview.ts`                   | CodeMirror ViewPlugin for inline Markdown decorations and naturally sized code/Mermaid widgets                                                                                                          | —                                                                                 | —                       |
 | `components/editor/colorPreview.ts`                  | Inline editor color preview plugin helpers for swatches, tinting, and match parsing                                                                                                                     | CodeMirror decorations, uiStore color formats                                     | —                       |
 | `components/editor/indentationPlugins.ts`            | Editor indent visualization, ASCII ligature plugins, and Tab-key indentation helpers                                                                                                                    | CodeMirror decorations, indentation facets                                        | —                       |
 | `components/editor/noteAuthoring.ts`                 | Shared note-authoring helpers for callout snippets, footnotes, references sections, and slash-trigger context detection                                                                                 | CodeMirror view/state helpers                                                     |
@@ -482,7 +482,7 @@ missing a control, add it there using the interaction and theming rules in
 | `components/editor/markdownEditorViewConfig.ts`      | CodeMirror compartment setup, reconfigure effect builders, wiki autocomplete override, and editor-state construction helpers                                                                            | CodeMirror state/extensions, note index store                                     | —                       |
 | `components/editor/markdownEditorTheme.ts`           | Shared Markdown editor theme and syntax highlight style builders used by the main editor and code-block dialog                                                                                          | CodeMirror theme/highlight extensions                                             | —                       |
 | `components/editor/useMarkdownEditorIntegrations.ts` | Shared Markdown editor drop/import, native drag-drop bridge, and hover preview integration hook plus testable helper utilities                                                                          | React hooks, Tauri drag-drop events, vault import wrappers                        |
-| `components/previews/PdfLinkPreviewPopover.tsx`      | Lightweight hover preview popover for vault-linked PDFs in the editor                                                                                                                                   | pdfjs-dist, Tauri asset reads                                                     |
+| `components/previews/MarkdownLinkPreviews.tsx`       | Shared Markdown hover state and web/file preview routing in edit and read modes                                                                                                                         | shared file/web preview components                                                |
 | `components/pdf/PdfSendTargetDialog.tsx`             | Reusable choose-target dialog for sending PDF quotes and snapshots into notes or the current canvas                                                                                                     | Dialog, Button                                                                    |
 | `components/editor/useMarkdownEditorHandle.ts`       | Shared Markdown editor imperative handle hook and editing helpers for wrap/line/snippet/range mutations                                                                                                 | React imperative handle, CodeMirror selection mutations                           |
 | `components/editor/MarkdownEditorContextMenu.tsx`    | Shared Markdown editor context-menu component and clipboard/formatting helpers for cut/copy/paste/select-all and inline formatting actions                                                              | Context menu primitives, clipboard integration                                    |
@@ -806,14 +806,25 @@ only the relations editor.
 
 ### Previews
 
-All three take an `anchorRect: DOMRect | null` plus a target path/URL and render
-a positioned popover.
+`MarkdownLinkPreviews` and `useMarkdownLinkPreviews` share hover handling across
+editor and reading mode. The hook
+resolves only existing vault files via `lib/markdownLinkPreview.ts` and classifies
+formats through the IO-free `lib/filePreviewType.ts`. The file-tree renderer
+accepts an `anchorRect`, target and side/below placement; it delays reads by
+180 ms and uses the existing native/server preview caches and queues. Moving
+within one link does not restart the delay; leaving, scrolling, resizing or
+switching vault/document clears the hover. Started reads retain the existing
+ignore-stale-result behavior; native cancellation remains O41 work.
 
-| File                                                  | Purpose                                  |
-| ----------------------------------------------------- | ---------------------------------------- |
-| `components/previews/FileTreeHoverPreviewPopover.tsx` | Hover preview for file-tree entries      |
-| `components/previews/PdfLinkPreviewPopover.tsx`       | Preview for links pointing at vault PDFs |
-| `components/previews/WebLinkPreviewPopover.tsx`       | Preview for external web links           |
+The persisted `hoverWebLinkPreviewsEnabled` key now controls both file and website
+link hovers. `webPreviewsEnabled` still gates website fetches independently, so
+vault-file previews work with web fetching disabled. Embedded images are unchanged.
+
+| File                                                  | Purpose                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `components/previews/FileTreeHoverPreviewPopover.tsx` | Shared delayed preview for file-tree entries and Markdown file links |
+| `components/previews/MarkdownLinkPreviews.tsx`        | Markdown link hovers via shared file/web renderers                   |
+| `components/previews/WebLinkPreviewPopover.tsx`       | Preview for external web links                                       |
 
 ### Other
 
@@ -1678,7 +1689,7 @@ How features map to source files:
 | Note editing                               | `views/NoteView.tsx`, `components/editor/MarkdownEditor.tsx`, `components/editor/livePreview.ts`, `components/editor/slashCommands.ts`, `components/editor/snippetEngine.ts`, `components/editor/mathBlockCommands.ts`, `components/editor/mathSolver.ts`, `components/editor/mathPlotSpec.ts`, `components/editor/MathPlot2D.tsx`, `components/editor/MathPlot3D.tsx` |
 | Note snippets                              | `components/editor/NoteSnippetsDialog.tsx`, `store/noteSnippetStore.ts`, `commands/templates.rs`                                                                                                                                                                                                                                                                       |
 | Footnotes / references helpers             | `components/editor/noteAuthoring.ts`, `components/editor/useMarkdownEditorHandle.ts`, `components/editor/slashCommands.ts`                                                                                                                                                                                                                                             |
-| Vault file linking in notes                | `lib/vaultLinks.ts`, `components/editor/slashCommands.ts`, `components/editor/useMarkdownEditorIntegrations.ts`, `components/previews/PdfLinkPreviewPopover.tsx`                                                                                                                                                                                                       |
+| Vault file linking in notes                | `lib/vaultLinks.ts`, `components/editor/slashCommands.ts`, `components/editor/useMarkdownEditorIntegrations.ts`, `components/previews/MarkdownLinkPreviews.tsx`                                                                                                                                                                                                        |
 | PDF workspace tooling                      | `views/PdfView.tsx`, `components/pdf/PdfSendTargetDialog.tsx`, `lib/pdfWorkspace.ts`, `types/pdf.ts`, `commands/files.rs`                                                                                                                                                                                                                                              |
 | Code block syntax highlighting             | `MarkdownEditor.tsx` (codeLanguages: languages from @codemirror/language-data)                                                                                                                                                                                                                                                                                         |
 | Markdown preview                           | `components/editor/MarkdownPreview.tsx` (markdown-it + highlight.js + KaTeX), `lib/mermaidRenderer.ts` (shared lazy Mermaid SVG rendering for desktop and mobile)                                                                                                                                                                                                      |

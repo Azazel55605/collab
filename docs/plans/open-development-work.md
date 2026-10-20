@@ -119,6 +119,13 @@ Settings’ extra entrance after user confirmation of remaining modal flashes.
 Chromium and offscreen Linux WebKitGTK keep the changed content opaque; installed compositor/user confirmation remains open. See the
 [implementation tracker](./desktop-audit-fixes.md#ui-flicker-follow-up--ur15).
 
+The **Markdown follow-up UR16–UR18 (2026-10-20)** bounds math/merge dialogs,
+removes growing blank code-block space, and reuses file-tree previews for file
+links in Markdown editing/reading views. Repository and rendered Chromium/WebKit
+checks pass; installed native acceptance remains open in the
+[implementation tracker](./desktop-audit-fixes.md#markdown-layout-and-file-link-previews--ur16ur18).
+O29–O36 and the broader preview performance findings retain their existing status.
+
 ### Web Interface Performance And Correctness Audit
 
 Reviewed separately on **2026-10-14**. The

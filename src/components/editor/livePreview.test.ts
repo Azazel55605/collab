@@ -142,6 +142,31 @@ describe('livePreview task checkbox toggles', () => {
     expect(marks).toContain('cm-lp-icode');
   });
 
+  it('preserves leading/trailing blank code lines when entering and leaving a fence', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const doc = ['Cursor stays here.', '', '```', '', '', 'code', '', '```'].join('\n');
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: { anchor: 0 },
+        extensions: [createLivePreviewPlugin('Note.md')],
+      }),
+      parent,
+    });
+    try {
+      expect(parent.querySelector('.cm-lp-code-block code')?.textContent).toBe('\n\ncode\n');
+      view.dispatch({ selection: { anchor: doc.indexOf('code') } });
+      expect(parent.querySelector('.cm-lp-code-block')).toBeNull();
+      view.dispatch({ selection: { anchor: 0 } });
+      expect(parent.querySelector('.cm-lp-code-block code')?.textContent).toBe('\n\ncode\n');
+      expect(view.state.doc.toString()).toBe(doc);
+    } finally {
+      view.destroy();
+      parent.remove();
+    }
+  });
+
   it('renders an unfocused Mermaid fence as an inline diagram widget', async () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);

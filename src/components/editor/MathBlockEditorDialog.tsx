@@ -594,8 +594,8 @@ export function MathBlockEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-7xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="border-b border-border/40 px-5 py-4">
+      <DialogContent className="flex w-[calc(100%-2rem)] h-[min(850px,calc(100dvh-2rem))] flex-col sm:max-w-7xl p-0 gap-0 overflow-hidden">
+        <DialogHeader className="shrink-0 border-b border-border/40 px-5 py-4">
           <DialogTitle className="flex items-center gap-2">
             <Calculator size={16} />
             {mode === 'edit' ? 'Edit math block' : 'Insert math block'}
@@ -606,538 +606,553 @@ export function MathBlockEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-[70vh] gap-0 lg:grid-cols-[380px_minmax(0,1fr)]">
-          <div className="border-b border-border/30 lg:border-b-0 lg:border-r">
-            <Tabs defaultValue="templates" className="h-full">
-              <div className="border-b border-border/30 px-5 py-3">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="templates">Templates</TabsTrigger>
-                  <TabsTrigger value="symbols">Symbols</TabsTrigger>
-                </TabsList>
-              </div>
+        <ScrollArea className="min-h-0 flex-1 overflow-hidden [&>[data-slot=scroll-area-viewport]>div]:block!">
+          <div className="grid gap-0 lg:grid-cols-[380px_minmax(0,1fr)]">
+            <div className="border-b border-border/30 lg:border-b-0 lg:border-r">
+              <Tabs defaultValue="templates" className="h-full">
+                <div className="border-b border-border/30 px-5 py-3">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="templates">Templates</TabsTrigger>
+                    <TabsTrigger value="symbols">Symbols</TabsTrigger>
+                  </TabsList>
+                </div>
 
-              <TabsContent value="templates" className="h-[calc(70vh-57px)]">
-                <ScrollArea className="h-full">
-                  <div className="space-y-5 px-5 py-4">
-                    <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <Superscript size={15} />
-                        Scripts
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Base</span>
-                          <Input
-                            value={drafts.script.base}
-                            onChange={(event) =>
-                              updateDraft('script', { ...drafts.script, base: event.target.value })
-                            }
-                            placeholder="x"
-                          />
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Superscript</span>
-                          <Input
-                            value={drafts.script.superscript}
-                            onChange={(event) =>
-                              updateDraft('script', {
-                                ...drafts.script,
-                                superscript: event.target.value,
-                              })
-                            }
-                            placeholder="2"
-                          />
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Subscript</span>
-                          <Input
-                            value={drafts.script.subscript}
-                            onChange={(event) =>
-                              updateDraft('script', {
-                                ...drafts.script,
-                                subscript: event.target.value,
-                              })
-                            }
-                            placeholder="i"
-                          />
-                        </label>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={commonButtonClass}
-                        onClick={() => insertSnippet(buildScriptSnippet(drafts.script))}
-                      >
-                        Insert script
-                      </Button>
-                    </section>
+                <TabsContent value="templates" className="h-[calc(70vh-57px)]">
+                  <ScrollArea className="h-full">
+                    <div className="space-y-5 px-5 py-4">
+                      <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Superscript size={15} />
+                          Scripts
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Base</span>
+                            <Input
+                              value={drafts.script.base}
+                              onChange={(event) =>
+                                updateDraft('script', {
+                                  ...drafts.script,
+                                  base: event.target.value,
+                                })
+                              }
+                              placeholder="x"
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Superscript</span>
+                            <Input
+                              value={drafts.script.superscript}
+                              onChange={(event) =>
+                                updateDraft('script', {
+                                  ...drafts.script,
+                                  superscript: event.target.value,
+                                })
+                              }
+                              placeholder="2"
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Subscript</span>
+                            <Input
+                              value={drafts.script.subscript}
+                              onChange={(event) =>
+                                updateDraft('script', {
+                                  ...drafts.script,
+                                  subscript: event.target.value,
+                                })
+                              }
+                              placeholder="i"
+                            />
+                          </label>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={commonButtonClass}
+                          onClick={() => insertSnippet(buildScriptSnippet(drafts.script))}
+                        >
+                          Insert script
+                        </Button>
+                      </section>
 
-                    <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <FunctionSquare size={15} />
-                        Fraction
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Numerator</span>
-                          <Input
-                            value={drafts.fraction.numerator}
-                            onChange={(event) =>
-                              updateDraft('fraction', {
-                                ...drafts.fraction,
-                                numerator: event.target.value,
-                              })
-                            }
-                            placeholder="a+b"
-                          />
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Denominator</span>
-                          <Input
-                            value={drafts.fraction.denominator}
-                            onChange={(event) =>
-                              updateDraft('fraction', {
-                                ...drafts.fraction,
-                                denominator: event.target.value,
-                              })
-                            }
-                            placeholder="c+d"
-                          />
-                        </label>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={commonButtonClass}
-                        onClick={() => insertSnippet(buildFractionSnippet(drafts.fraction))}
-                      >
-                        Insert fraction
-                      </Button>
-                    </section>
+                      <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <FunctionSquare size={15} />
+                          Fraction
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Numerator</span>
+                            <Input
+                              value={drafts.fraction.numerator}
+                              onChange={(event) =>
+                                updateDraft('fraction', {
+                                  ...drafts.fraction,
+                                  numerator: event.target.value,
+                                })
+                              }
+                              placeholder="a+b"
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Denominator</span>
+                            <Input
+                              value={drafts.fraction.denominator}
+                              onChange={(event) =>
+                                updateDraft('fraction', {
+                                  ...drafts.fraction,
+                                  denominator: event.target.value,
+                                })
+                              }
+                              placeholder="c+d"
+                            />
+                          </label>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={commonButtonClass}
+                          onClick={() => insertSnippet(buildFractionSnippet(drafts.fraction))}
+                        >
+                          Insert fraction
+                        </Button>
+                      </section>
 
-                    <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <SquareRadical size={15} />
-                        Root
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <SquareRadical size={15} />
+                          Root
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Degree</span>
+                            <Input
+                              value={drafts.root.degree}
+                              onChange={(event) =>
+                                updateDraft('root', { ...drafts.root, degree: event.target.value })
+                              }
+                              placeholder="3"
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Radicand</span>
+                            <Input
+                              value={drafts.root.radicand}
+                              onChange={(event) =>
+                                updateDraft('root', {
+                                  ...drafts.root,
+                                  radicand: event.target.value,
+                                })
+                              }
+                              placeholder="x+1"
+                            />
+                          </label>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={commonButtonClass}
+                          onClick={() => insertSnippet(buildRootSnippet(drafts.root))}
+                        >
+                          Insert root
+                        </Button>
+                      </section>
+
+                      <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Sigma size={15} />
+                          Sum / Product
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Operator</span>
+                            <Select
+                              value={drafts.operator.kind}
+                              onValueChange={(value) =>
+                                updateDraft('operator', {
+                                  ...drafts.operator,
+                                  kind: value as OperatorKind,
+                                })
+                              }
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="sum">Summation</SelectItem>
+                                <SelectItem value="prod">Product</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Index</span>
+                            <Input
+                              value={drafts.operator.index}
+                              onChange={(event) =>
+                                updateDraft('operator', {
+                                  ...drafts.operator,
+                                  index: event.target.value,
+                                })
+                              }
+                              placeholder="i"
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">From</span>
+                            <Input
+                              value={drafts.operator.lower}
+                              onChange={(event) =>
+                                updateDraft('operator', {
+                                  ...drafts.operator,
+                                  lower: event.target.value,
+                                })
+                              }
+                              placeholder="1"
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">To</span>
+                            <Input
+                              value={drafts.operator.upper}
+                              onChange={(event) =>
+                                updateDraft('operator', {
+                                  ...drafts.operator,
+                                  upper: event.target.value,
+                                })
+                              }
+                              placeholder="n"
+                            />
+                          </label>
+                        </div>
                         <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Degree</span>
+                          <span className="text-xs text-muted-foreground">Body</span>
                           <Input
-                            value={drafts.root.degree}
+                            value={drafts.operator.body}
                             onChange={(event) =>
-                              updateDraft('root', { ...drafts.root, degree: event.target.value })
+                              updateDraft('operator', {
+                                ...drafts.operator,
+                                body: event.target.value,
+                              })
                             }
-                            placeholder="3"
+                            placeholder="a_i"
                           />
                         </label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={commonButtonClass}
+                          onClick={() => insertSnippet(buildOperatorSnippet(drafts.operator))}
+                        >
+                          Insert operator
+                        </Button>
+                      </section>
+
+                      <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Braces size={15} />
+                          Brackets
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Left</span>
+                            <Select
+                              value={drafts.bracket.left}
+                              onValueChange={(value) =>
+                                updateDraft('bracket', {
+                                  ...drafts.bracket,
+                                  left: value as BracketSide,
+                                })
+                              }
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="(">( )</SelectItem>
+                                <SelectItem value="[">[ ]</SelectItem>
+                                <SelectItem value="\\{">{`{ }`}</SelectItem>
+                                <SelectItem value="|">| |</SelectItem>
+                                <SelectItem value="\\langle">〈 〉</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">Right</span>
+                            <Select
+                              value={drafts.bracket.right}
+                              onValueChange={(value) =>
+                                updateDraft('bracket', {
+                                  ...drafts.bracket,
+                                  right: value as RightBracketSide,
+                                })
+                              }
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value=")">)</SelectItem>
+                                <SelectItem value="]">]</SelectItem>
+                                <SelectItem value="\\}">{`}`}</SelectItem>
+                                <SelectItem value="|">|</SelectItem>
+                                <SelectItem value="\\rangle">〉</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </label>
+                        </div>
                         <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Radicand</span>
+                          <span className="text-xs text-muted-foreground">Content</span>
                           <Input
-                            value={drafts.root.radicand}
+                            value={drafts.bracket.content}
                             onChange={(event) =>
-                              updateDraft('root', { ...drafts.root, radicand: event.target.value })
+                              updateDraft('bracket', {
+                                ...drafts.bracket,
+                                content: event.target.value,
+                              })
                             }
                             placeholder="x+1"
                           />
                         </label>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={commonButtonClass}
-                        onClick={() => insertSnippet(buildRootSnippet(drafts.root))}
-                      >
-                        Insert root
-                      </Button>
-                    </section>
-
-                    <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <Sigma size={15} />
-                        Sum / Product
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Operator</span>
-                          <Select
-                            value={drafts.operator.kind}
-                            onValueChange={(value) =>
-                              updateDraft('operator', {
-                                ...drafts.operator,
-                                kind: value as OperatorKind,
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="sum">Summation</SelectItem>
-                              <SelectItem value="prod">Product</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Index</span>
-                          <Input
-                            value={drafts.operator.index}
-                            onChange={(event) =>
-                              updateDraft('operator', {
-                                ...drafts.operator,
-                                index: event.target.value,
-                              })
-                            }
-                            placeholder="i"
-                          />
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">From</span>
-                          <Input
-                            value={drafts.operator.lower}
-                            onChange={(event) =>
-                              updateDraft('operator', {
-                                ...drafts.operator,
-                                lower: event.target.value,
-                              })
-                            }
-                            placeholder="1"
-                          />
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">To</span>
-                          <Input
-                            value={drafts.operator.upper}
-                            onChange={(event) =>
-                              updateDraft('operator', {
-                                ...drafts.operator,
-                                upper: event.target.value,
-                              })
-                            }
-                            placeholder="n"
-                          />
-                        </label>
-                      </div>
-                      <label className="space-y-1.5">
-                        <span className="text-xs text-muted-foreground">Body</span>
-                        <Input
-                          value={drafts.operator.body}
-                          onChange={(event) =>
-                            updateDraft('operator', {
-                              ...drafts.operator,
-                              body: event.target.value,
-                            })
-                          }
-                          placeholder="a_i"
-                        />
-                      </label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={commonButtonClass}
-                        onClick={() => insertSnippet(buildOperatorSnippet(drafts.operator))}
-                      >
-                        Insert operator
-                      </Button>
-                    </section>
-
-                    <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <Braces size={15} />
-                        Brackets
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Left</span>
-                          <Select
-                            value={drafts.bracket.left}
-                            onValueChange={(value) =>
-                              updateDraft('bracket', {
-                                ...drafts.bracket,
-                                left: value as BracketSide,
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="(">( )</SelectItem>
-                              <SelectItem value="[">[ ]</SelectItem>
-                              <SelectItem value="\\{">{`{ }`}</SelectItem>
-                              <SelectItem value="|">| |</SelectItem>
-                              <SelectItem value="\\langle">〈 〉</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">Right</span>
-                          <Select
-                            value={drafts.bracket.right}
-                            onValueChange={(value) =>
-                              updateDraft('bracket', {
-                                ...drafts.bracket,
-                                right: value as RightBracketSide,
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value=")">)</SelectItem>
-                              <SelectItem value="]">]</SelectItem>
-                              <SelectItem value="\\}">{`}`}</SelectItem>
-                              <SelectItem value="|">|</SelectItem>
-                              <SelectItem value="\\rangle">〉</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </label>
-                      </div>
-                      <label className="space-y-1.5">
-                        <span className="text-xs text-muted-foreground">Content</span>
-                        <Input
-                          value={drafts.bracket.content}
-                          onChange={(event) =>
-                            updateDraft('bracket', {
-                              ...drafts.bracket,
-                              content: event.target.value,
-                            })
-                          }
-                          placeholder="x+1"
-                        />
-                      </label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={commonButtonClass}
-                        onClick={() => insertSnippet(buildBracketSnippet(drafts.bracket))}
-                      >
-                        Insert brackets
-                      </Button>
-                    </section>
-
-                    <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <Grid2x2 size={15} />
-                        Matrix
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Select
-                          value={drafts.matrix.environment}
-                          onValueChange={(value) =>
-                            updateDraft('matrix', {
-                              ...drafts.matrix,
-                              environment: value as MatrixEnvironment,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="w-[160px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="bmatrix">[ ] matrix</SelectItem>
-                            <SelectItem value="pmatrix">( ) matrix</SelectItem>
-                            <SelectItem value="vmatrix">| | matrix</SelectItem>
-                            <SelectItem value="Bmatrix">{`{ } matrix`}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button type="button" variant="outline" size="sm" onClick={addMatrixColumn}>
-                          <Plus size={13} />
-                          Column
-                        </Button>
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm"
-                          onClick={removeMatrixColumn}
-                          disabled={matrixCols <= 1}
+                          className={commonButtonClass}
+                          onClick={() => insertSnippet(buildBracketSnippet(drafts.bracket))}
                         >
-                          <Minus size={13} />
-                          Column
+                          Insert brackets
                         </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={addMatrixRow}>
-                          <Plus size={13} />
-                          Row
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={removeMatrixRow}
-                          disabled={matrixRows <= 1}
-                        >
-                          <Minus size={13} />
-                          Row
-                        </Button>
-                      </div>
-                      <div
-                        className="grid gap-2"
-                        style={{
-                          gridTemplateColumns: `repeat(${Math.max(matrixCols, 1)}, minmax(0, 1fr))`,
-                        }}
-                      >
-                        {drafts.matrix.rows.reduce<React.ReactNode[]>((cells, row, rowIndex) => {
-                          row.forEach((cell, colIndex) => {
-                            cells.push(
-                              <Input
-                                key={`matrix-${rowIndex}-${colIndex}`}
-                                value={cell}
-                                onChange={(event) =>
-                                  updateMatrixCell(rowIndex, colIndex, event.target.value)
-                                }
-                                placeholder={`${rowIndex + 1},${colIndex + 1}`}
-                              />,
-                            );
-                          });
-                          return cells;
-                        }, [])}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={commonButtonClass}
-                        onClick={() => insertSnippet(buildMatrixSnippet(drafts.matrix))}
-                      >
-                        Insert matrix
-                      </Button>
-                    </section>
-                  </div>
-                </ScrollArea>
-              </TabsContent>
+                      </section>
 
-              <TabsContent value="symbols" className="h-[calc(70vh-57px)]">
-                <ScrollArea className="h-full">
-                  <div className="space-y-5 px-5 py-4">
-                    <SymbolGrid title="Greek" items={GREEK_SYMBOLS} onInsert={insertSnippet} />
-                    <Separator />
-                    <SymbolGrid
-                      title="Relations"
-                      items={RELATION_SYMBOLS}
-                      onInsert={insertSnippet}
-                    />
-                    <Separator />
-                    <SymbolGrid
-                      title="Operators"
-                      items={OPERATOR_SYMBOLS}
-                      onInsert={insertSnippet}
-                    />
-                    <Separator />
-                    <SymbolGrid
-                      title="Functions"
-                      items={FUNCTION_SYMBOLS}
-                      onInsert={insertSnippet}
-                    />
-                  </div>
-                </ScrollArea>
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          <div className="flex min-h-0 flex-col">
-            <div className="border-b border-border/30 px-5 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => insertSnippet('\\frac{<selection>}{<cursor>}')}
-                >
-                  Fraction from selection
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => insertSnippet('^{<cursor>}')}
-                >
-                  Superscript
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => insertSnippet('_{<cursor>}')}
-                >
-                  Subscript
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => insertSnippet('\\sqrt{<selection>}<cursor>')}
-                >
-                  Root from selection
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="ml-auto"
-                  onClick={syncDraftsFromSource}
-                >
-                  Refresh builders from source
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="border-b border-border/30 xl:border-b-0 xl:border-r">
-                <div className="flex items-center justify-between border-b border-border/30 px-5 py-3">
-                  <div>
-                    <div className="text-sm font-medium">Preview</div>
-                    <div className="text-xs text-muted-foreground">
-                      KaTeX rendering of the current block source.
-                    </div>
-                  </div>
-                </div>
-                <ScrollArea className="h-[32vh] xl:h-full">
-                  <div className="px-5 py-5">
-                    {source.trim() ? (
-                      previewMarkup.html ? (
-                        <div
-                          className="rounded-xl border border-border/30 bg-card/35 px-5 py-6 text-[1.08rem]"
-                          dangerouslySetInnerHTML={{ __html: previewMarkup.html }}
-                        />
-                      ) : (
-                        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-4 text-sm text-destructive">
-                          {previewMarkup.error ?? 'Failed to render preview.'}
+                      <section className="space-y-3 rounded-xl border border-border/30 bg-card/35 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Grid2x2 size={15} />
+                          Matrix
                         </div>
-                      )
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-border/40 px-4 py-10 text-center text-sm text-muted-foreground">
-                        Start with a template, symbol button, or raw LaTeX in the source editor.
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Select
+                            value={drafts.matrix.environment}
+                            onValueChange={(value) =>
+                              updateDraft('matrix', {
+                                ...drafts.matrix,
+                                environment: value as MatrixEnvironment,
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-[160px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="bmatrix">[ ] matrix</SelectItem>
+                              <SelectItem value="pmatrix">( ) matrix</SelectItem>
+                              <SelectItem value="vmatrix">| | matrix</SelectItem>
+                              <SelectItem value="Bmatrix">{`{ } matrix`}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={addMatrixColumn}
+                          >
+                            <Plus size={13} />
+                            Column
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={removeMatrixColumn}
+                            disabled={matrixCols <= 1}
+                          >
+                            <Minus size={13} />
+                            Column
+                          </Button>
+                          <Button type="button" variant="outline" size="sm" onClick={addMatrixRow}>
+                            <Plus size={13} />
+                            Row
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={removeMatrixRow}
+                            disabled={matrixRows <= 1}
+                          >
+                            <Minus size={13} />
+                            Row
+                          </Button>
+                        </div>
+                        <div
+                          className="grid gap-2"
+                          style={{
+                            gridTemplateColumns: `repeat(${Math.max(matrixCols, 1)}, minmax(0, 1fr))`,
+                          }}
+                        >
+                          {drafts.matrix.rows.reduce<React.ReactNode[]>((cells, row, rowIndex) => {
+                            row.forEach((cell, colIndex) => {
+                              cells.push(
+                                <Input
+                                  key={`matrix-${rowIndex}-${colIndex}`}
+                                  value={cell}
+                                  onChange={(event) =>
+                                    updateMatrixCell(rowIndex, colIndex, event.target.value)
+                                  }
+                                  placeholder={`${rowIndex + 1},${colIndex + 1}`}
+                                />,
+                              );
+                            });
+                            return cells;
+                          }, [])}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={commonButtonClass}
+                          onClick={() => insertSnippet(buildMatrixSnippet(drafts.matrix))}
+                        >
+                          Insert matrix
+                        </Button>
+                      </section>
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+
+                <TabsContent value="symbols" className="h-[calc(70vh-57px)]">
+                  <ScrollArea className="h-full">
+                    <div className="space-y-5 px-5 py-4">
+                      <SymbolGrid title="Greek" items={GREEK_SYMBOLS} onInsert={insertSnippet} />
+                      <Separator />
+                      <SymbolGrid
+                        title="Relations"
+                        items={RELATION_SYMBOLS}
+                        onInsert={insertSnippet}
+                      />
+                      <Separator />
+                      <SymbolGrid
+                        title="Operators"
+                        items={OPERATOR_SYMBOLS}
+                        onInsert={insertSnippet}
+                      />
+                      <Separator />
+                      <SymbolGrid
+                        title="Functions"
+                        items={FUNCTION_SYMBOLS}
+                        onInsert={insertSnippet}
+                      />
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
+            </div>
+
+            <div className="flex min-h-0 flex-col">
+              <div className="border-b border-border/30 px-5 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => insertSnippet('\\frac{<selection>}{<cursor>}')}
+                  >
+                    Fraction from selection
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => insertSnippet('^{<cursor>}')}
+                  >
+                    Superscript
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => insertSnippet('_{<cursor>}')}
+                  >
+                    Subscript
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => insertSnippet('\\sqrt{<selection>}<cursor>')}
+                  >
+                    Root from selection
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={syncDraftsFromSource}
+                  >
+                    Refresh builders from source
+                  </Button>
+                </div>
               </div>
 
-              <div className="flex min-h-0 flex-col">
-                <div className="flex items-center justify-between border-b border-border/30 px-5 py-3">
-                  <div>
-                    <div className="text-sm font-medium">LaTeX source</div>
-                    <div className="text-xs text-muted-foreground">
-                      Unsupported syntax can always be edited directly here.
+              <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="border-b border-border/30 xl:border-b-0 xl:border-r">
+                  <div className="flex items-center justify-between border-b border-border/30 px-5 py-3">
+                    <div>
+                      <div className="text-sm font-medium">Preview</div>
+                      <div className="text-xs text-muted-foreground">
+                        KaTeX rendering of the current block source.
+                      </div>
                     </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">{source.trim().length} chars</div>
+                  <ScrollArea className="h-[32vh]">
+                    <div className="px-5 py-5">
+                      {source.trim() ? (
+                        previewMarkup.html ? (
+                          <div
+                            className="rounded-xl border border-border/30 bg-card/35 px-5 py-6 text-[1.08rem]"
+                            dangerouslySetInnerHTML={{ __html: previewMarkup.html }}
+                          />
+                        ) : (
+                          <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-4 text-sm text-destructive">
+                            {previewMarkup.error ?? 'Failed to render preview.'}
+                          </div>
+                        )
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-border/40 px-4 py-10 text-center text-sm text-muted-foreground">
+                          Start with a template, symbol button, or raw LaTeX in the source editor.
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
                 </div>
-                <div className="flex-1 px-5 py-4">
-                  <Textarea
-                    ref={sourceRef}
-                    value={source}
-                    onChange={(event) => setSource(event.target.value)}
-                    placeholder="\\frac{x_i^2}{\\sqrt{n}}"
-                    className="h-full min-h-[260px] resize-none font-mono text-sm leading-6"
-                  />
+
+                <div className="flex min-h-0 flex-col">
+                  <div className="flex items-center justify-between border-b border-border/30 px-5 py-3">
+                    <div>
+                      <div className="text-sm font-medium">LaTeX source</div>
+                      <div className="text-xs text-muted-foreground">
+                        Unsupported syntax can always be edited directly here.
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {source.trim().length} chars
+                    </div>
+                  </div>
+                  <div className="flex-1 px-5 py-4">
+                    <Textarea
+                      ref={sourceRef}
+                      value={source}
+                      onChange={(event) => setSource(event.target.value)}
+                      placeholder="\\frac{x_i^2}{\\sqrt{n}}"
+                      className="h-full min-h-[260px] resize-none font-mono text-sm leading-6"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        </ScrollArea>
 
-        <DialogFooter className="border-t border-border/30 px-5 py-4 gap-2 sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 shrink-0 border-t border-border/30 px-5 py-4 gap-2 sm:justify-between">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

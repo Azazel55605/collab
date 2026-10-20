@@ -16,12 +16,6 @@ import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 
-type HoverPreviewState = {
-  url: string | null;
-  pdfRelativePath: string | null;
-  rect: DOMRect | null;
-};
-
 type ImportDroppedImagesArgs = {
   sourcePaths: string[];
   dropPos: number;
@@ -94,47 +88,6 @@ type NativeDropArgs = {
   stateRef: MutableRefObject<NativeDropState>;
   importDroppedImages: (sourcePaths: string[], dropPos: number) => void;
 };
-
-export function resolveHoverPreviewState(
-  event: MouseEvent,
-  enabled: boolean,
-  currentDocumentRelativePath?: string,
-): HoverPreviewState {
-  if (!enabled) {
-    return { url: null, pdfRelativePath: null, rect: null };
-  }
-
-  const target = event.target instanceof Element ? event.target : null;
-  const linkEl = target?.closest('.cm-lp-link') as HTMLElement | null;
-  const wikiEl = target?.closest('.cm-lp-wikilink') as HTMLElement | null;
-  const url = linkEl?.dataset.url ?? null;
-  if (url && linkEl && /^https?:\/\//i.test(url)) {
-    return {
-      url,
-      pdfRelativePath: null,
-      rect: linkEl.getBoundingClientRect(),
-    };
-  }
-
-  if (currentDocumentRelativePath) {
-    const fileTree = useVaultStore.getState().fileTree;
-    const linkTarget = wikiEl?.dataset.path
-      ? resolveVaultWikilinkTarget(wikiEl.dataset.path, fileTree)
-      : linkEl?.dataset.url
-        ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
-        : null;
-    if (linkTarget?.type === 'pdf') {
-      const anchor = wikiEl ?? linkEl;
-      return {
-        url: null,
-        pdfRelativePath: linkTarget.relativePath,
-        rect: anchor?.getBoundingClientRect() ?? null,
-      };
-    }
-  }
-
-  return { url: null, pdfRelativePath: null, rect: null };
-}
 
 function extensionForClipboardMime(mime: string) {
   switch (mime.toLowerCase()) {
@@ -429,11 +382,8 @@ export function handleEditorDocumentLinkMouseDown(
 
 type UseMarkdownEditorIntegrationsArgs = {
   view: EditorView | null;
-  webPreviewsEnabled: boolean;
-  hoverWebLinkPreviewsEnabled: boolean;
-  setHoveredUrl: (url: string | null) => void;
-  setHoveredPdfRelativePath: (path: string | null) => void;
-  setHoverRect: (rect: DOMRect | null) => void;
+  onPreviewHover: (event: MouseEvent) => void;
+  onPreviewLeave: () => void;
   getDroppedFilePaths: (event: DragEvent) => string[];
   isImageLikePath: (path: string) => boolean;
   buildImageMarkdown: (relativePath: string) => string;
@@ -444,11 +394,8 @@ type UseMarkdownEditorIntegrationsArgs = {
 
 export function useMarkdownEditorIntegrations({
   view,
-  webPreviewsEnabled,
-  hoverWebLinkPreviewsEnabled,
-  setHoveredUrl,
-  setHoveredPdfRelativePath,
-  setHoverRect,
+  onPreviewHover,
+  onPreviewLeave,
   getDroppedFilePaths,
   isImageLikePath,
   buildImageMarkdown,
@@ -643,38 +590,22 @@ export function useMarkdownEditorIntegrations({
         view.focus();
       })();
     };
-    const handlePreviewHover = (event: MouseEvent) => {
-      const next = resolveHoverPreviewState(
-        event,
-        hoverWebLinkPreviewsEnabled,
-        currentDocumentRelativePath,
-      );
-      const nextUrl = webPreviewsEnabled ? next.url : null;
-      setHoveredUrl(nextUrl);
-      setHoveredPdfRelativePath(next.pdfRelativePath);
-      setHoverRect(next.rect);
-    };
-    const handlePreviewLeave = () => {
-      setHoveredUrl(null);
-      setHoveredPdfRelativePath(null);
-      setHoverRect(null);
-    };
     const handleMouseDown = (event: MouseEvent) => {
       handleEditorImageShiftClick(event);
     };
 
     editorDom.addEventListener('drop', handleDrop);
     editorDom.addEventListener('paste', handlePaste, true);
-    editorDom.addEventListener('mousemove', handlePreviewHover);
-    editorDom.addEventListener('mouseleave', handlePreviewLeave);
+    editorDom.addEventListener('mousemove', onPreviewHover);
+    editorDom.addEventListener('mouseleave', onPreviewLeave);
     editorDom.addEventListener('mousedown', handleMouseDown, true);
 
     return () => {
       disposed = true;
       editorDom.removeEventListener('drop', handleDrop);
       editorDom.removeEventListener('paste', handlePaste, true);
-      editorDom.removeEventListener('mousemove', handlePreviewHover);
-      editorDom.removeEventListener('mouseleave', handlePreviewLeave);
+      editorDom.removeEventListener('mousemove', onPreviewHover);
+      editorDom.removeEventListener('mouseleave', onPreviewLeave);
       editorDom.removeEventListener('mousedown', handleMouseDown, true);
       unlistenWebviewDragDrop?.();
       unlistenWindowDragDrop?.();
@@ -683,13 +614,10 @@ export function useMarkdownEditorIntegrations({
     buildImageMarkdown,
     currentDocumentRelativePath,
     getDroppedFilePaths,
-    hoverWebLinkPreviewsEnabled,
     isImageLikePath,
     readOnly,
-    setHoverRect,
-    setHoveredPdfRelativePath,
-    setHoveredUrl,
+    onPreviewHover,
+    onPreviewLeave,
     view,
-    webPreviewsEnabled,
   ]);
 }

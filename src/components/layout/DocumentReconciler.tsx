@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import { ScrollArea } from '../ui/scroll-area';
 
 import { DocumentStatusPill } from './DocumentStatusPill';
 
@@ -169,9 +170,9 @@ function ReviewDialog({
         showCloseButton={false}
         onInteractOutside={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.preventDefault()}
-        className="max-w-3xl gap-3"
+        className="flex w-[calc(100%-2rem)] h-[min(720px,calc(100dvh-2rem))] min-w-0 flex-col gap-3 sm:max-w-5xl"
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0">
           <div className="flex items-center gap-2">
             <span
               className={cn(
@@ -196,14 +197,18 @@ function ReviewDialog({
           </div>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ContentPane label="Your version" tone="local" content={ours} />
-          <ContentPane label="Their version" tone="remote" content={theirs} />
-        </div>
+        <ScrollArea className="min-h-0 flex-1 overflow-hidden [&>[data-slot=scroll-area-viewport]>div]:block!">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+            <ContentPane label="Your version" tone="local" content={ours} />
+            <ContentPane label="Their version" tone="remote" content={theirs} />
+          </div>
 
-        <DiffPane base={base} ours={ours} theirs={theirs} />
+          <div className="mt-3">
+            <DiffPane base={base} ours={ours} theirs={theirs} />
+          </div>
+        </ScrollArea>
 
-        <DialogFooter className="mt-1 gap-2">
+        <DialogFooter className="mt-1 shrink-0 flex-wrap gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Later
           </Button>
@@ -251,7 +256,7 @@ function ContentPane({
   }, [content]);
 
   return (
-    <div className="space-y-1.5">
+    <div className="min-w-0 space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <span
@@ -280,7 +285,7 @@ function ContentPane({
       </div>
       <pre
         className={cn(
-          'max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border p-3 font-mono text-[11px] leading-relaxed',
+          'max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border p-3 font-mono text-[11px] leading-relaxed',
           tone === 'local'
             ? 'border-primary/15 bg-primary/5'
             : 'border-destructive/15 bg-destructive/5',

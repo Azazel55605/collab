@@ -233,6 +233,19 @@ For canvas-like or graph-like interactions:
 - Use destructive color sparingly and intentionally.
 - Conflict dialogs should appear only when truly needed; simple cases should resolve automatically when safe.
 
+### Dialogs and link previews
+
+Math builders and document reconciliation dialogs must fit the available
+viewport at small window sizes and app scaling. Bound both height and width,
+keep their header/footer actions outside the scrolling body, and allow long
+content to wrap or scroll inside that body. Use the shared ScrollArea rather
+than letting content expand the whole modal.
+
+Markdown file-link hover previews use the same document/PDF/image renderer as
+the file tree. Keep embedded images in the document, and resolve file previews
+against the current vault. The website-fetching master switch does not disable
+vault previews; the existing link-hover preference controls their visibility.
+
 ## Motion
 
 - Respect global animation settings from `uiStore`.
