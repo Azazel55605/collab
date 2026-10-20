@@ -2,14 +2,21 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useNoteIndexStore } from '../store/noteIndexStore';
-import type { NoteMetadata } from '../types/note';
+import type { NoteIndexDelta, NoteMetadata } from '../types/note';
 import type { VaultMeta } from '../types/vault';
 
 import { useVaultNoteIndex } from './useVaultNoteIndex';
 
-const mocks = vi.hoisted(() => ({ build: vi.fn(), handlers: new Map<string, () => void>() }));
+const mocks = vi.hoisted(() => ({
+  build: vi.fn(),
+  update: vi.fn(),
+  handlers: new Map<string, (event?: unknown) => void>(),
+}));
 vi.mock('./vaultClient', () => ({
-  createVaultClient: (vault: VaultMeta) => ({ buildNoteIndex: () => mocks.build(vault.path) }),
+  createVaultClient: (vault: VaultMeta) => ({
+    buildNoteIndex: () => mocks.build(vault.path),
+    updateNoteIndex: (paths: string[]) => mocks.update(paths),
+  }),
 }));
 vi.mock('./nativeSubscription', () => ({
   listenSafely: (name: string, handler: () => void) => {
@@ -47,6 +54,7 @@ function deferred<T>() {
 describe('vault note index ownership', () => {
   beforeEach(() => {
     mocks.build.mockReset();
+    mocks.update.mockReset();
     mocks.handlers.clear();
     useNoteIndexStore.setState({ notes: [], isIndexing: false });
   });
@@ -150,5 +158,45 @@ describe('vault note index ownership', () => {
       a.resolve(notes('a'));
     });
     expect(useNoteIndexStore.getState().notes).toEqual(notes('b'));
+  });
+  it('applies per-path deltas and retains paths invalidated during a read', async () => {
+    mocks.build.mockResolvedValue(notes('a.md'));
+    const first = deferred<NoteIndexDelta>(),
+      second = deferred<NoteIndexDelta>();
+    mocks.update.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const refresh = vi.fn(async () => {});
+    renderHook(() => useVaultNoteIndex(vault('/A'), false, refresh));
+    await waitFor(() => expect(useNoteIndexStore.getState().notes).toEqual(notes('a.md')));
+    vi.useFakeTimers();
+    act(() =>
+      mocks.handlers.get('vault:file-modified')!({ payload: { path: 'a.md', vaultPath: '/A' } }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(refresh).toHaveBeenLastCalledWith(['a.md']);
+    act(() =>
+      mocks.handlers.get('vault:file-renamed')!({ payload: { oldPath: 'a.md', newPath: 'b.md' } }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+      first.resolve({ upserted: notes('obsolete'), removed: [] });
+    });
+    expect(mocks.update).toHaveBeenLastCalledWith(['a.md', 'b.md']);
+    expect(useNoteIndexStore.getState().notes).toEqual(notes('a.md'));
+    await act(async () => {
+      second.resolve({ upserted: notes('b.md'), removed: ['a.md'] });
+    });
+    expect(useNoteIndexStore.getState().notes).toEqual(notes('b.md'));
+    expect(mocks.build).toHaveBeenCalledOnce();
+    act(() =>
+      mocks.handlers.get('vault:file-modified')!({
+        payload: { path: 'wrong.md', vaultPath: '/B' },
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(mocks.update).toHaveBeenCalledTimes(2);
   });
 });

@@ -96,6 +96,8 @@ export function vaultCan(vault: VaultMeta | null | undefined, capability: string
 }
 
 export interface NoteFile {
+  /** Runtime content invalidation token; not persisted. */
+  contentRevision?: string;
   relativePath: string;
   name: string;
   extension: string;

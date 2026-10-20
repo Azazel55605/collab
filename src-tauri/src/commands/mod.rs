@@ -57,3 +57,5 @@ pub fn app_config_dir() -> Result<PathBuf, String> {
 fn android_files_dir() -> Result<PathBuf, String> {
     crate::android_jni::files_dir()
 }
+
+pub(crate) mod vault_jobs;

@@ -1,22 +1,36 @@
 use crate::models::note::NoteMetadata;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-/// A single bounded index slot with vault identity and request-generation ownership.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IndexedNote {
+    pub metadata: NoteMetadata,
+    pub content: String,
+    #[serde(skip)]
+    pub folded: String,
+    pub stamp: (u128, u64),
+}
+
+/// One native index slot. Immutable entry snapshots share text/metadata; an
+/// incremental publication copies tree pointers, never every note's strings.
 #[derive(Default)]
 pub struct ScopedNoteIndex {
     vault_path: Option<String>,
     generation: u64,
-    notes: Arc<Vec<NoteMetadata>>,
+    entries: Arc<BTreeMap<String, Arc<IndexedNote>>>,
+    reverse: BTreeMap<String, BTreeSet<String>>,
 }
 impl ScopedNoteIndex {
     pub fn clear(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.vault_path = None;
-        self.notes = Arc::new(Vec::new());
+        self.entries = Arc::default();
+        self.reverse.clear();
     }
     pub fn begin(&mut self, path: &str) -> u64 {
         if self.vault_path.as_deref() != Some(path) {
-            self.notes = Arc::new(Vec::new());
+            self.clear();
             self.vault_path = Some(path.to_owned());
         }
         self.generation = self.generation.wrapping_add(1);
@@ -25,75 +39,117 @@ impl ScopedNoteIndex {
     pub fn is_current(&self, path: &str, generation: u64) -> bool {
         self.vault_path.as_deref() == Some(path) && self.generation == generation
     }
-    pub fn publish(&mut self, path: &str, generation: u64, notes: Vec<NoteMetadata>) -> bool {
+    pub fn publish_entries(
+        &mut self,
+        path: &str,
+        generation: u64,
+        entries: BTreeMap<String, Arc<IndexedNote>>,
+    ) -> bool {
         if !self.is_current(path, generation) {
             return false;
         }
-        self.notes = Arc::new(notes);
+        for (path, old) in self.entries.iter() {
+            if entries.get(path).is_some_and(|new| Arc::ptr_eq(old, new)) {
+                continue;
+            }
+            for link in &old.metadata.wikilinks_out {
+                let key = link.to_lowercase();
+                if let Some(sources) = self.reverse.get_mut(&key) {
+                    sources.remove(path);
+                    if sources.is_empty() {
+                        self.reverse.remove(&key);
+                    }
+                }
+            }
+        }
+        for (path, note) in &entries {
+            if self
+                .entries
+                .get(path)
+                .is_some_and(|old| Arc::ptr_eq(old, note))
+            {
+                continue;
+            }
+            for link in &note.metadata.wikilinks_out {
+                self.reverse
+                    .entry(link.to_lowercase())
+                    .or_default()
+                    .insert(path.clone());
+            }
+        }
+        self.entries = Arc::new(entries);
         true
     }
-    pub fn snapshot_for(&self, path: &str) -> Arc<Vec<NoteMetadata>> {
+    pub fn entries_for(&self, path: &str) -> Arc<BTreeMap<String, Arc<IndexedNote>>> {
         if self.vault_path.as_deref() == Some(path) {
-            Arc::clone(&self.notes)
+            self.entries.clone()
         } else {
             Arc::default()
         }
     }
-    pub fn notes_for(&self, path: &str) -> &[NoteMetadata] {
-        if self.vault_path.as_deref() == Some(path) {
-            &self.notes
-        } else {
-            &[]
+    pub fn backlinks(&self, vault: &str, path: &str) -> Vec<String> {
+        if self.vault_path.as_deref() != Some(vault) {
+            return vec![];
         }
+        let lower = path.to_lowercase();
+        let stem = std::path::Path::new(&lower)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        [lower.as_str(), lower.trim_end_matches(".md"), stem]
+            .iter()
+            .filter_map(|key| self.reverse.get(*key))
+            .flatten()
+            .filter(|source| source.as_str() != path)
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn note(name: &str) -> NoteMetadata {
-        NoteMetadata {
-            relative_path: name.into(),
-            title: name.into(),
-            tags: vec![],
-            wikilinks_out: vec![],
-            modified_at: 0,
-            word_count: 0,
-            hash: String::new(),
-        }
+    fn note(name: &str, links: &[&str]) -> Arc<IndexedNote> {
+        Arc::new(IndexedNote {
+            metadata: NoteMetadata {
+                relative_path: name.into(),
+                title: name.into(),
+                tags: vec![],
+                wikilinks_out: links.iter().map(|s| (*s).into()).collect(),
+                modified_at: 0,
+                word_count: 0,
+                hash: String::new(),
+            },
+            content: String::new(),
+            folded: String::new(),
+            stamp: (0, 0),
+        })
     }
     #[test]
-    fn late_cross_vault_and_same_vault_jobs_cannot_replace_the_current_index() {
+    fn generations_snapshots_and_incremental_reverse_links() {
         let mut cache = ScopedNoteIndex::default();
         let old = cache.begin("A");
         let current = cache.begin("B");
-        assert!(cache.publish("B", current, vec![note("b.md")]));
-        assert!(!cache.publish("A", old, vec![note("a.md")]));
-        assert!(cache.notes_for("A").is_empty());
-        assert_eq!(cache.notes_for("B")[0].relative_path, "b.md");
-        let old = cache.begin("B");
-        let current = cache.begin("B");
-        assert!(cache.publish("B", current, vec![note("new.md")]));
-        assert!(!cache.publish("B", old, vec![note("old.md")]));
-    }
-    #[test]
-    fn searches_share_an_immutable_snapshot_without_copying_all_metadata() {
-        let mut cache = ScopedNoteIndex::default();
-        let generation = cache.begin("A");
-        cache.publish("A", generation, vec![note("a.md")]);
-        let first = cache.snapshot_for("A");
-        let second = cache.snapshot_for("A");
-        assert!(Arc::ptr_eq(&first, &second));
+        let entries = BTreeMap::from([("a.md".into(), note("a.md", &["TARGET", "Dir/Target.md"]))]);
+        assert!(!cache.publish_entries("A", old, entries.clone()));
+        assert!(cache.publish_entries("B", current, entries));
+        assert!(cache.entries_for("A").is_empty());
+        let first = cache.entries_for("B");
+        assert!(Arc::ptr_eq(&first, &cache.entries_for("B")));
+        assert_eq!(cache.backlinks("B", "Dir/Target.md"), vec!["a.md"]);
+        // Ambiguous stems deliberately match all target paths, as before.
+        assert_eq!(cache.backlinks("B", "Other/Target.md"), vec!["a.md"]);
+        let generation = cache.begin("B");
+        cache.publish_entries(
+            "B",
+            generation,
+            BTreeMap::from([("a.md".into(), note("a.md", &["Elsewhere"]))]),
+        );
+        assert!(cache.backlinks("B", "Dir/Target.md").is_empty());
         cache.clear();
-        assert_eq!(first[0].relative_path, "a.md");
-        assert!(cache.snapshot_for("B").is_empty());
-    }
-    #[test]
-    fn reopening_the_same_path_does_not_revive_an_old_job() {
-        let mut cache = ScopedNoteIndex::default();
-        let old = cache.begin("A");
-        cache.clear();
-        cache.begin("A");
-        assert!(!cache.publish("A", old, vec![note("old.md")]));
-        assert!(cache.notes_for("A").is_empty());
+        assert_eq!(first.len(), 1);
+        cache.begin("B");
+        assert!(!cache.publish_entries("B", generation, BTreeMap::new()));
     }
 }

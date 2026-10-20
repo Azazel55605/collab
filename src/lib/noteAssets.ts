@@ -1,5 +1,7 @@
 import type { NoteFile } from '../types/vault';
 
+import { vaultTreeIndex } from './vaultTreeIndex';
+
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 
@@ -67,23 +69,6 @@ export function isLikelyImagePath(path: string): boolean {
 
 export type NoteAssetTarget = { kind: 'direct'; value: string } | { kind: 'vault'; value: string };
 
-function flattenVaultFiles(nodes: NoteFile[]): NoteFile[] {
-  const flat: NoteFile[] = [];
-
-  const visit = (items: NoteFile[]) => {
-    for (const item of items) {
-      if (item.isFolder) {
-        if (item.children?.length) visit(item.children);
-        continue;
-      }
-      flat.push(item);
-    }
-  };
-
-  visit(nodes);
-  return flat;
-}
-
 export function resolveNoteAssetTarget(
   assetPath: string,
   _noteRelativePath: string,
@@ -107,9 +92,11 @@ export function resolveNoteAssetTarget(
     const noteDir = parentPath(_noteRelativePath);
     const noteRelativePath = normalizeRelativePath(noteDir ? `${noteDir}/${rawPath}` : rawPath);
     const candidates = Array.from(new Set([vaultRelativePath, noteRelativePath]));
-    const exactVaultMatch = flattenVaultFiles(fileTree).find((file) =>
-      candidates.some((candidate) => file.relativePath.toLowerCase() === candidate.toLowerCase()),
-    );
+    const index = vaultTreeIndex(fileTree);
+    const exactVaultMatch = candidates
+      .map((candidate) => index.foldedFiles.get(candidate.toLowerCase()))
+      .filter((file): file is NoteFile => !!file)
+      .sort((a, b) => index.order.get(a)! - index.order.get(b)!)[0];
     if (exactVaultMatch) {
       return {
         kind: 'vault',

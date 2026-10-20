@@ -12,6 +12,7 @@ import {
   seedReplicaFromManifest,
   syncReplicaManifestDelta,
 } from '../lib/vaultReplica';
+import { applyTreePaths, coalescePaths } from '../lib/vaultTreeIndex';
 import {
   hostedVaultMeta,
   type HostedVaultMeta,
@@ -33,7 +34,7 @@ interface VaultState {
   openVault: (path: string) => Promise<void>;
   openHostedVault: (vault: HostedVaultMeta) => Promise<void>;
   unlockVault: (password: string) => Promise<void>;
-  refreshFileTree: () => Promise<void>;
+  refreshFileTree: (paths?: string[]) => Promise<void>;
   refreshHostedVaultMetadata: (serverUrl: string, summaries: HostedVaultSummary[]) => void;
   closeVault: () => void;
   loadRecentVaults: () => Promise<void>;
@@ -61,12 +62,14 @@ function sameStringArray(left?: string[], right?: string[]) {
 }
 
 export function sortFileTreeAlphabetically(nodes: NoteFile[]): NoteFile[] {
-  return [...nodes]
-    .map((node) => ({
-      ...node,
-      children: node.children ? sortFileTreeAlphabetically(node.children) : node.children,
-    }))
+  const next = nodes
+    .map((node) => {
+      if (!node.children) return node;
+      const children = sortFileTreeAlphabetically(node.children);
+      return children === node.children ? node : { ...node, children };
+    })
     .sort(compareNoteFilesAlphabetically);
+  return next.every((node, index) => node === nodes[index]) ? nodes : next;
 }
 
 function isLikelyFlatpakVaultAccessError(error: unknown) {
@@ -206,11 +209,31 @@ export const useVaultStore = create<VaultState>()(
         await client.runtime.watch?.start();
         set({ isVaultLocked: false, fileTree });
       },
-      refreshFileTree: async () => {
+      refreshFileTree: async (paths) => {
         const { vault, fileTree: previous } = get();
         if (!vault) return;
         const generation = ++fileTreeRefreshGeneration;
-        const listed = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
+        let listed: NoteFile[];
+        if (paths?.length && !paths.includes('') && vault.kind !== 'hosted') {
+          try {
+            const updates = await tauriCommands.listVaultPaths(vault.path, coalescePaths(paths));
+            const markChanged = (node: NoteFile): NoteFile =>
+              node.isFolder
+                ? { ...node, children: node.children?.map(markChanged) }
+                : { ...node, contentRevision: `event:${generation}` };
+            listed = sortFileTreeAlphabetically(
+              applyTreePaths(
+                previous,
+                updates.map((update) => ({
+                  ...update,
+                  node: update.node ? markChanged(update.node) : null,
+                })),
+              ),
+            );
+          } catch {
+            listed = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
+          }
+        } else listed = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
         if (get().vault !== vault || generation !== fileTreeRefreshGeneration) return;
         // Unchanged nodes keep their identity so the sidebar's memoized rows can
         // skip re-rendering; the watcher fires this after every file write.

@@ -1059,6 +1059,65 @@ transports. Source-byte budgets and notification counts do not prove native
 speedups. The next implementation category is **Vault Listing, Indexing And
 Search (O17–O28)**.
 
+## Performance Batch 5 — Vault Listing, Indexing And Search
+
+Implemented **2026-10-20**, completing **O17–O28**. See
+[architecture, tradeoffs and acceptance](../desktop/vault-listing-performance.md).
+
+- [x] **O17/O18:** coalesced path deltas, old/new rename/removal reconciliation,
+      unknown-scope forced fallback, generation ownership and two native worker slots.
+- [x] **O19/O20:** disposable encryption-aware search records, query-time source I/O
+      elimination, paged results/excerpts and stable score/path ordering.
+- [x] **O21/O22/O23:** incremental reverse links, UTF-8 slice wikilink scanning,
+      shared native note records and changed-metadata IPC delivery.
+- [x] **O24/O25:** visible-row windowing, keyboard focus/selection/drop attributes,
+      immutable-revision file/asset/manifest maps and ancestor-only tree patches.
+- [x] **O26/O27/O28:** revision-cached bounded attachment readers, generated watcher
+      suppression/pruning, cancellable blocking native work and indexing progress.
+
+### Validation
+
+The full desktop/scripts run completed: **2,401 passed, seven timing-budget
+failures, one intentional skip**. The unchanged Ink/Sheet timing files and Sheet
+shape fixtures passed affected reruns after native compilation/parallel load
+settled; no budgets were raised. Final delta/tree/UI regressions and types pass;
+two additional regressions added during review pass in focused runs. Admin **81**
+and Android frontend **258** pass, all three types/builds pass, and production
+asset budgets pass unchanged. Rust workspace tests/check pass; the final native
+library run is **253 passed/one opt-in measurement ignored**, with that
+measurement also run explicitly. PostgreSQL integration is not claimed without
+a disposable database. Version/crate guards, formatting and changed-source lint
+pass (zero errors; existing hook warnings remain).
+
+The first native run exposed stale updater permission metadata pointing into a
+removed temporary dependency-review checkout. Rebuilding that package's generated
+artifacts corrected the environment; no dependency versions changed.
+
+The explicit optimized-debug **10,000-note** fixture measured: cold index **462ms**,
+one-note edit **5ms / one source read**, warm query **2ms / 50 results / 10,000 total**.
+The changed metadata delta was **246 bytes**, versus **1,988,880 bytes** for full
+metadata. Retained source/folded text totaled **757,768 bytes**; shared snapshot
+lock acquisition measured **211ns** in this uncontended fixture. These values
+exclude allocator/map overhead, process RSS and installed IPC round trips.
+Repeated warm queries read zero source files; persisted-cache startup also avoids
+source reads in the regression fixture. Slice wikilink parsing eliminates the
+former whole-note four-byte-per-character vector; it retains only target strings.
+
+Regular Playwright/Chromium was used because the Browser plugin is unavailable.
+Rendered checks mounted **36–44 rows** for 10,000 files, exercised keyboard
+navigation, result paging, internal file-to-folder dragging, and confirmed
+**zero additional board reads** after an unrelated file change. **10,000 asset
+lookups among 10,000 files took 34.2ms**, including first index construction.
+A Linux notify integration test verified external atomic saves/renames with
+ignored-directory pruning enabled. Timing values are synthetic local observations,
+not release promises.
+
+Hosted search retains its existing 50-result server API boundary. The local
+in-memory content index trades retained text memory for zero query-time source
+reads; lower total RSS is not claimed. Installed latency/RSS, screen-reader
+behavior, real OS drops and native Windows/Linux/macOS/Android acceptance remain
+open under O70. Next category: **Markdown, Math And Graph (O29–O36)**.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.

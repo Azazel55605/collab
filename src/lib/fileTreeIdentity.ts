@@ -59,6 +59,7 @@ function sameNodeFields(left: NoteFile, right: NoteFile): boolean {
     left.extension === right.extension &&
     left.modifiedAt === right.modifiedAt &&
     left.size === right.size &&
+    (right.contentRevision === undefined || left.contentRevision === right.contentRevision) &&
     left.isFolder === right.isFolder
   );
 }

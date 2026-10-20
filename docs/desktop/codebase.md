@@ -301,13 +301,26 @@ checking the current revision marker.
 `lib/useVaultNoteIndex.ts` centralizes shell index loading and file/replica event
 refreshes. Scope includes hosted server identity; one active job coalesces later
 requests, and disposed/stale generations cannot publish notes or loading status.
-Native `state/note_index.rs` owns a single vault-tagged, generation-guarded index.
-Local vault transitions clear it, obsolete scans stop early, and backlinks/search
-cannot read a different vault's cached metadata. Each scan/search captures its
-key once; search shares an immutable metadata snapshot before disk I/O rather
-than holding the shared index lock throughout. File-tree refreshes and `noteSnippetStore` also reject
-stale scope/request completions; snippet mutations compare both ID and app/vault
-scope and invalidate older listings.
+Native `state/note_index.rs` owns a single vault-tagged, generation-guarded index
+of shared immutable text/metadata records and incremental reverse-link edges.
+`commands/index.rs` applies path deltas, persists disposable per-note records under
+`.collab/search/v1/` using vault encryption, and pages search without source-file
+reads. Crypto transitions invalidate the index and enabling encryption purges the
+plaintext cache under its shared root mutation lock. `commands/vault_jobs.rs`
+bounds blocking listing/index/search work to two process-wide slots; index
+progress events carry vault/request/processed ownership. `list_vault_paths` patches
+known subtrees; unknown events reconcile fully. `vault:index-progress` feeds search
+status. Quick-open keeps its bounded `search_notes` wrapper; the sidebar uses
+`search_notes_page` (50 results, totals and next offset).
+
+`lib/vaultTreeIndex.ts` caches derived file/path maps by immutable tree revision
+and patches only changed ancestors. Asset resolution and `flattenVaultFiles` share
+these indexes. Hosted manifest indexes cache ID/state-path lookups by files-array
+identity. `components/vault/virtualTree.ts` derives iterative visible rows and a
+fixed-height overscanned window, retaining an offscreen keyboard-focus row.
+`lib/revisionReader.ts` bounds and deduplicates board attachment reads by revision,
+prunes removed entries and skips obsolete queued reads. `noteSnippetStore` also
+rejects stale scope/request completions. See [listing/search limits and validation](./vault-listing-performance.md).
 
 Local document previews use one `.collab/previews/documents/*.entry` record in
 `commands/files/sidecars.rs`: versioned framing, bounded JSON metadata, raw image
@@ -1386,9 +1399,12 @@ deleteNoteSnippet(vaultPath, scope, snippetId)             → void
 ### Index
 
 ```
-buildNoteIndex(vaultPath)                                  → NoteMetadata[]
+buildNoteIndex(vaultPath, force?)                          → NoteMetadata[]
 getBacklinks(vaultPath, relativePath)                      → string[]
-searchNotes(vaultPath, query)                              → SearchResult[]
+searchNotes(vaultPath, query)                              → SearchResult[] (bounded quick-open)
+searchNotesPage(vaultPath, query, offset, limit)            → SearchPage
+updateNoteIndex(vaultPath, paths)                          → NoteIndexDelta
+listVaultPaths(vaultPath, paths)                           → {relativePath, node | null}[]
 ```
 
 ### Watcher
