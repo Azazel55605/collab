@@ -71,11 +71,7 @@ export default function Sidebar() {
       </div>
 
       {/* Panel content */}
-      <TabsContent
-        value={sidebarPanel}
-        key={sidebarPanel}
-        className="flex-1 overflow-hidden app-sidebar-panel-enter"
-      >
+      <TabsContent value={sidebarPanel} key={sidebarPanel} className="flex-1 overflow-hidden">
         {sidebarPanel === 'files' && (
           <FileTree
             key={

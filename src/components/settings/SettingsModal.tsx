@@ -360,10 +360,7 @@ export default function SettingsModal({
           </nav>
 
           {/* Content */}
-          <div
-            key={activeTab}
-            className="min-w-0 flex-1 space-y-1 overflow-y-auto p-5 app-fade-slide-in"
-          >
+          <div key={activeTab} className="min-w-0 flex-1 space-y-1 overflow-y-auto p-5">
             {/* ── General ── */}
             {activeTab === 'general' && (
               <SettingsGeneralSection

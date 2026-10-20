@@ -171,7 +171,7 @@ export default function TagsPanel() {
           const activeAlreadyHas = activeNote?.tags.includes(tag) ?? false;
 
           return (
-            <div key={tag} className="mb-0.5 app-list-item-enter">
+            <div key={tag} className="mb-0.5">
               {/* Tag row */}
               <div className="group flex items-center gap-0.5 rounded px-1 py-0.5 hover:bg-accent/50">
                 {/* Expand/collapse toggle */}
@@ -215,11 +215,11 @@ export default function TagsPanel() {
 
               {/* Note list under tag */}
               {isOpen && (
-                <div className="ml-4 mb-1 app-sidebar-panel-enter">
+                <div className="ml-4 mb-1">
                   {tagNotes.map((note) => (
                     <div
                       key={note.relativePath}
-                      className="group/note flex items-center gap-0.5 rounded px-1 py-0.5 hover:bg-accent/30 app-list-item-enter"
+                      className="group/note flex items-center gap-0.5 rounded px-1 py-0.5 hover:bg-accent/30"
                     >
                       <button
                         className="flex-1 truncate text-left text-xs text-muted-foreground hover:text-foreground transition-colors"

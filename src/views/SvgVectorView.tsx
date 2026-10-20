@@ -152,7 +152,7 @@ export default function SvgVectorView({ relativePath }: Props) {
   }, [mode, readOnly, selectedId]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-background app-document-ready">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Image')}
         subtitle={getDocumentFolderPath(relativePath)}

@@ -1698,7 +1698,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   return (
     <div
       className={cn(
-        'flex h-full w-full min-h-0 flex-col overflow-hidden bg-background app-document-ready',
+        'flex h-full w-full min-h-0 flex-col overflow-hidden bg-background',
         refreshPulse && 'app-refresh-pulse',
       )}
     >

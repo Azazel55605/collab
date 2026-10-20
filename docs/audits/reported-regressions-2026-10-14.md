@@ -298,6 +298,29 @@ and non-math context, and read-only behavior. Add keyboard-event integration
 coverage and reproduce on the affected desktop platform; preserve normal Enter
 handling outside math blocks. No implementation or platform sign-off yet.
 
+### UR15 — Routine UI Changes Flash Once
+
+Reported **2026-10-20** after O10–O16: folder open/close, switching views and
+settings categories briefly flash before settling. **Implemented; needs installed
+native/user confirmation.** Rendered reproduction found zero effective opacity
+from stacked whole-pane/sidebar/list/document entrance fades. Settings-category
+swaps also replayed a fade from transparent. Remote-refresh classes could replace
+the document entrance animation and restart it when the refresh pulse ended.
+
+Removed those routine-content entrances, including nested folder/tag rows and
+search results; removed the now-unused view/sidebar/document keyframes. Floating
+modal/menu motion, hover/selection transitions and non-blanking refresh pulses
+remain. Document/vault/pane keys and save/session boundaries remain unchanged.
+
+The same Chromium interaction check recorded minimum effective opacity **0**
+before and **1** after for folder expansion, view switching and settings-category
+changes, with no runtime errors. A shell lifecycle regression protects editor DOM
+and provider identity during sidebar/appearance updates. Offscreen Linux
+WebKitGTK 2.54.1 also held effective opacity at **1** for all 30 frame samples per
+action (software rendering, synthetic IPC). Installed compositor,
+font-loading and physical platform acceptance remain distinct from this rendered
+synthetic-IPC result.
+
 ## Follow-Up Order And Validation Boundary
 
 Start with UR13/UR02/UR03 and existing data-loss findings, then UR07 targeting,

@@ -237,6 +237,14 @@ For canvas-like or graph-like interactions:
 
 - Respect global animation settings from `uiStore`.
 - Use existing motion timing tokens and app conventions.
+- Routine content updates stay opaque: expanding folders/tags, changing sidebar
+  panels/settings categories and switching document views must not fade the new
+  content from zero opacity or stack parent/child entrance animations. Keep
+  document keys for correct session ownership; do not fix flashes by reusing an
+  editor across different documents. Reserve entrance motion for floating
+  surfaces, and use hover/selection/geometry transitions for routine navigation.
+- A transient refresh indicator must not replace a document entrance animation
+  and restart that entrance when the indicator clears.
 - Good motion includes:
   - panel open/close continuity
   - hover transitions
