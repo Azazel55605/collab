@@ -680,3 +680,106 @@ describe('DocumentSessionController reconciliation API', () => {
     expect(controller.getSnapshot().currentContent).toBe('mine');
   });
 });
+
+it('checkpoints buffered transactions before manual saves, remote candidates and retained snapshots', async () => {
+  let pending: string | null = null;
+  const { controller, writes } = makeController({
+    flushPendingChanges() {
+      const next = pending;
+      pending = null;
+      if (next !== null) controller.markLocalChange(next);
+    },
+  });
+  controller.initialize('base', '1', 'local');
+  pending = 'latest';
+  controller.markTransientChange();
+  await controller.requestSave();
+  expect(writes[0].content).toBe('latest');
+  pending = 'unsaved';
+  controller.markTransientChange();
+  expect(
+    controller.handleRemoteCandidate({
+      document: 'external',
+      content: 'external',
+      version: '3',
+      source: 'rest',
+    }),
+  ).toBe('queued');
+  expect(controller.getReconciliation()?.ours).toBe('unsaved');
+  pending = 'retained';
+  controller.flushPendingChanges();
+  expect(controller.getSnapshot().currentContent).toBe('retained');
+  controller.dispose();
+});
+it('preserves buffered edits arriving during a backend-merged save', async () => {
+  let pending: string | null = null;
+  let finish!: (value: DocumentWriteOutcome) => void;
+  const { controller } = makeController({
+    resolveWrite: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    flushPendingChanges() {
+      const next = pending;
+      pending = null;
+      if (next !== null) controller.markLocalChange(next);
+    },
+  });
+  controller.initialize('base', '1', 'local');
+  controller.markLocalChange('submitted');
+  const save = controller.requestSave();
+  pending = 'new typing';
+  controller.markTransientChange();
+  finish({ version: '2', mergedContent: 'submitted + external' });
+  await save;
+  expect(controller.getSnapshot().currentContent).toBe('new typing');
+  expect(controller.getReconciliation()?.ours).toBe('new typing');
+  controller.dispose();
+});
+
+it('flushes retained-editor typing before a delayed initial-read replay', () => {
+  let pending: string | null = null;
+  const { controller, applied } = makeController({
+    flushPendingChanges() {
+      const next = pending;
+      pending = null;
+      if (next !== null) controller.markLocalChange(next);
+    },
+  });
+  controller.initialize('base', '1', 'rest');
+  pending = 'typing before revalidation';
+  controller.markTransientChange();
+  controller.initialize('base', '1', 'rest');
+  expect(controller.getSnapshot().currentContent).toBe('typing before revalidation');
+  expect(applied[applied.length - 1]?.content).toBe('typing before revalidation');
+  expect(controller.getSnapshot().dirty).toBe(true);
+  controller.dispose();
+});
+
+it('keeps the newest checkpoint recoverable when an in-flight write is rejected', async () => {
+  let pending: string | null = null;
+  let finish!: (value: DocumentWriteOutcome) => void;
+  const { controller } = makeController({
+    resolveWrite: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    flushPendingChanges() {
+      const next = pending;
+      pending = null;
+      if (next !== null) controller.markLocalChange(next);
+    },
+  });
+  controller.initialize('base', '1');
+  controller.markLocalChange('submitted');
+  const save = controller.requestSave();
+  pending = 'newer typing';
+  controller.markTransientChange();
+  finish({ version: '2', conflict: { theirContent: 'external', theirVersion: '2' } });
+  await save;
+  expect(controller.getReconciliation()?.ours).toBe('newer typing');
+  pending = 'even newer';
+  controller.markTransientChange();
+  expect(controller.getReconciliation()?.ours).toBe('even newer');
+  controller.dispose();
+});

@@ -488,6 +488,19 @@ missing a control, add it there using the interaction and theming rules in
 | `components/editor/MarkdownEditorContextMenu.tsx`    | Shared Markdown editor context-menu component and clipboard/formatting helpers for cut/copy/paste/select-all and inline formatting actions                                                              | Context menu primitives, clipboard integration                                    |
 | `components/editor/NoteSnippetsDialog.tsx`           | CRUD dialog for vault/app reusable note snippets with placeholder-aware markdown bodies                                                                                                                 | Dialog, Button, Input, Select, Textarea                                           |
 
+Performance Batch 6 ownership and budgets are documented in
+[Markdown, Math And Graph Performance](./markdown-math-graph-performance.md).
+`NoteView` checkpoints immutable editor `Text` snapshots; the document session's
+`flushPendingChanges` hook materializes them at persistence/merge/retention boundaries.
+`lib/previewBlocks.ts` reconciles sanitized preview DOM and retained resources.
+`mathPlotSpec.ts` contains lightweight metadata parsing; `mathPlotSampling.ts` and
+`mathSolver.ts` execute in `math.worker.ts` through `mathWorkerClient.ts` and
+`lib/boundedWorkerPool.ts`. `useMathPlotSamples.ts` owns cancellable sampling/cache;
+`plotLifecycle.ts` owns visibility, WebGL admission/pixel limits and invalidation.
+`graph/graphData.ts` owns cached adjacency, while `graphLayout.worker.ts` owns D3
+simulation/positions; `GraphView.tsx` keeps keyed SVG nodes and camera state.
+Icon search uses a sliced posting-index build and bounded LRU in `lib/nerdFontIcons.ts`.
+
 **MarkdownEditorHandle** (ref interface):
 
 ```ts
@@ -562,7 +575,7 @@ missing a control, add it there using the interaction and theming rules in
 
 | File                                   | Purpose                                                                                                                                                         | Props                                                                               | libs used         |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------- |
-| `components/graph/GraphView.tsx`       | Force-directed note graph                                                                                                                                       | notes, onNodeClick?                                                                 | @xyflow/react, d3 |
+| `components/graph/GraphView.tsx`       | Keyed SVG note graph with worker layout                                                                                                                         | notes, onNodeClick                                                                  | d3, module worker |
 | `views/LogicDiagramView.tsx`           | Digital logic and rotatable electronic schematic editor with reusable components, multi-terminal wiring, explicit wire-splitting junctions, and SVG note export | VaultClient document sessions, live JSON collaboration, React Flow geometry helpers |
 | `components/logic/schematicSymbols.ts` | Canonical ANSI/IEEE and IEC/DIN schematic symbol definitions, rotation-aware dimensions, terminal coordinates, and SVG transforms                               | logic diagram types                                                                 |
 
@@ -1699,7 +1712,7 @@ How features map to source files:
 | Rename / move preview                      | `components/vault/FileTree.tsx`, `components/vault/VaultDialogs.tsx`, `commands/files.rs`                                                                                                                                                                                                                                                                              |
 | Note search                                | `components/vault/SearchPanel.tsx`, `commands/index.rs` (fuzzy-matcher)                                                                                                                                                                                                                                                                                                |
 | Tag browser                                | `components/vault/TagsPanel.tsx`, `noteIndexStore`                                                                                                                                                                                                                                                                                                                     |
-| Graph view                                 | `views/GraphPage.tsx`, `components/graph/GraphView.tsx` (@xyflow/react)                                                                                                                                                                                                                                                                                                |
+| Graph view                                 | `views/GraphPage.tsx`, `components/graph/GraphView.tsx`, `components/graph/graphData.ts`, `components/graph/graphLayout.worker.ts`                                                                                                                                                                                                                                     |
 | Kanban board                               | `views/KanbanPage.tsx`, `components/kanban/KanbanBoard.tsx`, `KanbanColumn.tsx`, `KanbanCard.tsx`                                                                                                                                                                                                                                                                      |
 | Kanban card editing                        | `components/kanban/CardDialog.tsx`                                                                                                                                                                                                                                                                                                                                     |
 | Kanban archive                             | `types/kanban.ts` (archived/archivedColumnId), `KanbanBoard.tsx` (ArchivePanel), `KanbanCard.tsx` (context menu), `CardDialog.tsx` (sidebar button)                                                                                                                                                                                                                    |

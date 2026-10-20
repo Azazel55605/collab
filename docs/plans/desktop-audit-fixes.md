@@ -1116,7 +1116,7 @@ Hosted search retains its existing 50-result server API boundary. The local
 in-memory content index trades retained text memory for zero query-time source
 reads; lower total RSS is not claimed. Installed latency/RSS, screen-reader
 behavior, real OS drops and native Windows/Linux/macOS/Android acceptance remain
-open under O70. Next category: **Markdown, Math And Graph (O29–O36)**.
+open under O70. The following **Markdown, Math And Graph (O29–O36)** category is recorded in Performance Batch 6 below.
 
 ## UI Flicker Follow-Up — UR15
 
@@ -1213,3 +1213,45 @@ Server smoke checks must use a disposable Compose project/port. The first attemp
 here was stopped by the existing BuildKit `network.host` entitlement requirement
 before starting the server; smoke success is not claimed. Do not tear down a
 user's running project to work around that gate.
+
+## Performance Batch 6 — Markdown, Math And Graph
+
+Implemented **2026-10-20**, completing **O29–O36**. See
+[implementation, resource budgets and rendered evidence](../desktop/markdown-math-graph-performance.md).
+
+- [x] O29: immutable editor transactions with bounded string checkpoints,
+      immediate dirty state and save/remote/merge/retention flushes. Keep external
+      adoption separate from local acknowledgements and preserve live ownership.
+- [x] O30: retain sanitized preview blocks, diagrams, highlighted code, asset jobs
+      and stable plot keys across unrelated edits; revalidate changed asset revisions.
+- [x] O31: bounded cancellable workers for math solving/sampling, stale-result
+      guards, timeout/errors, reusable workers and bounded sample cache.
+- [x] O32/O33: invalidation-only WebGL, visibility suspension, three-renderer /
+      six-million-pixel aggregate budget, activation recovery and retained camera.
+- [x] O34/O35: worker graph layout, incremental adjacency, stable node/link joins,
+      preserved camera/selection, functioning search and keyboard node activation;
+      500-node/5,000-edge visualization limit.
+- [x] O36: background-sliced posting index, ranked top-k search and bounded LRU.
+- [x] Regression coverage for transaction/undo/stale async boundaries, resource
+      retention, renderer budgets, graph identity and icon ranking/cache size.
+- [x] Integrated Chromium/software-WebGL and Linux WebKitGTK 2.54.1 checks with
+      real workers and synthetic IPC. Resource identities survive text edits;
+      500 graph nodes retain layout/camera; 12 plots stay within three canvases
+      with zero idle redraws in the sampled interval.
+- [ ] Installed platform/IME, native GPU/context recovery, and representative
+      CPU/RSS/latency acceptance remain under O70. Browser/jsdom evidence does not
+      certify those boundaries.
+
+End-of-batch validation: the desktop/scripts suite and affected correction
+reruns pass; the two ink timing-budget failures in the concurrent run pass in an
+isolated rerun. Admin **81 passed**, Android frontend **258 passed** after fixing
+one unrelated assertion that mistook a random cell ID containing `2400` for a
+persisted computed value. Rust workspace **712 passed / one ignored benchmark**;
+workspace check/fmt, frontend types/builds, asset budgets, lint (zero errors),
+formatting and crate/version guards pass. One intentional desktop test remains
+skipped. No live PostgreSQL integration or installed/native GPU certification is
+claimed. Existing generated `dist-mobile/index.html` changes remain unstaged;
+the Android frontend build used a temporary output directory.
+
+Next:
+**Previews, PDF, Images And OCR (O37–O41)**, with O39 already implemented.

@@ -1,3 +1,4 @@
+import { Text } from '@codemirror/state';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Awareness } from 'y-protocols/awareness';
@@ -78,10 +79,12 @@ vi.mock('../components/editor/MarkdownEditor', () => ({
   MarkdownEditor: ({
     content,
     onChange,
+    onDocumentChange,
     readOnly,
   }: {
     content: string;
     onChange: (content: string) => void;
+    onDocumentChange?: (document: Text) => void;
     readOnly?: boolean;
   }) => (
     <div>
@@ -89,6 +92,9 @@ vi.mock('../components/editor/MarkdownEditor', () => ({
       <div data-testid="editor-readonly">{String(!!readOnly)}</div>
       <button type="button" onClick={() => onChange(`${content}\nupdated`)}>
         change
+      </button>
+      <button type="button" onClick={() => onDocumentChange?.(Text.of([`${content} transaction`]))}>
+        transaction
       </button>
     </div>
   ),
@@ -170,6 +176,25 @@ describe('NoteView external reload behavior', () => {
   afterEach(() => {
     cleanup();
     useDocumentStatusStore.setState({ statuses: {} });
+  });
+
+  it('marks transaction edits dirty immediately and checkpoints the latest text before saving', async () => {
+    tauriMocks.readNote.mockResolvedValue({
+      content: 'initial note',
+      hash: 'hash-1',
+      modifiedAt: 1,
+    });
+    tauriMocks.writeNote.mockResolvedValue({ hash: 'hash-saved' });
+    render(<NoteView relativePath="Notes/a.md" />);
+    expect((await screen.findByTestId('editor-content')).textContent).toBe('initial note');
+    fireEvent.click(screen.getByRole('button', { name: 'transaction' }));
+    expect(useDocumentStatusStore.getState().statuses['Notes/a.md']?.status).toBe('dirty');
+    expect(screen.getByTestId('editor-content').textContent).toBe('initial note');
+    await act(async () => {
+      await useDocumentStatusStore.getState().statuses['Notes/a.md']?.controller?.requestSave();
+    });
+    expect(tauriMocks.writeNote.mock.calls[0][2]).toBe('initial note transaction');
+    expect(screen.getByTestId('editor-content').textContent).toBe('initial note transaction');
   });
 
   it('reloads on external modification when the note is clean', async () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { Text } from '@codemirror/state';
 import { listen } from '@tauri-apps/api/event';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -74,7 +75,31 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   // Snapshot authorship follows the effective identity: server-authoritative for
   // hosted vaults, local client identity otherwise.
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
-  const [content, setContent] = useState<string | null>(null);
+  const [{ content, sourceDocument, revision: contentRevision }, setContentState] = useState<{
+    content: string | null;
+    sourceDocument: Text | null;
+    revision: number;
+  }>({ content: null, sourceDocument: null, revision: 0 });
+  const setContent = useCallback(
+    (next: string | null | ((previous: string | null) => string | null)) => {
+      setContentState((previous) => ({
+        content: typeof next === 'function' ? next(previous.content) : next,
+        sourceDocument: null,
+        revision: previous.revision + 1,
+      }));
+    },
+    [],
+  );
+  const pendingDocument = useRef<Text | null>(null);
+  const checkpointTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const publishDocument = useRef<(document: Text) => void>(() => {});
+  const flushDocument = useCallback(() => {
+    if (checkpointTimer.current !== null) clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = null;
+    const document = pendingDocument.current;
+    pendingDocument.current = null;
+    if (document) publishDocument.current(document);
+  }, []);
   const [refreshPulse, setRefreshPulse] = useState(false);
   const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } =
     useUiStore();
@@ -141,6 +166,10 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   // Push an adopted document (initial load, safe remote apply, or backend merge)
   // into the editor and republish the saved version to the tab session.
   const applyNoteDocument = (candidate: RemoteCandidate<string>) => {
+    // A deliberate adoption/reload supersedes any old checkpoint still waiting.
+    if (checkpointTimer.current !== null) clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = null;
+    pendingDocument.current = null;
     setContent(candidate.content);
     setSavedHash(relativePath, candidate.version ?? '');
   };
@@ -150,6 +179,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   // active, `isLive` disables REST autosave and remote reloads for this note.
   const { controller, snapshot } = useDocumentSessionController<string>({
     serialize: (value) => value,
+    flushPendingChanges: flushDocument,
     deserialize: (value) => value,
     applyDocument: applyNoteDocument,
     read: async () => {
@@ -219,7 +249,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     return () => {
       cancelled = true;
     };
-  }, [client, controller, relativePath, vault?.path]);
+  }, [client, controller, relativePath, vault?.path, setContent]);
 
   // Open a live collaboration session for hosted notes; fall back to REST when
   // unavailable. The session is torn down when the note or vault changes.
@@ -293,12 +323,23 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   const applyContentTransform = useCallback(
     (transform: (value: string) => string) => {
       if (readOnly) return;
-      setContent((prev) => {
-        if (prev === null) return prev;
-        return transform(prev);
-      });
+      flushDocument();
+      const previous = liveSession
+        ? liveSession.text.toString()
+        : controller.getSnapshot().currentContent;
+      if (previous === null) return;
+      const next = transform(previous);
+      if (liveSession) {
+        liveSession.text.doc?.transact(() => {
+          liveSession.text.delete(0, liveSession.text.length);
+          liveSession.text.insert(0, next);
+        });
+      } else {
+        setContent(next);
+        controller.markLocalChange(next);
+      }
     },
-    [readOnly],
+    [readOnly, flushDocument, controller, liveSession, setContent],
   );
 
   // Command bar insert events
@@ -389,7 +430,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     return () => {
       unlisten.then((u) => u());
     };
-  }, [client, controller, relativePath, vault?.path]);
+  }, [client, controller, relativePath, vault?.path, setContent]);
 
   // Hosted replica refresh: route through the same safe remote policy.
   useEffect(() => {
@@ -402,7 +443,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       },
       { kinds: ['manifest'] },
     );
-  }, [client, controller, relativePath]);
+  }, [client, controller, relativePath, setContent]);
 
   useEffect(
     () => () => {
@@ -436,6 +477,18 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     // the controller correctly treats it as not dirty.
     if (liveSession || readOnly) return;
     controller.markLocalChange(newContent);
+  };
+
+  publishDocument.current = (document) => {
+    const text = document.toString();
+    setContentState((previous) => ({ ...previous, content: text, sourceDocument: document }));
+    if (!liveSession && !readOnly) controller.markLocalChange(text);
+  };
+  const handleDocumentChange = (document: Text) => {
+    if (!pendingDocument.current && !liveSession && !readOnly) controller.markTransientChange();
+    pendingDocument.current = document;
+    // A fixed window, not a trailing debounce: continuous typing still checkpoints.
+    if (checkpointTimer.current === null) checkpointTimer.current = setTimeout(flushDocument, 120);
   };
 
   // Manual save (Ctrl/Cmd-S). Serialized through the controller; creates a
@@ -522,6 +575,9 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
           ref={editorRef}
           content={editorContent}
           onChange={handleChange}
+          onDocumentChange={handleDocumentChange}
+          sourceDocument={sourceDocument}
+          externalRevision={contentRevision}
           onSave={handleManualSave}
           readOnly={readOnly}
           collabExtension={collabExtension}

@@ -1,4 +1,13 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef } from 'react';
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -27,6 +36,7 @@ import { extractInkExportSource } from '../../lib/ink/export';
 import { extractLogicDiagramExportSource } from '../../lib/logicDiagramExport';
 import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
 import { resolveNoteAssetTarget } from '../../lib/noteAssets';
+import { reconcilePreviewBlocks } from '../../lib/previewBlocks';
 import {
   highlightCommonCode,
   highlightDeferredCodeBlocks,
@@ -34,6 +44,7 @@ import {
 } from '../../lib/syntaxHighlighting';
 import { createVaultClient } from '../../lib/vaultClient';
 import { flattenVaultFiles, getVaultDocumentTitle } from '../../lib/vaultLinks';
+import { vaultTreeIndex } from '../../lib/vaultTreeIndex';
 import { extractHttpUrls, prefetchWebPreviews } from '../../lib/webPreviewCache';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
@@ -294,7 +305,11 @@ function waitForPlotCanvases(root: HTMLElement, expectedCanvases: number): Promi
   return new Promise((resolve) => {
     const startedAt = Date.now();
     const tick = () => {
-      if (root.querySelectorAll('.markdown-preview-plots canvas').length >= expectedCanvases) {
+      if (
+        root.querySelectorAll(
+          '.markdown-preview-plots canvas, .markdown-preview-plots [data-plot-state="paused"], .markdown-preview-plots [data-plot-state="error"]',
+        ).length >= expectedCanvases
+      ) {
         resolve();
         return;
       }
@@ -304,7 +319,9 @@ function waitForPlotCanvases(root: HTMLElement, expectedCanvases: number): Promi
       }
       window.setTimeout(tick, 50);
     };
-    tick();
+    // IntersectionObserver gets a frame to distinguish paused/offscreen plots
+    // from visible plots which are still awaiting samples or WebGL startup.
+    requestAnimationFrame(() => requestAnimationFrame(tick));
   });
 }
 
@@ -357,9 +374,18 @@ function PreviewInner({
   const fileTree = useVaultStore((state) => state.fileTree);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const linkPreviews = useMarkdownLinkPreviews(currentDocumentRelativePath);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const deferredContent = useDeferredValue(content);
+  const imageSources = useRef(new WeakMap<HTMLImageElement, string>());
+  const imageJobs = useRef(
+    new WeakMap<
+      HTMLImageElement,
+      { revision: unknown; scope: string; client: unknown; promise: Promise<void> }
+    >(),
+  );
   const renderedPreview = useMemo(() => {
     try {
-      const body = stripFrontmatter(content);
+      const body = stripFrontmatter(deferredContent);
       const withMath = preprocessMath(body);
       const withPlots = preprocessDisplayMathPlots(withMath);
       const withLinks = preprocessWikilinks(withPlots.source);
@@ -375,10 +401,13 @@ function PreviewInner({
         plotBlocks: [],
       };
     }
-  }, [content]);
+  }, [deferredContent]);
 
   const html = renderedPreview.html;
   const plotBlocks = renderedPreview.plotBlocks;
+  useLayoutEffect(() => {
+    if (previewRef.current) reconcilePreviewBlocks(previewRef.current, html);
+  }, [html]);
 
   useEffect(() => {
     if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled)
@@ -399,14 +428,15 @@ function PreviewInner({
 
     let cancelled = false;
     const imagePromises: Promise<void>[] = [];
-    const mermaidJob = renderMermaidBlocks(root);
+    const mermaidJob = renderMermaidBlocks(root, `${theme}:${accentColor}`);
     const highlighting = new AbortController();
     const highlightJob = highlightDeferredCodeBlocks(root, highlighting.signal);
 
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'));
 
     for (const image of images) {
-      const rawSrc = image.getAttribute('src');
+      const rawSrc = imageSources.current.get(image) ?? image.getAttribute('src');
+      if (rawSrc) imageSources.current.set(image, rawSrc);
       if (!rawSrc) continue;
       if (!client || !currentDocumentRelativePath) {
         imagePromises.push(waitForImageLoad(image));
@@ -421,10 +451,22 @@ function PreviewInner({
       image.dataset.assetKind = 'vault';
       image.dataset.assetValue = target.value;
 
+      const revision = vaultTreeIndex(fileTree).byPath.get(target.value);
+      const scope = `${currentDocumentRelativePath}:${target.value}`;
+      const retained = imageJobs.current.get(image);
+      if (
+        retained &&
+        retained.revision === revision &&
+        retained.scope === scope &&
+        retained.client === client
+      ) {
+        imagePromises.push(retained.promise);
+        continue;
+      }
       const imagePromise = client
         .readAssetDataUrl(target.value)
         .then((dataUrl) => {
-          if (cancelled || !image.isConnected) return;
+          if (!image.isConnected || imageJobs.current.get(image)?.promise !== imagePromise) return;
           image.src = dataUrl;
           const logicSource = extractLogicDiagramExportSource(dataUrl);
           if (logicSource) image.dataset.logicSourcePath = logicSource;
@@ -433,10 +475,11 @@ function PreviewInner({
           return waitForImageLoad(image);
         })
         .catch(() => {
-          if (cancelled || !image.isConnected) return;
+          if (!image.isConnected || imageJobs.current.get(image)?.promise !== imagePromise) return;
           image.dataset.previewError = 'true';
         });
-      imagePromises.push(imagePromise.then(() => undefined));
+      imageJobs.current.set(image, { revision, scope, client, promise: imagePromise });
+      imagePromises.push(imagePromise);
     }
 
     const expected3dCanvases = plotBlocks.reduce(
@@ -518,16 +561,14 @@ function PreviewInner({
         onMouseMove={linkPreviews.move}
         onMouseLeave={linkPreviews.clear}
       >
-        <div
-          className={`markdown-preview ${className}`}
-          // Deliberate: `html` comes from the sanitising renderer above, never
-          // from untrusted input reaching this component directly.
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <div className={`markdown-preview ${className}`} ref={previewRef} />
         {plotBlocks.length > 0 && (
           <div className="markdown-preview-plots">
             {plotBlocks.map((parsed, index) => (
-              <MathPlotPreviewStack key={index} parsed={parsed} />
+              <MathPlotPreviewStack
+                key={`${JSON.stringify(parsed)}:${plotBlocks.slice(0, index).filter((block) => JSON.stringify(block) === JSON.stringify(parsed)).length}`}
+                parsed={parsed}
+              />
             ))}
           </div>
         )}

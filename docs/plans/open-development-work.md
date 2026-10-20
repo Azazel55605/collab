@@ -110,7 +110,11 @@ native acceptance are tracked there. **Vault Listing, Indexing And Search (O17�
 Batch 5: path deltas, persistent encrypted-aware local search records, result
 paging, reverse links, bounded native workers, windowed tree rows, revision maps
 and attachment discovery. See [validation and remaining native acceptance](../desktop/vault-listing-performance.md).
-The next category is **Markdown, Math And Graph (O29–O36)**.
+**Markdown, Math And Graph (O29–O36)** is implemented in Performance Batch 6:
+transaction checkpoints, retained preview blocks/assets, bounded math workers,
+visibility-budgeted plots, on-demand WebGL, worker graph layout and bounded icon
+search. See [budgets, evidence and outstanding native acceptance](../desktop/markdown-math-graph-performance.md).
+The next category is **Previews, PDF, Images And OCR (O37–O41)**; O39 is already implemented.
 
 The **UR15 UI flicker follow-up (2026-10-20)** removes routine folder/sidebar/view
 and settings-category entrance fades while preserving document keys and menu
@@ -124,7 +128,7 @@ removes growing blank code-block space, and reuses file-tree previews for file
 links in Markdown editing/reading views. Repository and rendered Chromium/WebKit
 checks pass; installed native acceptance remains open in the
 [implementation tracker](./desktop-audit-fixes.md#markdown-layout-and-file-link-previews--ur16ur18).
-O29–O36 and the broader preview performance findings retain their existing status.
+The separate O29–O36 batch is implemented; broader preview performance findings retain their checklist status.
 
 ### Web Interface Performance And Correctness Audit
 

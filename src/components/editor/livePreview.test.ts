@@ -188,3 +188,16 @@ describe('livePreview task checkbox toggles', () => {
     view.destroy();
   });
 });
+
+it('retains the decoration set when the cursor moves within the same source line', () => {
+  const plugin = createLivePreviewPlugin('Note.md');
+  const state = EditorState.create({
+    doc: 'Cursor stays here.\n\n**Rendered elsewhere**',
+    selection: { anchor: 0 },
+    extensions: [plugin],
+  });
+  const moved = state.update({ selection: { anchor: 5 } }).state;
+  expect(moved.field(plugin)).toBe(state.field(plugin));
+  const nextLine = moved.update({ selection: { anchor: moved.doc.length } }).state;
+  expect(nextLine.field(plugin)).not.toBe(moved.field(plugin));
+});

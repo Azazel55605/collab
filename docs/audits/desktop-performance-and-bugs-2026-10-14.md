@@ -127,7 +127,7 @@ reproduction/verification and remaining native confirmation are recorded in the
 Follow-ups **UR16–UR18 (2026-10-20)** cover viewport sizing for math/merge
 dialogs, Markdown file-link previews and excess code-block height. These are
 tracked separately in the [reported regressions](./reported-regressions-2026-10-14.md#ur16--math-and-merge-dialogs-exceed-the-viewport)
-and implementation tracker; they do not close the remaining O29–O41 categories.
+and implementation tracker; they do not close the remaining preview categories.
 
 ## Evidence And Interpretation
 
@@ -312,9 +312,9 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-20**: **O01–O28, O39, O47 and O64 are implemented;
-O48 is superseded by R08**. These 32 implementation items are checked off; the
-other **38 entries remain open or partial**. Native release acceptance is tracked
+Checklist reconciled **2026-10-20**: **O01–O36, O39, O47 and O64 are implemented;
+O48 is superseded by R08**. These 40 implementation items are checked off; the
+other **30 entries remain open or partial**. Native release acceptance is tracked
 separately below and in the implementation tracker; checkboxes do not claim
 measured startup/RSS gains or certification on every platform.
 
@@ -496,53 +496,42 @@ and [Vault Listing And Search](../desktop/vault-listing-performance.md).
 
 ### Markdown, Math And Graph
 
-- [ ] **O29 / P1 — Avoid whole-note string/render work for every keystroke.**
-      **Status: Open.**
-      [MarkdownEditor](../../src/components/editor/MarkdownEditor.tsx) calls
-      `doc.toString()` on each document change;
-      [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx) preprocesses,
-      renders and sanitizes the whole content. Use transactions/deltas for session
-      state and deferred or block-level preview updates. Test IME, undo and preview
-      consistency; preserve sanitization and save correctness.
-- [ ] **O30 / P2 — Reconcile preview blocks/assets rather than rebuilding all DOM work.**
-      **Status: Open.**
-      The MarkdownPreview effect reruns Mermaid/plot/image resolution after HTML
-      changes. Preserve unaffected block resources and resolve asset paths via a
-      revision-scoped index. Measure diagrams/images touched after a small text edit.
-- [ ] **O31 / P2 — Move expensive math sampling/solving off the UI thread.**
-      **Status: Open.**
-      [mathSolver](../../src/components/editor/mathSolver.ts) and
-      [mathPlotSpec](../../src/components/editor/mathPlotSpec.ts) run Nerdamer and
-      sampling synchronously. Use cancellable bounded workers and latest-request
-      results. Test malformed/expensive expressions and rapid domain edits.
-- [ ] **O32 / P1 — Render static 3D plots on demand.**
-      **Status: Open.**
-      [MathPlot3D](../../src/components/editor/MathPlot3D.tsx) renders in a continuous
-      rAF loop even when the camera/spec is unchanged. Invalidate on interaction,
-      resize/spec/theme and suspend when offscreen/hidden. Measure idle GPU/CPU and
-      preserve interaction smoothness and existing disposal.
-- [ ] **O33 / P2 — Limit simultaneously active inline plot renderers.**
-      **Status: Open.**
-      Markdown can mount many plots. Add visibility-based activation and an aggregate
-      renderer/pixel budget in [MathPlot3D](../../src/components/editor/MathPlot3D.tsx)
-      and [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx). Verify
-      scrolling and renderer recovery without replacing plots with dead placeholders.
-- [ ] **O34 / P2 — Move large graph layout work off the UI thread.**
-      **Status: Open.**
-      [GraphView](../../src/components/graph/GraphView.tsx) runs D3 force simulation
-      on the UI thread with SVG nodes/links. Use a worker/layout cache and consider
-      canvas/WebGL above a measured threshold. Preserve hit testing and accessibility;
-      existing simulation.stop/rAF cleanup should remain.
-- [ ] **O35 / P2 — Stable graph inputs and incremental adjacency updates.**
-      **Status: Open.**
-      GraphView rebuilds its simulation on graph data/callback changes. Maintain
-      stable callbacks and update affected adjacency/layout rather than resetting all
-      nodes after an index refresh. Test camera/selection preservation and large graphs.
-- [ ] **O36 / P2 — Bound command/icon search caches and work.**
-      **Status: Open.**
-      [nerdFontIcons](../../src/lib/nerdFontIcons.ts) caches every query without eviction
-      and scores the full registry for new queries. Add a bounded LRU, normalized
-      query index and top-k behavior. Measure typed-query cost and cache bytes.
+Implemented **2026-10-20**, Performance Batch 6. See
+[mechanisms, budgets, rendered evidence and native acceptance](../desktop/markdown-math-graph-performance.md).
+
+- [x] **O29 / P1 — Avoid whole-note string/render work for every keystroke.**
+      Immutable editor transactions, 120 ms session checkpoints and deferred
+      reading previews. Save/merge/retention boundaries flush pending edits;
+      same-line cursor motion retains decorations. Revision-level Markdown
+      parsing remains; IME/native typing acceptance stays under O70.
+- [x] **O30 / P2 — Reconcile preview blocks/assets rather than rebuilding all DOM work.**
+      Sanitized block reconciliation retains images, diagrams and highlighting;
+      image jobs use client/document scope and revision-indexed file identity.
+      A surrounding text edit retains both resource nodes and one asset read.
+- [x] **O31 / P2 — Move expensive math sampling/solving off the UI thread.**
+      Two-worker bounded pool, cancellation/termination, eight-second timeout,
+      immutable editor/request checks and visible loading/errors. Sampling is
+      cached separately from resizing; obsolete domain results cannot publish.
+- [x] **O32 / P1 — Render static 3D plots on demand.**
+      Coalesced invalidation replaces the animation loop; visibility suspends
+      rendering and cleanup disposes resources. Software WebGL records zero
+      draw calls during a 600 ms idle sample; native GPU profiling stays open.
+- [x] **O33 / P2 — Limit simultaneously active inline plot renderers.**
+      Three WebGL leases, two million physical pixels each; visibility-based
+      disposal, retained camera state and explicit activation for queued plots.
+      Twelve-plot scrolling stays within three canvases in the rendered check.
+- [x] **O34 / P2 — Move large graph layout work off the UI thread.**
+      Persistent D3 worker, retained positions, generation checks, coalesced
+      publication, hidden-document suspension and retry/cleanup. SVG keeps
+      accessible node activation; the view is bounded to 500 notes/5,000 links.
+- [x] **O35 / P2 — Stable graph inputs and incremental adjacency updates.**
+      Per-source adjacency and target-lookup invalidation, stable semantic inputs,
+      keyed node/link joins and current callback refs retain camera/selection.
+      Graph search now dims unmatched nodes without restarting the layout.
+- [x] **O36 / P2 — Bound command/icon search caches and work.**
+      Background-sliced character/trigram index, top-k buckets and a 64-key /
+      8,192-reference LRU. Typed-array index: 2,630,852 bytes; observed 500
+      repeated lookups: about 15 ms cold / 2 ms warm on the QA host.
 
 ### Previews, PDF, Images And OCR
 
@@ -817,10 +806,10 @@ The review does not recommend undoing work already present:
 
 ## Suggested Delivery Order
 
-The original priority grouping follows. **O01–O28, O39/O47 and O64 are now
+The original priority grouping follows. **O01–O36, O39/O47 and O64 are now
 implemented (O48 superseded)**; use the checkboxes and
 [open development work](../plans/open-development-work.md) for current scope.
-The next requested category is **Markdown, Math And Graph (O29–O36)**.
+The next category is **Previews, PDF, Images And OCR (O37–O41)**; O39 is already implemented.
 
 1. **Correctness first:** B01 autosave/session ownership; B02 Unicode; B06 staging
    collisions; B04 PDF lifetimes; B03/B05 stale requests/listeners. Validate the
