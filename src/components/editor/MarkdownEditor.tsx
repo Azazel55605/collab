@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { syntaxHighlighting } from '@codemirror/language';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
-import 'katex/dist/katex.min.css';
 
+import '../../generated/katex.css';
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import type { EditorToolbarAction } from '../../lib/editorToolbarActions';
 import { getMarkdownImageTarget } from '../../lib/noteAssets';

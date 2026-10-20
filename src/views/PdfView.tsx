@@ -29,13 +29,6 @@ import {
   Rows3,
   Trash2,
 } from 'lucide-react';
-import {
-  GlobalWorkerOptions,
-  PixelsPerInch,
-  RenderingCancelledException,
-  TextLayer,
-} from 'pdfjs-dist/legacy/build/pdf.mjs';
-import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { toast } from 'sonner';
 
 import {
@@ -79,6 +72,8 @@ import {
 import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
 import { createPdfInkDocument, migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
 import { acquirePdfDocument } from '../lib/pdfResourceCache';
+import { PixelsPerInch, RenderingCancelledException, TextLayer } from '../lib/pdfRuntime';
+import type { PDFDocumentProxy, RenderTask } from '../lib/pdfRuntime';
 import {
   appendMarkdownBlock,
   appendPdfQuoteTextNode,
@@ -122,9 +117,6 @@ import {
 } from './pdfViewSession';
 import type { LayoutMode, ZoomMode } from './pdfViewTypes';
 import { expandPdfHighlightRects, flattenPdfFiles } from './pdfViewUtils';
-
-const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
-GlobalWorkerOptions.workerSrc = workerUrl;
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;

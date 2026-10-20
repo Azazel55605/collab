@@ -113,7 +113,12 @@ export default function NotePrintView({
   const title = useMemo(() => getVaultDocumentTitle(relativePath), [relativePath]);
 
   useEffect(() => {
-    document.title = `${title} · PDF Export`;
+    const previous = document.title;
+    const exportTitle = `${title} · PDF Export`;
+    document.title = exportTitle;
+    return () => {
+      if (document.title === exportTitle) document.title = previous;
+    };
   }, [title]);
 
   useEffect(() => {

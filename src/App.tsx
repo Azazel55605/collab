@@ -3,15 +3,17 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import './App.css';
-import { LiveDebugPanel } from './components/collaboration/LiveDebugPanel';
-import { MathPlotModalHost } from './components/editor/MathPlotModal';
+import { MathPlotModalHost } from './components/editor/MathPlotModalHost';
 import AppShell from './components/layout/AppShell';
-import SettingsModal from './components/settings/SettingsModal';
+import {
+  LiveDebugPanel,
+  VaultManagerModal,
+  VaultUnlockModal,
+} from './components/layout/deferredRootOverlays';
+import { SettingsModalHost } from './components/settings/SettingsModalHost';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
-import VaultManagerModal from './components/vault/VaultManagerModal';
 import VaultPicker from './components/vault/VaultPicker';
-import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { subscribeMediaQueryChange } from './lib/browserCompat';
 import { setLiveCollabDebug } from './lib/liveDebugLog';
 import { NOTE_PDF_EXPORT_EVENT } from './lib/notePdfExport';
@@ -24,8 +26,7 @@ import { useServerStore } from './store/serverStore';
 import { ACCENT_COLORS, INTERFACE_FONTS, useUiStore } from './store/uiStore';
 import { useUpdateStore } from './store/updateStore';
 import { useVaultStore } from './store/vaultStore';
-import ChatsPage from './views/ChatsPage';
-import NotePrintView from './views/NotePrintView';
+import { ChatsPage, NotePrintView } from './views/deferredViews';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
@@ -113,7 +114,6 @@ export default function App() {
     scale,
     animationsEnabled,
     animationSpeed,
-    isSettingsOpen,
     isVaultManagerOpen,
     restorePreviousSession,
   } = useUiStore();
@@ -389,7 +389,7 @@ export default function App() {
         ) : (
           <VaultPicker />
         )}
-        {isSettingsOpen && <SettingsModal />}
+        <SettingsModalHost />
         {isVaultManagerOpen && <VaultManagerModal />}
         {liveCollabDebug && <LiveDebugPanel />}
         <MathPlotModalHost />

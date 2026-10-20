@@ -1,3 +1,10 @@
+import {
+  availableMonitors,
+  currentMonitor,
+  getCurrentWindow,
+  primaryMonitor,
+} from '@tauri-apps/api/window';
+
 /**
  * The audience window: slides on a second display while the presenter view
  * stays on this one.
@@ -103,7 +110,6 @@ function displayId(monitor: { name: string | null; position: { x: number; y: num
 export async function listDisplays(): Promise<DisplayInfo[]> {
   if (!isDesktopRuntime()) return [];
   try {
-    const { availableMonitors, primaryMonitor } = await import('@tauri-apps/api/window');
     const [monitors, primary] = await Promise.all([availableMonitors(), primaryMonitor()]);
     const primaryId = primary ? displayId(primary) : null;
     return monitors
@@ -130,7 +136,6 @@ export async function listDisplays(): Promise<DisplayInfo[]> {
 export async function currentDisplayId(): Promise<string | null> {
   if (!isDesktopRuntime()) return null;
   try {
-    const { currentMonitor } = await import('@tauri-apps/api/window');
     const monitor = await currentMonitor();
     return monitor ? displayId(monitor) : null;
   } catch {
@@ -270,7 +275,6 @@ export async function openAudienceWindow(
 export async function setWindowFullscreen(fullscreen: boolean): Promise<boolean | null> {
   if (isDesktopRuntime()) {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const current = getCurrentWindow();
       const was = await current.isFullscreen();
       if (was !== fullscreen) await current.setFullscreen(fullscreen);

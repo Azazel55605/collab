@@ -7,7 +7,8 @@ import '@fontsource-variable/inter';
 import '@fontsource/fira-code';
 import '@fontsource/jetbrains-mono';
 import 'highlight.js/styles/atom-one-dark.css';
-import 'katex/dist/katex.min.css';
+
+import '../../../src/generated/katex.css';
 
 import { MobileApp } from './MobileApp';
 import './styles.css';

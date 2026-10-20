@@ -36,8 +36,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "rust:boundaries": "node scripts/check-rust-crate-boundaries.mjs",
-    "dev": "node scripts/prepare-ocr-assets.mjs && vite",
-    "build": "node scripts/prepare-ocr-assets.mjs && tsc && vite build",
+    "dev": "node scripts/prepare-ocr-assets.mjs && node scripts/prepare-highlight-languages.mjs && node scripts/prepare-font-assets.mjs && vite",
+    "build": "node scripts/prepare-ocr-assets.mjs && node scripts/prepare-highlight-languages.mjs && node scripts/prepare-font-assets.mjs && tsc && vite build && node scripts/report-desktop-bundle.mjs dist --check-budgets",
     "prepare:ocr": "node scripts/prepare-ocr-assets.mjs",
     "installer:art": "node scripts/build-installer-art.mjs",
     "mobile:dev": "vite --config apps/mobile-android/vite.config.ts",
@@ -74,7 +74,10 @@
     "admin:release:check": "node scripts/check-release-version.mjs --target admin-web",
     "server:release:check": "node scripts/check-release-version.mjs --target server",
     "server:restore": "./scripts/server-backups.sh restore",
-    "tauri": "node scripts/tauri-command.mjs"
+    "tauri": "node scripts/tauri-command.mjs",
+    "prepare:highlight": "node scripts/prepare-highlight-languages.mjs",
+    "prepare:fonts": "node scripts/prepare-font-assets.mjs",
+    "bundle:check": "node scripts/report-desktop-bundle.mjs dist --check-budgets"
   },
   "dependencies": {
     "@azurity/pure-nerd-font": "^3.0.5",

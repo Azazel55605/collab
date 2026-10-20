@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ChevronLeft,
   ChevronRight,
@@ -761,7 +760,9 @@ export default function InkView({ relativePath }: InkViewProps) {
       const link = scene?.objects[objectId]?.link;
       if (!link) return;
       if (link.kind === 'url') {
-        void openUrl(link.target).catch((error) => toast.error((error as Error).message));
+        void tauriCommands
+          .openExternalUrl(link.target)
+          .catch((error) => toast.error((error as Error).message));
         return;
       }
       const type = getVaultDocumentTabType(link.target);

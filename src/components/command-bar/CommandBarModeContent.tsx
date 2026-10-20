@@ -14,8 +14,8 @@ import {
   formatNerdFontHexCode,
   groupNerdFontIcons,
   isNerdFontIconQuery,
-  searchNerdFontIcons,
-} from '../../lib/nerdFontIcons';
+} from '../../lib/nerdFontIconQuery';
+import { useNerdFontIcons } from '../../lib/useNerdFontIcons';
 import {
   CommandEmpty,
   CommandGroup,
@@ -411,51 +411,55 @@ function renderActions(mode: { type: 'action'; query: string }, ctx: RenderCtx) 
   );
 }
 
+function IconResults({ query, ctx }: { query: string; ctx: RenderCtx }) {
+  const { entries: icons, loading, error } = useNerdFontIcons(query, 120, true);
+  if (error) return <CommandEmpty>Could not load icons. Reopen Collab to retry.</CommandEmpty>;
+  if (loading) return <CommandEmpty>Loading icons…</CommandEmpty>;
+  if (!icons.length) return <CommandEmpty>No icons matching "{query}".</CommandEmpty>;
+  return (
+    <>
+      {groupNerdFontIcons(icons).map(([categoryLabel, entries]) => (
+        <CommandGroup key={categoryLabel} heading={categoryLabel}>
+          {entries.map((entry) => (
+            <CommandItem
+              key={entry.id}
+              value={`icon-${entry.id}`}
+              onSelect={() => {
+                window.dispatchEvent(
+                  new CustomEvent('cmdbar:insert', { detail: { text: entry.glyph } }),
+                );
+                ctx.close();
+              }}
+              className="gap-3"
+            >
+              <span
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-[18px] leading-none"
+                style={{ fontFamily: "'Pure Nerd Font', PureNerdFont, monospace" }}
+                aria-hidden="true"
+              >
+                {entry.glyph}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{entry.nameLabel}</span>
+                <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
+              </span>
+              <CommandShortcut className="tracking-normal">
+                {formatNerdFontHexCode(entry.hexCode)}
+              </CommandShortcut>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      ))}
+    </>
+  );
+}
+
 function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
   if (ctx.activeView !== 'editor') {
     return <CommandEmpty>Open a note first to insert snippets.</CommandEmpty>;
   }
   if (isNerdFontIconQuery(mode.query)) {
-    const icons = searchNerdFontIcons(mode.query, 120);
-    if (!icons.length) {
-      return <CommandEmpty>No icons matching "{mode.query}".</CommandEmpty>;
-    }
-    return (
-      <>
-        {groupNerdFontIcons(icons).map(([categoryLabel, entries]) => (
-          <CommandGroup key={categoryLabel} heading={categoryLabel}>
-            {entries.map((entry) => (
-              <CommandItem
-                key={entry.id}
-                value={`icon-${entry.id}`}
-                onSelect={() => {
-                  window.dispatchEvent(
-                    new CustomEvent('cmdbar:insert', { detail: { text: entry.glyph } }),
-                  );
-                  ctx.close();
-                }}
-                className="gap-3"
-              >
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-[18px] leading-none"
-                  style={{ fontFamily: "'Pure Nerd Font', PureNerdFont, monospace" }}
-                  aria-hidden="true"
-                >
-                  {entry.glyph}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{entry.nameLabel}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
-                </span>
-                <CommandShortcut className="tracking-normal">
-                  {formatNerdFontHexCode(entry.hexCode)}
-                </CommandShortcut>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        ))}
-      </>
-    );
+    return <IconResults query={mode.query} ctx={ctx} />;
   }
   const snippets = generateSnippets(mode.query, ctx.dateFormat);
   if (!snippets.length) {

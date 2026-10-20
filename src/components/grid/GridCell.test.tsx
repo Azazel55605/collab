@@ -146,27 +146,29 @@ describe('GridCell', () => {
     });
   });
 
-  it('creates a fresh document lifetime when a cell changes files or vaults', () => {
+  it('creates a fresh document lifetime when a cell changes files or vaults', async () => {
     const cell: GridCellType = {
       id: 'cell-lifetime',
       content: { type: 'image', relativePath: 'first.png', title: 'first' },
     };
     const { rerender } = render(<GridCell cell={cell} />);
+    const initialLifetime = (await screen.findByTestId('image-view')).dataset.lifetime;
     rerender(
       <GridCell cell={{ ...cell, content: { ...cell.content, relativePath: 'second.png' } }} />,
     );
-    expect(screen.getByTestId('image-view').dataset.initialPath).toBe('second.png');
+    expect((await screen.findByTestId('image-view')).dataset.initialPath).toBe('second.png');
+    expect(screen.getByTestId('image-view').dataset.lifetime).not.toBe(initialLifetime);
     const previousLifetime = screen.getByTestId('image-view').dataset.lifetime;
     act(() =>
       useVaultStore.setState({
         vault: { id: 'other', path: '/other', name: 'Other', isEncrypted: false, lastOpened: 0 },
       }),
     );
-    expect(screen.getByTestId('image-view').dataset.initialPath).toBe('second.png');
+    expect((await screen.findByTestId('image-view')).dataset.initialPath).toBe('second.png');
     expect(screen.getByTestId('image-view').dataset.lifetime).not.toBe(previousLifetime);
   });
 
-  it('renders canvas cells with their board path', () => {
+  it('renders canvas cells with their board path', async () => {
     const cell: GridCellType = {
       id: 'cell-1',
       content: {
@@ -177,6 +179,7 @@ describe('GridCell', () => {
     };
 
     render(<GridCell cell={cell} />);
+    await screen.findByTestId('canvas-page');
 
     expect(canvasPageMock).toHaveBeenCalledWith(
       expect.objectContaining({ relativePath: 'Boards/network.canvas' }),
@@ -184,7 +187,7 @@ describe('GridCell', () => {
     expect(screen.getByTestId('canvas-page').textContent).toContain('Boards/network.canvas');
   });
 
-  it('renders kanban cells with their board path', () => {
+  it('renders kanban cells with their board path', async () => {
     const cell: GridCellType = {
       id: 'cell-2',
       content: {
@@ -195,6 +198,7 @@ describe('GridCell', () => {
     };
 
     render(<GridCell cell={cell} />);
+    await screen.findByTestId('kanban-page');
 
     expect(kanbanPageMock).toHaveBeenCalledWith(
       expect.objectContaining({ relativePath: 'Boards/tasks.kanban' }),
@@ -202,7 +206,7 @@ describe('GridCell', () => {
     expect(screen.getByTestId('kanban-page').textContent).toContain('Boards/tasks.kanban');
   });
 
-  it('renders logic cells with their diagram path', () => {
+  it('renders logic cells with their diagram path', async () => {
     const cell: GridCellType = {
       id: 'cell-logic',
       content: {
@@ -213,6 +217,7 @@ describe('GridCell', () => {
     };
 
     render(<GridCell cell={cell} />);
+    await screen.findByTestId('logic-diagram-view');
 
     expect(logicDiagramViewMock).toHaveBeenCalledWith(
       expect.objectContaining({ relativePath: 'Boards/logic.logic' }),
@@ -272,7 +277,7 @@ describe('GridCell', () => {
     expect(screen.getByTestId('image-view').textContent).toContain('Boards/diagram.png');
   });
 
-  it('renders pdf cells with their document path', () => {
+  it('renders pdf cells with their document path', async () => {
     const cell: GridCellType = {
       id: 'cell-5',
       content: {
@@ -283,6 +288,7 @@ describe('GridCell', () => {
     };
 
     render(<GridCell cell={cell} />);
+    await screen.findByTestId('pdf-view');
 
     expect(pdfViewMock).toHaveBeenCalledWith(
       expect.objectContaining({ relativePath: 'Boards/spec.pdf' }),

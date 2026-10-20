@@ -75,7 +75,7 @@ import { Checkbox } from '../ui/checkbox';
 
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
-import { openMathPlotModal } from './MathPlotModal';
+import { openMathPlotModal } from './MathPlotModalHost';
 import { parseMathPlots } from './mathPlotSpec';
 
 export function buildTaskCheckboxToggleChange(

@@ -46,6 +46,25 @@ jobs:
       - name: Version manifests
         run: pnpm versions:check
 
+      - name: Generated language and font catalogs
+        run: |
+          node scripts/prepare-highlight-languages.mjs --check
+          node scripts/prepare-font-assets.mjs --check
+
+      - name: Desktop startup and packaged asset budgets
+        run: |
+          node scripts/prepare-ocr-assets.mjs
+          pnpm exec vite build --manifest --emptyOutDir --outDir /tmp/collab-desktop-bundle
+          node scripts/report-desktop-bundle.mjs /tmp/collab-desktop-bundle --check-budgets > /tmp/collab-startup-report.json
+          cat /tmp/collab-startup-report.json
+
+      - name: Desktop bundle measurement report
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-startup-report
+          path: /tmp/collab-startup-report.json
+          retention-days: 7
+
       - name: Desktop and script tests
         # The ink and sheet performance tests assert wall-clock ceilings
         # measured on a developer machine. A shared runner is slower, and both

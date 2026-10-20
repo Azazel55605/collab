@@ -28,8 +28,8 @@ vi.mock('./components/layout/AppShell', () => ({
   default: () => <div data-testid="app-shell" />,
 }));
 
-vi.mock('./components/settings/SettingsModal', () => ({
-  default: () => null,
+vi.mock('./components/settings/SettingsModalHost', () => ({
+  SettingsModalHost: () => null,
 }));
 
 vi.mock('./components/vault/VaultManagerModal', () => ({

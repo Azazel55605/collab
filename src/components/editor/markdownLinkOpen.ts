@@ -1,10 +1,11 @@
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { toast } from 'sonner';
+
+import { tauriCommands } from '../../lib/tauri';
 
 export function openNonVaultMarkdownPreviewLink(
   url: string,
   {
-    openExternal = openUrl,
+    openExternal = tauriCommands.openExternalUrl,
     onInvalidLink = (message: string) => toast.error(message),
   }: {
     openExternal?: (url: string) => Promise<unknown>;

@@ -684,6 +684,266 @@ End-of-batch validation:
   `dist-mobile/index.html` change is preserved. No new live PostgreSQL or server
   smoke coverage is claimed for this native UI build fix.
 
+## Performance Batch 1 — Bounded Text Merging (2026-10-20)
+
+Scope: **O64**, with an initial **O70** synthetic measurement fixture. Follow the
+audit's largest-bounded-cost tier before long-session and interaction work.
+
+- [x] Replace duplicated desktop/server merge implementations with the portable
+      `collab-live::try_auto_merge_text` engine. The server already used that API;
+      the native adapter now uses it too, without a new crate or dependency edge.
+- [x] Borrow lines and trim unchanged boundaries before diffing. A sparse edit in
+      a 10k-line document no longer allocates a whole-document LCS table.
+- [x] Bound remaining tables to 1M `u32` cells (4 MiB each, one alive at a time),
+      combined input to 8 MiB/128k lines, both diffs to 2M total cells and line
+      comparisons to 64 MiB. Equal/unchanged inputs use the linear fast path.
+      Oversized or overlapping edits remain explicit conflicts, preserving
+      current content. Different insertions at the same position also conflict;
+      identical insertions are applied once.
+- [x] Add regressions for UTF-8/CRLF/final newlines, repeated-line reconstruction,
+      10k sparse merges, resource limits, server reconciliation and a real native
+      write that must preserve disk content when the merge exceeds budget.
+- [x] Add an opt-in synthetic benchmark with correctness assertions and CSV
+      p50/p95 timings, 25 iterations each for 1k/10k sparse/unrelated fixtures:
+      `cargo run --release -p collab-live --example text_merge_benchmark`.
+- [x] End-of-batch verification and recorded measurements below.
+
+The previous 10k-by-10k table required ~763 MiB analytically on a 64-bit target;
+that allocation is now rejected before construction. This is a resource-bound
+claim, not a measured process-RSS reduction. Native/encrypted-vault save latency,
+cross-platform RSS and the full O70 release gate remain open. No telemetry runs
+in normal app sessions, and benchmark inputs contain no user data.
+
+### Performance Batch 1 Measurements And Verification
+
+Synthetic portable-core timings on **2026-10-20**, Linux x86_64, Ryzen 9 7845HX,
+Rust 1.99.0. Each fixture ran 25 times sequentially after compilation and test
+jobs completed; the host was not otherwise isolated. Inputs were generated in
+memory, so disk/cache/WebView state is outside this measurement. Exact-result
+assertions passed on every iteration. Do not turn these samples into a native
+latency budget or general app speedup claim.
+
+| Fixture                           | Original p50 / p95 | Bounded p50 / p95 | Result                           |
+| --------------------------------- | ------------------ | ----------------- | -------------------------------- |
+| 1k lines, two sparse edits        | 8.237 / 10.881 ms  | 0.064 / 0.074 ms  | Merged                           |
+| 1k lines, unrelated replacements  | 4.118 / 4.245 ms   | 3.029 / 5.244 ms  | Conflict                         |
+| 10k lines, two sparse edits       | Not run            | 0.682 / 1.131 ms  | Merged                           |
+| 10k lines, unrelated replacements | Not run            | 0.479 / 0.558 ms  | Conflict before table allocation |
+
+The original baseline used `try_auto_merge_text`, its hunk type and diff helpers
+extracted unchanged from commit `374ee82`, compiled with `rustc -O --edition=2021`,
+and the same example harness restricted to 1k fixtures. The new implementation
+used the Cargo release example. The original 10k table was deliberately not
+allocated. The unrelated 1k fixture has no consistent tail-latency improvement
+in this sample; bounded work and sparse edits are the established benefits.
+Raw CSVs are local diagnostics under `/tmp/collab-{original,bounded}-text-merge-benchmark.csv`.
+
+Validation:
+
+- Full desktop/scripts: **2,367 passed, one intentional skip**; admin **81 passed**;
+  Android frontend **258 passed**. Desktop/admin/Android TypeScript and the admin
+  build passed. The installed patched `braces` was exposed through `NODE_PATH`;
+  Vitest ran with two workers and unchanged include roots.
+- Full Rust workspace tests/check and formatting passed, including **248 native
+  tests** and **24 collab-live tests**, seven of them new merge regressions. The
+  initial sandbox run could not bind seven native HTTP fixture listeners; the
+  workspace rerun with local socket permissions passed. No disposable PostgreSQL
+  URL was configured, so database-backed test bodies were not exercised.
+- Version/crate-boundary guards, changed-document formatting, `git diff --check`
+  and Compose configuration passed. The isolated server smoke check stopped
+  before startup at the existing BuildKit `network.host` entitlement requirement.
+  APK packaging, device tests, native latency/RSS and live-server acceptance were
+  not performed in this batch.
+
+## Performance Batch 2 — Deferred Views And PDF Runtime (2026-10-20)
+
+Scope: **O01/O04**, with initial **O09/O70** artifact reporting. O02 root-modal
+deferral, the remaining O03 shared-window warning and native timing gates remain
+separate follow-ups.
+
+- [x] Shell and grid use the same stable lazy registry for all document/page
+      families. Root standalone chat and print views use it too, avoiding static
+      backdoors into those editors. Existing save/navigation gates and file keys
+      remain unchanged.
+- [x] Suspense displays a pane-local loading status. Module/render failures show
+      an explicit error without reloading or closing other editors. Browser
+      testing found Chromium caches a failed module import URL; the recovery text
+      asks users to save other work and reopen Collab rather than offering an
+      unreliable import-retry button. Tests cover delayed document replacement
+      and failure isolation.
+- [x] `pdfRuntime.ts` pairs the legacy compatibility API with its matching worker.
+      Desktop view, hover/canvas previews, cache and Android rich viewer share it;
+      preview/cache paths import it only for actual PDF work. Existing reference
+      counts, worker cleanup, annotations and viewer state remain in place.
+- [x] Add production-manifest reporting of static JS/gzip and PDF worker bytes,
+      with opt-in assertions rejecting eager view/runtime modules or two PDF
+      worker assets. Counts describe assets, not live worker instances or RSS.
+- [x] End-of-batch suites and final browser/bundle verification recorded below.
+
+Baseline and changed builds use the same installed dependencies and
+`node node_modules/vite/bin/vite.js build --manifest --outDir <temporary-dir>`.
+Then run `node scripts/report-desktop-bundle.mjs <temporary-dir> --assert-lazy`
+(omit the assertion for the original build). No chunk warning threshold or
+feature compatibility build is removed to obtain the result. Native cold/warm
+startup, evaluated-JS/heap measurements and first use of every editor remain open.
+
+### Performance Batch 2 Measurements And Verification
+
+Production artifact comparison on **2026-10-20**, using the same dependencies and
+default Vite configuration. Static imports are followed transitively from the
+HTML entry; dynamic imports are excluded until requested. Gzip totals compress
+each JS file separately. This measures potential startup assets, not evaluated
+JS, HTTP timings, WebView startup or process memory.
+
+| Artifact          | Before              | After                           |
+| ----------------- | ------------------- | ------------------------------- |
+| Static JS graph   | 7,275,565 bytes     | 2,401,543 bytes (67.0% smaller) |
+| Static JS gzip    | 2,160,170 bytes     | 692,526 bytes (67.9% smaller)   |
+| Static JS files   | 7                   | 24                              |
+| PDF worker assets | 2 / 4,624,027 bytes | 1 / 2,395,538 bytes             |
+
+There are more small shared chunks; do not infer fewer requests or a measured
+startup speedup from the byte reduction. Root modal/icon/math costs remain under
+O02/O05/O06. One PDF worker asset still permits multiple live worker instances.
+
+Validation:
+
+- Desktop/scripts full run plus affected corrections: **2,372 passed, one
+  intentional skip**. Six initially failing shell/grid assertions assumed eager
+  mounting; tests now await lazy content and retain first/second-file and
+  cross-vault lifetime assertions. The two affected suites pass **11 tests**;
+  the final strengthened grid regression passes **9 tests**. Only those suites
+  were rerun after their corrections. Optional Graph/Chats prop types were
+  preserved explicitly through the lazy registry; final TypeScript passes.
+- Admin **81 passed**, Android frontend **258 passed**; desktop/admin/Android
+  TypeScript, desktop/admin/Android frontend builds, full Rust workspace
+  tests/check, Rust formatting and full repository Prettier checks passed.
+  Version/crate-boundary guards, new-file lint and diff checks passed.
+  Rust database-backed test bodies were not exercised without a disposable
+  PostgreSQL URL. The unchanged server smoke retains Batch 1's BuildKit
+  host-network entitlement limitation; it was not rerun for this frontend batch.
+- Browser plugin unavailable; used installed Playwright/Chromium on the
+  production preview at `http://127.0.0.1:1425/`, **1440×1000**, with a synthetic
+  vault and mocked Tauri IPC. Flow: vault picker → vault → note → actual PDF
+  viewer/hover rendering → note. No PDF runtime/worker request occurred before
+  PDF use. URL/title matched, content was nonblank, no framework/error overlay
+  or console errors appeared in the normal flow. A separately aborted PDF chunk
+  displayed the recovery message and allowed returning to the note; only the
+  deliberately failed fetch/import appeared in that run's console.
+  Screenshots inspected: `/tmp/collab-startup-browser.png` and
+  `/tmp/collab-startup-browser-failure.png`.
+- Production manifest assertions pass: all 16 view entries and the PDF runtime
+  remain outside the static startup graph, and exactly one PDF worker asset is
+  emitted. These reports and focused regression tests are maintained; no native
+  timing budget is asserted. Native offline/chunk resolution, restored
+  workspaces, every editor family, PDF annotations/export/OCR and physical
+  Android worker startup remain acceptance work. **O01/O04 stay partial** until
+  their remaining native checks are recorded.
+
+## Performance Batch 3 — Startup, Bundles And Packaged Assets
+
+Implemented **2026-10-20**, completing **O01–O09** as one category. This
+supersedes Batch 2's partial implementation status; native release acceptance
+remains separate. See [the maintained startup guide](../desktop/startup-performance.md)
+and [budget policy](../desktop/startup-bundle-budgets.json).
+
+- [x] **O01:** shared lazy view registry with local loading/error recovery.
+- [x] **O02:** deferred settings, vault, debug and plot overlays; lightweight
+      hosts retain pending tab/plot requests and allow cancellation during loading.
+- [x] **O03:** remove ineffective imports; route external links through typed IPC.
+- [x] **O04:** one shared compatibility PDF API and matching emitted worker.
+- [x] **O05:** defer glyph registry; preserve current searches and fix plural aliases.
+- [x] **O06:** common preview grammars plus deferred uncommon catalog; escaped
+      unknown fences, sanitized/cancelled results and print-readiness integration.
+- [x] **O07:** WOFF2-only mono/math distribution retaining all existing subsets,
+      faces, preferences and variable interface fonts.
+- [x] **O08:** retain bundled offline OCR; skip unchanged preparation and repair
+      corruption atomically, with manifest integrity verification.
+- [x] **O09:** enforce production asset budgets in desktop builds and CI;
+      retain a composition report and regression tests.
+
+Also fixes a stale print-preview window title discovered during the browser
+check. Shared editor language metadata and lazy parser loaders remain intact.
+The full uncommon Highlight.js catalog is intentionally deferred as a unit to
+preserve embedded-language dependencies. Large deferred Mermaid/plot/language
+chunks still produce normal size warnings; thresholds have not been raised.
+
+### Measurements
+
+Clean production output, same dependencies, static imports followed transitively
+from HTML; per-file gzip. Dynamic imports enter the graph only on demand.
+
+| Artifact                     | Previous slice      | Category complete                 |
+| ---------------------------- | ------------------- | --------------------------------- |
+| Initial JavaScript           | 2,401,543 bytes     | 1,197,921 bytes (50.1% smaller)   |
+| Initial JavaScript gzip      | 692,526 bytes       | 350,015 bytes (49.5% smaller)     |
+| Initial JavaScript files     | 24                  | 21                                |
+| Packaged fonts               | 2,584,404 bytes     | 1,625,392 bytes (959,012 removed) |
+| Legacy WOFF/TTF alternatives | 959,012 bytes       | 0                                 |
+| PDF worker                   | 1 / 2,395,538 bytes | 1 / 2,395,538 bytes               |
+
+Against the original audit build, initial JS falls from **7,275,565 to
+1,197,921 bytes (83.5%)**; gzip from **2,160,170 to 350,015 (83.8%)**.
+Final initial CSS is **274,391 bytes**, total CSS **358,364 bytes** and total
+packaged assets **36,795,181 bytes**. OCR contributes **17,786,883 bytes**,
+including its integrity manifest; mandatory English/worker/core assets remain.
+These are asset measurements, not launch timing, evaluated-JS or memory results.
+Always empty a dedicated temporary output directory: stale hashed assets from
+an earlier build correctly cause package/font budget failures.
+
+### Verification
+
+Implementation and regression changes preceded suites; only affected checks
+were rerun after corrections.
+
+- Full desktop/scripts suite plus affected corrections: **2,383 passed, one
+  intentional skip**. The full run initially found one font-audit test using a
+  Vite-rewritten URL for filesystem access; the Node-environment regression now
+  uses filesystem paths and passes. A further alias regression was added and
+  passed. Seven corrected suites passed **15 tests**; final settings, highlighting
+  and root-app checks passed **6 tests** after the last changes.
+- Admin **81 passed**, Android frontend **258 passed**. Desktop/admin/Android
+  types and frontend production builds passed. Full Rust workspace tests/check,
+  Rust formatting, version/crate-boundary guards, full repository formatting,
+  generated language/font checks and diff checks passed. Changed-file lint has
+  **zero errors**; existing warning debt and the mixed event-bus/component
+  fast-refresh warning remain visible. No disposable PostgreSQL URL was supplied,
+  so database-backed test bodies were not exercised. The unchanged server smoke
+  retains Batch 1's BuildKit host-network entitlement limitation.
+- The local package-manager launcher attempted a read-only engine-store lock;
+  checks used the already installed Node tool entry points, without dependency
+  or manifest workarounds. Final clean Vite build and production budget gate pass;
+  no ineffective-dynamic-import warnings remain. Remote CI has not been run here.
+- Browser plugin unavailable; installed Playwright/Chromium production preview
+  at `http://127.0.0.1:1425/`, **1440×1000**, uses synthetic vaults and mocked
+  Tauri IPC. Verified deferred startup graph, icon aliases, command/settings
+  shortcuts, Profile selection sent during a delayed import, common/Kotlin/unknown
+  fences, math controls, print return/title restoration and real PDF rendering.
+  Actual bundled WASM OCR recognized **COLLAB OFFLINE 123** (three words,
+  confidence 96), with external requests blocked and no OCR requests before use.
+  Normal flows had no console/error overlays. Inspected screenshots:
+  `/tmp/collab-category-math.png`, `/tmp/collab-category-pdf.png`.
+- Linux **WebKitGTK 2.54**, offscreen GTK3, ephemeral context and software rendering:
+  all **16 view modules** evaluated successfully; note/PDF fixtures and the
+  compatibility worker rendered without application errors. Inspected
+  `/tmp/collab-webkit-startup.png`. This uses local HTTP and synthetic IPC;
+  successful module evaluation does not establish every editor's interaction flow.
+
+### Remaining Release Acceptance
+
+| Check                                                                                | Status                               |
+| ------------------------------------------------------------------------------------ | ------------------------------------ |
+| Production asset/graph/integrity budgets                                             | Passed locally; enforced by build/CI |
+| Chromium feature smoke and real offline English OCR                                  | Passed with synthetic IPC            |
+| Linux WebKitGTK module evaluation and note/PDF rendering                             | Passed over local HTTP               |
+| Installed Tauri asset URLs and native cold/warm startup, evaluated JS, RSS           | Open under O70/release QA            |
+| Restored workspaces, full editor/PDF interactions and long-session worker/GPU memory | Open                                 |
+| Windows WebView2, macOS WebKit and physical Android compatibility                    | Open                                 |
+
+The next implementation category is **React State, Session Ownership And
+Navigation (O10–O16)**. Audit checkboxes indicate delivered implementation;
+the outstanding native matrix remains explicit.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.

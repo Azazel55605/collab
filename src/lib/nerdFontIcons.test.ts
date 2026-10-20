@@ -7,6 +7,11 @@ import {
 } from './nerdFontIcons';
 
 describe('nerdFontIcons helpers', () => {
+  it('strips complete singular/plural aliases without leaving trailing prefix letters', () => {
+    for (const alias of ['icon', 'icons', 'glyph', 'glyphs', 'symbol', 'symbols', 'nf']) {
+      expect(searchNerdFontIcons(`${alias} nf-cod-bug`, 1)[0]?.id).toBe('nf-cod-bug');
+    }
+  });
   it('recognizes icon-mode queries and completion aliases', () => {
     expect(isNerdFontIconQuery('icon bug')).toBe(true);
     expect(isNerdFontIconQuery('nf rocket')).toBe(true);
