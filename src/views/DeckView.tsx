@@ -243,6 +243,7 @@ import type {
 import { InkHistory } from '../lib/ink/history';
 import { useLivePeers } from '../lib/liveAwareness';
 import type { DeckInteraction } from '../lib/liveAwareness';
+import { tauriCommands } from '../lib/tauri';
 import { createVaultClient } from '../lib/vaultClient';
 import {
   getVaultDocumentTabType,
@@ -2145,9 +2146,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
 
   const openPresentationLink = (href: string) => {
     if (!/^(https?:|mailto:)/i.test(href)) return;
-    void import('@tauri-apps/plugin-opener')
-      .then(({ openUrl }) => openUrl(href))
-      .catch(() => window.open(href, '_blank', 'noopener'));
+    void tauriCommands.openExternalUrl(href).catch(() => window.open(href, '_blank', 'noopener'));
   };
 
   const openVaultLink = (path: string) => {

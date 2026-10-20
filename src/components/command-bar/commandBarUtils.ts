@@ -1,3 +1,4 @@
+import { isNerdFontIconQuery } from '../../lib/nerdFontIconQuery';
 import type { ActiveView } from '../../store/uiStore';
 import type { NoteFile } from '../../types/vault';
 
@@ -31,6 +32,8 @@ export function detectMode(raw: string): Mode {
   if (s.startsWith('/')) return { type: 'insert', query: s.slice(1).trim() };
   const insertMatch = s.match(/^insert:(.*)$/i);
   if (insertMatch) return { type: 'insert', query: insertMatch[1].trim() };
+
+  if (isNerdFontIconQuery(s)) return { type: 'insert', query: s };
 
   if (
     /^(table\b|code\b|link\b|mdlink\b|url\b|image\b|img\b|date\b|math\b|equation\b|icon\b|icons\b|glyph\b|symbol\b|heading\b|h[1-6]\b|hr$|quote\b|blockquote\b|checklist\b|todo\b)/i.test(

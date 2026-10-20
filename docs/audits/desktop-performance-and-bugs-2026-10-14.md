@@ -101,6 +101,9 @@ Every O01–O70 item below has its own checkbox. O39's shared PDF-card pipeline 
 O47's WASM worker/job ownership are implemented. Partial entries identify the narrower completed work; unchecked
 items still need implementation and/or the requested measurements. No native
 startup, RSS, FPS, GPU or latency speedup is claimed from unit tests.
+O64 now uses one bounded merge engine across native and server saves; the
+opt-in synthetic benchmark is an initial O70 measurement fixture, not a native
+performance release gate.
 
 ## Reported Regression Follow-Up
 
@@ -297,68 +300,77 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-19**: **O39 and O47 are implemented; O48 is
-superseded by R08**. All three are checked off. The other **67 entries remain
-open or partial**; completed portions are described in their status lines and
-the implementation tracker, without closing the unfinished scope.
+Checklist reconciled **2026-10-20**: **O01–O09, O39, O47 and O64 are implemented;
+O48 is superseded by R08**. These 13 implementation items are checked off; the
+other **57 entries remain open or partial**. Native release acceptance is tracked
+separately below and in the implementation tracker; checkboxes do not claim
+measured startup/RSS gains or certification on every platform.
 
 ### Startup, Bundles And Packaged Assets
 
-- [ ] **O01 / P1 — Split document/page views at the application boundary.**
-      **Status: Open.**
-      [AppShell](../../src/components/layout/AppShell.tsx) statically imports all major
-      views. Lazy-load editor families with explicit loading/error states. Measure
-      initial evaluated JS and first-use latency for each editor; do not trade startup
-      gains for broken navigation or unsupported WebKit module paths.
-- [ ] **O02 / P2 — Load infrequently opened root modals separately.**
-      **Status: Open.**
-      [App](../../src/App.tsx) imports Settings, vault management and math modal hosts
-      eagerly. Keep lightweight listeners mounted, defer expensive content. Verify
-      keyboard shortcuts and no extra startup module evaluation.
-- [ ] **O03 / P2 — Fix ineffective dynamic imports as graph changes, not warning suppression.**
-      **Status: Open.**
-      The production build reports opener/window/OCR-cache paths already reached by
-      static imports. Inspect [tauri](../../src/lib/tauri.ts),
-      [ImageView](../../src/views/ImageView.tsx) and
-      [presentWindow](../../src/lib/deck/presentWindow.ts). Establish useful feature
-      boundaries; small shared wrappers may properly stay eager.
-- [ ] **O04 / P1 — Unify the PDF API/worker import strategy.**
-      **Status: Partial — canvas uses the shared PDF pipeline; normal/legacy API/worker consolidation remains.**
-      [PdfView](../../src/views/PdfView.tsx), [pdfPreview](../../src/lib/pdfPreview.ts)
-      and [CanvasPage](../../src/views/CanvasPage.tsx) use different normal/legacy
-      PDF.js paths and produce two workers. Choose a compatible strategy and test
-      Linux WebKit, worker startup and PDF features before removing a compatibility
-      build. Measure package bytes and simultaneous worker heaps.
-- [ ] **O05 / P2 — Defer icon registry initialization.**
-      **Status: Open.**
-      [nerdFontIcons](../../src/lib/nerdFontIcons.ts) builds/sorts the full generated
-      icon registry at module evaluation; the root command bar imports it. Build on
-      first icon mode or load a generated search index lazily. Measure boot parse/
-      initialization time and preserve aliases/completion.
-- [ ] **O06 / P2 — Reduce eager syntax-highlighter language coverage.**
-      **Status: Open.**
-      [MarkdownPreview](../../src/components/editor/MarkdownPreview.tsx) imports the
-      broad Highlight.js package; CodeMirror paths import language-data catalogs.
-      Register common languages and dynamically load uncommon ones. Test fenced
-      code, language switching, copy and unknown-language fallback.
-- [ ] **O07 / P2 — Audit CSS/font distribution separately from startup fetches.**
-      **Status: Open.**
-      [App.css](../../src/App.css) imports multiple complete font families and the
-      Nerd Font. Package needed scripts/weights or separate optional fonts, preserving
-      user font settings. Measure packaged bytes, loaded faces and fallback behavior;
-      do not assume every emitted font is downloaded at boot.
-- [ ] **O08 / P3 — Keep OCR assets optional at runtime without breaking offline use.**
-      **Status: Open.**
-      [prepare-ocr-assets](../../scripts/prepare-ocr-assets.mjs) packages substantial
-      language/WASM files. Measure installed size and first OCR load; consider an
-      explicit optional language package policy. Do not remove offline English OCR
-      or count these assets as initial JavaScript.
-- [ ] **O09 / P2 — Add bundle composition and regression budgets.**
-      **Status: Open.**
-      [vite.config](../../vite.config.ts) has development prebundling controls but no
-      maintained production entry-size gate. Record module contribution, initial vs
-      lazy assets and per-worker sizes. Budget meaningful boundaries; arbitrary
-      chunk splitting or a larger warning limit is not an optimization.
+Implementation complete **2026-10-20**. See [startup budgets and validation](../desktop/startup-performance.md)
+and [Performance Batch 3](../plans/desktop-audit-fixes.md) for evidence and limits.
+
+- [x] **O01 / P1 — Split document/page views at the application boundary.**
+      One lazy registry serves shell/grid/chat/print entry points, with pane-local
+      loading/error states and stable document identity. Linux WebKitGTK loaded
+      all 16 view modules and rendered note/PDF fixtures; delayed-import tests
+      cover replacement without stale mounts. Static JS is now about 1.20 MB
+      against the audit's 7.28 MB baseline. Native cold/warm timings, installed
+      asset-protocol checks and the full interaction matrix remain release QA.
+- [x] **O02 / P2 — Load infrequently opened root modals separately.**
+      Settings, vault management/unlock, debug controls and math controls load on
+      demand. Lightweight settings and plot hosts keep requests during imports;
+      Settings preserves requested tabs, and closing a pending overlay does not
+      reopen it. Chromium covers shortcuts, a delayed Profile request and math
+      controls. Print preview restores the previous window title when closed.
+- [x] **O03 / P2 — Fix ineffective dynamic imports as graph changes, not warning suppression.**
+      Window helpers and OCR-cache utilities intentionally use their already-shared
+      imports. External links use the typed Tauri opener gateway. Heavy features
+      stay deferred; the production build emits no ineffective-import warnings.
+      Chunk warning thresholds are unchanged.
+- [x] **O04 / P1 — Unify the PDF API/worker import strategy.**
+      Desktop views/previews/cache and Android rich viewing share the legacy
+      compatibility API/worker. Preview imports remain demand-driven. The two
+      worker assets (4,624,027 bytes) become one (2,395,538 bytes). Chromium and
+      Linux WebKitGTK rendered fixtures with the worker. This does not cap live
+      worker counts/heaps; broad PDF features and physical-device QA remain.
+- [x] **O05 / P2 — Defer icon registry initialization.**
+      Query/completion helpers are separate from the mapping/sorted registry.
+      `useNerdFontIcons` imports it only for an open picker/icon command, using
+      the latest query after loading. Chromium verified command aliases, and
+      regressions fix plural prefixes previously searched with trailing letters.
+      Startup does not fetch/evaluate the icon registry.
+- [x] **O06 / P2 — Reduce eager syntax-highlighter language coverage.**
+      A small common grammar set replaces the eager complete Highlight.js catalog.
+      Recognized uncommon fences load the complete remaining registry on demand
+      to preserve aliases and embedded-language behavior. Unknown languages remain
+      escaped text. Deferred highlighting is sanitized, cancellation/source-guarded
+      and included in print readiness. CodeMirror's language metadata and lazy
+      parser loading remain intact. Browser/unit checks cover common/rare/unknown
+      fences, source preservation and stale jobs.
+- [x] **O07 / P2 — Audit CSS/font distribution separately from startup fetches.**
+      Generated mono/KaTeX CSS keeps every existing script, 400-normal mono subset,
+      math face and font preference while retaining WOFF2 only. Default Geist and
+      variable Inter remain. Duplicate WOFF/TTF payload falls by 959,012 bytes;
+      total font assets are 1,625,392 bytes. Nerd Font uses swap display. Packaged
+      bytes are reported separately from actual browser requests; no Latin-only
+      subset or user-selected font is removed.
+- [x] **O08 / P3 — Keep OCR assets optional at runtime without breaking offline use.**
+      Worker/core/English assets stay bundled and demand-loaded, with optional
+      language packs still installed explicitly. Preparation skips identical
+      files, repairs same-size corruption atomically and writes integrity metadata.
+      Build/CI verifies all four offline assets (about 17.79 MB), outside startup
+      JS. Chromium recognized an English fixture with external network blocked;
+      no OCR asset request occurred before recognition. Broad native OCR limits
+      and worker-memory soak remain O46/O70 work.
+- [x] **O09 / P2 — Add bundle composition and regression budgets.**
+      Every desktop build and CI check enforces measured raw/gzip JS, CSS, font,
+      worker, OCR and package-byte budgets, required lazy entries, a deferred
+      uncommon-language catalog and complete offline OCR assets. The report lists
+      large chunks and their startup membership; CI retains it as an artifact.
+      Limits live in `docs/desktop/startup-bundle-budgets.json`; native timing
+      thresholds remain O70 and are not inferred from asset sizes.
 
 ### React State, Session Ownership And Navigation
 
@@ -707,14 +719,18 @@ the implementation tracker, without closing the unfinished scope.
 
 ### Native Storage, Collaboration, Calendar And Background Work
 
-- [ ] **O64 / P1 — Replace quadratic native text merge and add resource budgets.**
-      **Status: Open.**
-      [files.rs](../../src-tauri/src/commands/files.rs), `compute_line_edit_hunks`,
-      allocates an `(n+1)×(m+1)` usize LCS table. On 64-bit targets, 10k vs 10k lines
-      means **800,160,008 bytes (~763 MiB) for one table**, before strings/hunks.
-      This is an analytical allocation, not a stress run. Use a bounded linear-space/
-      sparse diff or surface a conflict above a safe budget. Test long conflict cases
-      without weakening expected-hash or merge correctness.
+- [x] **O64 / P1 — Replace quadratic native text merge and add resource budgets.**
+      **Status: Implemented, 2026-10-20 — bounded fallback policy.**
+      Native saves and server live/REST reconciliation share
+      [text_merge.rs](../../crates/collab-live/src/text_merge.rs). Borrowed lines
+      and trimmed unchanged boundaries avoid whole-document tables for sparse
+      edits. The remaining LCS table is capped at 4 MiB, with combined input,
+      line-count, cell-work and comparison-byte budgets. Oversized/overlapping
+      edits return a conflict without writing; expected-hash checks remain.
+      The former 10k-by-10k table's analytical ~763 MiB allocation is no longer
+      allowed. Tests cover 10k sparse/unrelated inputs and actual native conflict
+      preservation. End-to-end native latency/RSS and encrypted-vault acceptance
+      remain part of the measurement matrix, not claimed speedups.
 - [ ] **O65 / P1 — Add bounded native live-socket backpressure.**
       **Status: Open.**
       [live_ws.rs](../../src-tauri/src/commands/live_ws.rs) uses an unbounded outbound
@@ -754,7 +770,12 @@ the implementation tracker, without closing the unfinished scope.
       matching cleanup here. Define lifecycle/scavenging without deleting active
       transfers. Test circuit navigation/cancel and stale staging after restart.
 - [ ] **O70 / P1 — Make performance measurements a maintained release gate.**
-      **Status: Open.**
+      **Status: Partial — opt-in synthetic text-merge benchmark added; native release gate open.**
+      Run `cargo run --release -p collab-live --example text_merge_benchmark` for
+      1k/10k sparse and unrelated line fixtures, exact-result assertions and CSV
+      p50/p95 timings over 25 runs. This measures the portable core only.
+      Startup batch also adds reproducible static-import/worker artifact checks
+      under O09; native release telemetry and timing gates are still open.
       Existing fixture budgets and [rendering](../../src/lib/rendering.ts) are useful,
       but build warnings/test durations are not native performance telemetry. Add
       cold/warm startup, idle power/network, p95 interaction, heap/RSS/worker/GPU,

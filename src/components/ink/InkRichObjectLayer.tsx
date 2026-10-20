@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import DOMPurify from 'dompurify';
 import katex from 'katex';
-import 'katex/dist/katex.min.css';
 
+import '../../generated/katex.css';
 import { resolveInkColor } from '../../lib/ink/colors';
 import type { InkColorPalette } from '../../lib/ink/colors';
 import type { InkImage, InkScene, InkText } from '../../types/ink';

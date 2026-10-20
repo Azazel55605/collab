@@ -58,7 +58,7 @@ import {
 import { Textarea } from '../components/ui/textarea';
 import { sceneToSvg } from '../lib/ink/svg';
 import { defaultToolState } from '../lib/ink/tools';
-import { scopeOcrCache } from '../lib/ocrCache';
+import { hashOcrCacheString, scopeOcrCache } from '../lib/ocrCache';
 import { interactiveCanvasDeviceScale } from '../lib/rendering';
 import { cn } from '../lib/utils';
 import { imageAnnotationObjectCount, imageAnnotationSurface } from '../lib/viewAnnotations';
@@ -427,7 +427,6 @@ export default function ImageView({ relativePath }: Props) {
     setOcrProgress({ progress: 0, status: 'Preparing OCR' });
     try {
       const { recognizeImageText } = await import('../lib/ocr');
-      const { hashOcrCacheString } = await import('../lib/ocrCache');
       const sourceHash = await hashOcrCacheString(src);
       let ocrInput: string | HTMLCanvasElement = src;
       if (region && image) {

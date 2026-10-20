@@ -3,11 +3,8 @@ import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 
 import { Shapes } from 'lucide-react';
 
 import { EDITOR_TOOLBAR_ACTION_EVENT } from '../../lib/editorToolbarActions';
-import {
-  formatNerdFontHexCode,
-  groupNerdFontIcons,
-  searchNerdFontIcons,
-} from '../../lib/nerdFontIcons';
+import { formatNerdFontHexCode, groupNerdFontIcons } from '../../lib/nerdFontIconQuery';
+import { useNerdFontIcons } from '../../lib/useNerdFontIcons';
 import {
   Command,
   CommandEmpty,
@@ -40,7 +37,7 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
     return () => window.removeEventListener(EDITOR_TOOLBAR_ACTION_EVENT, handler);
   }, []);
 
-  const filteredEntries = useMemo(() => searchNerdFontIcons(deferredQuery, 180), [deferredQuery]);
+  const { entries: filteredEntries, loading, error } = useNerdFontIcons(deferredQuery, 180, open);
   const groupedEntries = useMemo(() => groupNerdFontIcons(filteredEntries), [filteredEntries]);
 
   const handleInsert = (glyph: string) => {
@@ -89,7 +86,13 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
             placeholder="Search icons by name, id, or category..."
           />
           <CommandList className="max-h-[26rem]">
-            <CommandEmpty>No icons found.</CommandEmpty>
+            <CommandEmpty>
+              {error
+                ? 'Could not load icons. Reopen Collab to retry.'
+                : loading
+                  ? 'Loading icons…'
+                  : 'No icons found.'}
+            </CommandEmpty>
             {groupedEntries.map(([categoryLabel, entries]) => (
               <CommandGroup key={categoryLabel} heading={categoryLabel}>
                 {entries.map((entry) => (

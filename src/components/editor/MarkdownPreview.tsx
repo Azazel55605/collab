@@ -9,10 +9,8 @@ import {
 } from 'react';
 
 import DOMPurify from 'dompurify';
-import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import katex from 'katex';
-import 'katex/dist/katex.min.css';
 import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from 'markdown-it';
 import anchor from 'markdown-it-anchor';
 // @ts-ignore – no bundled types
@@ -32,10 +30,16 @@ import taskLists from 'markdown-it-task-lists';
 // @ts-ignore – no bundled types
 import texmath from 'markdown-it-texmath';
 
+import '../../generated/katex.css';
 import { extractInkExportSource } from '../../lib/ink/export';
 import { extractLogicDiagramExportSource } from '../../lib/logicDiagramExport';
 import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
 import { resolveNoteAssetTarget } from '../../lib/noteAssets';
+import {
+  highlightCommonCode,
+  highlightDeferredCodeBlocks,
+  highlightLanguage,
+} from '../../lib/syntaxHighlighting';
 import { createVaultClient } from '../../lib/vaultClient';
 import { flattenVaultFiles, getVaultDocumentTitle } from '../../lib/vaultLinks';
 import { extractHttpUrls, prefetchWebPreviews } from '../../lib/webPreviewCache';
@@ -46,7 +50,7 @@ import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
 
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
-import { openMathPlotModal } from './MathPlotModal';
+import { openMathPlotModal } from './MathPlotModalHost';
 import { type ParsedMathPlots, parseMathPlots } from './mathPlotSpec';
 
 // ─── Error boundary ───────────────────────────────────────────────────────────
@@ -92,16 +96,13 @@ function buildMd(): MarkdownItInstance {
           '</code></pre>'
         );
       }
-      if (lang && hljs.getLanguage(lang)) {
-        try {
-          return (
-            `<pre class="hljs md-code-block"><code class="language-${lang}">` +
-            hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-            `</code></pre>`
-          );
-        } catch {
-          // fall through
-        }
+      const language = highlightLanguage(lang);
+      const highlighted = language ? highlightCommonCode(str, language) : null;
+      if (highlighted !== null) {
+        return `<pre class="hljs md-code-block"><code class="language-${language}">${highlighted}</code></pre>`;
+      }
+      if (language) {
+        return `<pre class="hljs md-code-block"><code class="language-${language}" data-highlight-language="${language}">${instance.utils.escapeHtml(str)}</code></pre>`;
       }
       return `<pre class="hljs md-code-block"><code>${instance.utils.escapeHtml(str)}</code></pre>`;
     },
@@ -411,6 +412,8 @@ function PreviewInner({
     let cancelled = false;
     const imagePromises: Promise<void>[] = [];
     const mermaidJob = renderMermaidBlocks(root);
+    const highlighting = new AbortController();
+    const highlightJob = highlightDeferredCodeBlocks(root, highlighting.signal);
 
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'));
 
@@ -455,6 +458,7 @@ function PreviewInner({
     const ready = Promise.all([
       ...imagePromises,
       mermaidJob.ready,
+      highlightJob,
       waitForPlotCanvases(root, expected3dCanvases),
       new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -468,6 +472,7 @@ function PreviewInner({
     return () => {
       cancelled = true;
       mermaidJob.cancel();
+      highlighting.abort();
     };
   }, [
     accentColor,

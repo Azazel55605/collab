@@ -25,14 +25,16 @@ import {
   useGridStore,
 } from '../../store/gridStore';
 import { useVaultStore } from '../../store/vaultStore';
-import CanvasPage from '../../views/CanvasPage';
-import GraphPage from '../../views/GraphPage';
-import ImageView from '../../views/ImageView';
-import KanbanPage from '../../views/KanbanPage';
-import LogicDiagramView from '../../views/LogicDiagramView';
-import NoteView from '../../views/NoteView';
-import PdfView from '../../views/PdfView';
-import SettingsPage from '../../views/SettingsPage';
+import {
+  CanvasPage,
+  GraphPage,
+  ImageView,
+  KanbanPage,
+  LogicDiagramView,
+  NoteView,
+  PdfView,
+  SettingsPage,
+} from '../../views/deferredViews';
 
 import CellContentPicker from './CellContentPicker';
 

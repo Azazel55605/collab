@@ -1,13 +1,8 @@
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-
 import { useServerStore } from '../store/serverStore';
 
 import { pdfPreviewQueue } from './previewQueue';
 import { tauriCommands } from './tauri';
 import { HostedVaultClient, LocalVaultClient, type VaultClient } from './vaultClient';
-
-const workerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
-GlobalWorkerOptions.workerSrc = workerUrl;
 
 // Resolved source PDFs must not stay alive indefinitely in the webview.
 const previewCache = new Map<string, Promise<string>>();
@@ -32,6 +27,7 @@ export async function renderPdfPreviewFromDataUrl(dataUrl: string) {
       bytes[index] = binary.charCodeAt(index);
     }
 
+    const { getDocument } = await import('./pdfRuntime');
     const loadingTask = getDocument({ data: bytes });
     try {
       const pdfDocument = await loadingTask.promise;

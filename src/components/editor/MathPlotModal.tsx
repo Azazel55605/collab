@@ -23,40 +23,6 @@ interface MathPlotModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// ─── Global open bus ────────────────────────────────────────────────────────
-// The math plots render in several places, including a detached React root
-// inside a CodeMirror live-preview widget, so they cannot share React state with
-// a modal mounted in the app tree. A tiny module-level bus lets any plot request
-// the modal, which is rendered once by <MathPlotModalHost /> near the app root.
-
-type MathPlotModalListener = (spec: MathPlotSpec) => void;
-const mathPlotModalListeners = new Set<MathPlotModalListener>();
-
-export function openMathPlotModal(spec: MathPlotSpec) {
-  for (const listener of mathPlotModalListeners) listener(spec);
-}
-
-function subscribeMathPlotModal(listener: MathPlotModalListener) {
-  mathPlotModalListeners.add(listener);
-  return () => {
-    mathPlotModalListeners.delete(listener);
-  };
-}
-
-/** Mount once (near the app root). Renders the plot modal on demand for any plot. */
-export function MathPlotModalHost() {
-  const [spec, setSpec] = useState<MathPlotSpec | null>(null);
-  useEffect(() => subscribeMathPlotModal(setSpec), []);
-  return (
-    <MathPlotModal
-      spec={spec}
-      onOpenChange={(open) => {
-        if (!open) setSpec(null);
-      }}
-    />
-  );
-}
-
 function clampSamples(value: number, max: number) {
   return Math.min(Math.max(Math.round(value), PLOT_MIN_SAMPLES), max);
 }

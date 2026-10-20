@@ -46,12 +46,6 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import {
-  getDocument,
-  GlobalWorkerOptions,
-  type PDFDocumentProxy,
-  type RenderTask,
-} from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 import {
   CircuitSweepPlot,
@@ -82,6 +76,11 @@ import {
   type CircuitTransientJobClient,
   runCircuitTransientJob,
 } from '../../../../src/lib/circuitTransientRunner';
+import {
+  getDocument,
+  type PDFDocumentProxy,
+  type RenderTask,
+} from '../../../../src/lib/pdfRuntime';
 import {
   defaultSchematicElectricalParameters,
   type ElectronicComponentKind,
@@ -140,8 +139,6 @@ import {
 } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
 
-const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
-GlobalWorkerOptions.workerSrc = workerUrl;
 const MOBILE_CIRCUIT_JOB_CLIENT: CircuitJobClient = {
   start: circuitStartDc,
   status: circuitJobStatus,

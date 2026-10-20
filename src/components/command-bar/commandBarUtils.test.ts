@@ -22,6 +22,9 @@ describe('commandBarUtils', () => {
     expect(detectMode('name:meeting')).toEqual({ type: 'nameSearch', query: 'meeting' });
     expect(detectMode('/table 3x4')).toEqual({ type: 'insert', query: 'table 3x4' });
     expect(detectMode('checklist')).toEqual({ type: 'insert', query: 'checklist' });
+    for (const alias of ['icon', 'icons', 'glyphs', 'symbols', 'nf']) {
+      expect(detectMode(`${alias} bug`)).toEqual({ type: 'insert', query: `${alias} bug` });
+    }
     expect(detectMode('plain query')).toEqual({ type: 'search', query: 'plain query' });
   });
 

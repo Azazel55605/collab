@@ -83,6 +83,28 @@ staging collisions, PDF resource cleanup, stale searches/listeners, and bounded
 merge/index/asset work. Establish native measurements before claiming speedups.
 This is an audit backlog, not a replacement for the other product plans.
 
+The first performance implementation batch (**2026-10-20**, O64) consolidates
+native/server text merging with explicit input/work budgets and a 4 MiB diff
+table ceiling. Over-budget cases retain the existing conflict policy. O70 gains
+an opt-in synthetic merge benchmark; native latency/RSS and the broader
+measurement release gate remain open. See the batch tracker for validation.
+The next batch (**O01/O04**, 2026-10-20) defers shell/grid/chat/print views and
+consolidates desktop/Android PDF consumers on one compatibility runtime/worker.
+O09 gains production-manifest reporting and boundary assertions. Artifact-size
+reductions are recorded separately from outstanding native startup/first-use,
+worker-memory and full PDF-feature acceptance.
+The **Startup, Bundles And Packaged Assets** implementation category is now
+complete (**O01–O09**, 2026-10-20): root modals and the glyph catalog are deferred,
+uncommon Markdown grammars load on demand, duplicate font formats are removed,
+offline OCR assets are integrity-checked, and production asset budgets gate both
+desktop builds and CI. Chromium exercised the feature paths and offline WASM
+OCR; Linux WebKitGTK loaded all view modules and rendered PDF fixtures. Native
+launch/heap timing, installed asset URLs and the remaining physical platform
+matrix stay open under release acceptance/O70, not hidden as completed tests.
+See [Startup Performance](../desktop/startup-performance.md) and Performance
+Batch 3 in the implementation tracker. The next implementation category is
+**React State, Session Ownership And Navigation (O10–O16)**.
+
 ### Web Interface Performance And Correctness Audit
 
 Reviewed separately on **2026-10-14**. The

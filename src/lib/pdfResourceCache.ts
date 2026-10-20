@@ -1,4 +1,4 @@
-import { getDocument, type PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy } from './pdfRuntime';
 
 interface Resource {
   promise: Promise<PDFDocumentProxy>;
@@ -70,5 +70,6 @@ export async function acquirePdfDocument(scope: string, data: Uint8Array) {
   const hash = Array.from(new Uint8Array(digest), (value) =>
     value.toString(16).padStart(2, '0'),
   ).join('');
+  const { getDocument } = await import('./pdfRuntime');
   return cache.acquire(`${scope}:${hash}`, data.byteLength, () => getDocument({ data }));
 }
