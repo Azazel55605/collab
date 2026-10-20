@@ -1,10 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 
-import {
-  formatNerdFontHexCode,
-  groupNerdFontIcons,
-  searchNerdFontIcons,
-} from '../../lib/nerdFontIcons';
+import { formatNerdFontHexCode, groupNerdFontIcons } from '../../lib/nerdFontIconQuery';
+import { useNerdFontIcons } from '../../lib/useNerdFontIcons';
 import type { CanvasSymbolDefinition } from '../../types/canvas';
 import {
   Command,
@@ -34,7 +31,7 @@ export function CanvasSymbolPickerDialog({
 }) {
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
-  const filteredEntries = useMemo(() => searchNerdFontIcons(deferredQuery, 180), [deferredQuery]);
+  const { entries: filteredEntries, loading, error } = useNerdFontIcons(deferredQuery, 180, open);
   const groupedEntries = useMemo(() => groupNerdFontIcons(filteredEntries), [filteredEntries]);
 
   return (
@@ -58,7 +55,13 @@ export function CanvasSymbolPickerDialog({
             placeholder="Search icons by name, id, or category..."
           />
           <CommandList className="max-h-[28rem]">
-            <CommandEmpty>No icons found.</CommandEmpty>
+            <CommandEmpty>
+              {error
+                ? 'Could not load icons. Reopen Collab to retry.'
+                : loading
+                  ? 'Loading icons…'
+                  : 'No icons found.'}
+            </CommandEmpty>
             {groupedEntries.map(([categoryLabel, entries]) => (
               <CommandGroup key={categoryLabel} heading={categoryLabel}>
                 {entries.map((entry) => (

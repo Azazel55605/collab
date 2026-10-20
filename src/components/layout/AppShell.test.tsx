@@ -148,14 +148,18 @@ describe('AppShell document remounting', () => {
   it('opens personal chats without closing the current vault collaboration session', async () => {
     render(<AppShell />);
     await screen.findByTestId('note-view');
-    act(() => useUiStore.getState().setActiveView('chats'));
+    await act(async () => {
+      useUiStore.getState().setActiveView('chats');
+    });
     expect((await screen.findByTestId('personal-chats')).textContent).toBe('false');
     expect(screen.queryByTestId('tab-bar')).toBeNull();
     expect(
       screen.getByTestId('sidebar').closest('[aria-hidden]')?.getAttribute('aria-hidden'),
     ).toBe('true');
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
-    act(() => useUiStore.getState().setActiveView('editor'));
+    await act(async () => {
+      useUiStore.getState().setActiveView('editor');
+    });
     await screen.findByTestId('note-view');
     expect(useUiStore.getState().isSidebarOpen).toBe(true);
     expect(

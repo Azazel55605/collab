@@ -10,6 +10,8 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(),tailwindcss()],
 
+  build: { manifest: true },
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -40,8 +42,20 @@ export default defineConfig(async () => ({
       "lucide-react",
       "three",
       "highlight.js",
+      "highlight.js/lib/core",
+      "highlight.js/lib/languages/javascript",
+      "highlight.js/lib/languages/typescript",
+      "highlight.js/lib/languages/json",
+      "highlight.js/lib/languages/bash",
+      "highlight.js/lib/languages/css",
+      "highlight.js/lib/languages/xml",
+      "highlight.js/lib/languages/python",
+      "highlight.js/lib/languages/rust",
+      "highlight.js/lib/languages/markdown",
+      "highlight.js/lib/languages/plaintext",
+      "highlight.js/lib/languages/yaml",
+      "highlight.js/lib/languages/sql",
       "nerdamer",
-      "pdfjs-dist",
       "pdfjs-dist/legacy/build/pdf.mjs",
       "katex",
       "d3",

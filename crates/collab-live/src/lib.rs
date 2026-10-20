@@ -6,6 +6,9 @@
 //! persistence, and scheduling remain in adapters.
 
 mod deck;
+mod text_merge;
+
+pub use text_merge::try_auto_merge_text;
 
 pub use deck::is_rich_text;
 
@@ -128,13 +131,6 @@ pub enum MaterializationDecision {
 pub enum RevisionDecision {
     Current,
     Stale,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TextEditHunk {
-    base_start: usize,
-    base_end: usize,
-    replacement: Vec<String>,
 }
 
 pub fn validate_update(bytes: &[u8], limits: LiveLimits) -> Result<(), LiveError> {
@@ -470,62 +466,6 @@ pub fn merge_external_content(
     }
 }
 
-pub fn try_auto_merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
-    if ours == theirs {
-        return Some(ours.to_string());
-    }
-    let our_hunks = compute_line_edit_hunks(base, ours);
-    let their_hunks = compute_line_edit_hunks(base, theirs);
-    let base_lines = split_text_preserving_newlines(base);
-    let mut merged_hunks = Vec::new();
-    let mut our_index = 0usize;
-    let mut their_index = 0usize;
-
-    while our_index < our_hunks.len() || their_index < their_hunks.len() {
-        match (our_hunks.get(our_index), their_hunks.get(their_index)) {
-            (Some(ours), Some(theirs)) if ours.base_end <= theirs.base_start => {
-                merged_hunks.push(ours.clone());
-                our_index += 1;
-            }
-            (Some(ours), Some(theirs)) if theirs.base_end <= ours.base_start => {
-                merged_hunks.push(theirs.clone());
-                their_index += 1;
-            }
-            (Some(ours), Some(theirs)) if ours == theirs => {
-                merged_hunks.push(ours.clone());
-                our_index += 1;
-                their_index += 1;
-            }
-            (Some(_), Some(_)) => return None,
-            (Some(ours), None) => {
-                merged_hunks.push(ours.clone());
-                our_index += 1;
-            }
-            (None, Some(theirs)) => {
-                merged_hunks.push(theirs.clone());
-                their_index += 1;
-            }
-            (None, None) => break,
-        }
-    }
-
-    let mut merged = String::new();
-    let mut cursor = 0usize;
-    for hunk in merged_hunks {
-        for line in &base_lines[cursor..hunk.base_start] {
-            merged.push_str(line);
-        }
-        for line in &hunk.replacement {
-            merged.push_str(line);
-        }
-        cursor = hunk.base_end;
-    }
-    for line in &base_lines[cursor..] {
-        merged.push_str(line);
-    }
-    Some(merged)
-}
-
 pub fn is_document_message_tag(tag: u8) -> bool {
     matches!(
         tag,
@@ -572,75 +512,6 @@ fn json_to_in(value: &serde_json::Value, ink: bool) -> In {
             })))
         }
     }
-}
-
-fn split_text_preserving_newlines(content: &str) -> Vec<String> {
-    content
-        .split_inclusive('\n')
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-fn compute_line_edit_hunks(base: &str, modified: &str) -> Vec<TextEditHunk> {
-    let base_lines = split_text_preserving_newlines(base);
-    let modified_lines = split_text_preserving_newlines(modified);
-    let n = base_lines.len();
-    let m = modified_lines.len();
-    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
-
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] = if base_lines[i] == modified_lines[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
-        }
-    }
-
-    let mut i = 0usize;
-    let mut j = 0usize;
-    let mut base_index = 0usize;
-    let mut hunks = Vec::new();
-    let mut active_start = None;
-    let mut active_end = 0usize;
-    let mut replacement = Vec::new();
-
-    while i < n || j < m {
-        if i < n && j < m && base_lines[i] == modified_lines[j] {
-            if let Some(start) = active_start.take() {
-                hunks.push(TextEditHunk {
-                    base_start: start,
-                    base_end: active_end,
-                    replacement: std::mem::take(&mut replacement),
-                });
-            }
-            i += 1;
-            j += 1;
-            base_index += 1;
-            continue;
-        }
-        if active_start.is_none() {
-            active_start = Some(base_index);
-            active_end = base_index;
-        }
-        if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
-            replacement.push(modified_lines[j].clone());
-            j += 1;
-        } else if i < n {
-            i += 1;
-            base_index += 1;
-            active_end += 1;
-        }
-    }
-    if let Some(start) = active_start {
-        hunks.push(TextEditHunk {
-            base_start: start,
-            base_end: active_end,
-            replacement,
-        });
-    }
-    hunks
 }
 
 #[cfg(test)]

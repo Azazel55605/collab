@@ -1,0 +1,40 @@
+{
+  "description": "Production asset bounds based on the 2026-10-20 measured desktop build; native latency gates are separate.",
+  "maximums": {
+    "initialJsBytes": 1400000,
+    "initialJsGzipBytes": 410000,
+    "initialCssBytes": 350000,
+    "cssBytes": 400000,
+    "fontBytes": 1800000,
+    "legacyFontBytes": 0,
+    "pdfWorkerBytes": 2500000,
+    "ocrAssetBytes": 20000000,
+    "packagedBytes": 40000000
+  },
+  "deferredEntries": [
+    "src/views/CalendarPage.tsx",
+    "src/views/CanvasPage.tsx",
+    "src/views/ChatsPage.tsx",
+    "src/views/DeckView.tsx",
+    "src/views/GraphPage.tsx",
+    "src/views/GridView.tsx",
+    "src/views/ImageView.tsx",
+    "src/views/InkView.tsx",
+    "src/views/KanbanPage.tsx",
+    "src/views/LogicDiagramView.tsx",
+    "src/views/NotePrintView.tsx",
+    "src/views/NoteView.tsx",
+    "src/views/PdfView.tsx",
+    "src/views/SettingsPage.tsx",
+    "src/views/SheetView.tsx",
+    "src/views/SvgVectorView.tsx",
+    "src/components/editor/MathPlotModal.tsx",
+    "src/components/settings/SettingsModal.tsx",
+    "src/components/vault/VaultManagerModal.tsx",
+    "src/components/vault/VaultUnlockModal.tsx",
+    "src/components/collaboration/LiveDebugPanel.tsx",
+    "src/lib/pdfRuntime.ts",
+    "src/lib/nerdFontIcons.ts",
+    "src/lib/ocr.ts"
+  ]
+}

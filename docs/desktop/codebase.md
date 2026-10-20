@@ -162,6 +162,27 @@ Located in `src/views/`. View selection is **two-layered** and resolved in
 There is no `activeView` key for sheet, ink, deck, logic, image, PDF, or SVG — those
 are reachable only as document tabs.
 
+`views/deferredViews.ts` is the shared lazy registry for shell, grid panes and
+root chat/print entry points. `components/layout/deferredView.tsx` keeps module
+loaders stable and scopes Suspense/loading errors to each pane. A rejected
+module load explains recovery without reloading the app or closing other
+editors: browsers can cache failed module fetches, so reopening the app may be
+needed after saving work elsewhere. Document identities and save-before-leave
+gates remain owned by their existing shell/grid/session layers.
+Root `SettingsModalHost` and `MathPlotModalHost` keep lightweight request
+listeners mounted while their controls import. Settings retains requested tabs
+through a delayed first load; the plot bus is shared by detached editor roots.
+`deferredRootOverlays.tsx` defers vault management/unlock and live-debug controls.
+Loading/error overlays use the shared Dialog and can be dismissed normally.
+
+Icon query/grouping/completion lives in `nerdFontIconQuery.ts` without importing
+glyph mappings. `useNerdFontIcons` loads the registry only for enabled pickers or
+icon commands, and uses the current query after loading. `syntaxHighlighting.ts`
+registers common grammars and defers the full uncommon-language catalog; generated
+aliases preserve recognition without importing all grammars. Async preview
+highlighting is sanitized, source/cancellation guarded and part of print readiness.
+CodeMirror language catalogs still use their existing lazy parser loaders.
+
 ### Page-level views (`uiStore.activeView`)
 
 | File               | Route key    | Provides                                                                                          | Key stores                                    |
@@ -332,6 +353,25 @@ placeholders remain intentionally limited.
 switches (two entries/64 MiB source bytes, reference counted; mounted consumers
 are not evicted). This is not a total worker-memory ceiling. PDF view state keeps
 client-local scroll/pan as well as page/zoom/layout settings.
+`lib/pdfRuntime.ts` configures the legacy PDF.js API and matching worker once for
+desktop views/previews and Android's rich viewer. Cache/hover-preview modules
+import it only when decoding a PDF, so vault-picker/tree startup does not
+evaluate PDF.js. The compatibility build remains; the duplicate normal API and
+worker are removed. One worker asset does not mean only one live worker instance.
+`scripts/report-desktop-bundle.mjs` measures the production manifest's static JS
+graph and worker assets; `--assert-lazy` rejects eager view/PDF runtime entries
+and duplicate PDF workers. Build with `vite build --manifest` before using it.
+`pnpm build` now emits that manifest and enforces the full `--check-budgets` gate;
+`pnpm bundle:check` validates existing output. Limits and required lazy entries
+live in `docs/desktop/startup-bundle-budgets.json`; CI retains the measurement
+report. CSS/fonts, OCR assets, largest chunks and packaged bytes are reported
+separately from startup JS. See [startup performance](./startup-performance.md).
+`prepare-font-assets.mjs` generates WOFF2-only mono/KaTeX styles without dropping
+existing script/face coverage. `prepare-highlight-languages.mjs` generates the
+light alias index. Both run before desktop dev/build and are checked in CI.
+OCR preparation streams integrity hashes, skips identical copies and atomically
+repairs corrupt assets; the build gate requires all core/English files. OCR stays
+demand-loaded, with no new runtime download requirement.
 `lib/useHostedAssetRevision.ts` observes cached manifest revisions for mounted
 PDF/image source refresh, deferring reload while local overlays are dirty,
 saving or conflicted. `webPreviewCache` bounds completed results to 128 with
@@ -1478,6 +1518,15 @@ blob IO, and persistence transactions remain adapter responsibilities.
 `collab-live` owns Yrs document conversion and bounded state/update decisions;
 WebSockets, room lifecycle, authorization, awareness, persistence, and
 materialization scheduling remain adapter responsibilities.
+Its `text_merge.rs` also owns conservative line merging for native note saves
+and server live/REST reconciliation. Unchanged boundaries are trimmed and line
+slices borrowed; a flat LCS table is capped at 1M `u32` cells (4 MiB). Combined
+inputs are limited to 8 MiB/128k lines, both diffs to 2M cells and line comparisons
+to 64 MiB of work. Equal/unchanged inputs take a linear fast path. Over-budget or
+overlapping edits return the existing conflict result, preserving current disk
+or server content and expected-version checks. The opt-in
+`crates/collab-live/examples/text_merge_benchmark.rs` uses synthetic fixtures;
+it does not measure WebView latency or process RSS.
 
 `src-tauri/src/`
 

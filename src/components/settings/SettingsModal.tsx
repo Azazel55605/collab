@@ -166,7 +166,9 @@ type TabId = (typeof TABS)[number]['id'];
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export default function SettingsModal() {
+export default function SettingsModal({
+  requestedTab = null,
+}: { requestedTab?: string | null } = {}) {
   const {
     closeSettings,
     theme,
@@ -269,6 +271,10 @@ export default function SettingsModal() {
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
   const { status: updateStatus } = useUpdateStore();
+  useEffect(() => {
+    if (requestedTab && TABS.some((tab) => tab.id === requestedTab))
+      setActiveTab(requestedTab as TabId);
+  }, [requestedTab]);
   const [activeTab, setActiveTab] = useState<TabId>('general');
   const [settingsQuery, setSettingsQuery] = useState('');
   const [showColorPreviewFormats, setShowColorPreviewFormats] = useState(false);

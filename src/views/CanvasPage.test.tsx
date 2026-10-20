@@ -69,7 +69,7 @@ vi.mock('../lib/webPreviewCache', () => ({
   })),
 }));
 
-vi.mock('pdfjs-dist', () => ({
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   GlobalWorkerOptions: {},
   getDocument: vi.fn(),
 }));

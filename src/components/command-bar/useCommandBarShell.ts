@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { completeNerdFontIconQuery } from '../../lib/nerdFontIcons';
+import { completeNerdFontIconQuery } from '../../lib/nerdFontIconQuery';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useEditorStore } from '../../store/editorStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';

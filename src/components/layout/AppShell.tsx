@@ -25,21 +25,23 @@ import { DragProvider } from '../../contexts/DragContext';
 import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
 import { useEditorStore, useUiStore, useVaultStore } from '../../store';
-import CalendarPage from '../../views/CalendarPage';
-import CanvasPage from '../../views/CanvasPage';
-import ChatsPage from '../../views/ChatsPage';
-import DeckView from '../../views/DeckView';
-import GraphPage from '../../views/GraphPage';
-import GridView from '../../views/GridView';
-import ImageView from '../../views/ImageView';
-import InkView from '../../views/InkView';
-import KanbanPage from '../../views/KanbanPage';
-import LogicDiagramView from '../../views/LogicDiagramView';
-import NoteView from '../../views/NoteView';
-import PdfView from '../../views/PdfView';
-import SettingsPage from '../../views/SettingsPage';
-import SheetView from '../../views/SheetView';
-import SvgVectorView from '../../views/SvgVectorView';
+import {
+  CalendarPage,
+  CanvasPage,
+  ChatsPage,
+  DeckView,
+  GraphPage,
+  GridView,
+  ImageView,
+  InkView,
+  KanbanPage,
+  LogicDiagramView,
+  NoteView,
+  PdfView,
+  SettingsPage,
+  SheetView,
+  SvgVectorView,
+} from '../../views/deferredViews';
 import { CollabProvider } from '../collaboration/CollabProvider';
 import { CommandBar } from '../command-bar/CommandBar';
 import SplitDropZones from '../grid/SplitDropZones';

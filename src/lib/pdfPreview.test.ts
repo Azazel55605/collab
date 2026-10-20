@@ -1,4 +1,4 @@
-import { getDocument } from 'pdfjs-dist';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalVaultMeta } from '../types/vault';
@@ -6,7 +6,7 @@ import type { LocalVaultMeta } from '../types/vault';
 import { loadPdfPreviewDataUrl, renderPdfPreviewFromDataUrl } from './pdfPreview';
 import { LocalVaultClient, type VaultClient } from './vaultClient';
 
-vi.mock('pdfjs-dist', () => ({
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   GlobalWorkerOptions: {},
   getDocument: vi.fn(),
 }));
