@@ -5,6 +5,7 @@ import App from './App';
 
 vi.mock('./lib/useDesktopQuitGuard', () => ({ useDesktopQuitGuard: () => {} }));
 vi.mock('./lib/useOcrCacheLifecycle', () => ({ useOcrCacheLifecycle: () => {} }));
+vi.mock('./lib/useDocumentResourceLifecycle', () => ({ useDocumentResourceLifecycle: () => {} }));
 
 const tauriCommandsMock = vi.hoisted(() => ({
   isAppImage: vi.fn(),
@@ -58,31 +59,31 @@ vi.mock('sonner', () => ({
   },
 }));
 
-vi.mock('./store/vaultStore', () => ({
-  useVaultStore: () => ({
+vi.mock('./store/vaultStore', () => {
+  const state = {
     vault: null,
     isVaultLocked: false,
     openVault: vi.fn(),
     lastOpenedVaultPath: null,
-  }),
-}));
+  };
+  return {
+    useVaultStore: (selector: (value: typeof state) => unknown) => selector(state),
+  };
+});
 
-vi.mock('./store/editorStore', () => ({
-  useEditorStore: () => ({
+vi.mock('./store/editorStore', () => {
+  const state = {
     sessionVaultPath: null,
     setSessionVaultPath: vi.fn(),
     resetSession: vi.fn(),
-  }),
-}));
+  };
+  return {
+    useEditorStore: (selector: (value: typeof state) => unknown) => selector(state),
+  };
+});
 
-vi.mock('./store/uiStore', () => ({
-  ACCENT_COLORS: {
-    blue: { oklch: '0.62 0.17 254' },
-  },
-  INTERFACE_FONTS: {
-    geist: { css: 'Geist, sans-serif' },
-  },
-  useUiStore: () => ({
+vi.mock('./store/uiStore', () => {
+  const state = {
     theme: 'dark',
     accentColor: 'blue',
     interfaceFont: 'geist',
@@ -93,14 +94,27 @@ vi.mock('./store/uiStore', () => ({
     isSettingsOpen: false,
     isVaultManagerOpen: false,
     restorePreviousSession: false,
-  }),
-}));
+  };
+  return {
+    ACCENT_COLORS: {
+      blue: { oklch: '0.62 0.17 254' },
+    },
+    INTERFACE_FONTS: {
+      geist: { css: 'Geist, sans-serif' },
+    },
 
-vi.mock('./store/updateStore', () => ({
-  useUpdateStore: () => ({
+    useUiStore: (selector: (value: typeof state) => unknown) => selector(state),
+  };
+});
+
+vi.mock('./store/updateStore', () => {
+  const state = {
     checkForUpdate: vi.fn(),
-  }),
-}));
+  };
+  return {
+    useUpdateStore: (selector: (value: typeof state) => unknown) => selector(state),
+  };
+});
 
 describe('App platform rendering fallbacks', () => {
   const originalUserAgent = navigator.userAgent;

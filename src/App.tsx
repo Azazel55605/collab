@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 import { toast } from 'sonner';
 
@@ -15,10 +15,12 @@ import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import VaultPicker from './components/vault/VaultPicker';
 import { subscribeMediaQueryChange } from './lib/browserCompat';
+import { documentVaultIdentity } from './lib/documentPaneContext';
 import { setLiveCollabDebug } from './lib/liveDebugLog';
 import { NOTE_PDF_EXPORT_EVENT } from './lib/notePdfExport';
 import { tauriCommands } from './lib/tauri';
 import { useDesktopQuitGuard } from './lib/useDesktopQuitGuard';
+import { useDocumentResourceLifecycle } from './lib/useDocumentResourceLifecycle';
 import { useOcrCacheLifecycle } from './lib/useOcrCacheLifecycle';
 import { useServerAutoReconnect } from './lib/useServerAutoReconnect';
 import { useEditorStore } from './store/editorStore';
@@ -98,26 +100,30 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 
 export default function App() {
   useDesktopQuitGuard();
+  useDocumentResourceLifecycle();
   useOcrCacheLifecycle();
   const activeView = useUiStore((state) => state.activeView);
   const exportNoteRelativePath = new URLSearchParams(window.location.search).get('print-note');
   const [activePrintNotePath, setActivePrintNotePath] = useState<string | null>(
     exportNoteRelativePath,
   );
-  const { vault, isVaultLocked, openVault, lastOpenedVaultPath } = useVaultStore();
-  const { sessionVaultPath, setSessionVaultPath, resetSession } = useEditorStore();
-  const {
-    theme,
-    accentColor,
-    interfaceFont,
-    interfaceFontSize,
-    scale,
-    animationsEnabled,
-    animationSpeed,
-    isVaultManagerOpen,
-    restorePreviousSession,
-  } = useUiStore();
-  const { checkForUpdate } = useUpdateStore();
+  const vault = useVaultStore((state) => state.vault);
+  const isVaultLocked = useVaultStore((state) => state.isVaultLocked);
+  const openVault = useVaultStore((state) => state.openVault);
+  const lastOpenedVaultPath = useVaultStore((state) => state.lastOpenedVaultPath);
+  const sessionVaultPath = useEditorStore((state) => state.sessionVaultPath);
+  const setSessionVaultPath = useEditorStore((state) => state.setSessionVaultPath);
+  const resetSession = useEditorStore((state) => state.resetSession);
+  const theme = useUiStore((state) => state.theme);
+  const accentColor = useUiStore((state) => state.accentColor);
+  const interfaceFont = useUiStore((state) => state.interfaceFont);
+  const interfaceFontSize = useUiStore((state) => state.interfaceFontSize);
+  const scale = useUiStore((state) => state.scale);
+  const animationsEnabled = useUiStore((state) => state.animationsEnabled);
+  const animationSpeed = useUiStore((state) => state.animationSpeed);
+  const isVaultManagerOpen = useUiStore((state) => state.isVaultManagerOpen);
+  const restorePreviousSession = useUiStore((state) => state.restorePreviousSession);
+  const checkForUpdate = useUpdateStore((state) => state.checkForUpdate);
 
   // Automatically retry a dropped/expired hosted server session and sync all of
   // that server's offline replicas once the connection is re-established.
@@ -296,19 +302,26 @@ export default function App() {
     tauriCommands.setUiZoom(scale / 100).catch(console.error);
   }, [scale]);
 
-  useEffect(() => {
-    if (vault?.path) {
-      if (sessionVaultPath && sessionVaultPath !== vault.path) {
-        resetSession(vault.path);
+  const editorVaultPath = vault?.kind === 'hosted' ? documentVaultIdentity(vault) : vault?.path;
+  useLayoutEffect(() => {
+    if (editorVaultPath) {
+      if (sessionVaultPath && sessionVaultPath !== editorVaultPath) {
+        resetSession(editorVaultPath);
       } else {
-        setSessionVaultPath(vault.path);
+        setSessionVaultPath(editorVaultPath);
       }
       return;
     }
     if (sessionVaultPath && !restorePreviousSession) {
       resetSession(null);
     }
-  }, [vault?.path, sessionVaultPath, restorePreviousSession, setSessionVaultPath, resetSession]);
+  }, [
+    editorVaultPath,
+    sessionVaultPath,
+    restorePreviousSession,
+    setSessionVaultPath,
+    resetSession,
+  ]);
 
   useEffect(() => {
     if (!restorePreviousSession || vault || isVaultLocked || !lastOpenedVaultPath) return;

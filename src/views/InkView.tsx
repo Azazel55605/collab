@@ -39,6 +39,7 @@ import {
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
 import { useCollabIdentity } from '../lib/collabIdentity';
+import { useDocumentViewKey } from '../lib/documentPaneContext';
 import type {
   DocumentSessionController,
   DocumentSessionSnapshot,
@@ -178,21 +179,21 @@ async function writeInkSvgExport(
  * file decides *when* an edit happens and never *what* the edit means.
  */
 export default function InkView({ relativePath }: InkViewProps) {
-  const { vault, refreshFileTree } = useVaultStore();
+  const viewKey = useDocumentViewKey(relativePath);
+  const vault = useVaultStore((state) => state.vault);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
   const setActiveView = useUiStore((state) => state.setActiveView);
   const theme = useUiStore((state) => state.theme);
-  const {
-    markDirty,
-    markSaved,
-    setSavedHash,
-    inkViewStates,
-    setInkViewState,
-    openTabs,
-    activeTabPath,
-    openTab,
-    setActiveTab,
-    setForceReloadPath,
-  } = useEditorStore();
+  const markDirty = useEditorStore((state) => state.markDirty);
+  const markSaved = useEditorStore((state) => state.markSaved);
+  const setSavedHash = useEditorStore((state) => state.setSavedHash);
+  const inkViewStates = useEditorStore((state) => state.inkViewStates);
+  const setInkViewState = useEditorStore((state) => state.setInkViewState);
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTab = useEditorStore((state) => state.openTab);
+  const setActiveTab = useEditorStore((state) => state.setActiveTab);
+  const setForceReloadPath = useEditorStore((state) => state.setForceReloadPath);
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
   const vaultClient = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const noteTarget = useMemo(
@@ -248,7 +249,7 @@ export default function InkView({ relativePath }: InkViewProps) {
   );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
-  const stored = inkViewStates[relativePath];
+  const stored = inkViewStates[viewKey];
   const [pageId, setPageId] = useState<string | null>(stored?.pageId ?? null);
   const [viewport, setViewport] = useState({
     originX: stored?.originX ?? 0,
@@ -1050,13 +1051,13 @@ export default function InkView({ relativePath }: InkViewProps) {
 
   useEffect(() => {
     if (!activePageId) return;
-    setInkViewState(relativePath, {
+    setInkViewState(viewKey, {
       pageId: activePageId,
       originX: viewport.originX,
       originY: viewport.originY,
       zoom: viewport.zoom,
     });
-  }, [activePageId, relativePath, setInkViewState, viewport]);
+  }, [activePageId, viewKey, setInkViewState, viewport]);
 
   useEffect(() => {
     if (session.warnings.length === 0) return;

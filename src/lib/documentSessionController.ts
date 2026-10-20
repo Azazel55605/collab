@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+
+import { DocumentPaneContext } from './documentPaneContext';
+import { documentSessionRetention, type RetainedDocumentSession } from './documentSessionRetention';
 
 /**
  * Shared, framework-agnostic document session core (Phase 1 of the document
@@ -387,6 +390,50 @@ export class DocumentSessionController<TDocument> {
     this.clearAutosave();
     this.options.applyDocument({ document, content, version, source });
     this.invalidate();
+  }
+
+  /** Initial reads revalidate a retained session without discarding its edits. */
+  initialize(content: string, version: string | null, source: DocumentSource = 'rest'): void {
+    if (this.currentContent === null) this.load(content, version, source);
+    else if (!this.options.isLive?.()) {
+      this.replay();
+      this.handleRemoteCandidate({
+        document: this.options.deserialize(content),
+        content,
+        version,
+        source,
+      });
+    }
+  }
+
+  restore(state: RetainedDocumentSession): void {
+    this.loadedVersion = state.loadedVersion;
+    this.lastSavedContent = state.lastSavedContent;
+    this.currentContent = state.currentContent;
+    this.currentDocument =
+      state.currentContent === null ? null : this.options.deserialize(state.currentContent);
+    this.dirty = state.dirty;
+    this.conflicted = state.conflicted;
+    this.conflict = state.conflict;
+    this.pendingRemote = state.pendingRemote && {
+      ...state.pendingRemote,
+      document: this.options.deserialize(state.pendingRemote.content),
+    };
+    this.source = state.source;
+    this.offlineQueued = state.offlineQueued;
+    this.autosavePaused = state.autosavePaused;
+    this.snapshotCache = null;
+  }
+
+  replay(): void {
+    if (this.options.isLive?.() || this.currentContent === null || this.currentDocument === null)
+      return;
+    this.options.applyDocument({
+      document: this.currentDocument,
+      content: this.currentContent,
+      version: this.loadedVersion,
+      source: this.source,
+    });
   }
 
   // ── Local edits ──────────────────────────────────────────────────────────
@@ -884,6 +931,8 @@ export function useDocumentSessionController<TDocument>(
   controller: DocumentSessionController<TDocument>;
   snapshot: DocumentSessionSnapshot<TDocument>;
 } {
+  const identity = useContext(DocumentPaneContext);
+  const epoch = useRef(documentSessionRetention.epoch);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -909,12 +958,29 @@ export function useDocumentSessionController<TDocument>(
         ? (fn, ms) => optionsRef.current.schedule!(fn, ms)
         : undefined,
     };
-    return new DocumentSessionController<TDocument>(proxy);
-    // The controller intentionally lives for the lifetime of the hook; callers
-    // remount it by changing the hook's key (e.g. relativePath) upstream.
-  }, []);
+    const instance = new DocumentSessionController<TDocument>(proxy);
+    const retained = identity ? documentSessionRetention.get(identity) : undefined;
+    if (retained) instance.restore(retained);
+    return instance;
+    // Scoped pane boundaries remount views when their vault/file identity changes.
+    // Fresh callbacks alone must not recreate their document session.
+  }, [identity]);
 
-  useEffect(() => () => controller.dispose(), [controller]);
+  useEffect(() => {
+    epoch.current = documentSessionRetention.epoch;
+    if (identity) documentSessionRetention.activate(identity);
+    let attached = true;
+    // Initial-load effects may clear view-local state after this binding effect.
+    // Replay once those effects have run; the durable session owns the content.
+    queueMicrotask(() => {
+      if (attached) controller.replay();
+    });
+    return () => {
+      attached = false;
+      if (identity) documentSessionRetention.put(identity, controller.getSnapshot(), epoch.current);
+      controller.dispose();
+    };
+  }, [controller, identity]);
 
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 

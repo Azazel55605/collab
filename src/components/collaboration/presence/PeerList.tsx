@@ -38,8 +38,11 @@ function PeerRow({ entry, isSelf }: { entry: PresenceEntry; isSelf?: boolean }) 
 }
 
 export function PeerList() {
-  const { myUserId, myUserName, myUserColor, peers } = useCollabStore();
-  const { activeTabPath } = useEditorStore();
+  const myUserId = useCollabStore((state) => state.myUserId);
+  const myUserName = useCollabStore((state) => state.myUserName);
+  const myUserColor = useCollabStore((state) => state.myUserColor);
+  const peers = useCollabStore((state) => state.peers);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
 
   const selfEntry: PresenceEntry = {
     userId: myUserId,

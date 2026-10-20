@@ -26,7 +26,6 @@ import type { VaultClient } from './vaultClient';
 
 const ROOT_MAP = 'doc';
 /** Origin tag for our own writes, so we do not echo them back as remote changes. */
-const LOCAL_ORIGIN = Symbol('live-json-local');
 
 export type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -257,6 +256,7 @@ export async function openLiveJsonSession(
   const provider = await connectLiveProvider(client, relativePath, { offlineReplica: true });
   if (!provider) return null;
 
+  const paneOrigin = Symbol('document-pane');
   const doc = provider.doc;
   const root = doc.getMap<unknown>(ROOT_MAP);
 
@@ -265,12 +265,12 @@ export async function openLiveJsonSession(
     readJson: () => yToJson(root) as JsonObject,
     writeJson: (value: JsonObject, base?: JsonObject) => {
       const next = base ? (mergeLiveJsonEdits(base, value, yToJson(root)) as JsonObject) : value;
-      doc.transact(() => reconcileMap(root, next), LOCAL_ORIGIN);
+      doc.transact(() => reconcileMap(root, next), paneOrigin);
     },
     onChange: (cb) => {
       const observer = (_events: unknown, transaction: Y.Transaction) => {
         // Skip our own writes; only surface remote (and seeded) changes.
-        if (transaction.origin === LOCAL_ORIGIN) return;
+        if (transaction.origin === paneOrigin) return;
         cb(yToJson(root) as JsonObject);
       };
       root.observeDeep(observer);

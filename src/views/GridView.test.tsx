@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { DocumentSessionController } from '../lib/documentSessionController';
@@ -69,6 +69,8 @@ it('waits for pending edits before responsive resizing removes a pane', async ()
     controller: controller as unknown as DocumentSessionController<unknown>,
   });
   act(() => resize([{ contentRect: { width: 200 } }]));
+  expect(screen.getAllByTestId('pane')).toHaveLength(3);
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
   expect(screen.getAllByTestId('pane')).toHaveLength(3);
   await act(async () => {
     finish({ version: 'v2' });

@@ -13,9 +13,12 @@ import { relativeTime, supportsVersionHistoryTabType } from './historyUtils';
 import { VersionHistoryModal } from './VersionHistoryModal';
 
 export function HistoryPanel() {
-  const { activeTabPath, openTabs, setForceReloadPath } = useEditorStore();
-  const { vault } = useVaultStore();
-  const { myUserId, myUserName } = useCollabStore();
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const setForceReloadPath = useEditorStore((state) => state.setForceReloadPath);
+  const vault = useVaultStore((state) => state.vault);
+  const myUserId = useCollabStore((state) => state.myUserId);
+  const myUserName = useCollabStore((state) => state.myUserName);
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);

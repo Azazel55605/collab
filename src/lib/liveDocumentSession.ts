@@ -14,6 +14,7 @@ import {
   type LiveSocket,
   type LiveSocketMessage,
 } from './liveSocket';
+import { DocumentResourcePool, registerDocumentResourceCleanup } from './sharedDocumentResources';
 import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
 
@@ -625,11 +626,14 @@ export interface ConnectLiveOptions {
   offlineReplica?: boolean;
 }
 
+const providers = new DocumentResourcePool<WebSocketYProvider>();
+registerDocumentResourceCleanup(() => providers.clear());
+
 export async function connectLiveProvider(
   client: VaultClient,
   relativePath: string,
   options: ConnectLiveOptions = {},
-): Promise<WebSocketYProvider | null> {
+) {
   if (!client.resolveLiveSession) return null;
   let target: LiveTarget | null;
   try {
@@ -638,17 +642,30 @@ export async function connectLiveProvider(
     return null;
   }
   if (!target) return null;
-
-  const provider = new WebSocketYProvider(target, options.offlineReplica ?? false);
-  // Seed any offline edits before the handshake so the state vector reflects
-  // them and the server sends back only what we are missing.
-  await provider.hydrateFromReplica();
-  const ok = await provider.connectOnce();
-  if (!ok) {
-    provider.destroy();
-    return null;
-  }
-  return provider;
+  const offline = options.offlineReplica ?? false;
+  const lease = await providers.acquire(
+    JSON.stringify([target.serverUrl, target.vaultId, target.fileId, offline]),
+    async () => {
+      const provider = new WebSocketYProvider(target, offline);
+      try {
+        await provider.hydrateFromReplica();
+        if (await provider.connectOnce()) return provider;
+      } catch (error) {
+        provider.destroy();
+        throw error;
+      }
+      provider.destroy();
+      return null;
+    },
+  );
+  if (!lease) return null;
+  const { resource: provider, release } = lease;
+  return {
+    doc: provider.doc,
+    connectionTarget: () => provider.connectionTarget(),
+    handle: (): LiveDocumentHandle => ({ ...provider.handle(), destroy: release }),
+    noteSession: (): LiveDocumentSession => ({ ...provider.noteSession(), destroy: release }),
+  };
 }
 
 /**

@@ -7,7 +7,6 @@ import { type JsonObject, type JsonValue, reconcileArray, yToJson } from './live
 import type { VaultClient } from './vaultClient';
 
 const ROOT_MAP = 'doc';
-const LOCAL_ORIGIN = Symbol('live-ink-local');
 
 export interface LiveInkSession extends LiveDocumentHandle {
   readDocument(): InkDocument | null;
@@ -99,6 +98,7 @@ export async function openLiveInkSession(
 ): Promise<LiveInkSession | null> {
   const provider = await connectLiveProvider(client, relativePath, { offlineReplica: true });
   if (!provider) return null;
+  const paneOrigin = Symbol('document-pane');
   const root = provider.doc.getMap<unknown>(ROOT_MAP);
 
   return {
@@ -107,12 +107,12 @@ export async function openLiveInkSession(
     writeDocument: (document) => {
       provider.doc.transact(
         () => reconcileInkMap(root, document as unknown as JsonObject),
-        LOCAL_ORIGIN,
+        paneOrigin,
       );
     },
     onChange: (cb) => {
       const observer = (_events: unknown, transaction: Y.Transaction) => {
-        if (transaction.origin === LOCAL_ORIGIN) return;
+        if (transaction.origin === paneOrigin) return;
         const document = readInk(root);
         if (document) cb(document);
       };

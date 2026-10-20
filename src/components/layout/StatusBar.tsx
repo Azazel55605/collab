@@ -18,17 +18,21 @@ import HostedConnectionStatus from './HostedConnectionStatus';
 import SyncStatusIndicator from './SyncStatusIndicator';
 
 export default function StatusBar() {
-  const { activeTabPath, openTabs } = useEditorStore();
-  const { vault } = useVaultStore();
-  const { notes } = useNoteIndexStore();
-  const { openVaultManager, openSettings } = useUiStore();
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const vault = useVaultStore((state) => state.vault);
+  const notes = useNoteIndexStore((state) => state.notes);
+  const openVaultManager = useUiStore((state) => state.openVaultManager);
+  const openSettings = useUiStore((state) => state.openSettings);
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
   const activeMeta = notes.find((n) => n.relativePath === activeTabPath);
   const activeDocumentStatus = useDocumentStatusStore((state) =>
     activeTabPath ? state.statuses[activeTabPath] : undefined,
   );
 
-  const { status, downloadProgress, updaterSupported } = useUpdateStore();
+  const status = useUpdateStore((state) => state.status);
+  const downloadProgress = useUpdateStore((state) => state.downloadProgress);
+  const updaterSupported = useUpdateStore((state) => state.updaterSupported);
   const isDownloading = status === 'downloading';
   const isInstalling = status === 'installing';
   const isAvailable = updaterSupported && status === 'available';

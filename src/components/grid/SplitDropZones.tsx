@@ -49,9 +49,11 @@ const ZONE_CONFIG: Record<
 export default function SplitDropZones() {
   const { draggingTab, subscribePointer, registerDropResolver } = useDragContext();
   const [hoveredZone, setHoveredZone] = useState<Direction | null>(null);
-  const { activateSplit } = useGridStore();
-  const { activeTabPath, openTabs } = useEditorStore();
-  const { activeView, setActiveView } = useUiStore();
+  const activateSplit = useGridStore((state) => state.activateSplit);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const activeView = useUiStore((state) => state.activeView);
+  const setActiveView = useUiStore((state) => state.setActiveView);
 
   // Live element refs per zone, used to hit-test the pointer during a drag.
   const zoneRefs = useRef<Map<Direction, HTMLElement>>(new Map());

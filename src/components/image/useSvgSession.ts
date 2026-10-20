@@ -169,7 +169,7 @@ export function useSvgSession({
       .then((loaded) => {
         if (cancelled) return;
         setAssetBacked(loaded.asset);
-        controller.load(loaded.content, loaded.version, loaded.asset ? 'cache' : 'rest');
+        controller.initialize(loaded.content, loaded.version, loaded.asset ? 'cache' : 'rest');
       })
       .catch((reason) => {
         if (cancelled) return;

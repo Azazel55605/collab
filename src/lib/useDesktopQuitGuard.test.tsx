@@ -6,6 +6,7 @@ import { useDesktopQuitGuard } from './useDesktopQuitGuard';
 const mocks = vi.hoisted(() => ({
   handler: undefined as (() => void) | undefined,
   flush: vi.fn(),
+  persist: vi.fn(),
   complete: vi.fn(),
   off: vi.fn(),
   ready: undefined as (() => void) | undefined,
@@ -18,12 +19,14 @@ vi.mock('./nativeSubscription', () => ({
     return mocks.off;
   },
 }));
+vi.mock('../store/editorStore', () => ({ flushEditorPersistence: mocks.persist }));
 vi.mock('./documentNavigation', () => ({ runDocumentNavigation: mocks.flush }));
 vi.mock('./tauri', () => ({
   tauriCommands: { backgroundCompleteQuit: mocks.complete, backgroundQuitPending: mocks.requested },
 }));
 
 beforeEach(() => {
+  mocks.persist.mockClear();
   mocks.complete.mockReset().mockResolvedValue(undefined);
   mocks.flush.mockReset();
   mocks.requested.mockReset().mockResolvedValue(false);
@@ -42,6 +45,10 @@ it('waits for saving, coalesces repeated quit events and only then acknowledges'
   expect(mocks.flush).toHaveBeenCalledTimes(1);
   await act(async () => finish(true));
   await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith(true));
+  expect(mocks.persist).toHaveBeenCalledTimes(1);
+  expect(mocks.persist.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.complete.mock.invocationCallOrder[0],
+  );
 });
 
 it('rejects quitting on a save failure and permits another attempt', async () => {

@@ -366,7 +366,7 @@ export function useCanvasDocumentSession({
       }
 
       if (!current()) return;
-      controller.load(roundTripCanonical(canvas), currentVersion, 'rest');
+      controller.initialize(roundTripCanonical(canvas), currentVersion, 'rest');
     } catch (error) {
       if (!current()) return;
       setLoadError(String(error));

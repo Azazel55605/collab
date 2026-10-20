@@ -36,7 +36,7 @@ interface Props {
 export default function CellContentPicker({ children, onSelect }: Props) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const { notes } = useNoteIndexStore();
+  const notes = useNoteIndexStore((state) => state.notes);
   const fileTree = useVaultStore((state) => state.fileTree);
   const flatFiles = flattenVaultFiles(fileTree);
   const canvasBoards = flatFiles.filter(

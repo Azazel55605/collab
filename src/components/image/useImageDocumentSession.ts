@@ -239,7 +239,11 @@ export function useImageDocumentSession(options: Options) {
         if (!size || cancelled) return;
         const loaded = await read(size);
         if (!loaded || cancelled) return;
-        controller.load(loaded.content, loaded.version, vault.kind === 'hosted' ? 'rest' : 'local');
+        controller.initialize(
+          loaded.content,
+          loaded.version,
+          vault.kind === 'hosted' ? 'rest' : 'local',
+        );
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));

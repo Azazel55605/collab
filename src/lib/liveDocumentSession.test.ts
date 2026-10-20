@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
 import { openLiveNoteSession } from './liveDocumentSession';
 import { type JsonObject, openLiveJsonSession, toShared } from './liveJsonDocument';
+import { clearDocumentReads } from './sharedDocumentResources';
 import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
 
@@ -137,7 +138,10 @@ async function connectSession() {
   return { session: session!, socket };
 }
 
+afterEach(() => clearDocumentReads());
+
 beforeEach(() => {
+  clearDocumentReads();
   MockWebSocket.instances = [];
   vi.clearAllMocks();
   (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
@@ -463,4 +467,39 @@ describe('durable live checkpoint ordering', () => {
     expect(tauriCommands.replicaClearCrdtState).toHaveBeenCalledOnce();
     session.destroy();
   });
+});
+
+it('shares one live document across panes and keeps it alive until the final release', async () => {
+  const { session: first, socket } = await connectSession();
+  const second = await openLiveNoteSession(
+    hostedClient({ serverUrl: 'https://server', vaultId: 'v', fileId: FILE_ID }),
+    'note.md',
+  );
+  expect(second!.doc).toBe(first.doc);
+  expect(MockWebSocket.instances).toHaveLength(1);
+  first.text.insert(0, 'shared');
+  expect(second!.text.toString()).toBe('shared');
+  first.destroy();
+  expect(socket.readyState).toBe(MockWebSocket.OPEN);
+  second!.destroy();
+  expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+});
+
+it('delivers same-process structured edits to a sibling pane without echoing the originating pane', async () => {
+  const { session: first } = await connectJsonSession();
+  const second = await openLiveJsonSession(
+    hostedClient({ serverUrl: 'https://server', vaultId: 'v', fileId: FILE_ID }),
+    'board.kanban',
+  );
+  const local = vi.fn(),
+    sibling = vi.fn();
+  const offA = first.onChange(local),
+    offB = second!.onChange(sibling);
+  first.writeJson({ title: 'Shared board' });
+  expect(local).not.toHaveBeenCalled();
+  expect(sibling).toHaveBeenCalledWith({ title: 'Shared board' });
+  offA();
+  offB();
+  first.destroy();
+  second!.destroy();
 });

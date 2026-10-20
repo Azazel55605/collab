@@ -6,7 +6,9 @@ import { HistoryPanel } from './history/HistoryPanel';
 import { PeerList } from './presence/PeerList';
 
 export function CollabPanel() {
-  const { collabTab, setCollabTab, setActiveView } = useUiStore();
+  const collabTab = useUiStore((state) => state.collabTab);
+  const setCollabTab = useUiStore((state) => state.setCollabTab);
+  const setActiveView = useUiStore((state) => state.setActiveView);
   const selectedTab = collabTab === 'chat' ? 'peers' : collabTab;
   return (
     <Tabs

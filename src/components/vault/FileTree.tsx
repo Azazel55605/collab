@@ -25,7 +25,9 @@ import {
 import { toast } from 'sonner';
 
 import { newDeckContent } from '../../lib/deck/document';
+import { documentVaultIdentity } from '../../lib/documentPaneContext';
 import { supportsDocumentPreview } from '../../lib/documentPreview';
+import { documentSessionRetention } from '../../lib/documentSessionRetention';
 import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
@@ -141,7 +143,6 @@ export default function FileTree() {
     vault?.kind === 'hosted' ? (state.connections[vault.serverUrl]?.status ?? null) : null,
   );
   const openTab = useEditorStore((state) => state.openTab);
-  const closeTab = useEditorStore((state) => state.closeTab);
   const renameTab = useEditorStore((state) => state.renameTab);
   const activeTabPath = useEditorStore((state) => state.activeTabPath);
   const setActiveView = useUiStore((state) => state.setActiveView);
@@ -569,15 +570,19 @@ export default function FileTree() {
   );
 
   const closeTabsForFile = (file: NoteFile) => {
-    const prefix = file.isFolder ? `${file.relativePath}/` : null;
-    for (const tab of useEditorStore.getState().openTabs) {
-      if (
-        tab.relativePath === file.relativePath ||
-        (prefix && tab.relativePath.startsWith(prefix))
-      ) {
-        closeTab(tab.relativePath);
-      }
-    }
+    const state = useEditorStore.getState();
+    void state.closeTabs(
+      state.openTabs
+        .filter(
+          (tab) =>
+            tab.relativePath === file.relativePath ||
+            (file.isFolder && tab.relativePath.startsWith(`${file.relativePath}/`)),
+        )
+        .map((tab) => tab.relativePath),
+    );
+    state.removeViewStates(file.relativePath);
+    const scope = documentVaultIdentity(vault);
+    if (scope) documentSessionRetention.removePath(scope, file.relativePath);
   };
 
   const confirmDelete = async () => {

@@ -25,10 +25,16 @@ export function useCommandBarShell() {
   const [input, setInput] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
-  const { vault, fileTree, refreshFileTree } = useVaultStore();
-  const { notes } = useNoteIndexStore();
-  const { openTab, setPendingSearchJump } = useEditorStore();
-  const { activeView, setActiveView, openSettings, dateFormat } = useUiStore();
+  const vault = useVaultStore((state) => state.vault);
+  const fileTree = useVaultStore((state) => state.fileTree);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
+  const notes = useNoteIndexStore((state) => state.notes);
+  const openTab = useEditorStore((state) => state.openTab);
+  const setPendingSearchJump = useEditorStore((state) => state.setPendingSearchJump);
+  const activeView = useUiStore((state) => state.activeView);
+  const setActiveView = useUiStore((state) => state.setActiveView);
+  const openSettings = useUiStore((state) => state.openSettings);
+  const dateFormat = useUiStore((state) => state.dateFormat);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {

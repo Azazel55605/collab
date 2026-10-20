@@ -212,7 +212,7 @@ export function useSheetSession({
           setDocument(inspection.document);
           return;
         }
-        controller.load(doc.content, doc.version, 'rest');
+        controller.initialize(doc.content, doc.version, 'rest');
         setRestLoadedPath(relativePath);
       })
       .catch((reason) => {

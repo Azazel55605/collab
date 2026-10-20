@@ -11,6 +11,7 @@ import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
 import { useCollabIdentity } from '../lib/collabIdentity';
 import { saveConflictedCopy } from '../lib/conflictedCopy';
+import { useDocumentPaneIsActive, useDocumentViewKey } from '../lib/documentPaneContext';
 import { DOCUMENT_SNAPSHOT_INTERVAL_MS } from '../lib/documentSession';
 import {
   compareDocumentVersions,
@@ -55,7 +56,10 @@ function sanitizeFilename(name: string): string {
 }
 
 export default function NoteView({ relativePath }: { relativePath: string }) {
-  const { vault, refreshFileTree } = useVaultStore();
+  const viewKey = useDocumentViewKey(relativePath);
+  const isActivePane = useDocumentPaneIsActive();
+  const vault = useVaultStore((state) => state.vault);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
   const markDirty = useEditorStore((state) => state.markDirty);
   const markSaved = useEditorStore((state) => state.markSaved);
   const setSavedHash = useEditorStore((state) => state.setSavedHash);
@@ -98,8 +102,8 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   // selections already render inline via `yCollab`; this surfaces who is here.
   const livePeers = useLivePeers(liveSession);
   const initialViewState = useMemo<NoteEditorViewState | null>(
-    () => useEditorStore.getState().noteViewStates[relativePath] ?? null,
-    [relativePath],
+    () => useEditorStore.getState().noteViewStates[viewKey] ?? null,
+    [viewKey],
   );
 
   // Periodic collaboration snapshot throttle (manual saves only).
@@ -207,7 +211,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       .readDocument(relativePath)
       .then((doc) => {
         if (cancelled) return;
-        controller.load(doc.content, doc.version, 'rest');
+        controller.initialize(doc.content, doc.version, 'rest');
       })
       .catch((e) => {
         if (!cancelled) toast.error('Failed to open note: ' + e);
@@ -286,27 +290,41 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     webPreviewsEnabled,
   ]);
 
+  const applyContentTransform = useCallback(
+    (transform: (value: string) => string) => {
+      if (readOnly) return;
+      setContent((prev) => {
+        if (prev === null) return prev;
+        return transform(prev);
+      });
+    },
+    [readOnly],
+  );
+
   // Command bar insert events
   useEffect(() => {
     const handler = (e: Event) => {
       const text = (e as CustomEvent<{ text: string }>).detail?.text;
-      if (text && editorRef.current) editorRef.current.insertSnippet(text);
+      if (text && isActivePane() && editorRef.current) editorRef.current.insertSnippet(text);
     };
     window.addEventListener('cmdbar:insert', handler);
     return () => window.removeEventListener('cmdbar:insert', handler);
-  }, []);
+  }, [isActivePane]);
 
   // Tag event listeners — fired by TagsPanel, EditorToolbar, and MarkdownEditor context menu
   useEffect(() => {
     const onAddTagsLine = () => {
+      if (!isActivePane()) return;
       applyContentTransform(ensureTagsLine);
     };
     const onAddTag = (e: Event) => {
+      if (!isActivePane()) return;
       const tag = (e as CustomEvent<{ tag: string }>).detail?.tag;
       if (!tag) return;
       applyContentTransform((prev) => addTagToContent(prev, tag));
     };
     const onSetTags = (e: Event) => {
+      if (!isActivePane()) return;
       const tags = (e as CustomEvent<{ tags: string[] }>).detail?.tags;
       if (!tags) return;
       applyContentTransform((prev) => setTagsInContent(prev, tags));
@@ -319,7 +337,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       window.removeEventListener('tag:add-tag', onAddTag);
       window.removeEventListener('tag:set-tags', onSetTags);
     };
-  }, []);
+  }, [isActivePane, applyContentTransform]);
 
   // Reload when HistoryPanel restores a snapshot for this file (force explicit
   // reload — a user-initiated restore overrides local state).
@@ -399,7 +417,15 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     if (liveSession) return;
     if (snapshot.dirty) markDirty(relativePath);
     else if (snapshot.loadedVersion) markSaved(relativePath, snapshot.loadedVersion);
-  }, [liveSession, markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
+  }, [
+    liveSession,
+    markDirty,
+    markSaved,
+    viewKey,
+    relativePath,
+    snapshot.dirty,
+    snapshot.loadedVersion,
+  ]);
 
   const handleChange = (newContent: string) => {
     setContent(newContent);
@@ -410,14 +436,6 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     // the controller correctly treats it as not dirty.
     if (liveSession || readOnly) return;
     controller.markLocalChange(newContent);
-  };
-
-  const applyContentTransform = (transform: (value: string) => string) => {
-    if (readOnly) return;
-    setContent((prev) => {
-      if (prev === null) return prev;
-      return transform(prev);
-    });
   };
 
   // Manual save (Ctrl/Cmd-S). Serialized through the controller; creates a
@@ -513,7 +531,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
               ? null
               : initialViewState
           }
-          onViewStateChange={(viewState) => setNoteViewState(relativePath, viewState)}
+          onViewStateChange={(viewState) => setNoteViewState(viewKey, viewState)}
         />
       </div>
     </div>

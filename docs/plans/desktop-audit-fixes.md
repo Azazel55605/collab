@@ -944,6 +944,121 @@ The next implementation category is **React State, Session Ownership And
 Navigation (O10–O16)**. Audit checkboxes indicate delivered implementation;
 the outstanding native matrix remains explicit.
 
+## Performance Batch 4 — React State, Session Ownership And Navigation
+
+Implemented **2026-10-20**, completing **O10–O16**. See
+[session performance](../desktop/session-performance.md) for ownership, retention
+and lifecycle policies. Native RSS/layout/reopen timing remains O70 acceptance.
+
+- [x] **O10:** individual field selectors across shell/common/root surfaces;
+      GridView subscribes only to its active workspace. A command-bar render-count
+      regression stays unchanged across 100 cursor/scroll, sidebar-width and vault
+      progress updates.
+- [x] **O11:** defer editor-storage JSON encoding and writes for 300 ms, with
+      identical-projection deduplication, bounded continuous-interaction staleness,
+      page-hide/hidden-document flushes and metadata flush before native exit.
+- [x] **O12:** bound each note/sheet/ink/deck map to 128 closed recent entries,
+      plus open-file state. Trim hydration/close, promote access, migrate rename/pane
+      keys and prune deleted descendants. Two thousand closed files retain 128 plus
+      one pinned entry, below 16,000 JSON characters in the synthetic note fixture.
+- [x] **O13:** one save-gated bulk-close transaction, preserving all tabs when
+      a save fails. Opening publishes tabs/activation together; reorder stays atomic.
+      The 100-tab fixture produces one notification and one flushed persistence write.
+- [x] **O14:** scoped panes detach serialized controller checkpoints and unmount
+      heavy views. Clean retained state has a 64-entry/16 MiB conservative UTF-16
+      content/metadata budget, accounted without encoding the cache during navigation.
+      Exceptional dirty/conflicted recoveries are pinned, not silently evicted. Active
+      checkpoints leave the idle cache; initial reads preserve drafts and cannot replay
+      an old REST baseline over a live owner. Explicit history reload remains forceful.
+      Vault/lock/account/authorization boundaries purge retained plaintext and reject
+      late detach callbacks; same-path vault switches replace the controller. Hosted
+      restored editor metadata includes server identity. These are in-memory sessions,
+      not a new crash-recovery guarantee.
+- [x] **O15:** simultaneous reads coalesce by vault/path/operation/access context;
+      settled/failing reads are removed. Live providers/Y.Doc/offline writers are leased
+      by target, with final-release destruction and retirement of pending opens on
+      logout. Lookup invalidation retires existing leases without destroying a
+      provider under mounted panes; final release still destroys it. Structured origins deliver sibling edits without echoing the originator.
+      REST drafts remain independent and optimistic stale writers retain their conflict
+      and local content. Grid geometry uses pane keys, and global note insert/tag
+      commands target the focused pane.
+- [x] **O16:** local, frame-coalesced sidebar CSS geometry and one durable release
+      commit; grid responsive geometry coalesces frames and keeps save-before-removal.
+      Cleanup restores prior cursor/selection styles; navigation buttons have names
+      and active-page semantics for accessible UI interaction.
+
+### Verification
+
+Suites ran after implementation; affected checks alone were rerun after fixes.
+After merging #98/#100, one final integrated frontend run against the new
+dependencies passed **2,401 desktop/script tests, one intentional skip**,
+**81 admin tests** and **258 Android frontend tests**, with all three type/build
+checks passing. The initial full run found selector-unaware App mocks, a resize
+fixture assuming synchronous geometry, and a storage spy targeting the prototype
+rather than the repository's storage mock; these fixtures were corrected without
+weakening their assertions. Five Deck test timeouts occurred during overlapping
+native compilation and passed the focused rerun without changing timing budgets.
+The existing locally installed patched `braces` needed its directory exposed with
+`NODE_PATH`; its security regression then passed without dependency changes.
+
+Admin **81 passed**, Android frontend **258 passed**. The combined O10–O16
+source and #100 updates also pass TypeScript and **84 focused regressions**.
+Desktop/admin/Android types, production frontend builds and startup asset gate pass. Paired Dependabot #98's
+full Rust workspace tests/check cover the unchanged native code under the updated
+Rust dependency set. No disposable PostgreSQL URL was supplied, so DB-backed test
+bodies were not exercised. Version/boundary guards, Rust formatting, generated
+assets, repository formatting and changed-file lint/diff checks are recorded;
+lint warnings remain visible debt. The unchanged server smoke retains Batch 1's
+BuildKit host-network limitation.
+
+Production browser flow: synthetic vault → edit → save-gated PDF navigation →
+reopen note → 100-move sidebar resize → two same-file grid panes → focused insert
+→ return to files → Close all tabs. Browser plugin unavailable; used installed
+Playwright/Chromium at `http://127.0.0.1:1425/`, **1440×1000**, synthetic IPC and
+external requests blocked. Verified saved content after teardown, zero intermediate
+sidebar settings writes/one final commit, one read for two panes, independently
+persisted selections, focused-only insertion and successful close-all. Page title
+and URL match, content is nonblank and normal flow has no console/error overlays.
+Inspected `/tmp/collab-session-grid.png`.
+
+Linux WebKitGTK **2.54** offscreen GTK3 smoke evaluated all 16 view modules and
+rendered note/PDF fixtures with the worker over local HTTP/synthetic IPC. This
+checks module/worker compatibility, not the installed Tauri asset protocol or all
+editor interactions. The production asset report remains inside existing budgets;
+no warning threshold or performance budget was raised. Final integrated
+assets: **1,235,419 bytes initial JS / 361,524 gzip**, **36,875,157 packaged
+bytes**, **1,625,392 font bytes**, and one **2,418,244-byte PDF worker**.
+These include the merged dependency updates; comparing them with the prior
+version's artifacts alone does not isolate a native runtime improvement.
+
+### Dependency PR Review
+
+- **#98:** fixed Rust/JavaScript filesystem-plugin alignment; compatibility test,
+  full Rust workspace tests/check, clean frontend asset build/gate, CI and both
+  security scans passed. **Merged**.
+- **#100:** paired the Cargo updates, held JavaScript updater at **2.13.1** to match
+  vendored Rust, regenerated KaTeX CSS and corrected two TypeScript 5.9 typed-array
+  annotations. Desktop **2,383 passed/one skip** after affected corrections; admin
+  **81**, Android **258**, all types/builds and existing asset budgets pass.
+  Browser exercised settings/icons/highlighting/math/PDF and real bundled offline
+  English OCR. All fresh CI, architecture and dependency/container security checks passed;
+  **merged**. The final typed-array change is annotation-only; Android types pass.
+- **#97:** **not mergeable safely** despite green frontend CI. Actual native check
+  fails at `src-tauri/src/lib.rs:150`: GTK 0.18's `GestureZoom` does not implement
+  GLib 0.22's `FromGlibPtrNone`. JNI 0.22 also changes `JNIEnv` into `EnvUnowned`,
+  requiring an Android helper migration; host/frontend checks do not cover it.
+  Leave the major-update PR open for coordinated GTK/JNI/formula-engine work.
+
+### Remaining Acceptance
+
+Installed native cold/warm reopen, latency/RSS and layout/reflow profiles,
+long-session renderer/worker retention, tray/suspend and real-server offline/live
+reconnect across target platforms remain open. Browser checks use synthetic local
+IPC; live sibling/provider behavior and REST conflicts use controlled unit
+transports. Source-byte budgets and notification counts do not prove native
+speedups. The next implementation category is **Vault Listing, Indexing And
+Search (O17–O28)**.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.
