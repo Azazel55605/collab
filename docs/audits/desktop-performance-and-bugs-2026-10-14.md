@@ -118,7 +118,9 @@ and adds acceptance targets for gaps. Its current checklist records completed
 desktop work separately from partial changes, Android work and native acceptance.
 
 UI follow-up **UR15 (2026-10-20)**: routine folder, view and settings-category
-changes now remain opaque instead of replaying stacked entrance fades. Rendered
+changes now remain opaque instead of replaying stacked entrance fades. A modal
+follow-up also removes shared dialog/backdrop fades and Settings’ extra entrance
+after the user reported remaining flashes in settings and editor builders. Rendered
 reproduction/verification and remaining native confirmation are recorded in the
 [reported regression reconciliation](./reported-regressions-2026-10-14.md#ur15--routine-ui-changes-flash-once).
 

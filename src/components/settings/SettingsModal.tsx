@@ -312,7 +312,7 @@ export default function SettingsModal({
 
   return (
     <Dialog open onOpenChange={(open) => !open && closeSettings()}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 sm:max-w-3xl glass-strong app-fade-scale-in">
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 sm:max-w-3xl glass-strong">
         <DialogHeader className="px-5 pt-5 pb-0">
           <DialogTitle className="text-base font-semibold">Settings</DialogTitle>
         </DialogHeader>

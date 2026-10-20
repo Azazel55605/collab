@@ -113,9 +113,10 @@ and attachment discovery. See [validation and remaining native acceptance](../de
 The next category is **Markdown, Math And Graph (O29–O36)**.
 
 The **UR15 UI flicker follow-up (2026-10-20)** removes routine folder/sidebar/view
-and settings-category entrance fades while preserving document keys and floating
-surface motion. Chromium and offscreen Linux WebKitGTK keep the changed content
-opaque; installed compositor/user confirmation remains open. See the
+and settings-category entrance fades while preserving document keys and menu
+motion. The modal follow-up also removes shared dialog/backdrop fades and
+Settings’ extra entrance after user confirmation of remaining modal flashes.
+Chromium and offscreen Linux WebKitGTK keep the changed content opaque; installed compositor/user confirmation remains open. See the
 [implementation tracker](./desktop-audit-fixes.md#ui-flicker-follow-up--ur15).
 
 ### Web Interface Performance And Correctness Audit

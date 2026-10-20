@@ -1123,8 +1123,26 @@ open under O70. Next category: **Markdown, Math And Graph (O29–O36)**.
 Implemented **2026-10-20** after the O10–O16 report. Routine tree/sidebar/view and
 settings-category content no longer fades from transparent or stacks entrance
 animations. Document refresh pulses cannot restart a document entrance when they
-clear. Floating modals/menus and hover/selection motion remain; document/vault/
-pane keys and save boundaries are preserved.
+clear. Menu and hover/selection motion remain; document/vault/pane keys and save
+boundaries are preserved.
+
+Modal follow-up **2026-10-20**: the user confirmed most routine flicker is gone
+but settings and editor builders still flash. Shared dialogs/backdrops no longer
+fade/scale, and Settings no longer adds its own entrance. Cold Settings loads
+previously animated both the temporary loading dialog and the replacement.
+
+- [x] Remove shared dialog/backdrop entrance/exit fades and Settings’ extra fade.
+- [x] Verify cold/repeated Settings and math/table builders in Chromium and
+      offscreen Linux WebKitGTK **2.54.1**: opacity stays at **1**, no modal
+      entrance animations. Escape (Chromium) and close buttons (WebKit) dismiss
+      all three. Synthetic IPC/software rendering; native acceptance remains open.
+- [x] Modal batch checks pass: desktop/scripts **2,411 passed / one intentional
+      skip**, admin **81 passed**, Android frontend **258 passed**, Rust workspace
+      **712 passed / one ignored benchmark**; workspace check, desktop/admin
+      builds, all three frontend type checks, changed-source lint, formatting,
+      crate/version guards and production asset budgets pass. No live PostgreSQL
+      integration or installed native compositor acceptance is claimed.
+- [ ] Installed native confirmation of modal opening/compositor behavior.
 
 - [x] Remove routine whole-content/list entrances and unused keyframes.
 - [x] Add stable-editor DOM/provider coverage for sidebar and appearance changes.
