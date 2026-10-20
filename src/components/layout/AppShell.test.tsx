@@ -145,6 +145,24 @@ describe('AppShell document remounting', () => {
       'mount:Notes/b.md',
     ]);
   });
+  it('keeps the mounted editor and its DOM across sidebar and appearance updates', async () => {
+    render(<AppShell />);
+    const editor = await screen.findByTestId('note-view');
+    for (const changes of [
+      { sidebarPanel: 'search' as const },
+      { sidebarPanel: 'files' as const },
+      { isSidebarOpen: false },
+      { isSidebarOpen: true, sidebarWidth: 280 },
+      { theme: 'light' as const },
+    ]) {
+      await act(async () => {
+        useUiStore.setState(changes);
+      });
+      expect(screen.getByTestId('note-view')).toBe(editor);
+    }
+    expect(noteLifecycle.events).toEqual(['mount:Notes/a.md']);
+    expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
+  });
   it('opens personal chats without closing the current vault collaboration session', async () => {
     render(<AppShell />);
     await screen.findByTestId('note-view');

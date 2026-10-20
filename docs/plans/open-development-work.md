@@ -112,6 +112,12 @@ paging, reverse links, bounded native workers, windowed tree rows, revision maps
 and attachment discovery. See [validation and remaining native acceptance](../desktop/vault-listing-performance.md).
 The next category is **Markdown, Math And Graph (O29–O36)**.
 
+The **UR15 UI flicker follow-up (2026-10-20)** removes routine folder/sidebar/view
+and settings-category entrance fades while preserving document keys and floating
+surface motion. Chromium and offscreen Linux WebKitGTK keep the changed content
+opaque; installed compositor/user confirmation remains open. See the
+[implementation tracker](./desktop-audit-fixes.md#ui-flicker-follow-up--ur15).
+
 ### Web Interface Performance And Correctness Audit
 
 Reviewed separately on **2026-10-14**. The

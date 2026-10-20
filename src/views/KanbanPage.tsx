@@ -538,9 +538,7 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
         sessionStatus: snapshot.status,
       }}
     >
-      <div
-        className={`h-full min-h-0 app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}
-      >
+      <div className={`h-full min-h-0 ${refreshPulse ? 'app-refresh-pulse' : ''}`}>
         {readOnly && <ReadOnlyBanner />}
         <KanbanBoardView />
       </div>

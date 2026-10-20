@@ -236,20 +236,8 @@
   animation: app-fade-scale-in var(--motion-base) var(--motion-ease-standard) both;
 }
 
-.app-view-enter {
-  animation: app-view-enter var(--motion-base) var(--motion-ease-standard) both;
-}
-
-.app-sidebar-panel-enter {
-  animation: app-sidebar-panel-enter var(--motion-base) var(--motion-ease-standard) both;
-}
-
 .app-tab-enter {
   animation: app-tab-enter var(--motion-base) var(--motion-ease-emphasized) both;
-}
-
-.app-document-ready {
-  animation: app-document-ready var(--motion-base) var(--motion-ease-standard) both;
 }
 
 .app-refresh-pulse {
@@ -366,28 +354,6 @@
   }
 }
 
-@keyframes app-view-enter {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes app-sidebar-panel-enter {
-  from {
-    opacity: 0;
-    transform: translateX(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 @keyframes app-tab-enter {
   from {
     opacity: 0;
@@ -396,17 +362,6 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes app-document-ready {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
 
@@ -621,10 +576,7 @@
 
 [data-motion='off'] .app-fade-slide-in,
 [data-motion='off'] .app-fade-scale-in,
-[data-motion='off'] .app-view-enter,
-[data-motion='off'] .app-sidebar-panel-enter,
 [data-motion='off'] .app-tab-enter,
-[data-motion='off'] .app-document-ready,
 [data-motion='off'] .app-refresh-pulse,
 [data-motion='off'] .app-chip-change,
 [data-motion='off'] .app-command-content-enter,

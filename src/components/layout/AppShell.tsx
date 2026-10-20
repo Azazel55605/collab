@@ -362,7 +362,8 @@ export default function AppShell() {
               <EditorErrorBoundary key={activeTabPath ?? activeView}>
                 <div
                   key={`${activeView}:${activeDocumentKey}`}
-                  className="h-full min-h-0 app-view-enter"
+                  data-slot="main-content"
+                  className="h-full min-h-0"
                 >
                   <DocumentPane
                     vault={vault}

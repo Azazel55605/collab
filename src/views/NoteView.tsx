@@ -494,7 +494,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
 
   return (
     <div
-      className={`flex flex-col h-full overflow-hidden app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}
+      className={`flex flex-col h-full overflow-hidden ${refreshPulse ? 'app-refresh-pulse' : ''}`}
     >
       {readOnly ? (
         <ReadOnlyBanner />

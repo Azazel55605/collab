@@ -4659,7 +4659,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col bg-background app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}
+      className={`flex h-full min-h-0 flex-col bg-background ${refreshPulse ? 'app-refresh-pulse' : ''}`}
     >
       <DocumentTopBar
         title={componentEditSession?.component.name ?? title}

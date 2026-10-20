@@ -1118,6 +1118,35 @@ reads; lower total RSS is not claimed. Installed latency/RSS, screen-reader
 behavior, real OS drops and native Windows/Linux/macOS/Android acceptance remain
 open under O70. Next category: **Markdown, Math And Graph (O29–O36)**.
 
+## UI Flicker Follow-Up — UR15
+
+Implemented **2026-10-20** after the O10–O16 report. Routine tree/sidebar/view and
+settings-category content no longer fades from transparent or stacks entrance
+animations. Document refresh pulses cannot restart a document entrance when they
+clear. Floating modals/menus and hover/selection motion remain; document/vault/
+pane keys and save boundaries are preserved.
+
+- [x] Remove routine whole-content/list entrances and unused keyframes.
+- [x] Add stable-editor DOM/provider coverage for sidebar and appearance changes.
+- [x] Reproduce and verify folder/view/settings interactions with regular
+      Playwright because the Browser plugin is unavailable: effective opacity
+      **0 before / 1 after**, no runtime errors. Synthetic local IPC is used.
+- [x] Repeat the same interactions in offscreen Linux WebKitGTK **2.54.1**:
+      30 frame samples per action remain at effective opacity **1**. The test
+      uses software rendering and synthetic IPC; it is not installed-app/GPU
+      certification.
+- [ ] Installed native/user confirmation, including platform compositor behavior.
+
+Validation on the merged O17–O28 base: desktop/scripts **2,411 passed / one
+intentional skip** (bulk suite plus the 45 timing/shape checks run separately
+without concurrent native compilation); admin **81 passed**, Android frontend
+**258 passed** after an isolated rerun of one calendar timeout from the concurrent
+build run. All three frontend types/builds, Rust workspace tests/check/fmt,
+crate/version guards, formatting and production asset budgets pass. Changed-source
+lint has zero errors and existing hook warnings. Both rendered interaction
+checks use current integrated sources; Chromium records no runtime errors.
+No PostgreSQL integration or installed GPU/compositor certification is claimed.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.
