@@ -188,7 +188,7 @@ describe('over a real CRDT', () => {
   it('keeps the encoded update inside the transaction budget', () => {
     const doc = new Y.Doc();
     const objects = doc.getMap<Y.Map<unknown>>('objects');
-    let encoded = new Uint8Array();
+    let encoded: Uint8Array = new Uint8Array();
     doc.on('update', (update: Uint8Array) => {
       encoded = update;
     });
