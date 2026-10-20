@@ -990,8 +990,10 @@ and lifecycle policies. Native RSS/layout/reopen timing remains O70 acceptance.
 ### Verification
 
 Suites ran after implementation; affected checks alone were rerun after fixes.
-Desktop/scripts full run and corrected/new regressions total **2,401 passed, one
-intentional skip**. The initial full run found selector-unaware App mocks, a resize
+After merging #98/#100, one final integrated frontend run against the new
+dependencies passed **2,401 desktop/script tests, one intentional skip**,
+**81 admin tests** and **258 Android frontend tests**, with all three type/build
+checks passing. The initial full run found selector-unaware App mocks, a resize
 fixture assuming synchronous geometry, and a storage spy targeting the prototype
 rather than the repository's storage mock; these fixtures were corrected without
 weakening their assertions. Five Deck test timeouts occurred during overlapping
@@ -1001,8 +1003,7 @@ The existing locally installed patched `braces` needed its directory exposed wit
 
 Admin **81 passed**, Android frontend **258 passed**. The combined O10–O16
 source and #100 updates also pass TypeScript and **84 focused regressions**.
-Desktop/admin/Android types,
-production frontend builds and startup asset gate pass. Paired Dependabot #98's
+Desktop/admin/Android types, production frontend builds and startup asset gate pass. Paired Dependabot #98's
 full Rust workspace tests/check cover the unchanged native code under the updated
 Rust dependency set. No disposable PostgreSQL URL was supplied, so DB-backed test
 bodies were not exercised. Version/boundary guards, Rust formatting, generated
@@ -1024,7 +1025,11 @@ Linux WebKitGTK **2.54** offscreen GTK3 smoke evaluated all 16 view modules and
 rendered note/PDF fixtures with the worker over local HTTP/synthetic IPC. This
 checks module/worker compatibility, not the installed Tauri asset protocol or all
 editor interactions. The production asset report remains inside existing budgets;
-no warning threshold or performance budget was raised.
+no warning threshold or performance budget was raised. Final integrated
+assets: **1,235,419 bytes initial JS / 361,524 gzip**, **36,875,157 packaged
+bytes**, **1,625,392 font bytes**, and one **2,418,244-byte PDF worker**.
+These include the merged dependency updates; comparing them with the prior
+version's artifacts alone does not isolate a native runtime improvement.
 
 ### Dependency PR Review
 

@@ -51,8 +51,7 @@ Vault changes, lock, logout and account/membership/capability changes clear cach
 plaintext and shared lookup identities. Mounted live holders keep their existing
 save/leave ownership until final release; invalidation never destroys a provider
 under an active pane, and new sessions cannot reuse a retired handle. Epochs
-reject late teardown checkpoints from an
-old lifetime. Rename invalidates detached document checkpoints while migrating
+reject late teardown checkpoints from an old lifetime. Rename invalidates detached document checkpoints while migrating
 view metadata, avoiding reuse of a checkpoint under an obsolete path.
 
 ## Resize And Acceptance

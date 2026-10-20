@@ -1853,7 +1853,9 @@ pinned). `DocumentSessionController.initialize` revalidates through the remote
 policy; explicit `load` still resets for history/reload actions. The binding drops
 parsed documents and view callbacks on unmount; the save-gated navigation path
 remains the primary protection for edits. `useDocumentResourceLifecycle` clears
-plaintext/read/live resources at vault, lock and authorization boundaries.
+idle plaintext/read resources and retires shared provider identities at vault,
+lock and authorization boundaries. Mounted holders retain save/leave ownership
+until final release; retired handles cannot be reused by new sessions.
 
 `sharedDocumentResources.ts` coalesces in-flight VaultClient reads without a
 settled-result cache. Its refcounted resource pool backs shared live Yjs providers;
