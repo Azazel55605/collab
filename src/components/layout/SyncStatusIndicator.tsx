@@ -233,19 +233,17 @@ export default function SyncStatusIndicator() {
   const serverStatus = useServerStore((state) =>
     vault?.kind === 'hosted' ? (state.connections[vault.serverUrl]?.status ?? null) : null,
   );
-  const {
-    status,
-    lastSyncedAt,
-    pending,
-    failed,
-    access,
-    isSyncing,
-    refresh,
-    syncNow,
-    retry,
-    discard,
-    removeReplica,
-  } = useSyncStore();
+  const status = useSyncStore((state) => state.status);
+  const lastSyncedAt = useSyncStore((state) => state.lastSyncedAt);
+  const pending = useSyncStore((state) => state.pending);
+  const failed = useSyncStore((state) => state.failed);
+  const access = useSyncStore((state) => state.access);
+  const isSyncing = useSyncStore((state) => state.isSyncing);
+  const refresh = useSyncStore((state) => state.refresh);
+  const syncNow = useSyncStore((state) => state.syncNow);
+  const retry = useSyncStore((state) => state.retry);
+  const discard = useSyncStore((state) => state.discard);
+  const removeReplica = useSyncStore((state) => state.removeReplica);
   const clear = useSyncStore((state) => state.clear);
   const transfers = useSyncTransferStore((state) => state.transfers);
   const clearFinishedTransfers = useSyncTransferStore((state) => state.clearFinished);

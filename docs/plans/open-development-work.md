@@ -102,8 +102,12 @@ OCR; Linux WebKitGTK loaded all view modules and rendered PDF fixtures. Native
 launch/heap timing, installed asset URLs and the remaining physical platform
 matrix stay open under release acceptance/O70, not hidden as completed tests.
 See [Startup Performance](../desktop/startup-performance.md) and Performance
-Batch 3 in the implementation tracker. The next implementation category is
-**React State, Session Ownership And Navigation (O10–O16)**.
+Batch 3 in the implementation tracker. The **React State, Session Ownership And Navigation (O10–O16)** category follows
+in Performance Batch 4: narrow subscriptions, deferred/bounded view metadata,
+transactional tab close, serialized detached session recovery, shared pane read/live
+resources and local frame-coalesced resize geometry. Validation and outstanding
+native acceptance are tracked there. The next category is **Vault Listing,
+Indexing And Search (O17–O28)**.
 
 ### Web Interface Performance And Correctness Audit
 

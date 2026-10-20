@@ -2,7 +2,7 @@ import { useCollabStore } from '../../store/collabStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export default function PresenceBar() {
-  const { peers } = useCollabStore();
+  const peers = useCollabStore((state) => state.peers);
   if (peers.length === 0) return null;
 
   return (

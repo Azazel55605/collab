@@ -30,3 +30,5 @@ Relevant active plans:
 
 Desktop packaging and installation documents live under
 [Build And Release](../build/README.md).
+
+- [State, sessions and navigation performance](./session-performance.md)

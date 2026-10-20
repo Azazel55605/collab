@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { activateDocumentPane, DocumentPane } from '../../lib/documentPaneContext';
 import { cn } from '../../lib/utils';
 import {
   flattenVaultFiles,
@@ -55,7 +56,9 @@ interface Props {
 }
 
 export default function GridCell({ cell, onContainerRef }: Props) {
-  const { setCellContent, clearCell } = useGridStore();
+  const setCellContent = useGridStore((state) => state.setCellContent);
+  const clearCell = useGridStore((state) => state.clearCell);
+  const vault = useVaultStore((state) => state.vault);
   const scope = useVaultStore((state) =>
     state.vault?.kind === 'hosted'
       ? JSON.stringify([state.vault.serverUrl, state.vault.hostedVaultId])
@@ -172,6 +175,8 @@ export default function GridCell({ cell, onContainerRef }: Props) {
   return (
     <div
       ref={setRef}
+      onFocusCapture={() => activateDocumentPane(cell.id)}
+      onPointerDownCapture={() => activateDocumentPane(cell.id)}
       className={cn(
         'relative flex flex-col bg-background overflow-hidden',
         'transition-shadow duration-150',
@@ -250,7 +255,14 @@ export default function GridCell({ cell, onContainerRef }: Props) {
             setCellContent(cell.id, content);
           }}
         >
-          {renderContent()}
+          <DocumentPane
+            vault={vault}
+            relativePath={cell.content.relativePath}
+            type={cell.content.type}
+            paneId={cell.id}
+          >
+            {renderContent()}
+          </DocumentPane>
         </div>
       </div>
     </div>

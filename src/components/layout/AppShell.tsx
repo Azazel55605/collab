@@ -1,10 +1,10 @@
 import {
   Component,
+  type CSSProperties,
   type ErrorInfo,
   type ReactNode,
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from 'react';
 
@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 
 import { DragProvider } from '../../contexts/DragContext';
+import { DocumentPane } from '../../lib/documentPaneContext';
+import { useSidebarResize } from '../../lib/useSidebarResize';
 import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
 import { useEditorStore, useUiStore, useVaultStore } from '../../store';
@@ -89,25 +91,29 @@ class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Er
 }
 
 export default function AppShell() {
-  const { vault, isVaultLocked, refreshFileTree } = useVaultStore();
-  const { activeTabPath, openTabs, closeTab, setActiveTab } = useEditorStore();
-  const {
-    activeView,
-    sidebarWidth,
-    isSidebarOpen,
-    setSidebarWidth,
-    toggleSidebar,
-    openSettings,
-    closeSettings,
-    isSettingsOpen,
-    setActiveView,
-  } = useUiStore();
+  const vault = useVaultStore((state) => state.vault);
+  const isVaultLocked = useVaultStore((state) => state.isVaultLocked);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const closeTab = useEditorStore((state) => state.closeTab);
+  const setActiveTab = useEditorStore((state) => state.setActiveTab);
+  const activeView = useUiStore((state) => state.activeView);
+  const sidebarWidth = useUiStore((state) => state.sidebarWidth);
+  const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
+  const toggleSidebar = useUiStore((state) => state.toggleSidebar);
+  const openSettings = useUiStore((state) => state.openSettings);
+  const closeSettings = useUiStore((state) => state.closeSettings);
+  const isSettingsOpen = useUiStore((state) => state.isSettingsOpen);
+  const setActiveView = useUiStore((state) => state.setActiveView);
   useVaultNoteIndex(vault, isVaultLocked, refreshFileTree);
-  const resizingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWRef = useRef(0);
   const [tabSwitcherIndex, setTabSwitcherIndex] = useState<number | null>(null);
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const {
+    element: sidebarRef,
+    start: onResizeStart,
+    resizing: isResizingSidebar,
+  } = useSidebarResize(sidebarWidth, setSidebarWidth);
 
   const getTabIcon = (type: string, size = 16) => {
     if (type === 'canvas') return <Layout size={size} className="shrink-0" />;
@@ -247,39 +253,6 @@ export default function AppShell() {
     activateTab,
   ]);
 
-  // Sidebar drag-to-resize
-  const onResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      resizingRef.current = true;
-      setIsResizingSidebar(true);
-      startXRef.current = e.clientX;
-      startWRef.current = sidebarWidth;
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    },
-    [sidebarWidth],
-  );
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const delta = e.clientX - startXRef.current;
-      setSidebarWidth(Math.min(400, Math.max(160, startWRef.current + delta)));
-    };
-    const onUp = () => {
-      resizingRef.current = false;
-      setIsResizingSidebar(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [setSidebarWidth]);
-
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
   const switcherTab = tabSwitcherIndex !== null ? openTabs[tabSwitcherIndex] : null;
 
@@ -348,17 +321,23 @@ export default function AppShell() {
 
           {/* Sidebar + resize handle; Chats brings its own list, so the vault sidebar steps aside */}
           <div
+            ref={sidebarRef}
             className={cn(
               'relative flex shrink-0 overflow-hidden',
               !isResizingSidebar && 'transition-[width,opacity] app-motion-base',
               showSidebar ? 'opacity-100' : 'pointer-events-none opacity-0',
             )}
-            style={{ width: showSidebar ? sidebarWidth : 0 }}
+            style={
+              {
+                '--sidebar-width': `${sidebarWidth}px`,
+                width: showSidebar ? 'var(--sidebar-width)' : 0,
+              } as CSSProperties
+            }
             aria-hidden={!showSidebar}
           >
             <div
               className="flex-1 overflow-hidden"
-              style={{ width: sidebarWidth, minWidth: sidebarWidth }}
+              style={{ width: 'var(--sidebar-width)', minWidth: 'var(--sidebar-width)' }}
             >
               <Sidebar />
             </div>
@@ -385,7 +364,13 @@ export default function AppShell() {
                   key={`${activeView}:${activeDocumentKey}`}
                   className="h-full min-h-0 app-view-enter"
                 >
-                  {renderMainContent()}
+                  <DocumentPane
+                    vault={vault}
+                    relativePath={activeTab?.relativePath}
+                    type={activeTab?.type}
+                  >
+                    {renderMainContent()}
+                  </DocumentPane>
                 </div>
               </EditorErrorBoundary>
               {/* Edge drop zones — only visible when a tab is being dragged */}
@@ -448,7 +433,7 @@ export default function AppShell() {
 }
 
 function EmptyEditor() {
-  const { activeView } = useUiStore();
+  const activeView = useUiStore((state) => state.activeView);
 
   const hints: Record<string, { icon: React.ReactNode; title: string; hint: string }> = {
     graph: {

@@ -1843,3 +1843,28 @@ and audited. Team ownership does not automatically grant file permissions.
 Linked library vaults must be detached before soft or permanent vault deletion.
 Association and deletion lock the vault row to prevent a concurrent link from
 leaving a pending-delete library. Restore archived vaults before detaching them.
+
+### Desktop Session And Navigation Performance
+
+`DocumentPane` scopes desktop controller retention and pane-local view geometry by
+vault/document/type/pane. `documentSessionRetention.ts` keeps serialized controller
+checkpoints only (64 clean entries/16 MiB, with exceptional unsaved recoveries
+pinned). `DocumentSessionController.initialize` revalidates through the remote
+policy; explicit `load` still resets for history/reload actions. The binding drops
+parsed documents and view callbacks on unmount; the save-gated navigation path
+remains the primary protection for edits. `useDocumentResourceLifecycle` clears
+plaintext/read/live resources at vault, lock and authorization boundaries.
+
+`sharedDocumentResources.ts` coalesces in-flight VaultClient reads without a
+settled-result cache. Its refcounted resource pool backs shared live Yjs providers;
+structured sessions use pane-specific transaction origins. Note/sheet/ink/deck
+view maps use `path\0pane` keys for grid geometry and retain 128 closed entries
+per format plus open-file state. Rename migrates those keys; deletion prunes them.
+
+`deferredPersistence.ts` delays encoding as well as writing editor-storage for
+300 ms, with page-hide/hidden-document/native-quit flushes. `closeTabs` gates once
+and publishes one metadata transaction. Common shell surfaces select individual
+store fields; GridView selects only the active workspace. `useSidebarResize`
+paints a local CSS custom property once per frame and commits width on release;
+GridView coalesces ResizeObserver geometry while preserving save-before-unmount.
+See [session performance](./session-performance.md) for acceptance boundaries.

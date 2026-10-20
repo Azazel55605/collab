@@ -300,9 +300,9 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-20**: **O01–O09, O39, O47 and O64 are implemented;
-O48 is superseded by R08**. These 13 implementation items are checked off; the
-other **57 entries remain open or partial**. Native release acceptance is tracked
+Checklist reconciled **2026-10-20**: **O01–O16, O39, O47 and O64 are implemented;
+O48 is superseded by R08**. These 20 implementation items are checked off; the
+other **50 entries remain open or partial**. Native release acceptance is tracked
 separately below and in the implementation tracker; checkboxes do not claim
 measured startup/RSS gains or certification on every platform.
 
@@ -374,50 +374,55 @@ and [Performance Batch 3](../plans/desktop-audit-fixes.md) for evidence and limi
 
 ### React State, Session Ownership And Navigation
 
-- [ ] **O10 / P1 — Narrow whole-store subscriptions in shell/common surfaces.**
-      **Status: Partial — shell index action subscriptions narrowed; other broad subscriptions remain.**
-      [AppShell](../../src/components/layout/AppShell.tsx),
-      [Sidebar](../../src/components/layout/Sidebar.tsx),
-      [GridView](../../src/views/GridView.tsx),
-      [CollabProvider](../../src/components/collaboration/CollabProvider.tsx) and
-      [command bar](../../src/components/command-bar/useCommandBarShell.ts) subscribe
-      broadly. Use stable selectors for actual dependencies. Profile typing, cursor
-      motion, sync progress and sidebar resize; do not introduce unstable selectors.
-- [ ] **O11 / P1 — Stop serializing persistent view state on every interaction.**
-      **Status: Partial — PDF viewer persistence is debounced; other editors still need this work.**
-      [editorStore](../../src/store/editorStore.ts) uses localStorage persistence for
-      tab and view maps. Note selection/scroll, sheet scroll and ink/deck viewport
-      updates write into it. Separate transient state from debounced durable state,
-      with a flush on suspension/exit. Count localStorage writes during a pan/scroll.
-- [ ] **O12 / P2 — Bound retained per-file view state.**
-      **Status: Partial — PDF recent view state is bounded; note/sheet/ink/deck maps remain.**
-      `closeTab` does not prune note/sheet/ink/deck view maps in
-      [editorStore](../../src/store/editorStore.ts). Keep a bounded recent-file LRU,
-      migrating renamed/deleted entries safely. Measure state bytes after opening
-      thousands of distinct files; closing a tab need not erase useful recent state.
-- [ ] **O13 / P2 — Batch close/reorder metadata updates.**
-      **Status: Open.**
-      [TabBar](../../src/components/layout/TabBar.tsx) closes all/other tabs by calling
-      `closeTab` repeatedly. Provide one transactional state update after the B01
-      save/close gate. Measure store notifications/persist writes for 100 tabs.
-- [ ] **O14 / P1 — Separate durable document sessions from heavyweight view mounts.**
-      **Status: Partial — save-gated navigation implemented; durable session/draft ownership remains.**
-      [documentSessionController](../../src/lib/documentSessionController.ts) already
-      centralizes correctness. Retain small sessions/drafts across navigation while
-      suspending editor DOM, PDF workers and renderers. Fix B01 first; compare memory
-      and reopen latency without keeping all editors mounted.
-- [ ] **O15 / P2 — Deduplicate same-file sessions across grid panes.**
-      **Status: Open.**
-      [GridCell](../../src/components/grid/GridCell.tsx) can mount independent views
-      of a file. Share read/cache/live resources by vault/file identity while retaining
-      per-pane view state. Test conflict policy and independent selection; first
-      investigate R02/R03.
-- [ ] **O16 / P3 — Reduce application-wide resize broadcasts.**
-      **Status: Open.**
-      [AppShell](../../src/components/layout/AppShell.tsx) persists sidebar width during
-      pointer movement; [GridView](../../src/views/GridView.tsx) also animates layouts.
-      Use local/rAF geometry during drag and commit durable values at the boundary.
-      Profile layout/reflow rather than simply memoizing every component.
+Implementation batch **2026-10-20**; verification and native acceptance are
+recorded in [Performance Batch 4](../plans/desktop-audit-fixes.md) and
+[session ownership](../desktop/session-performance.md).
+
+- [x] **O10 / P1 — Narrow whole-store subscriptions in shell/common surfaces.**
+      Shell, root app, sidebar/activity/status/tab surfaces, grid controls,
+      collaboration surfaces and command bar select their actual dependencies.
+      GridView observes only the active workspace; note/ink/sheet common controls
+      no longer subscribe to unrelated editor/UI state. Selector identities remain stable.
+- [x] **O11 / P1 — Stop serializing persistent view state on every interaction.**
+      Editor persistence captures references immediately but defers JSON encoding
+      and localStorage writes to a 300 ms fixed window, deduplicating unchanged
+      projections. Page hide, document suspension and the native quit save boundary
+      flush pending state. This retains device-local geometry without putting it
+      into shared documents; abrupt process termination may lose the last window
+      of view metadata, not acknowledged document saves.
+- [x] **O12 / P2 — Bound retained per-file view state.**
+      Note/sheet/ink/deck maps retain 128 recent closed entries per format, plus
+      pinned open files. Opening/touching promotes recency; bulk close trims released
+      entries, hydration trims old oversized maps, rename migrates file/folder and
+      pane keys, and deletion removes matching recent state. PDF's existing bounds remain.
+- [x] **O13 / P2 — Batch close/reorder metadata updates.**
+      Close-all/others call one save-gated `closeTabs` transaction. Opening a new
+      tab also publishes tabs/activation together; reorder already uses one update.
+      The 100-tab regression counts store notifications and durable writes after
+      the gate. Save failures keep the tabs/editors open.
+- [x] **O14 / P1 — Separate durable document sessions from heavyweight view mounts.**
+      Scoped document panes retain serialized controller checkpoints while editor
+      DOM, parsed scenes and listeners unmount. Initial reads revalidate retained
+      state through the remote-change/conflict policy instead of resetting drafts;
+      explicit history reload remains authoritative. Clean checkpoints are bounded
+      to 64/16 MiB; exceptional unsaved recoveries are pinned rather than silently
+      evicted. Live documents use their existing offline checkpoint boundary, and
+      unused live providers are destroyed. Lock/logout/vault/authorization changes
+      purge retained plaintext and reject stale detach callbacks.
+- [x] **O15 / P2 — Deduplicate same-file sessions across grid panes.**
+      VaultClient coalesces simultaneous document/asset/annotation/live-target reads
+      by vault, path and access context without retaining settled results. Live
+      documents share one provider/Y.Doc/offline writer per target with refcounted
+      release. Structured pane-local origins deliver sibling edits without echoing
+      the initiating pane. PDF's existing worker leases remain shared. REST
+      controllers retain independent drafts and optimistic conflict handling;
+      pane-local note/sheet/ink/deck geometry does not overwrite sibling view state.
+- [x] **O16 / P3 — Reduce application-wide resize broadcasts.**
+      Sidebar dragging paints local CSS geometry at most once per animation frame
+      and commits one durable width on release/blur; cleanup restores body styles.
+      Responsive grid observation coalesces geometry per frame and retains the
+      save gate before responsive pane removal. Native layout/RSS/latency profiles
+      remain acceptance work, not inferred from notification counts.
 
 ### Vault Listing, Indexing And Search
 

@@ -1296,7 +1296,7 @@ export default function PdfView({ relativePath }: Props) {
         setPdfState(sidecar);
         setBookmarksOpen(resolvePdfBookmarksOpen(sidecar.viewerState));
         setSidecarLoaded(true);
-        pdfSessionController.load(
+        pdfSessionController.initialize(
           serializePdfSession(sidecar),
           annotations.version === null ? serializePdfSession(sidecar) : String(annotations.version),
           'rest',

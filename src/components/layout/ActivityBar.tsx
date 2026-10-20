@@ -36,22 +36,20 @@ const VIEW_TAB_PATHS: Partial<Record<ActiveView, string>> = {
 };
 
 export default function ActivityBar() {
-  const {
-    activeView,
-    setActiveView,
-    isSidebarOpen,
-    toggleSidebar,
-    setSidebarPanel,
-    sidebarPanel,
-    isSettingsOpen,
-    openSettings,
-    closeSettings,
-    isVaultManagerOpen,
-    openVaultManager,
-    closeVaultManager,
-  } = useUiStore();
-  const { openTab } = useEditorStore();
-  const { peers } = useCollabStore();
+  const activeView = useUiStore((state) => state.activeView);
+  const setActiveView = useUiStore((state) => state.setActiveView);
+  const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const toggleSidebar = useUiStore((state) => state.toggleSidebar);
+  const setSidebarPanel = useUiStore((state) => state.setSidebarPanel);
+  const sidebarPanel = useUiStore((state) => state.sidebarPanel);
+  const isSettingsOpen = useUiStore((state) => state.isSettingsOpen);
+  const openSettings = useUiStore((state) => state.openSettings);
+  const closeSettings = useUiStore((state) => state.closeSettings);
+  const isVaultManagerOpen = useUiStore((state) => state.isVaultManagerOpen);
+  const openVaultManager = useUiStore((state) => state.openVaultManager);
+  const closeVaultManager = useUiStore((state) => state.closeVaultManager);
+  const openTab = useEditorStore((state) => state.openTab);
+  const peers = useCollabStore((state) => state.peers);
   const activeNavIndex = isSettingsOpen
     ? -1
     : NAV_ITEMS.findIndex((item) => item.view === activeView);
@@ -184,6 +182,8 @@ export default function ActivityBar() {
                 ref={(node) => {
                   navButtonRefs.current[view] = node;
                 }}
+                aria-label={label}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavClick(view)}
                 onMouseDown={(e) => handleNavMiddleClick(e, view)}
                 className={cn(

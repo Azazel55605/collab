@@ -310,7 +310,7 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
         if (!isMountedRef.current || liveSessionRef.current) return;
         if (content.trim()) {
           const displayed = displayBoard(normalizeKanbanBoard(JSON.parse(content) as KanbanBoard));
-          controller.load(serializeBoardRaw(displayed), version, 'rest');
+          controller.initialize(serializeBoardRaw(displayed), version, 'rest');
         } else if (isInitial && !readOnly) {
           const def = makeDefaultBoard();
           const result = await client.writeDocument(

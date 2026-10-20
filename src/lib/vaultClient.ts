@@ -19,7 +19,9 @@ import type {
 } from '../types/vault';
 import { vaultCan, vaultKind } from '../types/vault';
 
+import { documentVaultIdentity } from './documentPaneContext';
 import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
+import { shareDocumentRead } from './sharedDocumentResources';
 import { tauriCommands } from './tauri';
 import {
   emitReplicaMutated,
@@ -2269,9 +2271,30 @@ export class LocalVaultClient implements VaultClient {
 }
 
 export function createVaultClient(vault: VaultMeta): VaultClient {
-  return vaultKind(vault) === 'hosted'
-    ? new HostedVaultClient(vault as HostedVaultMeta)
-    : new LocalVaultClient(vault as LocalVaultMeta);
+  const client =
+    vaultKind(vault) === 'hosted'
+      ? new HostedVaultClient(vault as HostedVaultMeta)
+      : new LocalVaultClient(vault as LocalVaultMeta);
+  const scope = documentVaultIdentity(vault);
+  const access = vault.kind === 'hosted' ? [vault.role, vault.capabilities] : null;
+  const shared = new Set([
+    'readDocument',
+    'readAssetDataUrl',
+    'readPdfAnnotations',
+    'readViewAnnotations',
+    'resolveLiveSession',
+  ]);
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== 'function') return value;
+      if (!shared.has(String(property))) return value.bind(target);
+      return (...args: unknown[]) =>
+        shareDocumentRead(JSON.stringify([scope, access, property, args]), () =>
+          value.apply(target, args),
+        );
+    },
+  });
 }
 
 export function requireRuntimeCapability<K extends keyof VaultRuntimeCapabilities>(

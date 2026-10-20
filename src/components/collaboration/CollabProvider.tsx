@@ -21,10 +21,15 @@ export function useCollabContext() {
 }
 
 export function CollabProvider({ children }: { children: ReactNode }) {
-  const { vault } = useVaultStore();
-  const { activeTabPath } = useEditorStore();
-  const { isSidebarOpen, sidebarPanel, collabTab } = useUiStore();
-  const { setPeers, setChatMessages, appendChatMessage, chatTypingUntil } = useCollabStore();
+  const vault = useVaultStore((state) => state.vault);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const sidebarPanel = useUiStore((state) => state.sidebarPanel);
+  const collabTab = useUiStore((state) => state.collabTab);
+  const setPeers = useCollabStore((state) => state.setPeers);
+  const setChatMessages = useCollabStore((state) => state.setChatMessages);
+  const appendChatMessage = useCollabStore((state) => state.appendChatMessage);
+  const chatTypingUntil = useCollabStore((state) => state.chatTypingUntil);
   const identity = useCollabIdentity();
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const isChatVisible = isSidebarOpen && sidebarPanel === 'collab' && collabTab === 'chat';

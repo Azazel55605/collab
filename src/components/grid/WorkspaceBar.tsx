@@ -9,14 +9,12 @@ import { Input } from '../ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export default function WorkspaceBar() {
-  const {
-    workspaces,
-    activeWorkspaceId,
-    createWorkspace,
-    deleteWorkspace,
-    renameWorkspace,
-    setActiveWorkspace,
-  } = useGridStore();
+  const workspaces = useGridStore((state) => state.workspaces);
+  const activeWorkspaceId = useGridStore((state) => state.activeWorkspaceId);
+  const createWorkspace = useGridStore((state) => state.createWorkspace);
+  const deleteWorkspace = useGridStore((state) => state.deleteWorkspace);
+  const renameWorkspace = useGridStore((state) => state.renameWorkspace);
+  const setActiveWorkspace = useGridStore((state) => state.setActiveWorkspace);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');

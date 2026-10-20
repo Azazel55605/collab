@@ -26,8 +26,13 @@ import {
 type DropIndicator = { path: string; side: 'left' | 'right' };
 
 export default function TabBar() {
-  const { openTabs, activeTabPath, closeTab, setActiveTab, reorderTabs } = useEditorStore();
-  const { setActiveView } = useUiStore();
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const closeTabs = useEditorStore((state) => state.closeTabs);
+  const closeTab = useEditorStore((state) => state.closeTab);
+  const setActiveTab = useEditorStore((state) => state.setActiveTab);
+  const reorderTabs = useEditorStore((state) => state.reorderTabs);
+  const setActiveView = useUiStore((state) => state.setActiveView);
   const { startTabDrag, draggingTab, subscribePointer, registerDropResolver } = useDragContext();
 
   // Live element refs for each tab, keyed by path, used to hit-test the pointer.
@@ -178,16 +183,18 @@ export default function TabBar() {
               <ContextMenuItem
                 className="text-xs"
                 onSelect={() =>
-                  openTabs
-                    .filter((t) => t.relativePath !== tab.relativePath)
-                    .forEach((t) => closeTab(t.relativePath))
+                  closeTabs(
+                    openTabs
+                      .filter((t) => t.relativePath !== tab.relativePath)
+                      .map((t) => t.relativePath),
+                  )
                 }
               >
                 Close other tabs
               </ContextMenuItem>
               <ContextMenuItem
                 className="text-xs"
-                onSelect={() => openTabs.forEach((t) => closeTab(t.relativePath))}
+                onSelect={() => closeTabs(openTabs.map((t) => t.relativePath))}
               >
                 Close all tabs
               </ContextMenuItem>

@@ -1500,7 +1500,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
       .readDocument(relativePath)
       .then((document) => {
         if (cancelled) return;
-        controller.load(document.content, document.version, 'rest');
+        controller.initialize(document.content, document.version, 'rest');
         setSavedHash(relativePath, document.version);
       })
       .catch((error) => {

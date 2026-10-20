@@ -81,10 +81,15 @@ function TypingIndicator({
 }
 
 export function ChatPanel() {
-  const { vault } = useVaultStore();
-  const { isSidebarOpen, sidebarPanel, collabTab } = useUiStore();
+  const vault = useVaultStore((state) => state.vault);
+  const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const sidebarPanel = useUiStore((state) => state.sidebarPanel);
+  const collabTab = useUiStore((state) => state.collabTab);
   const identity = useCollabIdentity();
-  const { peers, chatMessages, appendChatMessage, setChatTypingUntil } = useCollabStore();
+  const peers = useCollabStore((state) => state.peers);
+  const chatMessages = useCollabStore((state) => state.chatMessages);
+  const appendChatMessage = useCollabStore((state) => state.appendChatMessage);
+  const setChatTypingUntil = useCollabStore((state) => state.setChatTypingUntil);
   const contextTransport = useCollabContext();
   const transport = contextTransport ?? (vault ? createCollabTransport(vault) : null);
   const supportsChat = !!transport && !!vault;

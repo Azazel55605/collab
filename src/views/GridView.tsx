@@ -48,9 +48,11 @@ function DragGhost({ title }: { title: string }) {
 
 // ─── GridView ────────────────────────────────────────────────────────────────
 export default function GridView() {
-  const store = useGridStore();
-  const { animationsEnabled, animationSpeed } = useUiStore();
-  const activeWs = selectActiveWorkspace(store);
+  const activeWs = useGridStore(selectActiveWorkspace);
+  const setLayout = useGridStore((state) => state.setLayout);
+  const swapCells = useGridStore((state) => state.swapCells);
+  const animationsEnabled = useUiStore((state) => state.animationsEnabled);
+  const animationSpeed = useUiStore((state) => state.animationSpeed);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
@@ -76,7 +78,7 @@ export default function GridView() {
     (id: GridLayoutId) => {
       if (id === activeWs.layoutId) return;
       if (!animationsEnabled) {
-        store.setLayout(id);
+        setLayout(id);
         return;
       }
 
@@ -91,7 +93,7 @@ export default function GridView() {
       setPendingLayout(id);
       setFading(true);
     },
-    [activeWs.cells, activeWs.id, activeWs.layoutId, animationsEnabled, containerWidth, store],
+    [activeWs.cells, activeWs.id, activeWs.layoutId, animationsEnabled, containerWidth, setLayout],
   );
 
   useEffect(() => {
@@ -104,14 +106,14 @@ export default function GridView() {
     }
     const t = setTimeout(
       () => {
-        store.setLayout(pendingLayout);
+        setLayout(pendingLayout);
         setPendingLayout(null);
         setFading(false);
       },
       animationsEnabled ? Math.round(getMotionDuration() * 0.45) : 0,
     );
     return () => clearTimeout(t);
-  }, [activeWs.id, animationsEnabled, fading, getMotionDuration, pendingLayout, store]);
+  }, [activeWs.id, animationsEnabled, fading, getMotionDuration, pendingLayout, setLayout]);
 
   useLayoutEffect(() => {
     const animation = layoutAnimationRef.current;
@@ -179,7 +181,10 @@ export default function GridView() {
     const el = containerRef.current;
     if (!el) return;
     let generation = 0;
+    let frame: number | null = null;
+    let pendingWidth = 0;
     const resize = (width: number) => {
+      if (width === resizeInputs.current.containerWidth) return;
       const request = ++generation;
       const { layoutId, containerWidth: previousWidth } = resizeInputs.current;
       const before = GRID_LAYOUTS[resolveLayout(layoutId, previousWidth)].cellCount;
@@ -191,11 +196,19 @@ export default function GridView() {
       if (after < before) void runDocumentNavigation(apply);
       else apply();
     };
-    const ro = new ResizeObserver(([entry]) => resize(Math.floor(entry.contentRect.width)));
+    const ro = new ResizeObserver(([entry]) => {
+      pendingWidth = Math.floor(entry.contentRect.width);
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        resize(pendingWidth);
+      });
+    });
     ro.observe(el);
     resize(Math.floor(el.getBoundingClientRect().width));
     return () => {
       generation++;
+      if (frame !== null) cancelAnimationFrame(frame);
       ro.disconnect();
     };
   }, []);
@@ -217,7 +230,7 @@ export default function GridView() {
     const sourceId = active.id as string;
     const targetId = (over.data.current as { cellId?: string })?.cellId;
     if (targetId && sourceId !== targetId) {
-      store.swapCells(sourceId, targetId);
+      swapCells(sourceId, targetId);
     }
   };
 

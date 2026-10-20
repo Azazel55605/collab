@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 
 import { toast } from 'sonner';
 
+import { flushEditorPersistence } from '../store/editorStore';
+
 import { runDocumentNavigation } from './documentNavigation';
 import { listenSafely } from './nativeSubscription';
 import { tauriCommands } from './tauri';
@@ -17,6 +19,7 @@ export function useDesktopQuitGuard() {
       void (async () => {
         try {
           const allowed = await runDocumentNavigation(() => {});
+          if (allowed && !disposed) flushEditorPersistence();
           await tauriCommands.backgroundCompleteQuit(allowed && !disposed);
         } catch (error) {
           toast.error('Could not finish closing Collab. Your documents remain open.', {

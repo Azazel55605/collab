@@ -160,9 +160,10 @@ export function VersionHistoryModal({
   relativePath,
   onOpenChange,
 }: VersionHistoryModalProps) {
-  const { vault } = useVaultStore();
-  const { myUserId, myUserName } = useCollabStore();
-  const { setForceReloadPath } = useEditorStore();
+  const vault = useVaultStore((state) => state.vault);
+  const myUserId = useCollabStore((state) => state.myUserId);
+  const myUserName = useCollabStore((state) => state.myUserName);
+  const setForceReloadPath = useEditorStore((state) => state.setForceReloadPath);
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
   const [snapshotContent, setSnapshotContent] = useState<string | null>(null);

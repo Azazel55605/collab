@@ -192,7 +192,7 @@ export function useInkSession({
           setDocument(inspection.document);
           return;
         }
-        controller.load(doc.content, doc.version, 'rest');
+        controller.initialize(doc.content, doc.version, 'rest');
       })
       .catch((reason) => {
         if (cancelled) return;

@@ -15,8 +15,9 @@ const EDITOR_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] 
 ];
 
 export default function Sidebar() {
-  const { sidebarPanel, setSidebarPanel } = useUiStore();
-  const { vault } = useVaultStore();
+  const sidebarPanel = useUiStore((state) => state.sidebarPanel);
+  const setSidebarPanel = useUiStore((state) => state.setSidebarPanel);
+  const vault = useVaultStore((state) => state.vault);
 
   // Collab panel is a standalone overlay — skip normal tab logic
   if (sidebarPanel === 'collab') {

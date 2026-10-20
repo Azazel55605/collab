@@ -236,6 +236,7 @@ import type { DeckAlignment, ElementUpdaters } from '../lib/deck/transform';
 import { normalizeRotation, unitsToPx } from '../lib/deck/units';
 import { useDeckSession } from '../lib/deck/useDeckSession';
 import { flattenVaultPaths, takeSheetSnapshot, writeVaultImage } from '../lib/deck/vaultAssets';
+import { useDocumentViewKey } from '../lib/documentPaneContext';
 import type {
   DocumentSessionController,
   DocumentSessionSnapshot,
@@ -500,10 +501,11 @@ function growToFit(
  * the session re-validates each result before it can save.
  */
 export default function DeckView({ relativePath }: DeckViewProps) {
+  const viewKey = useDocumentViewKey(relativePath);
   const vault = useVaultStore((state) => state.vault);
   const markDirty = useEditorStore((state) => state.markDirty);
   const setSavedHash = useEditorStore((state) => state.setSavedHash);
-  const storedViewState = useEditorStore((state) => state.deckViewStates[relativePath]);
+  const storedViewState = useEditorStore((state) => state.deckViewStates[viewKey]);
   const setDeckViewState = useEditorStore((state) => state.setDeckViewState);
 
   const session = useDeckSession({ vault, relativePath, markDirty, markSaved: setSavedHash });
@@ -530,8 +532,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     ...storedViewState,
   }));
   useEffect(() => {
-    setDeckViewState(relativePath, viewState);
-  }, [relativePath, setDeckViewState, viewState]);
+    setDeckViewState(viewKey, viewState);
+  }, [viewKey, setDeckViewState, viewState]);
 
   useEffect(() => {
     if (session.warnings.length === 0) return;

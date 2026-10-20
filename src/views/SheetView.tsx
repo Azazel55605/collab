@@ -72,6 +72,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { utf8ToBase64 } from '../lib/circuitSweepExport';
+import { useDocumentViewKey } from '../lib/documentPaneContext';
 import type {
   DocumentSessionController,
   DocumentSessionSnapshot,
@@ -263,21 +264,24 @@ async function writeSheetSvgExport(
  * every edit here goes through a pure operation in `src/lib/sheet/operations.ts`.
  */
 export default function SheetView({ relativePath }: Props) {
-  const { vault, fileTree, refreshFileTree } = useVaultStore();
-  const { dateFormat, timeFormat, setActiveView } = useUiStore();
-  const {
-    markDirty,
-    markSaved,
-    setSavedHash,
-    sheetViewStates,
-    setSheetViewState,
-    openTabs,
-    activeTabPath,
-    openTab,
-    setForceReloadPath,
-    pendingSheetJump,
-    setPendingSheetJump,
-  } = useEditorStore();
+  const viewKey = useDocumentViewKey(relativePath);
+  const vault = useVaultStore((state) => state.vault);
+  const fileTree = useVaultStore((state) => state.fileTree);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
+  const dateFormat = useUiStore((state) => state.dateFormat);
+  const timeFormat = useUiStore((state) => state.timeFormat);
+  const setActiveView = useUiStore((state) => state.setActiveView);
+  const markDirty = useEditorStore((state) => state.markDirty);
+  const markSaved = useEditorStore((state) => state.markSaved);
+  const setSavedHash = useEditorStore((state) => state.setSavedHash);
+  const sheetViewStates = useEditorStore((state) => state.sheetViewStates);
+  const setSheetViewState = useEditorStore((state) => state.setSheetViewState);
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTab = useEditorStore((state) => state.openTab);
+  const setForceReloadPath = useEditorStore((state) => state.setForceReloadPath);
+  const pendingSheetJump = useEditorStore((state) => state.pendingSheetJump);
+  const setPendingSheetJump = useEditorStore((state) => state.setPendingSheetJump);
   const calendars = useCalendarStore((state) => state.calendars);
   const listCalendarItems = useCalendarStore((state) => state.listCalendarItems);
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
@@ -398,7 +402,7 @@ export default function SheetView({ relativePath }: Props) {
 
   // The persisted state is read once per tab: later writes must not feed back
   // into this component, or persisting would re-trigger itself every render.
-  const initialViewStateRef = useRef(sheetViewStates[relativePath]);
+  const initialViewStateRef = useRef(sheetViewStates[viewKey]);
   const scrollRef = useRef({
     top: initialViewStateRef.current?.scrollTop ?? 0,
     left: initialViewStateRef.current?.scrollLeft ?? 0,
@@ -436,7 +440,7 @@ export default function SheetView({ relativePath }: Props) {
         activeRow: selection.active.row,
         activeColumn: selection.active.column,
       };
-      const current = useEditorStore.getState().sheetViewStates[relativePath];
+      const current = useEditorStore.getState().sheetViewStates[viewKey];
       if (
         current &&
         current.activeWorksheetId === next.activeWorksheetId &&
@@ -447,9 +451,9 @@ export default function SheetView({ relativePath }: Props) {
       ) {
         return;
       }
-      setSheetViewState(relativePath, next);
+      setSheetViewState(viewKey, next);
     },
-    [document?.activeWorksheetId, relativePath, selection.active, setSheetViewState],
+    [document?.activeWorksheetId, viewKey, selection.active, setSheetViewState],
   );
 
   useEffect(() => {
