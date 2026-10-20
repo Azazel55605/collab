@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { FileImage, FileText, Loader2 } from 'lucide-react';
 
 import { getDocumentPreviewDataUrl } from '../../lib/documentPreview';
+import type { FilePreviewType } from '../../lib/filePreviewType';
 import { getPdfPreviewDataUrl } from '../../lib/pdfPreview';
 import { createVaultClient } from '../../lib/vaultClient';
 import { getVaultDocumentTitle } from '../../lib/vaultLinks';
@@ -13,7 +14,8 @@ import { useVaultStore } from '../../store/vaultStore';
 interface FileTreeHoverPreviewPopoverProps {
   anchorRect: DOMRect | null;
   relativePath: string | null;
-  type: 'image' | 'pdf' | 'document' | null;
+  type: FilePreviewType | null;
+  placement?: 'side' | 'below';
   enabled: boolean;
 }
 
@@ -24,6 +26,7 @@ export function FileTreeHoverPreviewPopover({
   relativePath,
   type,
   enabled,
+  placement = 'side',
 }: FileTreeHoverPreviewPopoverProps) {
   const vault = useVaultStore((state) => state.vault);
   const [isVisible, setIsVisible] = useState(false);
@@ -97,17 +100,29 @@ export function FileTreeHoverPreviewPopover({
   )
     return null;
 
-  const width = 320;
+  const width = Math.min(320, window.innerWidth - 24);
   const preferredLeft = anchorRect.right + 12;
   const fallbackLeft = anchorRect.left - width - 12;
   const opensOnRight = preferredLeft + width + 12 <= window.innerWidth;
-  const left = opensOnRight ? preferredLeft : Math.max(12, fallbackLeft);
-  const top = Math.min(Math.max(12, anchorRect.top), Math.max(12, window.innerHeight - 240));
+  const left =
+    placement === 'below'
+      ? Math.min(Math.max(12, anchorRect.left), Math.max(12, window.innerWidth - width - 12))
+      : opensOnRight
+        ? preferredLeft
+        : Math.max(12, fallbackLeft);
+  const preferredTop = placement === 'below' ? anchorRect.bottom + 10 : anchorRect.top;
+  const top = Math.min(Math.max(12, preferredTop), Math.max(12, window.innerHeight - 300));
 
   return createPortal(
-    <div className="pointer-events-none fixed z-[120] w-[320px]" style={{ top, left }}>
+    <div
+      role="tooltip"
+      aria-label="File preview"
+      data-preview-path={relativePath}
+      className="pointer-events-none fixed z-[120]"
+      style={{ top, left, width }}
+    >
       <div
-        className="app-fade-scale-in overflow-hidden rounded-2xl border border-border/60 bg-popover/96 shadow-2xl ring-1 ring-foreground/10 backdrop-blur-sm-webkit"
+        className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-2xl border border-border/60 bg-popover/96 shadow-2xl ring-1 ring-foreground/10 backdrop-blur-sm-webkit"
         style={{
           transformOrigin: opensOnRight ? 'left center' : 'right center',
         }}
@@ -134,7 +149,7 @@ export function FileTreeHoverPreviewPopover({
             <img
               src={previewSrc}
               alt=""
-              className="max-h-52 w-full rounded-lg border border-border/50 object-contain"
+              className="max-h-[min(13rem,calc(100dvh-7rem))] w-full rounded-lg border border-border/50 object-contain"
               draggable={false}
             />
           </div>

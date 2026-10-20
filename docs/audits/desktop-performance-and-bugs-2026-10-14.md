@@ -124,6 +124,11 @@ after the user reported remaining flashes in settings and editor builders. Rende
 reproduction/verification and remaining native confirmation are recorded in the
 [reported regression reconciliation](./reported-regressions-2026-10-14.md#ur15--routine-ui-changes-flash-once).
 
+Follow-ups **UR16–UR18 (2026-10-20)** cover viewport sizing for math/merge
+dialogs, Markdown file-link previews and excess code-block height. These are
+tracked separately in the [reported regressions](./reported-regressions-2026-10-14.md#ur16--math-and-merge-dialogs-exceed-the-viewport)
+and implementation tracker; they do not close the remaining O29–O41 categories.
+
 ## Evidence And Interpretation
 
 - **Reproduced**: a focused probe exercised the current code or, for the Rust

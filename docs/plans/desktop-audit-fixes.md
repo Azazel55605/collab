@@ -1165,6 +1165,41 @@ lint has zero errors and existing hook warnings. Both rendered interaction
 checks use current integrated sources; Chromium records no runtime errors.
 No PostgreSQL integration or installed GPU/compositor certification is claimed.
 
+## Markdown Layout And File Link Previews — UR16–UR18
+
+Requested **2026-10-20**; implementation and repository/rendered checks complete.
+Installed native acceptance remains open.
+
+- [x] UR16: bound math/merge dialog height and width, keep header/footer actions
+      reachable, scroll content and wrap long merge text without changing
+      reconciliation semantics.
+- [x] UR17: share file-tree document/PDF/image previews across Markdown edit and
+      read modes, including wikilinks and encoded filenames. Preserve embedded
+      images and website-fetching controls; reuse the existing cache/queue paths.
+      Keep hover anchors stable and discard obsolete results.
+- [x] UR18: remove source-line-derived code widget minimum heights and preserve
+      blank code lines. Mermaid keeps its separate diagram sizing.
+- [x] Chromium: math/merge bounds, reachable controls and math Apply at
+      **1440×900, 800×600, 390×700 and 640×360**. Merge Escape protection remains.
+      Code blocks grow/shrink through **1/13/60/13/1 lines** at **14/20/28 px**
+      without accumulated space. Reading/editing link hovers use the shared
+      document/PDF/image loaders, including with website fetching off.
+- [x] Offscreen Linux WebKitGTK **2.54.1**: math/merge bounds, body scrolling and
+      reachable footer controls at **1250×850 and 640×360**; naturally sized code
+      blocks; reading/editing file-link hovers with working resize dismissal.
+      Rendered checks use synthetic IPC; WebKit uses software rendering.
+- [x] End-of-batch checks: desktop/scripts **2,433 passed / one intentional skip**
+      (full suite plus affected reruns, with ink timing isolated at its unchanged
+      budget); admin **81 passed**; Android frontend **258 passed**; Rust workspace
+      **712 passed / one ignored benchmark**, workspace check. All frontend
+      types/builds, asset budgets, formatting, changed-source lint (zero errors,
+      existing warnings) and crate/version guards pass. No live PostgreSQL
+      integration run.
+- [ ] Installed native testing: math/merge at small window sizes and display
+      scaling; long code blocks with user fonts/zoom; local/hosted/offline file
+      link hovers. Existing O40 image thumbnail/O41 native cancellation work stays
+      open.
+
 ## Verification Boundary
 
 Finish the batch before running the repository suites and regression checks.

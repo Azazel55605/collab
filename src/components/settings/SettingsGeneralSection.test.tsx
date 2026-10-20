@@ -79,7 +79,8 @@ describe('SettingsGeneralSection', () => {
     expect(setFileTreeHoverPreviewsEnabled).toHaveBeenCalledWith(true);
   });
 
-  it('visually marks dependent web preview rows as disabled', () => {
+  it('keeps file link hovers usable without web fetching while disabling web prefetch', () => {
+    const setHoverWebLinkPreviewsEnabled = vi.fn();
     render(
       <SettingsGeneralSection
         restorePreviousSession={true}
@@ -87,7 +88,7 @@ describe('SettingsGeneralSection', () => {
         webPreviewsEnabled={false}
         setWebPreviewsEnabled={vi.fn()}
         hoverWebLinkPreviewsEnabled={false}
-        setHoverWebLinkPreviewsEnabled={vi.fn()}
+        setHoverWebLinkPreviewsEnabled={setHoverWebLinkPreviewsEnabled}
         backgroundWebPreviewPrefetchEnabled={false}
         setBackgroundWebPreviewPrefetchEnabled={vi.fn()}
         fileTreeHoverPreviewsEnabled={false}
@@ -101,7 +102,9 @@ describe('SettingsGeneralSection', () => {
 
     expect(
       screen.getByText('Hover previews for links').closest('[aria-disabled="true"]'),
-    ).not.toBeNull();
+    ).toBeNull();
+    fireEvent.click(getSwitchForLabel('Hover previews for links'));
+    expect(setHoverWebLinkPreviewsEnabled).toHaveBeenCalledWith(true);
     expect(
       screen.getByText('Background prefetch for open documents').closest('[aria-disabled="true"]'),
     ).not.toBeNull();

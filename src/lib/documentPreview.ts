@@ -4,12 +4,9 @@ import { documentPreviewQueue } from './previewQueue';
 import { tauriCommands } from './tauri';
 import { HostedVaultClient, LocalVaultClient, type VaultClient } from './vaultClient';
 
-const INTERNAL_EXTENSIONS = new Set(['md', 'sheet', 'deck', 'ink', 'canvas', 'kanban', 'logic']);
 const inFlight = new Map<string, Promise<string>>();
 
-export function supportsDocumentPreview(path: string) {
-  return INTERNAL_EXTENSIONS.has(path.split('.').pop()?.toLowerCase() ?? '');
-}
+export { supportsDocumentPreview } from './filePreviewType';
 
 /** Share a single load across simultaneous hovers/canvas cards. Completed
  * results live in the version-aware native/server cache, not an unbounded map. */

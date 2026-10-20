@@ -333,6 +333,48 @@ per opening (both dialog and overlay), with working close buttons. These checks
 use synthetic IPC/software rendering; installed native compositor confirmation
 remains open.
 
+### UR16 — Math And Merge Dialogs Exceed The Viewport
+
+Reported **2026-10-20**. **Implemented; needs installed native acceptance.**
+Math builder content had no viewport height bound and used percentage-height layouts inside
+intrinsically sized grids. The merge review dialog also lacked a height bound,
+and its unprefixed width override lost to the shared dialog's small-screen
+breakpoint width. Both now have bounded height/width, scrollable content and
+fixed header/footer actions. Long merge text wraps within its pane. Escape and
+outside-click protection for unresolved merges are preserved. Installed native
+window/scaling acceptance remains open.
+
+### UR17 — File Link Hover Previews
+
+Requested **2026-10-20**. **Implemented; needs installed native acceptance.**
+Markdown edit and reading views now preview known vault links and wikilinks using the file-tree
+preview renderer and existing queues/caches: notes, sheets, decks, ink, canvas,
+kanban, logic, PDFs and image links. Embedded images are unchanged. The existing
+“Hover previews for links” preference covers these and web links; disabling
+website fetching does not disable vault previews. Missing/unsupported files and
+external/local filesystem URLs do not trigger vault reads. File reads start
+after a short hover, stable mouse movement does not restart the delay, and stale
+responses are discarded. Native cancellation of already-started work remains O41.
+
+### UR18 — Code Blocks Accumulate Empty Vertical Space
+
+Reported **2026-10-20**, including the attached desktop screenshot.
+**Implemented; needs installed native acceptance.** Code widgets reserved a
+minimum height from every source line (including fences) at 1.7 em, while rendered code used smaller text/line
+metrics. That accumulated blank space as blocks grew. Widgets now size from
+rendered content, including theme/font changes, and preserve leading/trailing
+blank code lines when switching between source and preview. Mermaid retains its
+separate diagram minimum. Installed native font/zoom acceptance remains open.
+
+UR16–UR18 validation: Chromium checks modal bounds/actions at **1440×900,
+800×600, 390×700 and 640×360**, naturally sized code growing/shrinking through
+**1/13/60/13/1 lines** at **14/20/28 px**, and shared file-link previews in both
+Markdown modes. Offscreen Linux WebKitGTK **2.54.1** repeats bounds/scroll/control
+checks at **1250×850 and 640×360**, code sizing, and reading/editing file hovers.
+These use synthetic IPC (WebKit software rendering), not physical/native
+compositor or hosted/offline acceptance. Repository suites and implementation
+evidence are recorded in the [tracker](../plans/desktop-audit-fixes.md#markdown-layout-and-file-link-previews--ur16ur18).
+
 ## Follow-Up Order And Validation Boundary
 
 Start with UR13/UR02/UR03 and existing data-loss findings, then UR07 targeting,

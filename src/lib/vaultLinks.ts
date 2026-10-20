@@ -153,21 +153,32 @@ export function resolveVaultRelativeLinkTarget(
   const trimmed = rawLink.trim();
   if (!trimmed || isAbsoluteOrExternalLink(trimmed)) return null;
 
-  const filePath = stripLinkSuffix(trimmed);
+  const rawFilePath = stripLinkSuffix(trimmed);
+  let filePath = rawFilePath;
+  try {
+    filePath = decodeURIComponent(rawFilePath);
+  } catch {
+    // Existing links may contain literal percent signs rather than URI escapes.
+  }
   const noteDir = currentDocumentRelativePath.includes('/')
     ? currentDocumentRelativePath.split('/').slice(0, -1).join('/')
     : '';
-  const relativeToVault = filePath.startsWith('/')
-    ? normalizeRelativePath(filePath)
-    : normalizeRelativePath(noteDir ? `${noteDir}/${filePath}` : filePath);
+  const candidates = [...new Set([filePath, rawFilePath])].map((path) =>
+    path.startsWith('/')
+      ? normalizeRelativePath(path)
+      : normalizeRelativePath(noteDir ? `${noteDir}/${path}` : path),
+  );
 
   const flatFiles = flattenVaultFiles(fileTree);
-  const exactMatch = flatFiles.find(
-    (file) => file.relativePath.toLowerCase() === relativeToVault.toLowerCase(),
-  );
-  if (exactMatch) return buildVaultLinkTarget(exactMatch);
+  for (const relativeToVault of candidates) {
+    const exactMatch = flatFiles.find(
+      (file) => file.relativePath.toLowerCase() === relativeToVault.toLowerCase(),
+    );
+    if (exactMatch) return buildVaultLinkTarget(exactMatch);
+  }
 
-  if (!relativeToVault.includes('/')) {
+  for (const relativeToVault of candidates) {
+    if (relativeToVault.includes('/')) continue;
     const basenameMatches = flatFiles.filter(
       (file) => file.name.toLowerCase() === relativeToVault.toLowerCase(),
     );

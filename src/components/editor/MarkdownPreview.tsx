@@ -1,12 +1,4 @@
-import {
-  Component,
-  type ErrorInfo,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef } from 'react';
 
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -46,7 +38,8 @@ import { extractHttpUrls, prefetchWebPreviews } from '../../lib/webPreviewCache'
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
+import { MarkdownLinkPreviews } from '../previews/MarkdownLinkPreviews';
+import { useMarkdownLinkPreviews } from '../previews/useMarkdownLinkPreviews';
 
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
@@ -285,10 +278,6 @@ interface MarkdownPreviewProps {
   onReady?: () => void;
 }
 
-function isPreviewableHttpUrl(value: string | null | undefined) {
-  return !!value && /^https?:\/\//i.test(value);
-}
-
 function waitForImageLoad(image: HTMLImageElement): Promise<void> {
   if (image.complete && image.naturalWidth > 0) return Promise.resolve();
   if (typeof image.decode === 'function') {
@@ -367,8 +356,7 @@ function PreviewInner({
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const fileTree = useVaultStore((state) => state.fileTree);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [hoveredUrl, setHoveredUrl] = useState<string | null>(null);
-  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const linkPreviews = useMarkdownLinkPreviews(currentDocumentRelativePath);
   const renderedPreview = useMemo(() => {
     try {
       const body = stripFrontmatter(content);
@@ -522,41 +510,13 @@ function PreviewInner({
     if (el?.dataset.path) onWikilinkClick(el.dataset.path);
   }
 
-  function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled) {
-      if (hoveredUrl) {
-        setHoveredUrl(null);
-        setHoverRect(null);
-      }
-      return;
-    }
-    const anchor = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
-    const href = anchor?.getAttribute('href');
-    if (anchor && isPreviewableHttpUrl(href)) {
-      const nextUrl = href ?? null;
-      const nextRect = anchor.getBoundingClientRect();
-      if (nextUrl !== hoveredUrl) setHoveredUrl(nextUrl);
-      setHoverRect(nextRect);
-      return;
-    }
-    if (hoveredUrl) {
-      setHoveredUrl(null);
-      setHoverRect(null);
-    }
-  }
-
-  function handleMouseLeave() {
-    setHoveredUrl(null);
-    setHoverRect(null);
-  }
-
   return (
     <>
       <div
         ref={rootRef}
         onClick={handleClick}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
+        onMouseMove={linkPreviews.move}
+        onMouseLeave={linkPreviews.clear}
       >
         <div
           className={`markdown-preview ${className}`}
@@ -572,11 +532,7 @@ function PreviewInner({
           </div>
         )}
       </div>
-      <WebLinkPreviewPopover
-        anchorRect={hoverRect}
-        url={hoveredUrl}
-        enabled={webPreviewsEnabled && hoverWebLinkPreviewsEnabled}
-      />
+      <MarkdownLinkPreviews preview={linkPreviews.preview} />
     </>
   );
 }

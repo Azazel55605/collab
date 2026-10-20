@@ -280,17 +280,12 @@ class CodeBlockWidget extends WidgetType {
   constructor(
     readonly code: string,
     readonly language: string,
-    readonly sourceLineCount: number,
   ) {
     super();
   }
 
   eq(o: CodeBlockWidget) {
-    return (
-      o.code === this.code &&
-      o.language === this.language &&
-      o.sourceLineCount === this.sourceLineCount
-    );
+    return o.code === this.code && o.language === this.language;
   }
 
   private renderHighlightedContent() {
@@ -351,7 +346,6 @@ class CodeBlockWidget extends WidgetType {
   toDOM(view?: EditorView) {
     const wrap = document.createElement('div');
     wrap.className = 'cm-lp-code-block-wrap';
-    wrap.style.minHeight = `${this.sourceLineCount * 1.7}em`;
 
     if (this.language) {
       const label = document.createElement('div');
@@ -1092,7 +1086,7 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
             from: fenceFrom,
             to,
             deco: Decoration.replace({
-              widget: new CodeBlockWidget(fenceSrc, fenceLang, fenceLineCount + 1),
+              widget: new CodeBlockWidget(fenceSrc, fenceLang),
               block: true,
             }),
             excl: true,
@@ -1109,7 +1103,7 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
     }
     if (inFence) {
       if (here) fenceHit = true;
-      fenceSrc += (fenceSrc ? '\n' : '') + text;
+      fenceSrc += (fenceLineCount > 1 ? '\n' : '') + text;
       fenceLineCount += 1;
       flushTable();
       continue;
