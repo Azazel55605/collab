@@ -7,6 +7,8 @@ pub mod crypto;
 pub mod files;
 pub mod index;
 pub mod live_ws;
+pub mod media;
+pub mod media_jobs;
 pub mod mobile;
 pub mod notifications;
 pub mod ocr;

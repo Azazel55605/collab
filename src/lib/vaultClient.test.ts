@@ -39,6 +39,7 @@ vi.mock('./tauri', () => ({
     deleteSnapshot: vi.fn(),
     clearSnapshotHistory: vi.fn(),
     readNoteAssetDataUrl: vi.fn(),
+    readVaultAssetBytes: vi.fn(),
     readPdfSidecarState: vi.fn(),
     writePdfSidecarState: vi.fn(),
     readImageOverlay: vi.fn(),
@@ -1296,6 +1297,55 @@ describe('HostedVaultClient', () => {
       'hosted-vault',
       'file-1',
     );
+  });
+
+  it('uses the native binary bridge for hosted assets and never falls back on permission failure', async () => {
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.replicaCachedContentStatus).mockResolvedValue({
+      present: false,
+      matchesExpectedHash: false,
+      actualSha256: null,
+      sizeBytes: 0,
+    });
+    vi.mocked(tauriCommands.readVaultAssetBytes).mockRejectedValue(new Error('403 Forbidden'));
+    const client = new HostedVaultClient(hostedVault);
+    await expect(client.readAssetBytes('doc.pdf')).rejects.toThrow('403');
+    expect(tauriCommands.readVaultAssetBytes).toHaveBeenCalledTimes(2);
+    expect(tauriCommands.readVaultAssetBytes).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: 'hosted', fileId: 'pdf-1', cached: false }),
+      false,
+      undefined,
+    );
+    expect(tauriCommands.hostedVaultAssetDataUrl).not.toHaveBeenCalled();
+  });
+
+  it('uses the binary replica only on connectivity failure and propagates cancellation', async () => {
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue(mockHostedManifest());
+    vi.mocked(tauriCommands.replicaCachedContentStatus).mockResolvedValue({
+      present: false,
+      matchesExpectedHash: false,
+      actualSha256: null,
+      sizeBytes: 0,
+    });
+    const data = new Uint8Array([1, 2, 3]);
+    vi.mocked(tauriCommands.readVaultAssetBytes)
+      .mockRejectedValueOnce(new Error('Asset is not available offline'))
+      .mockRejectedValueOnce(new Error('NetworkError when attempting to fetch resource.'))
+      .mockResolvedValueOnce(data);
+    const client = new HostedVaultClient(hostedVault);
+    await expect(client.readAssetBytes('doc.pdf')).resolves.toEqual(data);
+    expect(tauriCommands.readVaultAssetBytes).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cached: true, expectedHash: null }),
+      false,
+      undefined,
+    );
+    vi.mocked(tauriCommands.readVaultAssetBytes)
+      .mockClear()
+      .mockRejectedValue(new DOMException('Cancelled', 'AbortError'));
+    const request = new AbortController();
+    request.abort();
+    await expect(client.readAssetBytes('doc.pdf', request.signal)).rejects.toThrow('Cancelled');
+    expect(tauriCommands.readVaultAssetBytes).toHaveBeenCalledTimes(1);
   });
 
   it('serves cached asset bytes when the asset fetch fails offline', async () => {

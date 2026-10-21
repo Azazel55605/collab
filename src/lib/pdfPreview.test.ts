@@ -114,17 +114,23 @@ describe('PDF renderer resource lifecycle', () => {
   });
   it('destroys a failed loading task and permits another render attempt', async () => {
     const destroy = vi.fn(async () => {});
-    vi.mocked(getDocument).mockReturnValue({
-      promise: Promise.reject(new Error('bad PDF')),
-      destroy,
-    } as never);
+    vi.mocked(getDocument).mockImplementation(
+      () =>
+        ({
+          promise: Promise.reject(new Error('bad PDF')),
+          destroy,
+        }) as never,
+    );
     const source = 'data:application/pdf;base64,cmV0cnk=';
     await expect(renderPdfPreviewFromDataUrl(source)).rejects.toThrow('bad PDF');
     expect(destroy).toHaveBeenCalledTimes(1);
-    vi.mocked(getDocument).mockReturnValue({
-      promise: Promise.reject(new Error('second attempt')),
-      destroy,
-    } as never);
+    vi.mocked(getDocument).mockImplementation(
+      () =>
+        ({
+          promise: Promise.reject(new Error('second attempt')),
+          destroy,
+        }) as never,
+    );
     await expect(renderPdfPreviewFromDataUrl(source)).rejects.toThrow('second attempt');
     expect(destroy).toHaveBeenCalledTimes(2);
   });

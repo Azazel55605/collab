@@ -1,140 +1,148 @@
-import { useServerStore } from '../store/serverStore';
-
-import { pdfPreviewQueue } from './previewQueue';
+import { dataUrlBytes, readAssetBytes } from './assetBytes';
+import { mediaGeneration, registerMediaCleanup } from './mediaLifecycle';
+import { previewIdentity } from './previewIdentity';
+import { type PreviewPriority, previewScheduler } from './previewScheduler';
 import { tauriCommands } from './tauri';
-import { HostedVaultClient, LocalVaultClient, type VaultClient } from './vaultClient';
+import { LocalVaultClient, type VaultClient } from './vaultClient';
 
-// Resolved source PDFs must not stay alive indefinitely in the webview.
-const previewCache = new Map<string, Promise<string>>();
-const MAX_CACHED_PDF_BYTES = 16 * 1024 * 1024;
-let cachedPdfBytes = 0;
-
-function forgetPreview(key: string) {
-  if (previewCache.delete(key)) cachedPdfBytes -= key.length * 2;
+const outputs = new Map<string, { url: string; bytes: number }>();
+let outputBytes = 0;
+const OUTPUT_BUDGET = 16 * 1024 * 1024;
+function clearOutputs() {
+  outputs.clear();
+  outputBytes = 0;
 }
-const inFlightVaultPreviewLoads = new Map<string, Promise<string>>();
-
-export async function renderPdfPreviewFromDataUrl(dataUrl: string) {
-  const key = dataUrl;
-  const cached = previewCache.get(key);
-  if (cached) return cached;
-
-  const promise = (async () => {
-    const [, encoded = ''] = dataUrl.split(',', 2);
-    const binary = atob(encoded);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-
-    const { getDocument } = await import('./pdfRuntime');
-    const loadingTask = getDocument({ data: bytes });
-    try {
-      const pdfDocument = await loadingTask.promise;
-      const page = await pdfDocument.getPage(1);
-      const baseViewport = page.getViewport({ scale: 1 });
-      const scale = Math.min(
-        1.4,
-        260 / Math.max(1, baseViewport.width),
-        320 / Math.max(1, baseViewport.height),
-      );
-      const viewport = page.getViewport({ scale });
-      const canvas = window.document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('Failed to get PDF preview canvas context');
-
-      canvas.width = Math.max(1, Math.ceil(viewport.width));
-      canvas.height = Math.max(1, Math.ceil(viewport.height));
-      await page.render({
-        canvas,
-        canvasContext: context,
-        viewport,
-      }).promise;
-
-      return canvas.toDataURL('image/png');
-    } finally {
-      await loadingTask.destroy();
-    }
-  })();
-
-  while (
-    (cachedPdfBytes + key.length * 2 > MAX_CACHED_PDF_BYTES || previewCache.size >= 32) &&
-    previewCache.size > 0
-  ) {
-    forgetPreview(previewCache.keys().next().value!);
+registerMediaCleanup(clearOutputs);
+async function digest(bytes: Uint8Array) {
+  const hash = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+export async function renderPdfPreviewFromBytes(
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+  scope = '',
+  hash?: string,
+): Promise<string> {
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  const epoch = mediaGeneration();
+  const key = `${scope}:${hash ?? (await digest(bytes))}`;
+  const cached = outputs.get(key);
+  if (cached) {
+    outputs.delete(key);
+    outputs.set(key, cached);
+    return cached.url;
   }
-  if (key.length * 2 <= MAX_CACHED_PDF_BYTES) {
-    previewCache.set(key, promise);
-    cachedPdfBytes += key.length * 2;
-    void promise.catch(() => {
-      if (previewCache.get(key) === promise) forgetPreview(key);
+  const { getDocument } = await import('./pdfRuntime');
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  const task = getDocument({ data: bytes });
+  let render: { cancel?(): void } | undefined;
+  let canvas: HTMLCanvasElement | undefined;
+  let destroyed = false;
+  const destroy = async () => {
+    if (!destroyed) {
+      destroyed = true;
+      await task.destroy();
+    }
+  };
+  const cancel = () => {
+    render?.cancel?.();
+    void destroy().catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    const pdf = await task.promise;
+    const page = await pdf.getPage(1);
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({
+      scale: Math.min(1.4, 260 / Math.max(1, base.width), 320 / Math.max(1, base.height)),
     });
+    canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Failed to get PDF preview canvas context');
+    const rendering = page.render({ canvas, canvasContext: context, viewport });
+    render = rendering;
+    await rendering.promise;
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const url = canvas.toDataURL('image/png');
+    const size = url.length * 2 + canvas.width * canvas.height * 4;
+    if (epoch === mediaGeneration() && size <= OUTPUT_BUDGET) {
+      while (outputs.size >= 32 || outputBytes + size > OUTPUT_BUDGET) {
+        const first = outputs.keys().next().value!;
+        outputBytes -= outputs.get(first)!.bytes;
+        outputs.delete(first);
+      }
+      outputs.set(key, { url, bytes: size });
+      outputBytes += size;
+    }
+    return url;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    await destroy();
   }
-  return promise;
 }
-
+/** Compatibility entry point; normal vault consumers use binary transport. */
+export function renderPdfPreviewFromDataUrl(dataUrl: string) {
+  return renderPdfPreviewFromBytes(dataUrlBytes(dataUrl));
+}
 type PdfPreviewLoaderDeps = {
   readCachedDocumentPreviewDataUrl: typeof tauriCommands.readCachedDocumentPreviewDataUrl;
   writeCachedDocumentPreviewDataUrl: typeof tauriCommands.writeCachedDocumentPreviewDataUrl;
   renderPdfPreviewFromDataUrl: typeof renderPdfPreviewFromDataUrl;
+  renderPdfPreviewFromBytes?: typeof renderPdfPreviewFromBytes;
 };
-
 export async function loadPdfPreviewDataUrl(
   client: VaultClient,
-  relativePath: string,
+  path: string,
   deps: PdfPreviewLoaderDeps = {
     readCachedDocumentPreviewDataUrl: tauriCommands.readCachedDocumentPreviewDataUrl,
     writeCachedDocumentPreviewDataUrl: tauriCommands.writeCachedDocumentPreviewDataUrl,
     renderPdfPreviewFromDataUrl,
+    renderPdfPreviewFromBytes,
   },
+  signal?: AbortSignal,
 ) {
-  // The persistent document-preview cache is a native-filesystem feature;
-  // hosted vaults render previews on demand from the authenticated asset.
-  const cacheVaultPath = client instanceof LocalVaultClient ? client.vault.path : null;
-  if (cacheVaultPath) {
-    const cached = await deps.readCachedDocumentPreviewDataUrl(cacheVaultPath, relativePath);
+  const local = client instanceof LocalVaultClient ? client.vault.path : null;
+  if (local) {
+    const cached = await deps.readCachedDocumentPreviewDataUrl(local, path);
     if (cached) return cached;
   }
-
-  const sourceDataUrl = await client.readAssetDataUrl(relativePath);
-  let expectedHash: string | undefined;
-  if (cacheVaultPath) {
-    const binary = atob(sourceDataUrl.split(',', 2)[1]);
-    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
-    expectedHash = Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, '0'),
-    ).join('');
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  let preview: string;
+  let hash: string | undefined;
+  if (deps.renderPdfPreviewFromBytes) {
+    const bytes = await readAssetBytes(client, path, signal);
+    hash = await digest(bytes);
+    preview = await deps.renderPdfPreviewFromBytes(
+      bytes,
+      signal,
+      previewIdentity(client, path, 'pdf'),
+      hash,
+    );
+  } else {
+    const source = await client.readAssetDataUrl(path);
+    hash = local ? await digest(dataUrlBytes(source)) : undefined;
+    preview = await deps.renderPdfPreviewFromDataUrl(source);
   }
-  const renderedPreview = await deps.renderPdfPreviewFromDataUrl(sourceDataUrl);
-  if (cacheVaultPath) {
-    void deps
-      .writeCachedDocumentPreviewDataUrl(
-        cacheVaultPath,
-        relativePath,
-        renderedPreview,
-        expectedHash,
-      )
-      .catch(() => {});
-  }
-  return renderedPreview;
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  if (local)
+    await deps.writeCachedDocumentPreviewDataUrl(local, path, preview, hash).catch(() => {});
+  return preview;
 }
-
-export async function getPdfPreviewDataUrl(client: VaultClient, relativePath: string) {
-  const scope =
-    client instanceof HostedVaultClient
-      ? `${client.vault.serverUrl}:${useServerStore.getState().statusFor(client.vault.serverUrl)?.user?.id ?? 'unknown'}:${client.vault.hostedVaultId}`
-      : client.id;
-  const key = `${scope}::${relativePath}`;
-  const existing = inFlightVaultPreviewLoads.get(key);
-  if (existing) return existing;
-
-  const promise = pdfPreviewQueue
-    .run(() => loadPdfPreviewDataUrl(client, relativePath))
-    .finally(() => {
-      inFlightVaultPreviewLoads.delete(key);
-    });
-
-  inFlightVaultPreviewLoads.set(key, promise);
-  return promise;
+export function getPdfPreviewDataUrl(
+  client: VaultClient,
+  path: string,
+  options: { signal?: AbortSignal; priority?: PreviewPriority } = {},
+) {
+  return previewScheduler.run(
+    previewIdentity(client, path, 'pdf:260x320:v3'),
+    (signal) => loadPdfPreviewDataUrl(client, path, undefined, signal),
+    options,
+  );
 }

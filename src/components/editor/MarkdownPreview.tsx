@@ -414,7 +414,7 @@ function PreviewInner({
       return;
     const urls = extractHttpUrls(content);
     if (urls.length === 0) return;
-    prefetchWebPreviews(urls);
+    return prefetchWebPreviews(urls);
   }, [
     backgroundWebPreviewPrefetchEnabled,
     content,

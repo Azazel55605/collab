@@ -325,28 +325,39 @@ pub async fn hosted_vault_request(
     path: String,
     body: Option<Value>,
     expected_user_id: Option<String>,
+    request_id: Option<String>,
 ) -> Result<Value, String> {
-    let session = fresh_session_for(
-        state.hosted_sessions(),
-        &server_url,
-        "Connect to the Collab server before opening hosted vaults.",
-    )
-    .await?;
-    if expected_user_id
-        .as_ref()
-        .is_some_and(|id| id != &session.user.id)
-    {
-        return Err("The connected chat account changed. Reopen chat.".into());
+    let job = request_id
+        .map(super::media_jobs::MediaJob::start)
+        .transpose()?;
+    let work = async {
+        let session = fresh_session_for(
+            state.hosted_sessions(),
+            &server_url,
+            "Connect to the Collab server before opening hosted vaults.",
+        )
+        .await?;
+        if expected_user_id
+            .as_ref()
+            .is_some_and(|id| id != &session.user.id)
+        {
+            return Err("The connected chat account changed. Reopen chat.".into());
+        }
+        let method = hosted_request_method(&method)?;
+        let path = validate_hosted_vault_path(&path)?;
+        let mut request = server_client(session.allow_invalid_certificates)?
+            .request(method, format!("{}{}", session.server_url, path))
+            .bearer_auth(&session.access_token);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        decode_hosted_json_response(request.send().await.map_err(server_request_error)?).await
+    };
+    if let Some(job) = job {
+        job.wait(work).await?
+    } else {
+        work.await
     }
-    let method = hosted_request_method(&method)?;
-    let path = validate_hosted_vault_path(&path)?;
-    let mut request = server_client(session.allow_invalid_certificates)?
-        .request(method, format!("{}{}", session.server_url, path))
-        .bearer_auth(&session.access_token);
-    if let Some(body) = body {
-        request = request.json(&body);
-    }
-    decode_hosted_json_response(request.send().await.map_err(server_request_error)?).await
 }
 
 #[tauri::command]

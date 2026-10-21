@@ -55,6 +55,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
+import { readAssetBytes } from '../lib/assetBytes';
 import {
   compareDocumentVersions,
   type RemoteCandidate,
@@ -62,6 +63,7 @@ import {
 } from '../lib/documentSessionController';
 import { defaultToolState } from '../lib/ink/tools';
 import type { InkToolState } from '../lib/ink/tools';
+import { mediaGeneration, registerMediaCleanup } from '../lib/mediaLifecycle';
 import { listenSafely } from '../lib/nativeSubscription';
 import { readOcrCache, scopeOcrCache, writeOcrCache } from '../lib/ocrCache';
 import {
@@ -71,6 +73,7 @@ import {
 } from '../lib/pdfAnnotatedExport';
 import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
 import { createPdfInkDocument, migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
+import { releasePdfCanvas, reservePdfCanvas } from '../lib/pdfCanvasBudget';
 import { acquirePdfDocument } from '../lib/pdfResourceCache';
 import { PixelsPerInch, RenderingCancelledException, TextLayer } from '../lib/pdfRuntime';
 import type { PDFDocumentProxy, RenderTask } from '../lib/pdfRuntime';
@@ -123,7 +126,7 @@ const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.1;
 const WORKSPACE_PADDING = 40;
 const PAGE_GAP = 20;
-const OCR_MAX_CANVAS_PIXELS = 24_000_000;
+const OCR_MAX_CANVAS_PIXELS = 12_000_000;
 
 type PdfTextContentItem = {
   str?: string;
@@ -151,6 +154,7 @@ async function renderPdfPageForOcr(
   pageNumber: number,
   scale: number,
   rotation: number,
+  signal?: AbortSignal,
 ): Promise<HTMLCanvasElement> {
   const page = await documentProxy.getPage(pageNumber);
   const requestedViewport = page.getViewport({ scale, rotation });
@@ -165,8 +169,16 @@ async function renderPdfPageForOcr(
   canvas.height = Math.max(1, Math.ceil(viewport.height));
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Failed to prepare PDF page for OCR');
-  await page.render({ canvas, canvasContext: context, viewport }).promise;
-  return canvas;
+  const task = page.render({ canvas, canvasContext: context, viewport });
+  const cancel = () => task.cancel();
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    await task.promise;
+    return canvas;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
 }
 
 function cropRenderedPdfRegion(
@@ -292,6 +304,17 @@ const EMPTY_PDF_STATE: PdfSidecarState = {
 
 const pdfPageRenderCache = new Map<string, PdfPageRenderCacheEntry>();
 const MAX_PDF_PAGE_RENDER_CACHE_ENTRIES = 12;
+const PAGE_CACHE_BYTES = 64 * 1024 * 1024;
+const pageCacheCosts = new Map<string, number>();
+function evictPdfPage(key: string) {
+  const value = pdfPageRenderCache.get(key);
+  if (value) URL.revokeObjectURL(value.imageUrl);
+  pdfPageRenderCache.delete(key);
+  pageCacheCosts.delete(key);
+}
+registerMediaCleanup(() => {
+  for (const key of pdfPageRenderCache.keys()) evictPdfPage(key);
+});
 
 function touchCachedPdfPage(key: string, entry: PdfPageRenderCacheEntry) {
   pdfPageRenderCache.delete(key);
@@ -304,20 +327,23 @@ function cacheRenderedPdfPage(
   entry: Omit<PdfPageRenderCacheEntry, 'imageUrl'>,
 ) {
   if (typeof canvas.toBlob !== 'function') return;
+  const generation = mediaGeneration();
+  const decodedBytes = canvas.width * canvas.height * 4 + entry.textLayerHtml.length * 2;
   canvas.toBlob((blob) => {
-    if (!blob) return;
+    if (!blob || generation !== mediaGeneration() || decodedBytes + blob.size > PAGE_CACHE_BYTES)
+      return;
     const imageUrl = URL.createObjectURL(blob);
-    const previous = pdfPageRenderCache.get(key);
-    if (previous) URL.revokeObjectURL(previous.imageUrl);
-    pdfPageRenderCache.delete(key);
+    evictPdfPage(key);
+    pageCacheCosts.set(key, decodedBytes + blob.size);
     pdfPageRenderCache.set(key, { ...entry, imageUrl });
 
-    while (pdfPageRenderCache.size > MAX_PDF_PAGE_RENDER_CACHE_ENTRIES) {
+    while (
+      pdfPageRenderCache.size > MAX_PDF_PAGE_RENDER_CACHE_ENTRIES ||
+      [...pageCacheCosts.values()].reduce((sum, cost) => sum + cost, 0) > PAGE_CACHE_BYTES
+    ) {
       const oldestKey = pdfPageRenderCache.keys().next().value;
       if (typeof oldestKey !== 'string') break;
-      const oldest = pdfPageRenderCache.get(oldestKey);
-      if (oldest) URL.revokeObjectURL(oldest.imageUrl);
-      pdfPageRenderCache.delete(oldestKey);
+      evictPdfPage(oldestKey);
     }
   }, 'image/png');
 }
@@ -374,16 +400,6 @@ type PendingSendAction =
 
 function clampZoom(value: number) {
   return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
-}
-
-function dataUrlToUint8Array(dataUrl: string) {
-  const [, encoded = ''] = dataUrl.split(',', 2);
-  const binary = atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 }
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -520,6 +536,7 @@ function PdfPageCanvas({
   const [rendering, setRendering] = useState(true);
   const [hasRendered, setHasRendered] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [isNearViewport, setIsNearViewport] = useState(eager);
   const placeholderWidth = estimatedSize
     ? Math.max(120, scale * estimatedSize.width * PDF_CSS_SCALE)
@@ -536,7 +553,11 @@ function PdfPageCanvas({
 
   useEffect(() => {
     registerSurface(pageNumber, containerRef.current, canvasRef.current);
-    return () => registerSurface(pageNumber, null, null);
+    const canvas = canvasRef.current;
+    return () => {
+      registerSurface(pageNumber, null, null);
+      if (canvas) releasePdfCanvas(canvas);
+    };
   }, [pageNumber, registerSurface]);
 
   useEffect(() => {
@@ -546,15 +567,12 @@ function PdfPageCanvas({
     }
 
     const element = containerRef.current;
-    if (!element || !observerRoot || hasRenderedRef.current) return;
+    if (!element || !observerRoot) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry?.isIntersecting) {
-          setIsNearViewport(true);
-          observer.disconnect();
-        }
+        setIsNearViewport(entry?.isIntersecting ?? false);
       },
       {
         root: observerRoot,
@@ -567,10 +585,11 @@ function PdfPageCanvas({
     return () => observer.disconnect();
   }, [eager, observerRoot]);
 
-  const shouldRender = eager || isNearViewport || hasRendered;
+  const shouldRender = eager || isNearViewport;
 
   useEffect(() => {
     let cancelled = false;
+    const queuedRender = new AbortController();
     if (renderTaskRef.current) {
       void renderTaskRef.current.promise.catch(() => {});
       renderTaskRef.current.cancel();
@@ -580,7 +599,11 @@ function PdfPageCanvas({
     textLayerTaskRef.current = null;
 
     if (!canvasRef.current || !textLayerRef.current) return;
-    if (!shouldRender && !hasRenderedRef.current) {
+    if (!shouldRender) {
+      releasePdfCanvas(canvasRef.current);
+      textLayerRef.current.replaceChildren();
+      hasRenderedRef.current = false;
+      setHasRendered(false);
       setRendering(false);
       return;
     }
@@ -599,8 +622,16 @@ function PdfPageCanvas({
 
         setDisplaySize({ width: cachedRender.displayWidth, height: cachedRender.displayHeight });
         setRenderSize({ width: cachedRender.renderWidth, height: cachedRender.renderHeight });
-        canvas.width = Math.max(1, image.naturalWidth);
-        canvas.height = Math.max(1, image.naturalHeight);
+        let backingScale: number;
+        try {
+          backingScale = reservePdfCanvas(canvas, image.naturalWidth, image.naturalHeight, 1);
+        } catch (error) {
+          setRendering(false);
+          setRenderError(String(error));
+          return;
+        }
+        canvas.width = Math.max(1, Math.ceil(image.naturalWidth * backingScale));
+        canvas.height = Math.max(1, Math.ceil(image.naturalHeight * backingScale));
         canvas.style.width = `${cachedRender.renderWidth}px`;
         canvas.style.height = `${cachedRender.renderHeight}px`;
         context.setTransform(1, 0, 0, 1, 0, 0);
@@ -632,84 +663,90 @@ function PdfPageCanvas({
 
     const renderPage = async () => {
       try {
-        await enqueuePdfRender(async () => {
-          if (cancelled || !canvasRef.current || !textLayerRef.current) return;
+        await enqueuePdfRender(
+          async () => {
+            if (cancelled || !canvasRef.current || !textLayerRef.current) return;
 
-          const page = await documentProxy.getPage(pageNumber);
-          if (cancelled || !canvasRef.current || !textLayerRef.current) return;
+            const page = await documentProxy.getPage(pageNumber);
+            if (cancelled || !canvasRef.current || !textLayerRef.current) return;
 
-          const displayScale = scale * PDF_CSS_SCALE;
-          const renderScale = Math.max(displayScale, PDF_CSS_SCALE);
-          const displayViewport = page.getViewport({ scale: displayScale, rotation });
-          const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
-          onMeasured(pageNumber, baseViewport.width, baseViewport.height);
+            const displayScale = scale * PDF_CSS_SCALE;
+            const renderScale = displayScale;
+            const displayViewport = page.getViewport({ scale: displayScale, rotation });
+            const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
+            onMeasured(pageNumber, baseViewport.width, baseViewport.height);
 
-          const canvas = canvasRef.current;
-          const textLayer = textLayerRef.current;
-          const context = canvas.getContext('2d');
-          if (!context) throw new Error('Failed to get PDF canvas context');
+            const canvas = canvasRef.current;
+            const textLayer = textLayerRef.current;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Failed to get PDF canvas context');
 
-          const renderViewport = page.getViewport({ scale: renderScale, rotation });
-          const deviceScale = interactiveCanvasDeviceScale(
-            renderViewport.width,
-            renderViewport.height,
-          );
-          setDisplaySize({ width: displayViewport.width, height: displayViewport.height });
-          setRenderSize({ width: renderViewport.width, height: renderViewport.height });
-          canvas.width = Math.max(1, Math.ceil(renderViewport.width * deviceScale));
-          canvas.height = Math.max(1, Math.ceil(renderViewport.height * deviceScale));
-          canvas.style.width = `${renderViewport.width}px`;
-          canvas.style.height = `${renderViewport.height}px`;
-          context.setTransform(1, 0, 0, 1, 0, 0);
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
-          context.imageSmoothingEnabled = true;
+            const renderViewport = page.getViewport({ scale: renderScale, rotation });
+            const deviceScale = reservePdfCanvas(
+              canvas,
+              renderViewport.width,
+              renderViewport.height,
+              interactiveCanvasDeviceScale(renderViewport.width, renderViewport.height),
+            );
+            setDisplaySize({ width: displayViewport.width, height: displayViewport.height });
+            setRenderSize({ width: renderViewport.width, height: renderViewport.height });
+            canvas.width = Math.max(1, Math.ceil(renderViewport.width * deviceScale));
+            canvas.height = Math.max(1, Math.ceil(renderViewport.height * deviceScale));
+            canvas.style.width = `${renderViewport.width}px`;
+            canvas.style.height = `${renderViewport.height}px`;
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+            context.imageSmoothingEnabled = true;
 
-          textLayer.replaceChildren();
-          textLayer.style.width = `${renderViewport.width}px`;
-          textLayer.style.height = `${renderViewport.height}px`;
-          textLayer.style.setProperty('--scale-factor', String(renderScale));
-          textLayer.style.setProperty('--total-scale-factor', String(renderScale));
-          textLayer.style.setProperty('--user-unit', '1');
+            textLayer.replaceChildren();
+            textLayer.style.width = `${renderViewport.width}px`;
+            textLayer.style.height = `${renderViewport.height}px`;
+            textLayer.style.setProperty('--scale-factor', String(renderScale));
+            textLayer.style.setProperty('--total-scale-factor', String(renderScale));
+            textLayer.style.setProperty('--user-unit', '1');
 
-          const task = page.render({
-            canvas,
-            canvasContext: context,
-            viewport: renderViewport,
-          });
-          renderTaskRef.current = task;
+            const task = page.render({
+              canvas,
+              canvasContext: context,
+              viewport: renderViewport,
+            });
+            renderTaskRef.current = task;
 
-          const textContent = await page.getTextContent();
-          if (cancelled || !textLayerRef.current) return;
+            const textContent = await page.getTextContent();
+            if (cancelled || !textLayerRef.current) return;
 
-          const textLayerTask = new TextLayer({
-            container: textLayer,
-            textContentSource: textContent,
-            viewport: displayViewport,
-          });
-          textLayerTaskRef.current = textLayerTask;
+            const textLayerTask = new TextLayer({
+              container: textLayer,
+              textContentSource: textContent,
+              viewport: displayViewport,
+            });
+            textLayerTaskRef.current = textLayerTask;
 
-          await Promise.all([
-            task.promise.catch((error: unknown) => {
-              if (error instanceof RenderingCancelledException) return;
-              throw error;
-            }),
-            textLayerTask.render().catch((error: unknown) => {
-              if (error instanceof RenderingCancelledException) return;
-              throw error;
-            }),
-          ]);
+            await Promise.all([
+              task.promise.catch((error: unknown) => {
+                if (error instanceof RenderingCancelledException) return;
+                throw error;
+              }),
+              textLayerTask.render().catch((error: unknown) => {
+                if (error instanceof RenderingCancelledException) return;
+                throw error;
+              }),
+            ]);
 
-          cacheRenderedPdfPage(cacheKey, canvas, {
-            textLayerHtml: textLayer.innerHTML,
-            displayWidth: displayViewport.width,
-            displayHeight: displayViewport.height,
-            renderWidth: renderViewport.width,
-            renderHeight: renderViewport.height,
-            baseWidth: baseViewport.width,
-            baseHeight: baseViewport.height,
-          });
-        });
+            if (cancelled || queuedRender.signal.aborted) return;
+            cacheRenderedPdfPage(cacheKey, canvas, {
+              textLayerHtml: textLayer.innerHTML,
+              displayWidth: displayViewport.width,
+              displayHeight: displayViewport.height,
+              renderWidth: renderViewport.width,
+              renderHeight: renderViewport.height,
+              baseWidth: baseViewport.width,
+              baseHeight: baseViewport.height,
+            });
+          },
+          { signal: queuedRender.signal, priority: 'visible' },
+        );
         if (!cancelled) {
           hasRenderedRef.current = true;
           setHasRendered(true);
@@ -730,6 +767,7 @@ function PdfPageCanvas({
 
     return () => {
       cancelled = true;
+      queuedRender.abort();
       if (renderTaskRef.current) {
         void renderTaskRef.current.promise.catch(() => {});
         renderTaskRef.current.cancel();
@@ -747,6 +785,7 @@ function PdfPageCanvas({
     rotation,
     scale,
     shouldRender,
+    retry,
   ]);
 
   const visibleWidth = displaySize?.width ?? placeholderWidth;
@@ -781,7 +820,7 @@ function PdfPageCanvas({
           transform: `scale(${shrinkFactor})`,
         }}
       >
-        <canvas ref={canvasRef} className="block bg-white" />
+        <canvas ref={canvasRef} width={0} height={0} className="block bg-white" />
         <div ref={textLayerRef} className="pdf-text-layer textLayer" />
       </div>
 
@@ -909,7 +948,17 @@ function PdfPageCanvas({
       )}
       {renderError && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/70 p-4 text-center text-sm text-destructive">
-          {renderError}
+          <div>
+            {renderError}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-2"
+              onClick={() => setRetry((value) => value + 1)}
+            >
+              Retry
+            </Button>
+          </div>
         </div>
       )}
       <div className="absolute right-3 bottom-3 rounded-full border border-border/60 bg-popover/90 px-2 py-1 text-[11px] text-muted-foreground shadow-md">
@@ -1213,6 +1262,7 @@ export default function PdfView({ relativePath }: Props) {
     }
 
     let cancelled = false;
+    const assetRequest = new AbortController();
     let releasePdf: (() => void) | null = null;
     setLoading(true);
     setError(null);
@@ -1248,15 +1298,14 @@ export default function PdfView({ relativePath }: Props) {
 
     const loadClient = createVaultClient(vault);
     void Promise.all([
-      loadClient.readAssetDataUrl(relativePath),
+      readAssetBytes(loadClient, relativePath, assetRequest.signal),
       // Annotations load through the VaultClient for both local (filesystem
       // sidecar) and hosted (server-stored, permission-enforced) vaults.
       loadClient
         .readPdfAnnotations(relativePath)
         .catch(() => ({ state: EMPTY_PDF_STATE, version: null }) as VaultPdfAnnotations),
     ])
-      .then(async ([dataUrl, annotations]) => {
-        const data = dataUrlToUint8Array(dataUrl);
+      .then(async ([data, annotations]) => {
         const lease = await acquirePdfDocument(viewerStateKey, data);
         releasePdf = lease.release;
         if (cancelled) {
@@ -1339,6 +1388,7 @@ export default function PdfView({ relativePath }: Props) {
 
     return () => {
       cancelled = true;
+      assetRequest.abort();
       releasePdf?.();
     };
   }, [
@@ -2016,8 +2066,13 @@ export default function PdfView({ relativePath }: Props) {
     });
   }, []);
 
+  const ocrRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => ocrRequest.current?.abort(), [relativePath, documentCacheKey]);
   const runPageOcr = useCallback(
     async (targetPage: number, force = false) => {
+      ocrRequest.current?.abort();
+      const request = new AbortController();
+      ocrRequest.current = request;
       setOcrOpen(true);
       setOcrLoading(true);
       setOcrPage(targetPage);
@@ -2028,6 +2083,7 @@ export default function PdfView({ relativePath }: Props) {
       setOcrOverlay(null);
       setOcrRegenerateAction({ kind: 'page', page: targetPage });
       setOcrProgress({ progress: 0, status: 'Checking PDF text' });
+      let ownedCanvas: HTMLCanvasElement | undefined;
       try {
         const pdfTextCacheScope = scopeOcrCache({
           kind: 'pdf-page-text',
@@ -2037,6 +2093,7 @@ export default function PdfView({ relativePath }: Props) {
         });
         if (!force) {
           const cachedPdfText = await readOcrCache(pdfTextCacheScope);
+          if (request.signal.aborted) return;
           if (cachedPdfText) {
             setOcrText(cachedPdfText.text);
             setOcrConfidence(cachedPdfText.confidence);
@@ -2050,10 +2107,12 @@ export default function PdfView({ relativePath }: Props) {
         if (documentProxy) {
           const page = await documentProxy.getPage(targetPage);
           const textContent = await page.getTextContent();
+          if (request.signal.aborted) return;
           const embeddedText = textContentToPlainText(textContent);
           if (embeddedText.length > 0) {
             const result = { text: embeddedText, confidence: null };
             await writeOcrCache(pdfTextCacheScope, result, 'pdf-text').catch(() => undefined);
+            if (request.signal.aborted) return;
             setOcrText(result.text);
             setOcrConfidence(null);
             setOcrResultMode('pdf-text');
@@ -2068,18 +2127,29 @@ export default function PdfView({ relativePath }: Props) {
           return;
         }
         setOcrProgress({ progress: 0, status: `Rendering page at ${ocrRenderScale}x` });
-        const canvas = await enqueuePdfRender(() =>
-          renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation),
+        const canvas = await enqueuePdfRender(
+          () =>
+            renderPdfPageForOcr(
+              documentProxy,
+              targetPage,
+              ocrRenderScale,
+              rotation,
+              request.signal,
+            ),
+          { signal: request.signal },
         );
+        ownedCanvas = canvas;
         setOcrProgress({ progress: 0, status: 'Preparing OCR' });
         const { recognizeImageText } = await import('../lib/ocr');
         const result = await recognizeImageText(
           canvas,
           (progress, status) => {
+            if (request.signal.aborted) return;
             setOcrProgress({ progress, status });
           },
           {
             force,
+            signal: request.signal,
             cacheScope: {
               kind: 'pdf-page-ocr',
               cacheSession: pdfTextCacheScope.cacheSession,
@@ -2091,6 +2161,7 @@ export default function PdfView({ relativePath }: Props) {
             },
           },
         );
+        if (request.signal.aborted) return;
         setOcrText(result.text);
         setOcrConfidence(result.confidence);
         setOcrResultMode('ocr');
@@ -2098,6 +2169,7 @@ export default function PdfView({ relativePath }: Props) {
         setOcrOverlay({ page: targetPage, words: normalizeOcrWords(result) });
         setOcrProgress(null);
       } catch (reason) {
+        if (request.signal.aborted) return;
         setOcrText('');
         setOcrConfidence(null);
         setOcrResultMode('ocr');
@@ -2106,7 +2178,11 @@ export default function PdfView({ relativePath }: Props) {
         setOcrProgress(null);
         toast.error(`OCR failed: ${String(reason)}`);
       } finally {
-        setOcrLoading(false);
+        if (ownedCanvas) {
+          ownedCanvas.width = 0;
+          ownedCanvas.height = 0;
+        }
+        if (ocrRequest.current === request) setOcrLoading(false);
       }
     },
     [documentCacheKey, documentProxy, ocrRenderScale, relativePath, rotation],
@@ -2131,6 +2207,9 @@ export default function PdfView({ relativePath }: Props) {
         height: Number((region.height / Math.max(surfaceRect.height, 1)).toFixed(5)),
       };
 
+      ocrRequest.current?.abort();
+      const request = new AbortController();
+      ocrRequest.current = request;
       setOcrOpen(true);
       setOcrLoading(true);
       setOcrPage(targetPage);
@@ -2142,23 +2221,37 @@ export default function PdfView({ relativePath }: Props) {
       setOcrRegenerateAction({ kind: 'region', page: targetPage, region });
       setOcrProgress({ progress: 0, status: `Rendering region at ${ocrRenderScale}x` });
       const cacheSession = scopeOcrCache({}).cacheSession;
+      let ownedCanvas: HTMLCanvasElement | undefined;
+      let ownedPage: HTMLCanvasElement | undefined;
       try {
-        const renderedPage = await enqueuePdfRender(() =>
-          renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation),
+        const renderedPage = await enqueuePdfRender(
+          () =>
+            renderPdfPageForOcr(
+              documentProxy,
+              targetPage,
+              ocrRenderScale,
+              rotation,
+              request.signal,
+            ),
+          { signal: request.signal },
         );
+        ownedPage = renderedPage;
         const canvas = cropRenderedPdfRegion(renderedPage, region, {
           width: surfaceRect.width,
           height: surfaceRect.height,
         });
+        ownedCanvas = canvas;
         setOcrProgress({ progress: 0, status: 'Preparing OCR' });
         const { recognizeImageText } = await import('../lib/ocr');
         const result = await recognizeImageText(
           canvas,
           (progress, status) => {
+            if (request.signal.aborted) return;
             setOcrProgress({ progress, status });
           },
           {
             force,
+            signal: request.signal,
             cacheScope: {
               kind: 'pdf-region-ocr',
               cacheSession,
@@ -2174,12 +2267,14 @@ export default function PdfView({ relativePath }: Props) {
             },
           },
         );
+        if (request.signal.aborted) return;
         setOcrText(result.text);
         setOcrConfidence(result.confidence);
         setOcrCached(result.cached === true);
         setOcrOverlay({ page: targetPage, words: normalizeOcrWords(result, normalizedRegion) });
         setOcrProgress(null);
       } catch (reason) {
+        if (request.signal.aborted) return;
         setOcrText('');
         setOcrConfidence(null);
         setOcrCached(false);
@@ -2187,7 +2282,15 @@ export default function PdfView({ relativePath }: Props) {
         setOcrProgress(null);
         toast.error(`Region OCR failed: ${String(reason)}`);
       } finally {
-        setOcrLoading(false);
+        if (ownedPage) {
+          ownedPage.width = 0;
+          ownedPage.height = 0;
+        }
+        if (ownedCanvas) {
+          ownedCanvas.width = 0;
+          ownedCanvas.height = 0;
+        }
+        if (ocrRequest.current === request) setOcrLoading(false);
       }
     },
     [documentCacheKey, documentProxy, ocrRenderScale, relativePath, rotation],

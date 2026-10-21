@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { tauriCommands } from './tauri';
+import { clearUserAvatars } from './userAvatars';
 
 export interface ServerProfile {
   id: string;
@@ -76,6 +77,7 @@ export function useServerProfile(
       const user = await action();
       if (!alive.current) return;
       if (user) {
+        clearUserAvatars(serverUrl);
         setServerProfile(user);
         setName(user.displayName);
         setUsername(user.username);

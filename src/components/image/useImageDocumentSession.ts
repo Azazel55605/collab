@@ -3,11 +3,13 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 
+import { assetMime, bytesDataUrl, readAssetBytes } from '../../lib/assetBytes';
 import {
   type DocumentStatus,
   type RemoteCandidate,
   useDocumentSessionController,
 } from '../../lib/documentSessionController';
+import { encodeImageCanvas } from '../../lib/imageProcessing';
 import { tauriCommands } from '../../lib/tauri';
 import { useHostedAssetRevision } from '../../lib/useHostedAssetRevision';
 import { createVaultClient } from '../../lib/vaultClient';
@@ -65,8 +67,15 @@ interface Options {
   buildPermanentCanvas: (
     image: HTMLImageElement,
     edits: PermanentImageEdits,
-    options?: { ignoreCrop?: boolean; ignoreResize?: boolean },
-  ) => { canvas: HTMLCanvasElement; sourceSize: Dimensions };
+    options?: {
+      ignoreCrop?: boolean;
+      ignoreResize?: boolean;
+      preview?: boolean;
+      signal?: AbortSignal;
+    },
+  ) =>
+    | { canvas: HTMLCanvasElement; sourceSize: Dimensions }
+    | Promise<{ canvas: HTMLCanvasElement; sourceSize: Dimensions }>;
   renderCanvasToElement: (
     canvas: HTMLCanvasElement,
     target: HTMLCanvasElement,
@@ -206,6 +215,21 @@ export function useImageDocumentSession(options: Options) {
     !snapshot.dirty && !snapshot.saving && !snapshot.conflicted,
   );
 
+  const ownedImageUrl = useRef<string | null>(null);
+  const assetUrl = useCallback(
+    async (path: string, signal?: AbortSignal) => {
+      if (!client) throw new Error('No vault is open');
+      const bytes = await readAssetBytes(client, path, signal);
+      if (typeof URL.createObjectURL !== 'function') return bytesDataUrl(bytes, assetMime(path));
+      const url = URL.createObjectURL(
+        new Blob([bytes as Uint8Array<ArrayBuffer>], { type: assetMime(path) }),
+      );
+      if (ownedImageUrl.current) URL.revokeObjectURL(ownedImageUrl.current);
+      ownedImageUrl.current = url;
+      return url;
+    },
+    [client],
+  );
   useEffect(() => {
     if (!vault || !relativePath || !client) {
       setSrc(null);
@@ -216,6 +240,7 @@ export function useImageDocumentSession(options: Options) {
       return;
     }
     let cancelled = false;
+    const request = new AbortController();
     setLoading(true);
     setError(null);
     setAnnotationsLoaded(false);
@@ -223,8 +248,7 @@ export function useImageDocumentSession(options: Options) {
     setCropMode(false);
     setCropDraft(null);
     setZoomPercent(100);
-    client
-      .readAssetDataUrl(relativePath)
+    assetUrl(relativePath, request.signal)
       .then(async (dataUrl) => {
         const decoded = await loadImage(dataUrl);
         if (cancelled) return null;
@@ -253,9 +277,13 @@ export function useImageDocumentSession(options: Options) {
       });
     return () => {
       cancelled = true;
+      request.abort();
+      if (ownedImageUrl.current) URL.revokeObjectURL(ownedImageUrl.current);
+      ownedImageUrl.current = null;
     };
   }, [
     assetRevision,
+    assetUrl,
     client,
     controller,
     loadImage,
@@ -326,11 +354,29 @@ export function useImageDocumentSession(options: Options) {
 
   useEffect(() => {
     if (mode !== 'permanent' || !image || !previewCanvasRef.current) return;
-    const rendered = buildPermanentCanvas(image, permanentEdits, {
-      ignoreCrop: cropMode,
-      ignoreResize: cropMode,
-    }).canvas;
-    renderCanvasToElement(rendered, previewCanvasRef.current, permanentDisplayDimensions);
+    const request = new AbortController();
+    void Promise.resolve(
+      buildPermanentCanvas(image, permanentEdits, {
+        ignoreCrop: cropMode,
+        ignoreResize: cropMode,
+        preview: true,
+        signal: request.signal,
+      }),
+    )
+      .then((rendered) => {
+        if (!request.signal.aborted && previewCanvasRef.current)
+          renderCanvasToElement(
+            rendered.canvas,
+            previewCanvasRef.current,
+            permanentDisplayDimensions,
+          );
+        rendered.canvas.width = 0;
+        rendered.canvas.height = 0;
+      })
+      .catch((error) => {
+        if (!request.signal.aborted) toast.error(`Image preview failed: ${String(error)}`);
+      });
+    return () => request.abort();
   }, [
     buildPermanentCanvas,
     cropMode,
@@ -359,32 +405,38 @@ export function useImageDocumentSession(options: Options) {
         );
         return;
       }
-      const canvas =
-        saveIntent === 'permanent'
-          ? buildPermanentCanvas(image, permanentEdits).canvas
-          : (() => {
-              const target = document.createElement('canvas');
-              target.width = image.naturalWidth;
-              target.height = image.naturalHeight;
-              target.getContext('2d')?.drawImage(image, 0, 0);
-              return target;
-            })();
-      if (saveIntent === 'flatten' && annotationDoc) {
-        const context = canvas.getContext('2d');
-        if (context)
-          await drawAnnotationsToCanvas(context, annotationDoc, {
-            width: image.naturalWidth,
-            height: image.naturalHeight,
-          });
-      }
-      const mime = overwrite
-        ? getOutputMime(relativePath)
-        : saveIntent === 'flatten'
-          ? 'image/png'
-          : getOutputMime(relativePath);
-      const dataUrl = canvas.toDataURL(mime, mime === 'image/jpeg' ? 0.92 : undefined);
+      let outputCanvas: HTMLCanvasElement | undefined;
       try {
         setSaving(true);
+        const canvas =
+          saveIntent === 'permanent'
+            ? (await buildPermanentCanvas(image, permanentEdits)).canvas
+            : (() => {
+                const target = document.createElement('canvas');
+                target.width = image.naturalWidth;
+                target.height = image.naturalHeight;
+                target.getContext('2d')?.drawImage(image, 0, 0);
+                return target;
+              })();
+        outputCanvas = canvas;
+        if (saveIntent === 'flatten' && annotationDoc) {
+          const context = canvas.getContext('2d');
+          if (context)
+            await drawAnnotationsToCanvas(context, annotationDoc, {
+              width: image.naturalWidth,
+              height: image.naturalHeight,
+            });
+        }
+        const mime = overwrite
+          ? getOutputMime(relativePath)
+          : saveIntent === 'flatten'
+            ? 'image/png'
+            : getOutputMime(relativePath);
+        const dataUrl = await encodeImageCanvas(
+          canvas,
+          mime,
+          mime === 'image/jpeg' ? 0.92 : undefined,
+        );
         const savedPath = client.capabilities.nativeFilesystem
           ? await tauriCommands.saveGeneratedImage(
               vault.path,
@@ -409,7 +461,7 @@ export function useImageDocumentSession(options: Options) {
         }
         await refreshFileTree();
         if (overwrite) {
-          const refreshedUrl = await client.readAssetDataUrl(savedPath);
+          const refreshedUrl = await assetUrl(savedPath);
           const refreshed = await loadImage(refreshedUrl);
           setSrc(refreshedUrl);
           setImage(refreshed);
@@ -420,11 +472,16 @@ export function useImageDocumentSession(options: Options) {
       } catch (reason) {
         toast.error(`Failed to save image: ${reason}`);
       } finally {
+        if (outputCanvas) {
+          outputCanvas.width = 0;
+          outputCanvas.height = 0;
+        }
         setSaving(false);
       }
     },
     [
       annotationDoc,
+      assetUrl,
       buildPermanentCanvas,
       client,
       drawAnnotationsToCanvas,

@@ -1254,4 +1254,41 @@ claimed. Existing generated `dist-mobile/index.html` changes remain unstaged;
 the Android frontend build used a temporary output directory.
 
 Next:
-**Previews, PDF, Images And OCR (O37–O41)**, with O39 already implemented.
+**Previews, PDF, Images And OCR (O37–O51)**, completed in Performance Batch 7 below.
+
+## Performance Batch 7 — Previews, PDF, Images And OCR
+
+Implemented **2026-10-21**, completing **O37–O51**. O39/O47 were already
+implemented; O48 remains superseded by R08. See
+[implementation, limits and validation](../desktop/previews-pdf-images-ocr-performance.md).
+
+- [x] O37/O40: bounded native binary sources, authenticated/cache-first hosted
+      policy, native raster thumbnails and scoped encrypted local reads.
+- [x] O38/O41: shared revision/account-aware preview jobs, independent cancellable
+      consumer leases, bounded concurrency and fair priority.
+- [x] O42/O43: byte-accounted PDF caches, released offscreen canvases, aggregate
+      backing-pixel budget, idle worker retirement and cancellable raster queue.
+- [x] O44: bounded disposable preview-record GC, canonical namespace guards,
+      source-orphan cleanup and preservation of authoritative annotations.
+- [x] O45/O46/O49: worker image processing, bounded native OCR lifecycle and
+      streamed atomic language installs with cancellation.
+- [x] O50/O51: lazy bounded link prefetch and account-aware bounded avatar cache
+      with mounted refresh/invalidation.
+- [x] Chromium and Linux WebKitGTK rendered previews and real image workers with
+      synthetic IPC; native job/GC/process/download regression coverage.
+- [ ] O70 acceptance: installed binary IPC/encryption/hosted permissions, large-PDF
+      memory/scroll/zoom, 40 MP photo responsiveness, real OCR accuracy/cancellation
+      and native/physical platform soak remain explicit release checks.
+
+Validation results are recorded in the linked implementation reference. The
+unrelated generated `dist-mobile/index.html` remains unstaged; Android frontend
+build output is directed to a temporary directory.
+
+Next: **Structured Editors, History And Export (O52–O63)**.
+
+### Performance Batch 7 Security Follow-Up
+
+- [x] PR #108's refreshed CI scan found RUSTSEC-2026-0381/0382/0383 in TLS
+      dependencies. Upgrade `rustls-webpki` to 0.103.16 and `webpki-roots` /
+      `webpki-root-certs` to 1.0.10 without adding ignores or weakening verification.
+      See [tracking and validation](../build/security-advisories.md).

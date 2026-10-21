@@ -52,8 +52,8 @@ describe('document previews', () => {
       .spyOn(client, 'readDocumentPreviewDataUrl')
       .mockRejectedValueOnce(new Error('offline'));
     const a = getDocumentPreviewDataUrl(client, 'a.sheet');
-    expect(getDocumentPreviewDataUrl(client, 'a.sheet')).toBe(a);
-    await expect(a).rejects.toThrow('offline');
+    const b = getDocumentPreviewDataUrl(client, 'a.sheet');
+    await Promise.all([expect(a).rejects.toThrow('offline'), expect(b).rejects.toThrow('offline')]);
     load.mockResolvedValue('server-preview');
     expect(await getDocumentPreviewDataUrl(client, 'a.sheet')).toBe('server-preview');
     expect(load).toHaveBeenCalledTimes(2);

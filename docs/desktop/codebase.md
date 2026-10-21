@@ -327,8 +327,11 @@ Local document previews use one `.collab/previews/documents/*.entry` record in
 bytes and SHA-256 integrity trailer. `write_vault_bytes` encrypts when needed and
 publishes the whole record by atomic staging/rename. Cache parse/decrypt/read
 failure is a miss; source metadata and renderer version still gate reuse. Legacy
-`.json`/`.bin` pairs are ignored and retained for older clients; disk GC remains
-separate work. Authoritative annotation sidecars retain their existing format.
+`.json`/`.bin` pairs are ignored on read. Disposable records, including legacy
+pairs, are age/quota/orphan-collected only inside the verified canonical preview
+namespace (256 MiB, 4,096 records, 30 days). Read sweeps are cadence-limited;
+writes and managed rename/delete/trash also sweep. Authoritative annotations
+retain their existing format and are outside GC.
 
 `lib/ocr.ts` owns one serialized recognition queue (eight active/queued jobs),
 including preprocessing and native fallback. Completed cache hits bypass the
@@ -337,8 +340,13 @@ language changes and idle termination share queue ownership. Progress belongs to
 the current worker/job, is cleared on completion/failure, and retired workers
 cannot report into another pane. Only an empty queue schedules the three-minute
 idle shutdown. The queue recovers after failures and rejects overload visibly.
-This does not bound native subprocess duration, image bytes or persistent OCR
-result retention; those remain separate audit items.
+`commands/ocr.rs` separately admits two native processes, caps inputs/outputs,
+monitors temporary output files, kills/reaps on cancellation/timeout (60 seconds),
+and streams one language installation at a time under an 80 MiB actual-byte cap.
+Derived OCR results remain in the bounded memory-only cache. `lib/imageProcessing.ts`
+and its worker own cancellable bounded pixel filters, transforms and encoding;
+OCR preprocessing is downsampled to twelve million pixels. Privacy lifecycle
+cleanup aborts recognition and prevents publishing results after vault/account changes.
 
 `lib/sheet/formulaRequest.ts` constructs framework-free formula requests for
 desktop, Android and deck snapshots. `formulaSession.ts` owns a unique runtime per
@@ -354,18 +362,36 @@ longer import the desktop hook/UI store. Native registry locking, global job
 limits, running-job cancellation and explicit volatile recalculation remain
 separate work.
 
-`lib/previewQueue.ts` separates canvas/PDF (two jobs) and document/web (four jobs)
-queues. Canvas only schedules nearby cards and discards obsolete hydration after
-source changes. `lib/revisionPreviewCache.ts` retains hosted SVGs by account,
-content hash and renderer version (64 entries/16 MiB). Cached manifest/body data
-can produce previews before network requests. Shared Rust thumbnail renderer v2
-adds bounded canvas/logic, Kanban and deck geometry; deck image/chart/table
-placeholders remain intentionally limited.
+`lib/previewScheduler.ts` owns account/vault/path/revision/variant-keyed preview
+jobs (four active, 256 retained). Each consumer has an independent cancellable
+lease; the last lease aborts native/PDF work and queued closures are removed.
+Visible work is preferred with a background turn after four visible jobs. Canvas
+text hydration, internal document, image, PDF and web preview consumers share
+admission; lazy web prefetch has four producers and a 512-link pass limit.
+`lib/mediaLifecycle.ts` clears scoped media on vault/key/account/disconnect changes.
+`lib/revisionPreviewCache.ts` retains hosted SVGs by account/content hash/renderer
+(64 entries/16 MiB). The Rust document renderer retains its bounded summaries.
 
-`lib/pdfResourceCache.ts` shares unchanged PDF loading resources across tab
-switches (two entries/64 MiB source bytes, reference counted; mounted consumers
-are not evicted). This is not a total worker-memory ceiling. PDF view state keeps
-client-local scroll/pan as well as page/zoom/layout settings.
+`VaultClient.readAssetBytes` and `commands/media.rs` transport scoped raw buffers
+through Tauri IPC, preserving encrypted reads, native hosted authentication and
+connectivity-only replica fallback. Two native reads cap sources at 256 MiB;
+one thumbnail decoder emits 640×480 PNGs with allocation/dimension limits and
+EXIF orientation. `lib/imagePreview.ts` retains only bounded small thumbnails.
+`commands/media_jobs.rs` tracks cancellation, including cancellation before
+registration, for binary reads, previews, HTTP and OCR commands.
+
+`lib/pdfResourceCache.ts` shares unchanged PDF loading resources (two idle
+entries/64 MiB source bytes, reference counted), cleans idle documents and retires
+unused workers after 30 seconds. Mounted consumers are not cache-evicted; PDF.js
+internal heap is not an exact memory ceiling. `lib/pdfCanvasBudget.ts` caps live
+backing canvases at 48 million aggregate pixels/six million per page. Continuous
+visibility observation releases offscreen backing stores while preserving layout.
+Page-image/text caches charge decoded pixel/blob/text costs (64 MiB/12 entries);
+shared thumbnail output cache is 16 MiB/32 entries. Eviction/lifecycle cleanup
+revokes object URLs and destroys resources. `views/pdfRenderQueue.ts` bounds and
+cancels prioritized single-file raster work (one active/64 jobs). PDF view state
+keeps local scroll/pan/page/zoom/layout independently of these disposable caches.
+See [media limits and validation](./previews-pdf-images-ocr-performance.md).
 `lib/pdfRuntime.ts` configures the legacy PDF.js API and matching worker once for
 desktop views/previews and Android's rich viewer. Cache/hover-preview modules
 import it only when decoding a PDF, so vault-picker/tree startup does not

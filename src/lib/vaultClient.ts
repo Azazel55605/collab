@@ -159,6 +159,7 @@ export interface LiveSessionTarget {
 
 export interface VaultClient {
   readonly kind: VaultClientKind;
+  readonly vault: VaultMeta;
   readonly id: string;
   readonly name: string;
   readonly capabilities: VaultClientCapabilities;
@@ -216,6 +217,11 @@ export interface VaultClient {
    * so bearer tokens never reach the webview.
    */
   readAssetDataUrl(relativePath: string): Promise<string>;
+  readAssetBytes(
+    relativePath: string,
+    signal?: AbortSignal,
+    thumbnailOnly?: boolean,
+  ): Promise<Uint8Array>;
   /**
    * Reads the shared annotation sidecar for a PDF. Local vaults read the
    * filesystem sidecar under `.collab/pdf/`; hosted vaults read the
@@ -726,12 +732,22 @@ export class HostedVaultClient implements VaultClient {
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     suffix: string,
     body?: unknown,
+    signal?: AbortSignal,
   ) {
+    if (!signal)
+      return tauriCommands.hostedVaultRequest<T>(
+        this.vault.serverUrl,
+        method,
+        this.path(suffix),
+        body,
+      );
     return tauriCommands.hostedVaultRequest<T>(
       this.vault.serverUrl,
       method,
       this.path(suffix),
       body,
+      undefined,
+      signal,
     );
   }
 
@@ -1614,13 +1630,20 @@ export class HostedVaultClient implements VaultClient {
     throw new Error('Hosted snapshot history is immutable and cannot be cleared.');
   }
 
-  async readDocumentPreviewDataUrl(relativePath: string, accountScope?: string): Promise<string> {
+  async readDocumentPreviewDataUrl(
+    relativePath: string,
+    accountScope?: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
     // Unsynced edits must preview the local draft rather than an older server revision.
     const local = await this.readCurrentCachedDocument(file).catch(() => null);
     if (file.currentRevision?.contentHash === 'offline' && local !== null) {
-      return tauriCommands.generateDocumentPreview(relativePath, local);
+      return signal
+        ? tauriCommands.generateDocumentPreview(relativePath, local, signal)
+        : tauriCommands.generateDocumentPreview(relativePath, local);
     }
     const key = accountScope ? `${accountScope}::${relativePath}` : null;
     const hash = file.currentRevision?.contentHash;
@@ -1630,7 +1653,9 @@ export class HostedVaultClient implements VaultClient {
       return cached;
     }
     if (local !== null) {
-      const dataUrl = await tauriCommands.generateDocumentPreview(relativePath, local);
+      const dataUrl = await (signal
+        ? tauriCommands.generateDocumentPreview(relativePath, local, signal)
+        : tauriCommands.generateDocumentPreview(relativePath, local));
       if (key && hash) rememberRevisionPreview(key, { hash, renderer: 2, dataUrl });
       void syncReplicaManifestDelta(this.vault).catch(() => {});
       return dataUrl;
@@ -1639,7 +1664,7 @@ export class HostedVaultClient implements VaultClient {
       dataUrl: string;
       contentHash?: string;
       rendererVersion?: number;
-    }>('GET', `/files/${file.id}/preview`);
+    }>('GET', `/files/${file.id}/preview`, undefined, signal);
     if (key && preview.contentHash && preview.rendererVersion)
       rememberRevisionPreview(key, {
         hash: preview.contentHash,
@@ -1647,6 +1672,53 @@ export class HostedVaultClient implements VaultClient {
         dataUrl: preview.dataUrl,
       });
     return preview.dataUrl;
+  }
+
+  async readAssetBytes(
+    relativePath: string,
+    signal?: AbortSignal,
+    thumbnailOnly = false,
+  ): Promise<Uint8Array> {
+    const manifest = await this.cachedOrOnlineManifest();
+    const file = this.findByPath(manifest, relativePath);
+    if (file.kind === 'folder') throw new Error('Folders cannot be downloaded as assets.');
+    const expectedHash = file.currentRevision?.contentHash;
+    const source = {
+      kind: 'hosted' as const,
+      serverUrl: this.vault.serverUrl,
+      vaultId: this.vault.hostedVaultId,
+      fileId: file.id,
+      cached: false,
+      expectedHash,
+      cacheDownload: await this.shouldMaintainOfflineContentCache(),
+    };
+    if (expectedHash && expectedHash !== 'offline') {
+      try {
+        // The native bridge checks the cached hash while reading once. A separate
+        // cache-status call would read/decrypt/hash the entire file a second time.
+        const bytes = await tauriCommands.readVaultAssetBytes(
+          { ...source, cached: true },
+          thumbnailOnly,
+          signal,
+        );
+        void syncReplicaManifestDelta(this.vault).catch(() => {});
+        return bytes;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // Missing, stale or unreadable disposable cache: authorize a fresh online read.
+      }
+    }
+    try {
+      return await tauriCommands.readVaultAssetBytes(source, thumbnailOnly, signal);
+    } catch (error) {
+      if (signal?.aborted || !isLikelyConnectivityError(error)) throw error;
+      // Same offline fallback policy as readAssetDataUrl: permission failures never fall back.
+      return tauriCommands.readVaultAssetBytes(
+        { ...source, cached: true, expectedHash: null },
+        thumbnailOnly,
+        signal,
+      );
+    }
   }
 
   async readAssetDataUrl(relativePath: string): Promise<string> {
@@ -2255,6 +2327,14 @@ export class LocalVaultClient implements VaultClient {
     return tauriCommands.clearSnapshotHistory(this.vault.path, relativePath);
   }
 
+  readAssetBytes(relativePath: string, signal?: AbortSignal, thumbnailOnly = false) {
+    return tauriCommands.readVaultAssetBytes(
+      { kind: 'local', vaultPath: this.vault.path, relativePath },
+      thumbnailOnly,
+      signal,
+    );
+  }
+
   readAssetDataUrl(relativePath: string) {
     return tauriCommands.readNoteAssetDataUrl(this.vault.path, relativePath);
   }
@@ -2303,6 +2383,7 @@ export function createVaultClient(vault: VaultMeta): VaultClient {
   const shared = new Set([
     'readDocument',
     'readAssetDataUrl',
+    'readAssetBytes',
     'readPdfAnnotations',
     'readViewAnnotations',
     'resolveLiveSession',

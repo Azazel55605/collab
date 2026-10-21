@@ -1,5 +1,7 @@
 import { type OcrPreprocessingMode, useUiStore } from '../store/uiStore';
 
+import { encodeImageCanvas, preprocessCanvas } from './imageProcessing';
+import { registerMediaCleanup } from './mediaLifecycle';
 import { type OcrCacheScope, readOcrCache, scopeOcrCache, writeOcrCache } from './ocrCache';
 import { tauriCommands } from './tauri';
 
@@ -26,6 +28,7 @@ export interface OcrWordBox {
 export interface RecognizeImageTextOptions {
   cacheScope?: OcrCacheScope;
   force?: boolean;
+  signal?: AbortSignal;
 }
 
 const OCR_CACHE_PATH = 'collab-ocr/official-fast';
@@ -75,9 +78,9 @@ function isNativeOcrSupportedBase64ImageDataUrl(value: string): boolean {
 }
 
 async function imageToNativeOcrDataUrl(image: string | HTMLCanvasElement): Promise<string> {
-  if (image instanceof HTMLCanvasElement) return image.toDataURL('image/png');
+  if (image instanceof HTMLCanvasElement) return encodeImageCanvas(image, 'image/png');
   if (isNativeOcrSupportedBase64ImageDataUrl(image)) return image;
-  return (await toCanvas(image)).toDataURL('image/png');
+  return encodeImageCanvas(await toCanvas(image), 'image/png');
 }
 
 async function getImageSize(
@@ -117,45 +120,23 @@ async function toCanvas(image: string | HTMLCanvasElement): Promise<HTMLCanvasEl
 async function preprocessImage(
   image: string | HTMLCanvasElement,
   mode: OcrPreprocessingMode,
+  signal?: AbortSignal,
 ): Promise<string | HTMLCanvasElement> {
-  if (mode === 'none') return image;
-  const source = await toCanvas(image);
-  const canvas = document.createElement('canvas');
-  canvas.width = source.width;
-  canvas.height = source.height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('Failed to prepare OCR preprocessing');
-  context.drawImage(source, 0, 0);
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const { data } = imageData;
-  for (let index = 0; index < data.length; index += 4) {
-    const red = data[index] ?? 0;
-    const green = data[index + 1] ?? 0;
-    const blue = data[index + 2] ?? 0;
-    const gray = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
-
-    if (mode === 'invert') {
-      data[index] = 255 - red;
-      data[index + 1] = 255 - green;
-      data[index + 2] = 255 - blue;
-    } else if (mode === 'contrast') {
-      const boosted = Math.max(0, Math.min(255, (gray - 128) * 1.45 + 128));
-      data[index] = boosted;
-      data[index + 1] = boosted;
-      data[index + 2] = boosted;
-    } else if (mode === 'threshold') {
-      const threshold = gray >= 168 ? 255 : 0;
-      data[index] = threshold;
-      data[index + 1] = threshold;
-      data[index + 2] = threshold;
-    } else {
-      data[index] = gray;
-      data[index + 1] = gray;
-      data[index + 2] = gray;
-    }
-  }
-  context.putImageData(imageData, 0, 0);
-  return canvas;
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  if (
+    mode === 'none' &&
+    image instanceof HTMLCanvasElement &&
+    image.width * image.height <= 12_000_000
+  )
+    return image;
+  const source = image instanceof HTMLCanvasElement ? image : await loadImageElement(image);
+  if (
+    mode === 'none' &&
+    !(source instanceof HTMLCanvasElement) &&
+    source.naturalWidth * source.naturalHeight <= 12_000_000
+  )
+    return image;
+  return preprocessCanvas(source, mode, signal);
 }
 
 function installedLanguageCodes(language: string): string[] {
@@ -231,7 +212,11 @@ function scheduleWorkerIdleShutdown() {
   }, OCR_WORKER_IDLE_MS);
 }
 
-async function getWorker(language: string, onProgress?: OcrProgress): Promise<Tesseract.Worker> {
+async function getWorker(
+  language: string,
+  onProgress?: OcrProgress,
+  signal?: AbortSignal,
+): Promise<Tesseract.Worker> {
   if (activeWorker?.language === language) {
     clearWorkerIdleTimer();
     activeWorker.progress.current = onProgress;
@@ -241,7 +226,12 @@ async function getWorker(language: string, onProgress?: OcrProgress): Promise<Te
   await terminateActiveWorker();
   await seedInstalledLanguagePacks(language);
 
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   const progress = { current: onProgress };
+  const stopProgress = () => {
+    progress.current = undefined;
+  };
+  signal?.addEventListener('abort', stopProgress, { once: true });
   const { createWorker } = await import('tesseract.js');
   try {
     const worker = await createWorker(language, 1, {
@@ -257,11 +247,18 @@ async function getWorker(language: string, onProgress?: OcrProgress): Promise<Te
         }
       },
     });
+    if (signal?.aborted) {
+      progress.current = undefined;
+      await worker.terminate().catch(() => undefined);
+      throw new DOMException('Cancelled', 'AbortError');
+    }
     activeWorker = { language, worker, idleTimer: null, progress };
     return worker;
   } catch (error) {
     progress.current = undefined;
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', stopProgress);
   }
 }
 
@@ -316,10 +313,23 @@ async function recognizeWithWasm(
   image: string | HTMLCanvasElement,
   language: string,
   onProgress?: OcrProgress,
+  signal?: AbortSignal,
 ): Promise<OcrResult> {
-  const worker = await getWorker(language, onProgress);
+  const worker = await getWorker(language, onProgress, signal);
   try {
-    const result = await worker.recognize(image, {}, { text: true, blocks: true, tsv: true });
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      abort = () => {
+        void terminateActiveWorker();
+        reject(new DOMException('Cancelled', 'AbortError'));
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+    });
+    const result = await Promise.race([
+      worker.recognize(image, {}, { text: true, blocks: true, tsv: true }),
+      cancelled,
+    ]).finally(() => signal?.removeEventListener('abort', abort));
     const blockWords = wordsFromBlocks(result.data.blocks);
     const words = blockWords.length > 0 ? blockWords : wordsFromTsv(result.data.tsv);
     const size = await getImageSize(image);
@@ -339,10 +349,13 @@ async function recognizeWithNativeFallback(
   image: string | HTMLCanvasElement,
   language: string,
   onProgress?: OcrProgress,
+  signal?: AbortSignal,
 ): Promise<OcrResult> {
   onProgress?.(0.1, 'Preparing native OCR');
   const dataUrl = await imageToNativeOcrDataUrl(image);
-  const result = await tauriCommands.recognizeImageDataUrlWords(dataUrl, language);
+  const result = await (signal
+    ? tauriCommands.recognizeImageDataUrlWords(dataUrl, language, signal)
+    : tauriCommands.recognizeImageDataUrlWords(dataUrl, language));
   onProgress?.(1, 'OCR complete');
   const size = await getImageSize(image);
   return {
@@ -354,11 +367,12 @@ async function recognizeWithNativeFallback(
   };
 }
 
-export async function recognizeImageText(
+async function recognizeOwnedImageText(
   image: string | HTMLCanvasElement,
   onProgress?: OcrProgress,
   options: RecognizeImageTextOptions = {},
 ): Promise<OcrResult> {
+  if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   const { ocrLanguage, ocrModelSource, ocrPreprocessingMode } = useUiStore.getState();
   const language = ocrLanguage || 'eng';
   const cacheScope = options.cacheScope
@@ -374,6 +388,7 @@ export async function recognizeImageText(
   const cachedResult = async (): Promise<OcrResult | null> => {
     if (!cacheScope || options.force) return null;
     const cached = await readOcrCache(cacheScope).catch(() => null);
+    if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
     if (!cached) return null;
     onProgress?.(1, 'Loaded cached OCR');
     return { ...cached, cached: true };
@@ -382,6 +397,7 @@ export async function recognizeImageText(
   const cached = await cachedResult();
   if (cached) return cached;
   return runOcrJob(async () => {
+    if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
     const refreshed = await cachedResult();
     if (refreshed) return refreshed;
     onProgress?.(
@@ -390,19 +406,60 @@ export async function recognizeImageText(
         ? 'Preparing OCR'
         : `Applying ${ocrPreprocessingMode} preprocessing`,
     );
-    const preparedImage = await preprocessImage(image, ocrPreprocessingMode);
+    const preparedImage = await preprocessImage(image, ocrPreprocessingMode, options.signal);
     let result: OcrResult;
     try {
-      result = await recognizeWithWasm(preparedImage, language, onProgress);
-    } catch (error) {
-      console.warn('[ocr] bundled WASM OCR failed, falling back to native tesseract', error);
-      // A failed recognition may leave this worker unusable; never reuse it for the next job.
-      await terminateActiveWorker();
-      result = await recognizeWithNativeFallback(preparedImage, language, onProgress);
+      try {
+        result = await recognizeWithWasm(preparedImage, language, onProgress, options.signal);
+      } catch (error) {
+        if (
+          options.signal?.aborted ||
+          (error instanceof DOMException && error.name === 'AbortError')
+        )
+          throw error;
+        console.warn('[ocr] bundled WASM OCR failed, falling back to native tesseract', error);
+        // A failed recognition may leave this worker unusable; never reuse it for the next job.
+        await terminateActiveWorker();
+        result = await recognizeWithNativeFallback(
+          preparedImage,
+          language,
+          onProgress,
+          options.signal,
+        );
+      }
+      if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+      if (cacheScope) await writeOcrCache(cacheScope, result, 'ocr').catch(() => undefined);
+      return result;
+    } finally {
+      if (preparedImage instanceof HTMLCanvasElement && preparedImage !== image) {
+        preparedImage.width = 0;
+        preparedImage.height = 0;
+      }
     }
-    if (cacheScope) await writeOcrCache(cacheScope, result, 'ocr').catch(() => undefined);
-    return result;
   });
+}
+
+const requests = new Set<AbortController>();
+registerMediaCleanup(() => {
+  for (const request of requests) request.abort();
+  void terminateActiveWorker();
+});
+export async function recognizeImageText(
+  image: string | HTMLCanvasElement,
+  onProgress?: OcrProgress,
+  options: RecognizeImageTextOptions = {},
+): Promise<OcrResult> {
+  const request = new AbortController();
+  const cancel = () => request.abort();
+  if (options.signal?.aborted) request.abort();
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  requests.add(request);
+  try {
+    return await recognizeOwnedImageText(image, onProgress, { ...options, signal: request.signal });
+  } finally {
+    requests.delete(request);
+    options.signal?.removeEventListener('abort', cancel);
+  }
 }
 
 export async function copyTextToClipboard(text: string): Promise<void> {

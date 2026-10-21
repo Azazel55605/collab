@@ -645,6 +645,38 @@ impl ReplicaStore {
         }
     }
 
+    /// Bounded binary consumers must reject oversized persisted assets before allocation.
+    pub fn read_cached_asset_bounded(
+        &self,
+        file_id: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<u8>>, String> {
+        use std::io::Read;
+        let path = self.root.join(ASSETS_DIR).join(safe_segment(file_id)?);
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.to_string()),
+        };
+        // Allow framing/authentication overhead, while bounding even concurrent file growth.
+        let persisted_limit = limit.saturating_add(4096) as u64;
+        if file.metadata().map_err(|e| e.to_string())?.len() > persisted_limit {
+            return Err("Cached asset exceeds its byte limit".into());
+        }
+        let mut bytes = Vec::new();
+        file.take(persisted_limit.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > persisted_limit {
+            return Err("Cached asset exceeds its byte limit".into());
+        }
+        let plain = self.decrypt_content_or_miss(&bytes);
+        if plain.as_ref().is_some_and(|value| value.len() > limit) {
+            return Err("Cached asset exceeds its byte limit".into());
+        }
+        Ok(plain)
+    }
+
     pub fn cached_content_status(
         &self,
         file_id: &str,
@@ -1443,6 +1475,37 @@ mod tests {
         assert_eq!(store.read_logic_components().unwrap(), components);
         let bytes = std::fs::read(store.root().join(LOGIC_COMPONENTS_FILE)).unwrap();
         assert!(crypto::is_encrypted_data(&bytes));
+    }
+
+    #[test]
+    fn binary_asset_reads_bound_ciphertext_and_plaintext_sizes() {
+        let dir = TempDir::new().unwrap();
+        let store = open(&dir).with_encryption_key([3u8; 32]);
+        assert!(store
+            .read_cached_asset_bounded("missing", 8)
+            .unwrap()
+            .is_none());
+        store.cache_asset("small", b"12345678").unwrap();
+        assert_eq!(
+            store
+                .read_cached_asset_bounded("small", 8)
+                .unwrap()
+                .unwrap(),
+            b"12345678"
+        );
+        assert!(store
+            .read_cached_asset_bounded("small", 4)
+            .unwrap_err()
+            .contains("byte limit"));
+        let path = store.root().join(ASSETS_DIR).join("huge");
+        std::fs::File::create(path)
+            .unwrap()
+            .set_len(1024 * 1024 * 1024)
+            .unwrap();
+        assert!(store
+            .read_cached_asset_bounded("huge", 8)
+            .unwrap_err()
+            .contains("byte limit"));
     }
 
     #[test]

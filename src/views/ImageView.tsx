@@ -56,6 +56,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { Textarea } from '../components/ui/textarea';
+import { renderEditedImage as buildPermanentCanvas } from '../lib/imageProcessing';
 import { sceneToSvg } from '../lib/ink/svg';
 import { defaultToolState } from '../lib/ink/tools';
 import { hashOcrCacheString, scopeOcrCache } from '../lib/ocrCache';
@@ -87,76 +88,6 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error('Failed to decode image'));
     image.src = dataUrl;
   });
-}
-
-function createCanvas(width: number, height: number) {
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(width));
-  canvas.height = Math.max(1, Math.round(height));
-  return canvas;
-}
-
-function buildRotatedCanvas(image: HTMLImageElement, rotation: PermanentImageEdits['rotation']) {
-  const source = { width: image.naturalWidth, height: image.naturalHeight };
-  const rotatedSize = getRotatedDimensions(source, rotation);
-  const canvas = createCanvas(rotatedSize.width, rotatedSize.height);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
-
-  if (rotation === 0) {
-    ctx.drawImage(image, 0, 0);
-    return canvas;
-  }
-
-  ctx.save();
-  if (rotation === 90) {
-    ctx.translate(rotatedSize.width, 0);
-    ctx.rotate(Math.PI / 2);
-  } else if (rotation === 180) {
-    ctx.translate(rotatedSize.width, rotatedSize.height);
-    ctx.rotate(Math.PI);
-  } else {
-    ctx.translate(0, rotatedSize.height);
-    ctx.rotate(-Math.PI / 2);
-  }
-  ctx.drawImage(image, 0, 0);
-  ctx.restore();
-  return canvas;
-}
-
-function buildPermanentCanvas(
-  image: HTMLImageElement,
-  edits: PermanentImageEdits,
-  options?: { ignoreCrop?: boolean; ignoreResize?: boolean },
-) {
-  const rotated = buildRotatedCanvas(image, edits.rotation);
-  const rotatedSize = { width: rotated.width, height: rotated.height };
-  const crop = options?.ignoreCrop
-    ? { x: 0, y: 0, width: rotated.width, height: rotated.height }
-    : getCropBounds({ width: image.naturalWidth, height: image.naturalHeight }, edits);
-
-  const cropped = createCanvas(crop.width, crop.height);
-  const croppedCtx = cropped.getContext('2d');
-  croppedCtx?.drawImage(
-    rotated,
-    crop.x,
-    crop.y,
-    crop.width,
-    crop.height,
-    0,
-    0,
-    crop.width,
-    crop.height,
-  );
-
-  if (options?.ignoreResize || (!edits.resizeWidth && !edits.resizeHeight)) {
-    return { canvas: cropped, sourceSize: rotatedSize };
-  }
-
-  const resized = createCanvas(edits.resizeWidth ?? crop.width, edits.resizeHeight ?? crop.height);
-  const resizedCtx = resized.getContext('2d');
-  resizedCtx?.drawImage(cropped, 0, 0, resized.width, resized.height);
-  return { canvas: resized, sourceSize: rotatedSize };
 }
 
 function normalizeImageOcrWords(
@@ -416,8 +347,13 @@ export default function ImageView({ relativePath }: Props) {
     setOcrOpen(false);
   }, [relativePath, src]);
 
+  const ocrRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => ocrRequest.current?.abort(), [relativePath, src]);
   const runImageOcr = async (force = false, region: ImageCropRect | null = null) => {
     if (!src) return;
+    ocrRequest.current?.abort();
+    const request = new AbortController();
+    ocrRequest.current = request;
     const cacheSession = scopeOcrCache({}).cacheSession;
     setOcrOpen(true);
     setOcrLoading(true);
@@ -425,35 +361,29 @@ export default function ImageView({ relativePath }: Props) {
     setLastOcrRegion(region);
     setOcrOverlay(null);
     setOcrProgress({ progress: 0, status: 'Preparing OCR' });
+    let ownedCanvas: HTMLCanvasElement | undefined;
     try {
       const { recognizeImageText } = await import('../lib/ocr');
       const sourceHash = await hashOcrCacheString(src);
       let ocrInput: string | HTMLCanvasElement = src;
       if (region && image) {
-        const rotated = buildRotatedCanvas(image, permanentEdits.rotation);
-        const cropCanvas = createCanvas(region.width, region.height);
-        const context = cropCanvas.getContext('2d');
-        if (!context) throw new Error('Failed to prepare image region for OCR');
-        context.drawImage(
-          rotated,
-          region.x,
-          region.y,
-          region.width,
-          region.height,
-          0,
-          0,
-          cropCanvas.width,
-          cropCanvas.height,
+        const rendered = await buildPermanentCanvas(
+          image,
+          { ...permanentEdits, crop: region, resizeWidth: null, resizeHeight: null },
+          { maxPixels: 12_000_000, signal: request.signal },
         );
-        ocrInput = cropCanvas;
+        ocrInput = rendered.canvas;
+        ownedCanvas = rendered.canvas;
       }
       const result = await recognizeImageText(
         ocrInput,
         (progress, status) => {
+          if (request.signal.aborted) return;
           setOcrProgress({ progress, status });
         },
         {
           force,
+          signal: request.signal,
           cacheScope: {
             kind: region ? 'image-region' : 'image',
             cacheSession,
@@ -467,6 +397,7 @@ export default function ImageView({ relativePath }: Props) {
           },
         },
       );
+      if (request.signal.aborted) return;
       setOcrText(result.text);
       setOcrConfidence(result.confidence);
       setOcrError(null);
@@ -486,6 +417,7 @@ export default function ImageView({ relativePath }: Props) {
       }
       setOcrProgress(null);
     } catch (reason) {
+      if (request.signal.aborted) return;
       setOcrText('');
       setOcrConfidence(null);
       setOcrError(`OCR failed: ${reason}`);
@@ -493,7 +425,11 @@ export default function ImageView({ relativePath }: Props) {
       setOcrOverlay(null);
       setOcrProgress(null);
     } finally {
-      setOcrLoading(false);
+      if (ownedCanvas) {
+        ownedCanvas.width = 0;
+        ownedCanvas.height = 0;
+      }
+      if (ocrRequest.current === request) setOcrLoading(false);
     }
   };
 

@@ -290,7 +290,50 @@ export interface BackgroundStatusSnapshot {
   };
 }
 
+export type NativeAssetSource =
+  | { kind: 'local'; vaultPath: string; relativePath: string }
+  | {
+      kind: 'hosted';
+      serverUrl: string;
+      vaultId: string;
+      fileId: string;
+      cached: boolean;
+      expectedHash?: string | null;
+      cacheDownload: boolean;
+    };
+export async function invokeMedia<T>(
+  command: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  const requestId = crypto.randomUUID();
+  const cancel = () => {
+    void invoke('cancel_media_job', { requestId }).catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    const value = await invoke<T>(command, { ...args, requestId });
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    return value;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
+}
+
 export const tauriCommands = {
+  readVaultAssetBytes: async (
+    source: NativeAssetSource,
+    thumbnailOnly = false,
+    signal?: AbortSignal,
+  ) => {
+    const buffer = await invokeMedia<ArrayBuffer | number[]>(
+      'read_vault_asset_bytes',
+      { source, thumbnailOnly },
+      signal,
+    );
+    return new Uint8Array(buffer);
+  },
   backgroundRuntimeProbe: (trigger: string) =>
     invoke<BackgroundRuntimeProbe>('background_runtime_probe', { trigger }),
   backgroundServerList: () => invoke<BackgroundServerRegistration[]>('background_server_list'),
@@ -693,7 +736,10 @@ export const tauriCommands = {
     }),
   createFolder: (vaultPath: string, relativePath: string) =>
     invoke<void>('create_folder', { vaultPath, relativePath }),
-  fetchLinkPreview: (url: string) => invoke<LinkPreviewData>('fetch_link_preview', { url }),
+  fetchLinkPreview: (url: string, signal?: AbortSignal) =>
+    signal
+      ? invokeMedia<LinkPreviewData>('fetch_link_preview', { url }, signal)
+      : invoke<LinkPreviewData>('fetch_link_preview', { url }),
   fetchCalendarFeed: (url: string, etag?: string, lastModified?: string) =>
     invoke<CalendarFeedResponse>('fetch_calendar_feed', {
       url,
@@ -701,19 +747,27 @@ export const tauriCommands = {
       lastModified: lastModified ?? null,
     }),
   listOcrLanguagePacks: () => invoke<OcrLanguagePack[]>('list_ocr_language_packs'),
-  installOcrLanguagePack: (code: string) =>
-    invoke<OcrLanguagePack>('install_ocr_language_pack', { code }),
+  installOcrLanguagePack: (code: string, signal?: AbortSignal) =>
+    invokeMedia<OcrLanguagePack>('install_ocr_language_pack', { code }, signal),
   removeOcrLanguagePack: (code: string) =>
     invoke<OcrLanguagePack>('remove_ocr_language_pack', { code }),
   readOcrLanguagePackData: (code: string) =>
     invoke<OcrLanguagePackData>('read_ocr_language_pack_data', { code }),
-  recognizeImageDataUrl: (dataUrl: string, language?: string) =>
-    invoke<string>('recognize_image_data_url', { dataUrl, language: language ?? null }),
-  recognizeImageDataUrlWords: (dataUrl: string, language?: string) =>
-    invoke<NativeOcrResult>('recognize_image_data_url_words', {
-      dataUrl,
-      language: language ?? null,
-    }),
+  recognizeImageDataUrl: (dataUrl: string, language?: string, signal?: AbortSignal) =>
+    invokeMedia<string>(
+      'recognize_image_data_url',
+      { dataUrl, language: language ?? null },
+      signal,
+    ),
+  recognizeImageDataUrlWords: (dataUrl: string, language?: string, signal?: AbortSignal) =>
+    invokeMedia<NativeOcrResult>(
+      'recognize_image_data_url_words',
+      {
+        dataUrl,
+        language: language ?? null,
+      },
+      signal,
+    ),
 
   // Kanban templates
   listKanbanTemplates: (vaultPath?: string | null) =>
@@ -1031,22 +1085,29 @@ export const tauriCommands = {
   serverConnectionStatuses: () => invoke<ServerConnectionStatus[]>('server_connection_statuses'),
   serverHasSavedSession: (serverUrl: string) =>
     invoke<boolean>('server_has_saved_session', { serverUrl }),
-  generateDocumentPreview: (relativePath: string, content: string) =>
-    invoke<string>('generate_document_preview', { relativePath, content }),
+  generateDocumentPreview: (relativePath: string, content: string, signal?: AbortSignal) =>
+    signal
+      ? invokeMedia<string>('generate_document_preview', { relativePath, content }, signal)
+      : invoke<string>('generate_document_preview', { relativePath, content }),
   hostedVaultRequest: <T>(
     serverUrl: string,
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     expectedUserId?: string,
-  ) =>
-    invoke<T>('hosted_vault_request', {
+    signal?: AbortSignal,
+  ) => {
+    const args = {
       serverUrl,
       method,
       path,
       body: body ?? null,
       ...(expectedUserId ? { expectedUserId } : {}),
-    }),
+    };
+    return signal
+      ? invokeMedia<T>('hosted_vault_request', args, signal)
+      : invoke<T>('hosted_vault_request', args);
+  },
   hostedChatOutbox: (
     serverUrl: string,
     vaultId: string,

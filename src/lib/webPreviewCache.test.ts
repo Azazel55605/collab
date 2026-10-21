@@ -38,3 +38,33 @@ it('publishes successful results even while a large prefetch batch is queued', a
   expect(states).toContain('loaded');
   off();
 });
+
+it('releases one hover without cancelling another and clears abandoned loading entries', async () => {
+  let resolve!: (value: { title: string }) => void;
+  let signal!: AbortSignal;
+  fetch.mockImplementation((_url: string, request: AbortSignal) => {
+    signal = request;
+    return new Promise((done) => {
+      resolve = done;
+    });
+  });
+  const left = new AbortController(),
+    right = new AbortController();
+  const a = requestWebPreview('https://leased.test', { signal: left.signal });
+  const cancelled = expect(a).rejects.toMatchObject({ name: 'AbortError' });
+  const b = requestWebPreview('https://leased.test', { signal: right.signal });
+  await Promise.resolve();
+  left.abort();
+  await cancelled;
+  expect(signal.aborted).toBe(false);
+  resolve({ title: 'Shared' });
+  await expect(b).resolves.toMatchObject({ title: 'Shared' });
+  const last = new AbortController();
+  const c = requestWebPreview('https://gone.test', { signal: last.signal });
+  const rejected = expect(c).rejects.toMatchObject({ name: 'AbortError' });
+  await Promise.resolve();
+  last.abort();
+  await rejected;
+  expect(getCachedWebPreview('https://gone.test').status).toBe('idle');
+  expect(signal.aborted).toBe(true);
+});

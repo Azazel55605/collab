@@ -1,32 +1,30 @@
-import { useServerStore } from '../store/serverStore';
-
-import { documentPreviewQueue } from './previewQueue';
+import { previewIdentity } from './previewIdentity';
+import { type PreviewPriority, previewScheduler } from './previewScheduler';
 import { tauriCommands } from './tauri';
 import { HostedVaultClient, LocalVaultClient, type VaultClient } from './vaultClient';
 
-const inFlight = new Map<string, Promise<string>>();
-
 export { supportsDocumentPreview } from './filePreviewType';
-
-/** Share a single load across simultaneous hovers/canvas cards. Completed
- * results live in the version-aware native/server cache, not an unbounded map. */
-export function getDocumentPreviewDataUrl(client: VaultClient, path: string): Promise<string> {
-  const scope =
-    client instanceof HostedVaultClient
-      ? `${client.vault.serverUrl}:${useServerStore.getState().statusFor(client.vault.serverUrl)?.user?.id ?? 'unknown'}:${client.vault.hostedVaultId}`
-      : client.id;
-  const key = `${scope}::${path}`;
-  const existing = inFlight.get(key);
-  if (existing) return existing;
-  const pending = documentPreviewQueue
-    .run(() => load(client, path, scope))
-    .finally(() => inFlight.delete(key));
-  inFlight.set(key, pending);
-  return pending;
+export function getDocumentPreviewDataUrl(
+  client: VaultClient,
+  path: string,
+  options: { signal?: AbortSignal; priority?: PreviewPriority } = {},
+): Promise<string> {
+  const key = previewIdentity(client, path, 'document:v2');
+  return previewScheduler.run(
+    key,
+    async (signal) => {
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const preview = await load(client, path, key, signal);
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      return preview;
+    },
+    options,
+  );
 }
 
-async function load(client: VaultClient, path: string, scope: string) {
-  if (client instanceof HostedVaultClient) return client.readDocumentPreviewDataUrl(path, scope);
+async function load(client: VaultClient, path: string, scope: string, signal?: AbortSignal) {
+  if (client instanceof HostedVaultClient)
+    return client.readDocumentPreviewDataUrl(path, scope, signal);
   const localPath = client instanceof LocalVaultClient ? client.vault.path : null;
   if (localPath) {
     const cached = await tauriCommands
@@ -35,7 +33,7 @@ async function load(client: VaultClient, path: string, scope: string) {
     if (cached) return cached;
   }
   const document = await client.readDocument(path);
-  const preview = await tauriCommands.generateDocumentPreview(path, document.content);
+  const preview = await tauriCommands.generateDocumentPreview(path, document.content, signal);
   if (localPath) {
     await tauriCommands
       .writeCachedDocumentPreviewDataUrl(localPath, path, preview, document.version)

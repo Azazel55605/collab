@@ -10,6 +10,7 @@ Implementation references:
 - [UI Guide](./ui-guide.md)
 - [Startup And Packaged Asset Budgets](./startup-performance.md)
 - [State, Sessions And Navigation Performance](./session-performance.md)
+- [Previews, PDF, Images And OCR Performance](./previews-pdf-images-ocr-performance.md)
 - [Markdown, Math And Graph Performance](./markdown-math-graph-performance.md)
 - [Desktop Performance, Memory And Bug Audit (2026-10-14)](../audits/desktop-performance-and-bugs-2026-10-14.md)
 - [Circuit Simulation Engine](./circuit-engine.md)

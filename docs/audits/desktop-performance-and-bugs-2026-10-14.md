@@ -72,11 +72,12 @@ symptom; no additional persistence change was needed for this follow-up.
       of partial multi-file operations. Native platform acceptance remains open.
 - [x] **R04:** One atomic, encrypted-as-needed preview record contains metadata
       and image bytes, with a complete-record integrity check. Legacy/missing/corrupt
-      entries regenerate; source/renderer checks remain. Native storage QA and disk
-      retention (O44) remain open.
+      entries regenerate; source/renderer checks remain. O44 disk retention is now
+      implemented in Performance Batch 7; installed storage QA remains open.
 - [x] **R05:** Bounded serial OCR queue owns initialization, language transitions,
       per-worker progress and idle termination. Failures release ownership and do not
-      poison later jobs. Native OCR process limits remain O46.
+      poison later jobs. O46 native process limits are now implemented in Performance
+      Batch 7; real-engine soak acceptance remains open.
 - [x] **R06:** Shared desktop/Android formula owners await submitted native work
       before releasing, cancel pending work and isolate workbook/StrictMode lifetimes.
       A mounted workbook retains at most one active and one latest trailing request.
@@ -312,9 +313,9 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-20**: **O01–O36, O39, O47 and O64 are implemented;
-O48 is superseded by R08**. These 40 implementation items are checked off; the
-other **30 entries remain open or partial**. Native release acceptance is tracked
+Checklist reconciled **2026-10-21**: **O01–O47, O49–O51 and O64 are implemented;
+O48 is superseded by R08**. These 52 implementation items are checked off; the
+other **18 entries remain open or partial**. Native release acceptance is tracked
 separately below and in the implementation tracker; checkboxes do not claim
 measured startup/RSS gains or certification on every platform.
 
@@ -374,8 +375,8 @@ and [Performance Batch 3](../plans/desktop-audit-fixes.md) for evidence and limi
       files, repairs same-size corruption atomically and writes integrity metadata.
       Build/CI verifies all four offline assets (about 17.79 MB), outside startup
       JS. Chromium recognized an English fixture with external network blocked;
-      no OCR asset request occurred before recognition. Broad native OCR limits
-      and worker-memory soak remain O46/O70 work.
+      no OCR asset request occurred before recognition. Native OCR limits are now
+      implemented under O46; real-engine worker-memory soak remains O70 work.
 - [x] **O09 / P2 — Add bundle composition and regression budgets.**
       Every desktop build and CI check enforces measured raw/gzip JS, CSS, font,
       worker, OCR and package-byte budgets, required lazy entries, a deferred
@@ -535,100 +536,71 @@ Implemented **2026-10-20**, Performance Batch 6. See
 
 ### Previews, PDF, Images And OCR
 
-- [ ] **O37 / P1 — Replace large asset data URLs over JSON IPC with scoped binary transport.**
-      **Status: Open.**
-      [files.rs](../../src-tauri/src/commands/files.rs), hosted asset commands and
-      [vaultClient](../../src/lib/vaultClient.ts) read/encode whole files; PDF paths
-      decode into another byte array. Use an authenticated vault-scoped stream/
-      protocol or binary buffer bridge with encryption/range policy intact. Measure
-      transfer copies, peak RSS/heap and large-PDF first-page latency.
-- [ ] **O38 / P1 — Share one bounded preview scheduler across every consumer.**
-      **Status: Partial — bounded category queues and revision caches implemented; universal shared-job ownership/priority remains.**
-      [pdfPreview](../../src/lib/pdfPreview.ts), canvas preview rendering and hover
-      previews have separate execution paths. Deduplicate by account/vault/file/revision,
-      prioritize visible work, cap concurrency and cancel obsolete work. Verify no
-      authorization bypass and fair progress across simultaneous grid panes.
-- [x] **O39 / P2 — Reuse the standard PDF preview service in canvas cards.**
-      **Status: Implemented — shared versioned PDF-card pipeline.**
-      [useCanvasPreviews](../../src/components/canvas/useCanvasPreviews.ts) reads a PDF
-      and calls its separate 520px renderer instead of the shared persistent helper.
-      Share versioned preview results with an explicit size variant. Measure repeated
-      hovers/card loads; fix B04/B07 first.
-- [ ] **O40 / P1 — Avoid full-resolution image reads/decodes for tiny hover previews.**
-      **Status: Open.**
-      [FileTreeHoverPreviewPopover](../../src/components/previews/FileTreeHoverPreviewPopover.tsx)
-      reads the original image data URL. Add bounded thumbnail generation/delivery
-      with decoder limits and correct revision/authentication. Measure a 40MP photo
-      hover vs thumbnail; server rendering remains a separate deployment decision.
-- [ ] **O41 / P2 — Make hover cancellation stop work, not just ignore its result.**
-      **Status: Open.**
-      The same component sets `cancelled`, but backend read/render work continues.
-      Reference-count shared jobs and cancel when there are no consumers. Test rapid
-      pointer movement without cancelling a preview still used by another pane.
-- [ ] **O42 / P2 — Give PDF caches byte budgets and a vault/account lifecycle.**
-      **Status: Partial — PDF source cache has entry/byte limits; total decoded/GPU budgets and lifecycle acceptance remain.**
-      [PdfView](../../src/views/PdfView.tsx) has a 12-entry PNG object-URL LRU;
-      [pdfPreview](../../src/lib/pdfPreview.ts) bounds source-string length, not all
-      output/decoded memory. Account for actual resources, clear sensitive entries on
-      close/lock/logout as policy requires, and preserve eviction revocation.
-- [ ] **O43 / P2 — Make the global PDF render queue cancellable and prioritized.**
-      **Status: Open.**
-      [pdfRenderQueue](../../src/views/pdfRenderQueue.ts) serializes jobs in a promise
-      chain. Single execution is useful, but obsolete queued jobs still occupy their
-      closures and delay current pages. Add latest/visibility scheduling and fairness;
-      test repeated zoom/page changes in multiple PDFs.
-- [ ] **O44 / P2 — Bound local preview-cache disk retention.**
-      **Status: Open.**
-      [sidecars.rs](../../src-tauri/src/commands/files/sidecars.rs) stores per-path cache
-      files without a global byte quota/age GC. Add disposable-cache accounting and
-      rename/delete cleanup, preserving encrypted storage. Measure growth across
-      thousands of visited files; never GC authoritative sidecars as thumbnails.
-- [ ] **O45 / P1 — Move image filters/OCR preprocessing off the main thread.**
-      **Status: Open.**
-      [ocr](../../src/lib/ocr.ts) allocates full-size canvases and loops over every RGBA
-      pixel; [ImageView](../../src/views/ImageView.tsx) has full-resolution image edit
-      paths. Use bounded downsampling where valid, workers/tiles and cancellation.
-      Verify OCR accuracy, original export fidelity and pixel/byte ceilings.
-- [ ] **O46 / P1 — Bound native OCR subprocess time and job concurrency.**
-      **Status: Open.**
-      [ocr.rs](../../src-tauri/src/commands/ocr.rs) uses blocking `Command::output()`
-      within spawn_blocking. Add a job semaphore, cancellation, process timeout and
-      bounded output handling. Test hung/huge OCR jobs and navigation away; preserve
-      the existing RAII temp-file/temp-dir cleanup.
-- [x] **O47 / P2 — Serialize/single-flight WASM OCR workers safely.**
-      **Status: Implemented — one worker owns serialized recognition, language changes and progress; at most eight active/queued jobs; idle termination waits for the queue. Native peak-WASM memory/real-engine soak remains acceptance.**
-      [ocr](../../src/lib/ocr.ts) already has a three-minute idle shutdown, but R05's
-      concurrent job/init policy is missing. Use an explicit worker owner/job queue
-      with per-job progress and language transitions. Measure peak WASM memory and
-      idle release; do not just terminate a worker serving another request.
-- [x] **O48 / P2 — Bound and reuse OCR result storage connections.**
-      **Status: Superseded by R08 memory-only retention:** no result-storage
-      connections remain; the in-memory LRU has entry/byte/age limits. The
-      historical evidence and original proposal follow.
-      [ocrCache](../../src/lib/ocrCache.ts) opens/closes IndexedDB for every operation,
-      has a versioned key but no age/size eviction, and retains older-version records.
-      Add bounded GC and a version-change-safe shared connection. Define R08 retention
-      first; test quota errors, upgrade and corrupted entries.
-- [ ] **O49 / P2 — Stream language downloads under a hard size ceiling.**
-      **Status: Open.**
-      [ocr.rs](../../src-tauri/src/commands/ocr.rs), `install_ocr_language_pack`, checks
-      Content-Length but then collects the full body before the actual byte check.
-      Use bounded chunk reads with timeout/cancellation and atomic publish. Test
-      chunked oversized responses and missing headers; network/VPN certificate
-      failures are not evidence of a product regression.
-- [ ] **O50 / P2 — Bound web-preview lifetime and prefetch concurrency.**
-      **Status: Partial — web-preview TTL/LRU and concurrency limits implemented; cancellation/visible priority remain.**
-      [webPreviewCache](../../src/lib/webPreviewCache.ts) retains successful/error
-      entries indefinitely; `prefetchWebPreviews` starts each distinct URL without a
-      shared concurrency budget. Add TTL/LRU, negative-cache retry and cancellation/
-      visible priority. Measure a note with hundreds of links; preserve URL safety.
-- [ ] **O51 / P2 — Bound avatar memory and refresh stale mounted consumers.**
-      **Status: Open.**
-      [userAvatars](../../src/lib/userAvatars.ts) stores data-URL promises by server/user/
-      version. TTL governs a future lookup, not eviction of old keys or automatic
-      refresh of a mounted hook; `clearUserAvatars` has no production caller in this
-      baseline. Add byte/entry eviction, account-aware cleanup and refresh policy.
-      Test profile changes, many senders, logout and absent-avatar caching.
+Implemented **2026-10-21**, Performance Batch 7. See
+[resource limits, validation and native acceptance](../desktop/previews-pdf-images-ocr-performance.md).
+These checkboxes record implementation; installed latency/RSS, physical platform
+and real-engine soak acceptance remain under O70.
+
+- [x] **O37 / P1 — Scoped binary asset transport.** Native `read_vault_asset_bytes`
+      returns raw IPC buffers for desktop PDF/image sources and thumbnail inputs.
+      Local canonical-path/encryption checks and hosted authentication, revision
+      checks, encrypted replicas and connectivity-only fallback remain enforced.
+      The bridge caps each source at 256 MiB; bearer tokens remain native.
+- [x] **O38 / P1 — Shared preview scheduler.** Account/vault/path/revision/variant
+      keys deduplicate tree/link/canvas preview requests. Four active jobs and
+      256 retained jobs, consumer leases, visible priority and background fairness
+      replace independent queues. Text reads participate in admission as well.
+- [x] **O39 / P2 — Standard PDF cards.** Canvas cards retain the shared versioned
+      first-page preview pipeline and persistent-cache reuse.
+- [x] **O40 / P1 — Bounded image thumbnails.** Raster hover/card previews receive
+      native 640×480 PNGs rather than original data URLs. One decoder, 48 MP input,
+      192 MiB decoder allocation limit and EXIF orientation handling; bounded SVG
+      passthrough. Unsupported formats fail without loading full originals as a fallback.
+- [x] **O41 / P2 — Consumer-owned cancellation.** Last-consumer cancellation
+      removes queued closures and aborts native reads/HTTP, PDF loading/raster
+      tasks and worker operations. Other consumers retain their leases. Native
+      synchronous image codecs observe cancellation before/after decode rather
+      than being forcibly interrupted inside the codec.
+- [x] **O42 / P2 — PDF resource budgets and lifecycle.** PDF sources retain their
+      two-entry/64 MiB idle cache, with 30-second idle worker retirement. Viewer
+      page caches charge blob, decoded pixels and text bytes (64 MiB/12 entries);
+      thumbnail cache is 16 MiB/32 entries. Live backing canvases share 48 million
+      pixels, at most six million per page. Offscreen pages release backing stores.
+      Vault/account/lock/disconnect changes clear resources and revoke URLs.
+      PDF.js internal heap is not an exact byte-accounted allocation.
+- [x] **O43 / P2 — Cancellable PDF raster queue.** One bounded 64-job owner
+      drops obsolete queued zoom/page work, aborts active renders and supports
+      visible/background priority with fairness.
+- [x] **O44 / P2 — Disposable disk-cache retention.** Native atomic preview records
+      are subject to a 256 MiB/4,096-record/30-day quota, with orphan cleanup on
+      reads, writes and managed rename/delete/trash. Canonical namespace and
+      symlink checks prevent GC escaping into authoritative sidecars.
+- [x] **O45 / P1 — Image/OCR worker processing.** One worker and eight admitted
+      jobs own filters, rotation/crop/resize and encoding. Previews use two million
+      pixels, OCR preprocessing twelve million, source/export ceiling 48 million.
+      Bounded previews preserve original export dimensions within that ceiling;
+      native/webview pixel fidelity and real OCR accuracy remain acceptance.
+- [x] **O46 / P1 — Bounded native OCR.** Two concurrent subprocesses, fail-fast
+      overload, 60-second timeout, cancellation, bounded input/output reads,
+      temporary-file output monitoring and kill/reap guards replace blocking
+      unbounded output collection. Temp files/directories remain RAII-owned.
+- [x] **O47 / P2 — Serialized WASM OCR ownership.** The existing single worker /
+      eight-job owner remains; cancellation terminates abandoned recognition and
+      never invokes native fallback or publishes a cancelled result.
+- [x] **O48 / P2 — Superseded by R08 memory-only retention.** No OCR result
+      storage connections remain. The bounded memory LRU and privacy cleanup
+      remain authoritative; installed language models are separate resources.
+- [x] **O49 / P2 — Streamed language installation.** One install, actual streamed
+      80 MiB ceiling, request timeout/cancellation, incremental digest and atomic
+      staging/publish. Chunked oversized responses cannot replace a working pack.
+- [x] **O50 / P2 — Bounded web previews and prefetch.** Existing TTL/LRU policy
+      now participates in shared cancellable priority scheduling. Four lazy
+      producers visit at most 512 links per prefetch pass; visible consumers share
+      existing work. Existing URL safety checks remain in the native adapter.
+- [x] **O51 / P2 — Account-aware avatar retention and refresh.** Entry/byte LRU
+      (128/8 MiB), five-minute success/one-minute missing-avatar TTL, focus and
+      mounted expiry refresh, failed-request retry and production invalidation
+      after profile/account/disconnect changes.
 
 ### Structured Editors, History And Export
 
@@ -806,10 +778,10 @@ The review does not recommend undoing work already present:
 
 ## Suggested Delivery Order
 
-The original priority grouping follows. **O01–O36, O39/O47 and O64 are now
+The original priority grouping follows. **O01–O51 and O64 are now
 implemented (O48 superseded)**; use the checkboxes and
 [open development work](../plans/open-development-work.md) for current scope.
-The next category is **Previews, PDF, Images And OCR (O37–O41)**; O39 is already implemented.
+The next category is **Structured Editors, History And Export (O52–O63)**.
 
 1. **Correctness first:** B01 autosave/session ownership; B02 Unicode; B06 staging
    collisions; B04 PDF lifetimes; B03/B05 stale requests/listeners. Validate the

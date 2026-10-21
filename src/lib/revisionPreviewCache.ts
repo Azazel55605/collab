@@ -1,3 +1,5 @@
+import { registerMediaCleanup } from './mediaLifecycle';
+
 interface Preview {
   hash: string;
   renderer: number;
@@ -26,3 +28,8 @@ export function rememberRevisionPreview(key: string, preview: Preview): void {
     entries.delete(oldest);
   }
 }
+
+registerMediaCleanup(() => {
+  entries.clear();
+  bytes = 0;
+});

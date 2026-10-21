@@ -121,6 +121,86 @@ pub(super) fn document_preview_cache_relative_path(relative_path: &str) -> Strin
     format!(".collab/previews/documents/{encoded}.entry")
 }
 
+fn maybe_gc_preview_cache(vault: &str) {
+    static LAST: std::sync::LazyLock<
+        parking_lot::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashMap::new()));
+    let mut last = LAST.lock();
+    if last
+        .get(vault)
+        .is_some_and(|at| at.elapsed().as_secs() < 60)
+    {
+        return;
+    }
+    if last.len() >= 16 {
+        last.clear();
+    }
+    last.insert(vault.into(), std::time::Instant::now());
+    drop(last);
+    gc_preview_cache(vault);
+}
+const PREVIEW_DISK_BYTES: u64 = 256 * 1024 * 1024;
+const PREVIEW_DISK_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+/// Only disposable records under this exact namespace are collected, never annotations/history.
+pub(super) fn gc_preview_cache(vault_path: &str) {
+    let root = Path::new(vault_path);
+    let directory = root.join(".collab/previews/documents");
+    let Ok(root_canonical) = root.canonicalize() else {
+        return;
+    };
+    if directory.canonicalize().ok().as_ref()
+        != Some(&root_canonical.join(".collab/previews/documents"))
+    {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        return;
+    };
+    let mut records = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_file()
+            || !matches!(
+                path.extension().and_then(|value| value.to_str()),
+                Some("entry" | "json" | "bin")
+            )
+        {
+            continue;
+        }
+        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let source = path
+            .file_stem()
+            .and_then(|stem| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(stem.to_string_lossy().as_bytes())
+                    .ok()
+            })
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .and_then(|relative| resolve_vault_path(vault_path, &relative).ok());
+        if source.is_none_or(|source| !source.is_file())
+            || modified.elapsed().is_ok_and(|age| age > PREVIEW_DISK_AGE)
+        {
+            let _ = std::fs::remove_file(path);
+            continue;
+        }
+        records.push((modified, path, metadata.len()));
+    }
+    let mut bytes = records.iter().map(|record| record.2).sum::<u64>();
+    records.sort_by_key(|record| record.0);
+    let count = records.len();
+    for (index, (_, path, size)) in records.into_iter().enumerate() {
+        if bytes <= PREVIEW_DISK_BYTES && count - index <= 4096 {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            bytes = bytes.saturating_sub(size);
+        }
+    }
+}
+
 const PREVIEW_RECORD_MAGIC: &[u8; 8] = b"CLBPRV01";
 const MAX_PREVIEW_METADATA_BYTES: usize = 16 * 1024;
 
@@ -167,6 +247,9 @@ fn read_preview_record(
     if !source_path.exists() {
         return Ok(None);
     }
+    if std::fs::metadata(cache_path).is_ok_and(|metadata| metadata.len() > 10 * 1024 * 1024) {
+        return Ok(None);
+    }
     let source_state = read_source_file_cache_state(source_path)?;
     // A disposable cache must not prevent regeneration after corruption/failed publication.
     let Ok(bytes) = read_vault_bytes(cache_path, key_opt) else {
@@ -195,6 +278,9 @@ fn write_preview_record(
     expected_hash: Option<&str>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<(), String> {
+    if data_url.len() > 8 * 1024 * 1024 {
+        return Err("Preview exceeds its 8 MiB record limit".into());
+    }
     let (mime, encoded) = parse_data_url(data_url)?;
     let preview_bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
@@ -296,47 +382,132 @@ pub fn write_pdf_sidecar_state(
 }
 
 #[tauri::command]
-pub fn read_cached_document_preview_data_url(
+pub async fn read_cached_document_preview_data_url(
     vault_path: String,
     relative_path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    let source_path = resolve_vault_path(&vault_path, &relative_path)?;
-    let cache_path = resolve_vault_path(
-        &vault_path,
-        &document_preview_cache_relative_path(&relative_path),
-    )?;
     let key_opt = *state.encryption_key.read();
-    read_preview_record(&source_path, &cache_path, key_opt)
+    super::super::vault_jobs::run(move || {
+        maybe_gc_preview_cache(&vault_path);
+        let source_path = resolve_vault_path(&vault_path, &relative_path)?;
+        let cache_path = resolve_vault_path(
+            &vault_path,
+            &document_preview_cache_relative_path(&relative_path),
+        )?;
+        read_preview_record(&source_path, &cache_path, key_opt)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn write_cached_document_preview_data_url(
+pub async fn write_cached_document_preview_data_url(
     vault_path: String,
     relative_path: String,
     data_url: String,
     expected_hash: Option<String>,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
-    let source_path = resolve_vault_path(&vault_path, &relative_path)?;
-    let cache_path = resolve_vault_path(
-        &vault_path,
-        &document_preview_cache_relative_path(&relative_path),
-    )?;
     let key_opt = *state.encryption_key.read();
-    write_preview_record(
-        &source_path,
-        &cache_path,
-        &data_url,
-        expected_hash.as_deref(),
-        key_opt,
-    )
+    super::super::vault_jobs::run(move || {
+        let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
+        let source_path = resolve_vault_path(&vault_path, &relative_path)?;
+        let cache_path = resolve_vault_path(
+            &vault_path,
+            &document_preview_cache_relative_path(&relative_path),
+        )?;
+        write_preview_record(
+            &source_path,
+            &cache_path,
+            &data_url,
+            expected_hash.as_deref(),
+            key_opt,
+        )?;
+        gc_preview_cache(&vault_path);
+        Ok(())
+    })
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_gc_enforces_bytes_without_touching_source_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(".collab/previews/documents");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["one.pdf", "two.pdf"] {
+            std::fs::write(root.path().join(name), b"source").unwrap();
+            let cache = dir.join(format!(
+                "{}.entry",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(name)
+            ));
+            std::fs::File::create(cache)
+                .unwrap()
+                .set_len(160 * 1024 * 1024)
+                .unwrap();
+        }
+        gc_preview_cache(root.path().to_str().unwrap());
+        let bytes = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.metadata().unwrap().len())
+            .sum::<u64>();
+        assert!(bytes <= PREVIEW_DISK_BYTES);
+        assert_eq!(
+            std::fs::read(root.path().join("one.pdf")).unwrap(),
+            b"source"
+        );
+    }
+
+    #[test]
+    fn preview_gc_only_removes_disposable_orphans_and_enforces_count() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(".collab/previews/documents");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(root.path().join(".collab/pdf")).unwrap();
+        std::fs::write(root.path().join(".collab/pdf/authoritative.json"), b"keep").unwrap();
+        let live = dir.join(format!(
+            "{}.entry",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("live.pdf")
+        ));
+        std::fs::write(root.path().join("live.pdf"), b"pdf").unwrap();
+        std::fs::write(&live, b"opaque encrypted preview").unwrap();
+        let orphan = dir.join(format!(
+            "{}.entry",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("deleted.pdf")
+        ));
+        std::fs::write(&orphan, b"old").unwrap();
+        gc_preview_cache(root.path().to_str().unwrap());
+        assert!(live.exists());
+        assert!(!orphan.exists());
+        assert!(root.path().join(".collab/pdf/authoritative.json").exists());
+        std::fs::rename(
+            root.path().join("live.pdf"),
+            root.path().join("renamed.pdf"),
+        )
+        .unwrap();
+        gc_preview_cache(root.path().to_str().unwrap());
+        assert!(!live.exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn preview_gc_never_follows_a_symlinked_namespace() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".collab/previews")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path(),
+            root.path().join(".collab/previews/documents"),
+        )
+        .unwrap();
+        let file = outside.path().join("unsafe.entry");
+        std::fs::write(&file, b"keep").unwrap();
+        gc_preview_cache(root.path().to_str().unwrap());
+        assert!(file.exists());
+    }
 
     #[test]
     fn sidecar_paths_are_deterministic_and_do_not_embed_source_paths() {
@@ -530,10 +701,25 @@ mod tests {
 }
 
 #[tauri::command]
-pub fn generate_document_preview(relative_path: String, content: String) -> Result<String, String> {
-    let svg = collab_documents::preview::render(&relative_path, content.as_bytes())?;
-    Ok(format!(
-        "data:image/svg+xml;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(svg)
-    ))
+pub async fn generate_document_preview(
+    relative_path: String,
+    content: String,
+    request_id: Option<String>,
+) -> Result<String, String> {
+    let job = super::super::media_jobs::MediaJob::start(
+        request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+    )?;
+    if content.len() > 8 * 1024 * 1024 {
+        return Err("Document exceeds preview input budget".into());
+    }
+    super::super::vault_jobs::run(move || {
+        job.check()?;
+        let svg = collab_documents::preview::render(&relative_path, content.as_bytes())?;
+        job.check()?;
+        Ok(format!(
+            "data:image/svg+xml;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(svg)
+        ))
+    })
+    .await
 }

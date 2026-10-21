@@ -117,7 +117,7 @@ fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
     })
 }
 
-fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+pub(super) fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, String> {
     Ok(Path::new(vault_path).join(normalize_relative_path(relative_path)?))
 }
 
@@ -209,7 +209,10 @@ fn write_vault_bytes(
         .map_err(|e| e.to_string())
 }
 
-fn read_vault_bytes(full_path: &Path, key_opt: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
+pub(super) fn read_vault_bytes(
+    full_path: &Path,
+    key_opt: Option<[u8; 32]>,
+) -> Result<Vec<u8>, String> {
     let raw = std::fs::read(full_path).map_err(|e| e.to_string())?;
     if crypto::is_encrypted_data(&raw) {
         let key = key_opt
@@ -2917,7 +2920,9 @@ pub fn delete_note(
         &relative_path,
         remove_references.unwrap_or(false),
         key_opt,
-    )
+    )?;
+    sidecars::gc_preview_cache(&vault_path);
+    Ok(())
 }
 
 fn delete_note_inner(
@@ -2967,14 +2972,16 @@ pub fn move_note_to_trash(
 ) -> Result<TrashEntry, String> {
     let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
-    move_path_to_trash(
+    let entry = move_path_to_trash(
         &vault_path,
         &relative_path,
         deleted_by_user_id,
         deleted_by_user_name,
         remove_references.unwrap_or(false),
         key_opt,
-    )
+    )?;
+    sidecars::gc_preview_cache(&vault_path);
+    Ok(entry)
 }
 
 #[tauri::command]
@@ -3059,7 +3066,9 @@ pub fn rename_note(
         &new_path,
         update_references.unwrap_or(true),
         key_opt,
-    )
+    )?;
+    sidecars::gc_preview_cache(&vault_path);
+    Ok(())
 }
 
 fn rename_note_inner(
