@@ -56,6 +56,24 @@ patched, the patch and a regression test must be committed alongside it.
 There are currently no Rust advisory ignores. The RSA dependency was removed
 from the resolved graph by the SQLx upgrade described below.
 
+## TLS verification advisories resolved in PR #108 (2026-10-21)
+
+The refreshed CI database found three vulnerabilities missed by the earlier
+local scan against a cached database:
+
+| Advisory                                                                                                                                     | Affected lockfile release | Patched release now locked |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------- |
+| [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382) — certificate verification may accept distrusted intermediates         | `rustls-webpki` 0.103.15  | **0.103.16**               |
+| [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381) — bundled roots permit trust in distrusted emSign intermediates        | `webpki-roots` 1.0.6      | **1.0.10**                 |
+| [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383) — bundled certificates permit trust in distrusted emSign intermediates | `webpki-root-certs` 1.0.6 | **1.0.10**                 |
+
+These are compatible lockfile updates within the existing parents' dependency
+ranges. No TLS verification is disabled, and no advisory ignore is added. The
+existing explicit per-server invalid-certificate option is unchanged. Rebuild
+native desktop/Android and server artifacts to consume the fixed dependencies.
+Validation uses a freshly fetched RustSec database; a cached `--no-fetch` scan is
+not evidence that the latest published advisories are absent.
+
 ## ZIP extraction vulnerabilities resolved in the 2026-10-19 PR #96 follow-up
 
 The refreshed PR scan found three vulnerabilities in `zip` 4.6.1:
@@ -257,4 +275,4 @@ shipped, and delete the corresponding entry here. Also re-scan the non-failing
 warnings for newly available upgrades (e.g. a maintained fork or a Tauri release
 that moves off GTK3 / old `phf`).
 
-_Last reviewed: 2026-10-19._
+_Last reviewed: 2026-10-21._

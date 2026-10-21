@@ -117,9 +117,11 @@ End-of-batch validation:
 - Desktop production build and packaged asset budgets, all frontend type checks,
   formatting, lint (zero errors; existing warnings), crate boundaries and version
   alignment pass. Rust formatting/workspace check pass.
-- Local `cargo audit --no-fetch` reports no denied advisories and six existing
-  allowed warnings. This uses the installed advisory database rather than
-  certifying a fresh online vulnerability feed.
+- The initial cached `cargo audit --no-fetch` missed three newly published TLS
+  advisories subsequently found by CI. The PR follow-up upgrades `rustls-webpki`
+  to 0.103.16 and both root packages to 1.0.10; the refreshed audit reports no
+  denied advisories and six existing allowed warnings. See
+  [advisory remediation](../build/security-advisories.md).
 
 Rendered integration uses the real shared React hover component, PDF.js and
 image-processing worker with synthetic native IPC. No browser plugin was

@@ -1285,3 +1285,10 @@ unrelated generated `dist-mobile/index.html` remains unstaged; Android frontend
 build output is directed to a temporary directory.
 
 Next: **Structured Editors, History And Export (O52–O63)**.
+
+### Performance Batch 7 Security Follow-Up
+
+- [x] PR #108's refreshed CI scan found RUSTSEC-2026-0381/0382/0383 in TLS
+      dependencies. Upgrade `rustls-webpki` to 0.103.16 and `webpki-roots` /
+      `webpki-root-certs` to 1.0.10 without adding ignores or weakening verification.
+      See [tracking and validation](../build/security-advisories.md).
