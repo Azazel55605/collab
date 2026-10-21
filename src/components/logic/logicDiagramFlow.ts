@@ -143,7 +143,7 @@ function toFlowNode(node: LogicDiagramNode, parent?: LogicDiagramNode): LogicFlo
   };
 }
 
-function fromFlowNode(node: LogicFlowNode, parent?: LogicFlowNode): LogicDiagramNode {
+function convertFlowNode(node: LogicFlowNode, parent?: LogicFlowNode): LogicDiagramNode {
   return {
     id: node.id,
     kind: node.data.kind,
@@ -180,7 +180,7 @@ export function toFlowEdge(wire: LogicDiagramWire): LogicFlowEdge {
   };
 }
 
-export function fromFlowEdge(edge: LogicFlowEdge): LogicDiagramWire {
+function convertFlowEdge(edge: LogicFlowEdge): LogicDiagramWire {
   return {
     id: edge.id,
     source: edge.source,
@@ -227,4 +227,25 @@ export function fromFlowGraph(
 
 function numericStyleValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+const nodeConversions = new WeakMap<
+  LogicFlowNode,
+  { parent: LogicFlowNode | undefined; value: LogicDiagramNode }
+>();
+function fromFlowNode(node: LogicFlowNode, parent?: LogicFlowNode): LogicDiagramNode {
+  const hit = nodeConversions.get(node);
+  if (hit && hit.parent === parent) return hit.value;
+  const value = convertFlowNode(node, parent);
+  nodeConversions.set(node, { parent, value });
+  return value;
+}
+const edgeConversions = new WeakMap<LogicFlowEdge, LogicDiagramWire>();
+export function fromFlowEdge(edge: LogicFlowEdge): LogicDiagramWire {
+  let value = edgeConversions.get(edge);
+  if (!value) {
+    value = convertFlowEdge(edge);
+    edgeConversions.set(edge, value);
+  }
+  return value;
 }

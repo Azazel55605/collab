@@ -125,3 +125,12 @@ describe('sheet conditional formatting', () => {
     expect(copy.conditionalFormats?.[0].ranges[0].startRowId).toBe(copy.rowOrder[0]);
   });
 });
+
+it('reuses aggregate rule preparation across viewport paints and invalidates changed values', () => {
+  const document = fixture();
+  const worksheet = activeWorksheet(document);
+  const first = createConditionalFormatEvaluator(document.styles, worksheet);
+  expect(createConditionalFormatEvaluator(document.styles, worksheet)).toBe(first);
+  const changed = { ...worksheet, cells: { ...worksheet.cells } };
+  expect(createConditionalFormatEvaluator(document.styles, changed)).not.toBe(first);
+});

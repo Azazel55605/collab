@@ -1292,3 +1292,33 @@ Next: **Structured Editors, History And Export (O52–O63)**.
       dependencies. Upgrade `rustls-webpki` to 0.103.16 and `webpki-roots` /
       `webpki-root-certs` to 1.0.10 without adding ignores or weakening verification.
       See [tracking and validation](../build/security-advisories.md).
+
+## Performance Batch 8 — Structured Editors, History And Export
+
+Implemented **2026-10-21**, completing **O52–O63**. See
+[implementation, limits and validation](../desktop/structured-editors-history-export-performance.md).
+
+- [x] O52: coalesced immutable-root serialization and exact save/remote/leave barriers.
+- [x] O53–O55: revision/delta formula inputs/results, short registry locking,
+      independent runtime owners, native cancellation, global admission and explicit
+      manual/visible periodic volatile recalculation.
+- [x] O56: byte-estimated shared-object undo/redo retention and remote boundaries.
+- [x] O57–O58: cached structural indexes, bulk replacement, retained conditional
+      format aggregates and prefix-offset overlays around existing virtualization.
+- [x] O59–O60: bounded nearby canvas payloads, retired node references, stable
+      semantic graph projections, gesture checkpoints and incremental geometry.
+- [x] O61: affected-object ink spatial/tile updates with conservative fallback.
+- [x] O62: shared demand-driven deck thumbnails with independent leases; original
+      media remains available to budgeted export/print preparation.
+- [x] O63: transferable worker inputs/results, bounded export admission and atomic
+      raw binary native publication under the existing path mutation protocol.
+- [ ] O70 acceptance: installed process/GPU memory, large-file latency, real
+      multi-client gesture/undo/conflict and encrypted/hosted export/asset behavior;
+      physical platform testing remains separate from browser and unit coverage.
+
+Verification is recorded in the linked reference. Suites run after implementation;
+only checks affected by corrections are repeated. Existing generated
+`dist-mobile/index.html` changes remain unstaged. Android frontend output uses a
+temporary directory.
+
+Next: **Native Storage, Collaboration, Calendar And Background Work (O65–O70)**.

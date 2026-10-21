@@ -1144,7 +1144,8 @@ export default function InkView({ relativePath }: InkViewProps) {
         const result = await runInkExport(options);
         const destination = await tauriCommands.showDownloadDialog(result.fileName);
         if (!destination) return;
-        await tauriCommands.writeDownloadedFile(destination, result.contentBase64);
+        if (result.bytes) await tauriCommands.writeDownloadedBytes(destination, result.bytes);
+        else await tauriCommands.writeDownloadedFile(destination, result.contentBase64);
         setExportOpen(false);
         const report = describeInkExportReport(result.report);
         if (report) toast.warning(`Drawing exported with ${report}.`);
@@ -1183,7 +1184,13 @@ export default function InkView({ relativePath }: InkViewProps) {
         );
         await vaultClient.createFolder('Pictures').catch(() => undefined);
         const exportedPath = stableInkEmbedPath(relativePath, page);
-        await writeInkSvgExport(vaultClient, exportedPath, base64ToUtf8(result.contentBase64));
+        await writeInkSvgExport(
+          vaultClient,
+          exportedPath,
+          result.bytes
+            ? new TextDecoder().decode(result.bytes)
+            : base64ToUtf8(result.contentBase64),
+        );
         await refreshFileTree();
 
         const note = await vaultClient.readDocument(noteTarget.relativePath);

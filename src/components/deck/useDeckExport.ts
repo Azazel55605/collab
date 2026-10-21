@@ -31,8 +31,10 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function utf8ToBase64(text: string): string {
-  return bytesToBase64(new TextEncoder().encode(text));
+function writeExportBytes(path: string, bytes: Uint8Array) {
+  return tauriCommands.writeDownloadedBytes
+    ? tauriCommands.writeDownloadedBytes(path, bytes)
+    : tauriCommands.writeDownloadedFile(path, bytesToBase64(bytes));
 }
 
 function safeFileName(value: string): string {
@@ -95,6 +97,7 @@ interface UseDeckExportOptions {
   measurer: DeckTextMeasurer;
   resolveAsset: (asset: DeckAssetRef) => string | null;
   runtime?: DeckExportRuntime;
+  loadAsset?: (asset: DeckAssetRef) => Promise<string>;
 }
 
 /**
@@ -105,9 +108,15 @@ export function useDeckExport({
   document,
   title,
   measurer,
-  resolveAsset,
+  resolveAsset: resolveVisibleAsset,
   runtime,
+  loadAsset,
 }: UseDeckExportOptions) {
+  const exportAssets = useRef<ReadonlyMap<string, string> | null>(null);
+  const resolveAsset = useCallback(
+    (asset: DeckAssetRef) => exportAssets.current?.get(asset.path) ?? resolveVisibleAsset(asset),
+    [resolveVisibleAsset],
+  );
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const [printPages, setPrintPages] = useState<DeckOutputPage[] | null>(null);
   const [pptxOutcome, setPptxOutcome] = useState<DeckPptxExportOutcome | null>(null);
@@ -145,6 +154,27 @@ export function useDeckExport({
       if (!document) return false;
       cancelled.current = false;
       try {
+        if (loadAsset) {
+          const assets = new Map<string, string>();
+          let bytes = 0;
+          // Export owns full originals independently of the visible/thumbnail cache.
+          for (const ref of collectDeckAssetRefs(document)) {
+            if (cancelled.current) throw new DeckExportCancelledError();
+            let data: string;
+            try {
+              data = await loadAsset(ref);
+            } catch {
+              continue;
+            }
+            bytes += data.length * 2;
+            if (bytes > 128 * 1024 * 1024)
+              throw new Error(
+                'Presentation export assets exceed the 128 MiB memory budget. Export fewer slides.',
+              );
+            assets.set(ref.path, data);
+          }
+          exportAssets.current = assets;
+        }
         if (request.format === 'pptx') {
           const fileName = `${safeFileName(title)}.pptx`;
           const destination = await tauriCommands.showExportDialog(fileName, {
@@ -193,7 +223,7 @@ export function useDeckExport({
             : await defaultPptxJob(pptxRequest, onPptxProgress);
           pptxJob.current = job;
           const result = await job.promise;
-          await tauriCommands.writeDownloadedFile(destination, bytesToBase64(result.bytes));
+          await writeExportBytes(destination, result.bytes);
           setPptxOutcome({
             report: result.report,
             fileName: destination.split(/[\\/]/).pop() ?? fileName,
@@ -216,7 +246,7 @@ export function useDeckExport({
             onProgress: (completed, total) => setProgress({ completed, total }),
           });
           const pdf = buildDeckPdf(rendered, { title });
-          await tauriCommands.writeDownloadedFile(destination, bytesToBase64(pdf));
+          await writeExportBytes(destination, pdf);
           toast.success(
             `Exported ${pages.length} ${pages.length === 1 ? 'page' : 'pages'} to PDF.`,
           );
@@ -230,15 +260,15 @@ export function useDeckExport({
         const extension = request.format;
         const fileFor = (slideId: string) =>
           `${safeFileName(title)} - slide ${document.slideOrder.indexOf(slideId) + 1}.${extension}`;
-        const render = async (slideId: string): Promise<string> => {
+        const render = async (slideId: string): Promise<Uint8Array> => {
           const image = slideSvgDocument(document, slideId, {
             measurer,
             resolveAsset,
             scale: request.format === 'png' ? request.scale : 1,
           });
-          if (request.format === 'svg') return utf8ToBase64(image.svg);
+          if (request.format === 'svg') return new TextEncoder().encode(image.svg);
           const rasterize = runtime?.rasterizePng ?? pngRasterizer;
-          return bytesToBase64(await rasterize(image.svg, image.pixelWidth, image.pixelHeight));
+          return rasterize(image.svg, image.pixelWidth, image.pixelHeight);
         };
         const filter =
           request.format === 'png'
@@ -248,7 +278,7 @@ export function useDeckExport({
         if (slideIds.length === 1) {
           const destination = await tauriCommands.showExportDialog(fileFor(slideIds[0]), filter);
           if (!destination) return false;
-          await tauriCommands.writeDownloadedFile(destination, await render(slideIds[0]));
+          await writeExportBytes(destination, await render(slideIds[0]));
           toast.success('Slide exported.');
           return true;
         }
@@ -258,7 +288,7 @@ export function useDeckExport({
         setProgress({ completed: 0, total: slideIds.length });
         for (const [index, slideId] of slideIds.entries()) {
           if (cancelled.current) throw new DeckExportCancelledError();
-          await tauriCommands.writeDownloadedFile(
+          await writeExportBytes(
             `${folder.replace(/[\\/]+$/, '')}${separator}${fileFor(slideId)}`,
             await render(slideId),
           );
@@ -276,24 +306,49 @@ export function useDeckExport({
         );
         return false;
       } finally {
+        exportAssets.current = null;
         pptxJob.current = null;
         setProgress(null);
       }
     },
-    [document, measurer, pagesFor, resolveAsset, runtime, slideIdsFor, title],
+    [document, measurer, pagesFor, resolveAsset, runtime, loadAsset, slideIdsFor, title],
   );
 
   const printDeck = useCallback(
-    (request: DeckExportRequest): boolean => {
-      const pages = pagesFor(request);
-      if (pages.length === 0) {
-        toast.error('There are no slides to print.');
+    async (request: DeckExportRequest): Promise<boolean> => {
+      try {
+        if (document && loadAsset) {
+          const assets = new Map<string, string>();
+          let bytes = 0;
+          for (const ref of collectDeckAssetRefs(document)) {
+            let data: string;
+            try {
+              data = await loadAsset(ref);
+            } catch {
+              continue;
+            }
+            bytes += data.length * 2;
+            if (bytes > 128 * 1024 * 1024)
+              throw new Error('Print assets exceed the 128 MiB budget');
+            assets.set(ref.path, data);
+          }
+          exportAssets.current = assets;
+        }
+        const pages = pagesFor(request);
+        if (pages.length === 0) {
+          toast.error('There are no slides to print.');
+          return false;
+        }
+        setPrintPages(pages);
+        return true;
+      } catch (error) {
+        toast.error(`Printing failed: ${String(error)}`);
         return false;
+      } finally {
+        exportAssets.current = null;
       }
-      setPrintPages(pages);
-      return true;
     },
-    [pagesFor],
+    [document, loadAsset, pagesFor],
   );
 
   const finishPrint = useCallback(() => setPrintPages(null), []);

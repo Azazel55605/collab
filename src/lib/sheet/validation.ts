@@ -8,6 +8,7 @@ import type {
 } from '../../types/sheet';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 
+import { sheetAddressIndex } from './address';
 import type { SheetPosition } from './address';
 import { createSheetValidationId, SheetDocumentError } from './document';
 import { ruleFormulaValue, validationFormulaExpressionId } from './formulaRules';
@@ -146,10 +147,10 @@ function pruneUnusedValidations(document: SheetDocument, worksheetId: string): S
 }
 
 function valuesInRange(worksheet: SheetWorksheet, range: SheetRange): string[] {
-  const top = worksheet.rowOrder.indexOf(range.startRowId);
-  const bottom = worksheet.rowOrder.indexOf(range.endRowId);
-  const left = worksheet.columnOrder.indexOf(range.startColumnId);
-  const right = worksheet.columnOrder.indexOf(range.endColumnId);
+  const top = sheetAddressIndex(worksheet).rowIndexOf(range.startRowId) ?? -1;
+  const bottom = sheetAddressIndex(worksheet).rowIndexOf(range.endRowId) ?? -1;
+  const left = sheetAddressIndex(worksheet).columnIndexOf(range.startColumnId) ?? -1;
+  const right = sheetAddressIndex(worksheet).columnIndexOf(range.endColumnId) ?? -1;
   if (top < 0 || bottom < 0 || left < 0 || right < 0) return [];
   const values: string[] = [];
   for (let row = Math.min(top, bottom); row <= Math.max(top, bottom); row += 1) {
@@ -273,8 +274,8 @@ export function countSheetValidationIssues(
     if (!validation) continue;
     const [rowId, columnId] = key.split(':');
     const position = {
-      row: worksheet.rowOrder.indexOf(rowId),
-      column: worksheet.columnOrder.indexOf(columnId),
+      row: sheetAddressIndex(worksheet).rowIndexOf(rowId) ?? -1,
+      column: sheetAddressIndex(worksheet).columnIndexOf(columnId) ?? -1,
     };
     if (position.row < 0 || position.column < 0) continue;
     const result = validateCellAgainstValidation(

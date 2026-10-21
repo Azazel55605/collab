@@ -322,14 +322,26 @@ export async function invokeMedia<T>(
 }
 
 export const tauriCommands = {
+  writeDownloadedBytes: (destinationPath: string, bytes: Uint8Array) => {
+    if (bytes.byteLength > 256 * 1024 * 1024)
+      return Promise.reject(new Error('Export exceeds its 256 MiB output budget'));
+    const pathBytes = new TextEncoder().encode(destinationPath);
+    let binary = '';
+    for (const byte of pathBytes) binary += String.fromCharCode(byte);
+    return invoke<void>('write_downloaded_bytes', bytes, {
+      headers: { 'x-collab-destination': btoa(binary) },
+    });
+  },
+
   readVaultAssetBytes: async (
     source: NativeAssetSource,
     thumbnailOnly = false,
     signal?: AbortSignal,
+    thumbnailMaxDimension?: number,
   ) => {
     const buffer = await invokeMedia<ArrayBuffer | number[]>(
       'read_vault_asset_bytes',
-      { source, thumbnailOnly },
+      { source, thumbnailOnly, ...(thumbnailMaxDimension ? { thumbnailMaxDimension } : {}) },
       signal,
     );
     return new Uint8Array(buffer);
@@ -996,8 +1008,8 @@ export const tauriCommands = {
   circuitDiscardJob: (jobId: string) => invoke<void>('circuit_discard_job', { jobId }),
 
   // Bounded incremental `.sheet` formula evaluation
-  sheetFormulaEvaluate: (request: SheetFormulaEvaluationRequest) =>
-    invoke<SheetFormulaEvaluationResponse>('sheet_formula_evaluate', { request }),
+  sheetFormulaEvaluate: (request: SheetFormulaEvaluationRequest, signal?: AbortSignal) =>
+    invokeMedia<SheetFormulaEvaluationResponse>('sheet_formula_evaluate', { request }, signal),
   sheetFormulaRelease: (runtimeId: string) => invoke<void>('sheet_formula_release', { runtimeId }),
   /**
    * Converts an external `.xlsx`/`.csv` file into a new `.sheet` document.

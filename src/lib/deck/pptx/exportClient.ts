@@ -1,4 +1,5 @@
 import type { DeckDocument } from '../../../types/deck';
+import { admitExport, packExport } from '../../exportTransport';
 import { DeckExportCancelledError } from '../exportPdf';
 
 import type { DeckPptxExportResult } from './exportDeckToPptx';
@@ -25,7 +26,19 @@ export function startPptxExport(
   request: DeckPptxExportRequest,
   onProgress: (completed: number, total: number) => void,
 ): DeckPptxExportJob {
-  const worker = new Worker(new URL('./exportWorker.ts', import.meta.url), { type: 'module' });
+  let release: () => void;
+  try {
+    release = admitExport();
+  } catch (error) {
+    return { promise: Promise.reject(error), cancel() {} };
+  }
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL('./exportWorker.ts', import.meta.url), { type: 'module' });
+  } catch (error) {
+    release();
+    return { promise: Promise.reject(error), cancel() {} };
+  }
   let settled = false;
   let rejectPromise: (reason: Error) => void = () => undefined;
   const promise = new Promise<DeckPptxExportResult>((resolve, reject) => {
@@ -39,6 +52,7 @@ export function startPptxExport(
       }
       settled = true;
       worker.terminate();
+      release();
       if (message.type === 'complete') resolve(message.result);
       else reject(new Error(message.message));
     });
@@ -46,10 +60,31 @@ export function startPptxExport(
       if (settled) return;
       settled = true;
       worker.terminate();
+      release();
       reject(new Error(event.message || 'The PowerPoint export worker failed.'));
     });
-    const message: DeckPptxWorkerInbound = { type: 'run', ...request };
-    worker.postMessage(message);
+    try {
+      const { assets, svgFallbacks, ...metadata } = request;
+      const combined = {
+        ...Object.fromEntries(
+          Object.entries(assets).map(([key, value]) => [`asset:${key}`, value]),
+        ),
+        ...Object.fromEntries(
+          Object.entries(svgFallbacks).map(([key, value]) => [`fallback:${key}`, value]),
+        ),
+      };
+      const packet = packExport(metadata, combined);
+      const message: DeckPptxWorkerInbound = {
+        type: 'run',
+        packet: { json: packet.json, assets: packet.assets },
+      };
+      worker.postMessage(message, packet.transfers);
+    } catch (error) {
+      settled = true;
+      worker.terminate();
+      release();
+      reject(error);
+    }
   });
   return {
     promise,
@@ -57,6 +92,7 @@ export function startPptxExport(
       if (settled) return;
       settled = true;
       worker.terminate();
+      release();
       rejectPromise(new DeckExportCancelledError());
     },
   };

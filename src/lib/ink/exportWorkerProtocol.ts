@@ -1,8 +1,10 @@
+import type { ExportPacket } from '../exportTransport';
+
 import type { InkExportResult } from './export';
-import type { InkExportProgress, InkExportRuntimeRequest } from './exportRuntime';
+import type { InkExportProgress } from './exportRuntime';
 
 export type InkExportWorkerInbound =
-  | { type: 'run'; jobId: string; request: InkExportRuntimeRequest }
+  | { type: 'run'; jobId: string; packet: Omit<ExportPacket, 'transfers'> }
   | { type: 'cancel'; jobId: string };
 
 export type InkExportWorkerOutbound =

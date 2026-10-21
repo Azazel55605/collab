@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, LazyLock,
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -49,6 +52,14 @@ pub struct SheetFormulaEvaluationRequest {
     pub cells: Vec<SheetFormulaCellInput>,
     pub evaluation_time: String,
     pub time_zone: String,
+    #[serde(default)]
+    pub revision: Option<u64>,
+    #[serde(default)]
+    pub base_revision: Option<u64>,
+    #[serde(default)]
+    pub full_seed: Option<bool>,
+    #[serde(default)]
+    pub removed_cells: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -70,12 +81,16 @@ pub struct SheetFormulaComputedCell {
     pub value: SheetFormulaComputedValue,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetFormulaEvaluationResponse {
     pub cells: Vec<SheetFormulaComputedCell>,
     pub recalculated: usize,
     pub incremental: bool,
+    pub revision: Option<u64>,
+    pub full_result: bool,
+    pub reset_required: bool,
+    pub removed_cells: Vec<String>,
 }
 
 struct SheetRuntime {
@@ -84,69 +99,187 @@ struct SheetRuntime {
     cells: HashMap<String, SheetFormulaCellInput>,
     engine: SheetFormulaEngine,
     last_used: u128,
+    revision: u64,
+    outputs: HashMap<String, SheetFormulaComputedCell>,
 }
 
+struct RuntimeOwner {
+    runtime: Mutex<Option<SheetRuntime>>,
+    retired: AtomicBool,
+    active_cancel: Mutex<Option<Arc<AtomicBool>>>,
+}
+impl RuntimeOwner {
+    fn retire(&self) {
+        self.retired.store(true, Ordering::Relaxed);
+        if let Some(flag) = self.active_cancel.lock().as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+}
 #[derive(Default)]
 pub struct SheetFormulaRegistry {
-    runtimes: Mutex<HashMap<String, SheetRuntime>>,
+    runtimes: Mutex<HashMap<String, Arc<RuntimeOwner>>>,
 }
-
 impl SheetFormulaRegistry {
+    fn owner(&self, id: &str) -> Result<Arc<RuntimeOwner>, String> {
+        if id.is_empty() || id.len() > 128 {
+            return Err("invalid sheet formula runtime identifier".into());
+        }
+        let mut runtimes = self.runtimes.lock();
+        if let Some(owner) = runtimes.get(id) {
+            return Ok(Arc::clone(owner));
+        }
+        let mut retired = None;
+        if runtimes.len() >= MAX_ACTIVE_SHEET_RUNTIMES {
+            let idle = runtimes
+                .iter()
+                .filter(|(_, owner)| Arc::strong_count(owner) == 1)
+                .min_by_key(|(_, owner)| {
+                    owner
+                        .runtime
+                        .try_lock()
+                        .and_then(|runtime| runtime.as_ref().map(|r| r.last_used))
+                        .unwrap_or(u128::MAX)
+                })
+                .map(|(id, _)| id.clone());
+            if let Some(id) = idle {
+                retired = runtimes.remove(&id);
+            } else {
+                return Err("Sheet formula runtime limit reached; close an unused workbook".into());
+            }
+        }
+        let owner = Arc::new(RuntimeOwner {
+            runtime: Mutex::new(None),
+            retired: AtomicBool::new(false),
+            active_cancel: Mutex::new(None),
+        });
+        runtimes.insert(id.into(), Arc::clone(&owner));
+        drop(runtimes);
+        if let Some(previous) = retired {
+            previous.retire();
+        }
+        Ok(owner)
+    }
+    #[cfg(test)]
     fn evaluate(
         &self,
         request: SheetFormulaEvaluationRequest,
     ) -> Result<SheetFormulaEvaluationResponse, String> {
-        validate_request(&request)?;
-        let volatile = volatile_values(&request.evaluation_time, &request.time_zone)?;
-        let mut runtimes = self.runtimes.lock();
-        let can_increment = runtimes
-            .get(&request.runtime_id)
-            .is_some_and(|runtime| runtime.structure_signature == request.structure_signature);
-
-        if !can_increment {
-            if !runtimes.contains_key(&request.runtime_id)
-                && runtimes.len() >= MAX_ACTIVE_SHEET_RUNTIMES
-            {
-                if let Some(oldest) = runtimes
-                    .iter()
-                    .min_by_key(|(_, runtime)| runtime.last_used)
-                    .map(|(id, _)| id.clone())
-                {
-                    runtimes.remove(&oldest);
-                }
-            }
-            runtimes.insert(
-                request.runtime_id.clone(),
-                build_runtime(&request, volatile)?,
-            );
-        } else {
-            let runtime = runtimes
-                .get_mut(&request.runtime_id)
-                .expect("runtime existence checked above");
-            apply_incremental_changes(runtime, &request, volatile)?;
-        }
-
-        let runtime = runtimes
-            .get_mut(&request.runtime_id)
-            .expect("runtime was inserted or updated");
-        runtime.last_used = now_millis();
-        let recalculated = match runtime.engine.evaluate_all() {
-            Ok(count) => count,
-            Err(SheetEngineError::EvaluationTimeout(_)) => {
-                return Ok(timeout_response(&request, can_increment));
-            }
-            Err(error) => return Err(error.to_string()),
-        };
-
-        Ok(SheetFormulaEvaluationResponse {
-            cells: computed_cells(runtime, &request.cells),
-            recalculated,
-            incremental: can_increment,
-        })
+        let owner = self.owner(&request.runtime_id)?;
+        self.evaluate_owned(&owner, request, Arc::new(AtomicBool::new(false)))
     }
-
-    pub fn release(&self, runtime_id: &str) {
-        self.runtimes.lock().remove(runtime_id);
+    fn evaluate_owned(
+        &self,
+        owner: &RuntimeOwner,
+        request: SheetFormulaEvaluationRequest,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<SheetFormulaEvaluationResponse, String> {
+        validate_request(&request)?;
+        let mut slot = owner
+            .runtime
+            .try_lock()
+            .ok_or("This workbook is already calculating")?;
+        if owner.retired.load(Ordering::Relaxed) || cancel.load(Ordering::Relaxed) {
+            return Err("Sheet evaluation cancelled".into());
+        }
+        *owner.active_cancel.lock() = Some(Arc::clone(&cancel));
+        let result = (|| {
+            let volatile = volatile_values(&request.evaluation_time, &request.time_zone)?;
+            let delta = request.full_seed == Some(false);
+            let can_increment = slot
+                .as_ref()
+                .is_some_and(|r| r.structure_signature == request.structure_signature);
+            if delta
+                && (!can_increment || slot.as_ref().map(|r| r.revision) != request.base_revision)
+            {
+                return Ok(SheetFormulaEvaluationResponse {
+                    reset_required: true,
+                    ..Default::default()
+                });
+            }
+            if !can_increment || request.full_seed == Some(true) {
+                *slot = Some(build_runtime(&request, volatile, &cancel)?);
+            } else {
+                apply_incremental_changes(slot.as_mut().unwrap(), &request, volatile, &cancel)?;
+            }
+            let runtime = slot.as_mut().unwrap();
+            if runtime.cells.len() > 1_000_000 {
+                return Err("formula input exceeds the workbook cell budget".into());
+            }
+            if cancel.load(Ordering::Relaxed) {
+                return Err("Sheet evaluation cancelled".into());
+            }
+            runtime.last_used = now_millis();
+            let recalculated = match runtime.engine.evaluate_all_cancellable(Arc::clone(&cancel)) {
+                Ok(count) => count,
+                Err(SheetEngineError::EvaluationTimeout(_)) if !cancel.load(Ordering::Relaxed) => {
+                    return Ok(timeout_response(
+                        &runtime
+                            .cells
+                            .values()
+                            .filter(|cell| cell.formula.is_some())
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        can_increment,
+                    ))
+                }
+                Err(error) => return Err(error.to_string()),
+            };
+            if cancel.load(Ordering::Relaxed) || owner.retired.load(Ordering::Relaxed) {
+                return Err("Sheet evaluation cancelled".into());
+            }
+            let inputs = runtime
+                .cells
+                .values()
+                .filter(|c| c.formula.is_some())
+                .cloned()
+                .collect::<Vec<_>>();
+            let outputs = computed_cells(runtime, &inputs)
+                .into_iter()
+                .map(|c| {
+                    (
+                        format!("{}:{}:{}", c.worksheet_id, c.row_id, c.column_id),
+                        c,
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            let full = !delta;
+            let removed_cells = runtime
+                .outputs
+                .keys()
+                .filter(|key| !outputs.contains_key(*key))
+                .cloned()
+                .collect();
+            let cells = outputs
+                .iter()
+                .filter(|(key, value)| full || runtime.outputs.get(*key) != Some(*value))
+                .map(|(_, value)| value.clone())
+                .collect();
+            runtime.outputs = outputs;
+            runtime.revision = request.revision.unwrap_or(runtime.revision + 1);
+            Ok(SheetFormulaEvaluationResponse {
+                cells,
+                recalculated,
+                incremental: can_increment,
+                revision: Some(runtime.revision),
+                full_result: full,
+                reset_required: false,
+                removed_cells,
+            })
+        })();
+        *owner.active_cancel.lock() = None;
+        if result.as_ref().map_or(true, |response| {
+            response.revision.is_none() && !response.reset_required
+        }) {
+            *slot = None;
+        } // Never reuse a partially cancelled update.
+        result
+    }
+    pub fn release(&self, id: &str) {
+        let removed = self.runtimes.lock().remove(id);
+        if let Some(owner) = removed {
+            owner.retire();
+        }
     }
 }
 
@@ -178,6 +311,7 @@ fn validate_request(request: &SheetFormulaEvaluationRequest) -> Result<(), Strin
 fn build_runtime(
     request: &SheetFormulaEvaluationRequest,
     volatile: VolatileValues,
+    cancel: &AtomicBool,
 ) -> Result<SheetRuntime, String> {
     let mut engine = SheetFormulaEngine::new(SheetFormulaBudget::new(
         200_000,
@@ -199,8 +333,13 @@ fn build_runtime(
         cells: HashMap::new(),
         engine,
         last_used: now_millis(),
+        revision: request.revision.unwrap_or(0),
+        outputs: HashMap::new(),
     };
     for cell in &request.cells {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Sheet evaluation cancelled".into());
+        }
         apply_cell(&mut runtime, cell, volatile)?;
         runtime.cells.insert(cell_key(cell), cell.clone());
     }
@@ -211,16 +350,27 @@ fn apply_incremental_changes(
     runtime: &mut SheetRuntime,
     request: &SheetFormulaEvaluationRequest,
     volatile: VolatileValues,
+    cancel: &AtomicBool,
 ) -> Result<(), String> {
     let next = request
         .cells
         .iter()
         .map(|cell| (cell_key(cell), cell))
         .collect::<HashMap<_, _>>();
+    let explicitly_removed = request
+        .removed_cells
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
     let removed = runtime
         .cells
         .keys()
-        .filter(|key| !next.contains_key(*key))
+        .filter(|key| {
+            if request.full_seed == Some(false) {
+                explicitly_removed.contains(key)
+            } else {
+                !next.contains_key(*key)
+            }
+        })
         .cloned()
         .collect::<Vec<_>>();
     for key in removed {
@@ -232,12 +382,30 @@ fn apply_incremental_changes(
                 .map_err(|error| error.to_string())?;
         }
     }
-    for cell in &request.cells {
+    let volatile_cells = if request.full_seed == Some(false) {
+        runtime
+            .cells
+            .values()
+            .filter(|cell| !next.contains_key(&cell_key(cell)))
+            .filter(|cell| {
+                cell.formula
+                    .as_ref()
+                    .is_some_and(|f| is_volatile_formula(f))
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    for cell in request.cells.iter().chain(volatile_cells.iter()) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Sheet evaluation cancelled".into());
+        }
         let key = cell_key(cell);
-        let volatile_formula = cell.formula.as_ref().is_some_and(|formula| {
-            let upper = formula.to_ascii_uppercase();
-            upper.contains("TODAY(") || upper.contains("NOW(")
-        });
+        let volatile_formula = cell
+            .formula
+            .as_ref()
+            .is_some_and(|formula| is_volatile_formula(formula));
         if runtime.cells.get(&key) == Some(cell) && !volatile_formula {
             continue;
         }
@@ -245,6 +413,17 @@ fn apply_incremental_changes(
         runtime.cells.insert(key, cell.clone());
     }
     Ok(())
+}
+
+fn is_volatile_formula(formula: &str) -> bool {
+    let upper = formula
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    ["TODAY(", "NOW(", "RAND(", "RANDBETWEEN("]
+        .iter()
+        .any(|name| upper.contains(name))
 }
 
 fn apply_cell(
@@ -376,12 +555,11 @@ fn computed_value(value: SheetFormulaValue) -> SheetFormulaComputedValue {
 }
 
 fn timeout_response(
-    request: &SheetFormulaEvaluationRequest,
+    cells: &[SheetFormulaCellInput],
     incremental: bool,
 ) -> SheetFormulaEvaluationResponse {
     SheetFormulaEvaluationResponse {
-        cells: request
-            .cells
+        cells: cells
             .iter()
             .filter(|cell| cell.formula.is_some())
             .map(|cell| SheetFormulaComputedCell {
@@ -395,6 +573,9 @@ fn timeout_response(
             .collect(),
         recalculated: 0,
         incremental,
+        full_result: true,
+        reset_required: false,
+        ..Default::default()
     }
 }
 
@@ -525,15 +706,31 @@ fn replace_zero_arg_function(source: &str, name: &str, replacement: &str) -> Str
     output
 }
 
+static FORMULA_SLOTS: LazyLock<tokio::sync::Semaphore> =
+    LazyLock::new(|| tokio::sync::Semaphore::new(2));
 #[tauri::command]
 pub async fn sheet_formula_evaluate(
     state: State<'_, AppState>,
     request: SheetFormulaEvaluationRequest,
+    request_id: Option<String>,
 ) -> Result<SheetFormulaEvaluationResponse, String> {
     let registry = Arc::clone(&state.sheet_formulas);
-    tauri::async_runtime::spawn_blocking(move || registry.evaluate(request))
-        .await
-        .map_err(|error| format!("sheet formula worker failed: {error}"))?
+    let job = super::media_jobs::MediaJob::start(
+        request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+    )?;
+    // Register ownership before waiting: release must retire already-admitted queued work.
+    let owner = registry.owner(&request.runtime_id)?;
+    let permit = job
+        .wait(FORMULA_SLOTS.acquire())
+        .await?
+        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        job.check()?;
+        registry.evaluate_owned(&owner, request, job.cancellation_flag())
+    })
+    .await
+    .map_err(|e| format!("sheet formula worker failed: {e}"))?
 }
 
 #[tauri::command]
@@ -547,6 +744,8 @@ mod tests {
 
     #[test]
     fn volatile_functions_are_bound_outside_strings_only() {
+        assert!(is_volatile_formula("=NOW () + TODAY ( )"));
+        assert!(is_volatile_formula("=RAND () + RANDBETWEEN (1,2)"));
         let values = VolatileValues {
             today: 46_000.0,
             now: 46_000.5,
@@ -599,6 +798,10 @@ mod tests {
             ],
             evaluation_time: "2026-07-29T12:00:00Z".to_string(),
             time_zone: "Europe/Berlin".to_string(),
+            revision: None,
+            base_revision: None,
+            full_seed: None,
+            removed_cells: Vec::new(),
         }
     }
 
@@ -644,5 +847,64 @@ mod tests {
                 value: "#N/IMPL!".to_string()
             }
         );
+    }
+    #[test]
+    fn revisioned_deltas_recover_missing_baselines_and_remove_outputs() {
+        let registry = SheetFormulaRegistry::default();
+        let mut first = request(3.0);
+        first.full_seed = Some(true);
+        first.revision = Some(1);
+        let response = registry.evaluate(first.clone()).unwrap();
+        assert_eq!(response.cells.len(), 1);
+        let mut delta = request(4.0);
+        delta.cells.truncate(1);
+        delta.full_seed = Some(false);
+        delta.base_revision = Some(1);
+        delta.revision = Some(2);
+        let response = registry.evaluate(delta.clone()).unwrap();
+        assert_eq!(
+            response.cells[0].value,
+            SheetFormulaComputedValue::Number { value: 8.0 }
+        );
+        assert!(!response.full_result);
+        delta.cells.clear();
+        delta.base_revision = Some(2);
+        delta.revision = Some(3);
+        assert!(registry.evaluate(delta.clone()).unwrap().cells.is_empty());
+        delta.removed_cells = vec!["ws1:r1:c2".into()];
+        delta.base_revision = Some(3);
+        delta.revision = Some(4);
+        assert_eq!(
+            registry.evaluate(delta.clone()).unwrap().removed_cells,
+            vec!["ws1:r1:c2"]
+        );
+        registry.release(&delta.runtime_id);
+        delta.base_revision = Some(4);
+        delta.revision = Some(5);
+        assert!(registry.evaluate(delta).unwrap().reset_required);
+        first.revision = Some(6);
+        assert_eq!(registry.evaluate(first).unwrap().cells.len(), 1);
+    }
+    #[test]
+    fn independent_runtime_locking_and_retirement_do_not_wait_for_another_workbook() {
+        let registry = SheetFormulaRegistry::default();
+        let first = request(3.0);
+        let owner = registry.owner(&first.runtime_id).unwrap();
+        let guard = owner.runtime.lock();
+        let cancel = Arc::new(AtomicBool::new(false));
+        *owner.active_cancel.lock() = Some(Arc::clone(&cancel));
+        let mut second = request(4.0);
+        second.runtime_id = "independent".into();
+        assert_eq!(
+            registry.evaluate(second).unwrap().cells[0].value,
+            SheetFormulaComputedValue::Number { value: 8.0 }
+        );
+        registry.release(&first.runtime_id);
+        assert!(cancel.load(Ordering::Relaxed));
+        drop(guard);
+        assert!(registry
+            .evaluate_owned(&owner, first, Arc::new(AtomicBool::new(false)))
+            .unwrap_err()
+            .contains("cancelled"));
     }
 }

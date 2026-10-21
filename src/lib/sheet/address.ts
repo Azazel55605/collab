@@ -166,3 +166,24 @@ export class SheetAddressIndex {
     return `${formatA1(topLeft)}:${formatA1(bottomRight)}`;
   }
 }
+
+// Structural array identity survives value/style edits; weak ownership retires old indexes.
+const addressIndexes = new WeakMap<
+  readonly string[],
+  WeakMap<readonly string[], SheetAddressIndex>
+>();
+export function sheetAddressIndex(
+  worksheet: Pick<SheetWorksheet, 'rowOrder' | 'columnOrder'>,
+): SheetAddressIndex {
+  let columns = addressIndexes.get(worksheet.rowOrder);
+  if (!columns) {
+    columns = new WeakMap();
+    addressIndexes.set(worksheet.rowOrder, columns);
+  }
+  let index = columns.get(worksheet.columnOrder);
+  if (!index) {
+    index = new SheetAddressIndex(worksheet);
+    columns.set(worksheet.columnOrder, index);
+  }
+  return index;
+}

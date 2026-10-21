@@ -131,6 +131,7 @@ export function useDeckSession({
   }, []);
 
   const { controller, snapshot } = useDocumentSessionController<DeckDocument>({
+    serializationCheckpointMs: 100,
     serialize: serializeDeck,
     deserialize: (content) => parseDeckDocument(content).document,
     applyDocument,

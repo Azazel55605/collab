@@ -59,6 +59,11 @@ fn read_file(path: &std::path::Path, job: &MediaJob) -> Result<Vec<u8>, String> 
     Ok(bytes)
 }
 pub(crate) fn thumbnail(bytes: Vec<u8>, job: &MediaJob) -> Result<Vec<u8>, String> {
+    thumbnail_sized(bytes, job, 640)
+}
+fn thumbnail_sized(bytes: Vec<u8>, job: &MediaJob, maximum: u32) -> Result<Vec<u8>, String> {
+    let width_limit = maximum.clamp(128, 2048);
+    let height_limit = width_limit * 3 / 4;
     job.check()?;
     // SVG remains a bounded vector image; it is never decoded as a huge raster.
     if bytes.len() <= 2 * 1024 * 1024
@@ -99,9 +104,9 @@ pub(crate) fn thumbnail(bytes: Vec<u8>, job: &MediaJob) -> Result<Vec<u8>, Strin
             | image::metadata::Orientation::Rotate270FlipH
     );
     let mut small = if transpose {
-        image.thumbnail(480, 640)
+        image.thumbnail(height_limit, width_limit)
     } else {
-        image.thumbnail(640, 480)
+        image.thumbnail(width_limit, height_limit)
     };
     small.apply_orientation(orientation);
     let mut result = Cursor::new(Vec::new());
@@ -116,6 +121,7 @@ pub async fn read_vault_asset_bytes(
     state: State<'_, AppState>,
     source: AssetSource,
     thumbnail_only: bool,
+    thumbnail_max_dimension: Option<u32>,
     request_id: String,
 ) -> Result<Response, String> {
     let job = MediaJob::start(request_id)?;
@@ -281,9 +287,15 @@ pub async fn read_vault_asset_bytes(
     job.check()?;
     let bytes = if thumbnail_only {
         let worker = job.clone();
-        tauri::async_runtime::spawn_blocking(move || thumbnail(bytes, &worker))
-            .await
-            .map_err(|e| e.to_string())??
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Some(maximum) = thumbnail_max_dimension {
+                thumbnail_sized(bytes, &worker, maximum)
+            } else {
+                thumbnail(bytes, &worker)
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())??
     } else {
         bytes
     };
@@ -325,5 +337,67 @@ mod tests {
     fn rejects_unsupported_and_empty_images_without_fallback_to_original() {
         let job = MediaJob::start(uuid::Uuid::new_v4().to_string()).unwrap();
         assert!(thumbnail(Vec::new(), &job).is_err());
+    }
+}
+
+/// Raw desktop IPC avoids base64/JSON output copies; publication stays atomic.
+#[tauri::command]
+pub async fn write_downloaded_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    use base64::Engine;
+    static WRITES: LazyLock<tokio::sync::Semaphore> =
+        LazyLock::new(|| tokio::sync::Semaphore::new(2));
+    let permit = WRITES
+        .try_acquire()
+        .map_err(|_| "Two native exports are already writing")?;
+    let encoded = request
+        .headers()
+        .get("x-collab-destination")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("Missing export destination")?;
+    if encoded.len() > 32768 {
+        return Err("Export destination is too long".into());
+    }
+    let path = String::from_utf8(
+        base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    if !std::path::Path::new(&path).is_absolute() {
+        return Err("Export destination must be absolute".into());
+    }
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) if bytes.len() <= MAX_ASSET_BYTES => bytes.clone(),
+        _ => return Err("Export requires raw bytes within its 256 MiB limit".into()),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        write_export_atomic(std::path::Path::new(&path), &bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn write_export_atomic(destination: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let _mutation = crate::local_mutation::lock_path(destination)?;
+    let parent = destination.parent().ok_or("Missing export folder")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    staged.write_all(bytes).map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    staged.persist(destination).map_err(|e| e.to_string())?;
+    Ok(())
+}
+#[cfg(test)]
+mod export_tests {
+    #[test]
+    fn binary_export_atomically_replaces_the_chosen_file_and_cleans_staging() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("export.bin");
+        std::fs::write(&path, b"before").unwrap();
+        super::write_export_atomic(&path, &[0, 255, 1, 2]).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), vec![0, 255, 1, 2]);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 }

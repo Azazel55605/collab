@@ -1230,10 +1230,8 @@ export default function SheetGrid({
       const y = trackPaneOffset(rows, top, scroll.top, frozenRows);
       const x = trackPaneOffset(columns, left, scroll.left, frozenColumns);
       if (y === null || x === null) return null;
-      let height = 0;
-      for (let index = top; index <= bottom; index += 1) height += trackSize(rows, index);
-      let width = 0;
-      for (let index = left; index <= right; index += 1) width += trackSize(columns, index);
+      const height = trackOffset(rows, bottom + 1) - trackOffset(rows, top);
+      const width = trackOffset(columns, right + 1) - trackOffset(columns, left);
       return {
         top: y + headerHeight,
         left: x + headerWidth,

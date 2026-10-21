@@ -313,9 +313,9 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-21**: **O01–O47, O49–O51 and O64 are implemented;
-O48 is superseded by R08**. These 52 implementation items are checked off; the
-other **18 entries remain open or partial**. Native release acceptance is tracked
+Checklist reconciled **2026-10-21**: **O01–O47, O49–O64 are implemented;
+O48 is superseded by R08**. These 64 implementation items are checked off; the
+other **6 entries remain open**. Native release acceptance is tracked
 separately below and in the implementation tracker; checkboxes do not claim
 measured startup/RSS gains or certification on every platform.
 
@@ -604,81 +604,59 @@ and real-engine soak acceptance remain under O70.
 
 ### Structured Editors, History And Export
 
-- [ ] **O52 / P1 — Avoid serializing whole structured documents for every gesture update.**
-      **Status: Partial — canvas gestures defer serialization; logic/ink/deck/sheet work remains.**
-      `markLocalChange` in [documentSessionController](../../src/lib/documentSessionController.ts)
-      immediately serializes; logic, ink, deck and sheets feed document changes into
-      it. Track revisions/operations and serialize at safe checkpoints. Retain exact
-      conflict/base content semantics; measure drag/stroke workloads before/after.
-- [ ] **O53 / P1 — Send incremental formula requests/results over IPC.**
-      **Status: Open.**
-      [useSheetFormulaEngine](../../src/lib/sheet/useSheetFormulaEngine.ts) rebuilds
-      positions, expands names and sends all populated cells, despite the native
-      engine's incremental recalculation. Send revision/delta inputs and changed
-      outputs with a full-seed recovery path. Compare payload bytes, build time and
-      correctness for large sheets; do not replace the formula engine.
-- [ ] **O54 / P1 — Separate the formula registry lock from per-runtime evaluation.**
-      **Status: Open.**
-      [sheet.rs](../../src-tauri/src/commands/sheet.rs) holds one registry mutex across
-      build/update/evaluate/output. Grid sheet runtimes can block each other and
-      release waits behind computation. Use short map locking plus per-runtime owners,
-      a global job budget and cancellation. Test independent runtimes and eviction.
-- [ ] **O55 / P2 — Coalesce obsolete formula work and preserve volatile semantics.**
-      **Status: Partial — one active/latest trailing request per workbook; superseded pending inputs and stale results are discarded, and volatile time is bound at dispatch. Manual/periodic volatile recalculation, cancellation of already-running native work and global native scheduling remain open.**
-      The formula hook's 80ms debounce and sequence guard discard stale responses but
-      do not cancel native requests already submitted. Add newest-job scheduling and
-      explicit recalculation for time/random functions. Test rapid edits and R06;
-      maintain evaluation budgets and deterministic testing inputs.
-- [ ] **O56 / P1 — Bound sheet undo by memory as well as step count.**
-      **Status: Open.**
-      [SheetView](../../src/views/SheetView.tsx) stores prior whole workbook roots.
-      Structural sharing helps, but each edited cell dictionary/large structural
-      mutation remains retained. Use operation/inverse history or a byte-estimated
-      budget with checkpoints. Test large paste, structural edits and remote boundaries.
-- [ ] **O57 / P2 — Reduce repeated row/column/range indexing.**
-      **Status: Open.**
-      [sheet search](../../src/lib/sheet/search.ts), formula request construction and
-      [operations](../../src/lib/sheet/operations.ts) repeatedly build/find positions.
-      Maintain indexes by worksheet structural revision. Benchmark replace-all,
-      selection, validation and named-range expansion without breaking stable IDs.
-- [ ] **O58 / P2 — Keep sheet rendering sparse and measure auxiliary overlays.**
-      **Status: Open.**
-      [SheetView](../../src/views/SheetView.tsx) already uses viewport helpers; optimize
-      conditional formats, dependency highlights, chart overlays and hit testing rather
-      than adding redundant generic virtualization. Measure visible-cell work and
-      scrolling with formulas/rules/charts, not only an empty grid.
-- [ ] **O59 / P1 — Bound canvas card assets/previews by visibility and bytes.**
-      **Status: Partial — nearby canvas hydration, obsolete-result rejection and bounded retained Markdown implemented; full asset-byte/heap acceptance remains.**
-      [useCanvasPreviews](../../src/components/canvas/useCanvasPreviews.ts) retains
-      preview strings/content in state and fans updates across matching nodes. Load
-      visible cards, retire removed/revision-obsolete entries and share decoded assets.
-      Test large boards, pan-away/pan-back and node deletion heap recovery.
-- [ ] **O60 / P2 — Avoid repeated full node/edge conversions and scans during gestures.**
-      **Status: Partial — canvas gesture conversion reduced; broader derived-map and logic work remains.**
-      [CanvasPage](../../src/views/CanvasPage.tsx) and
-      [LogicDiagramView](../../src/views/LogicDiagramView.tsx) rebuild maps, normalize
-      nodes and serialize affected graphs. Keep geometry transient and commit semantic
-      changes at gesture boundaries, with incremental derived maps. Profile large
-      drag/selection/rotation interactions; preserve collaboration operations.
-- [ ] **O61 / P2 — Incrementally maintain ink spatial data and tile invalidation.**
-      **Status: Open.**
-      [InkCanvas](../../src/components/ink/InkCanvas.tsx) rebuilds spatial indexes from
-      page identity; [renderer](../../src/lib/ink/renderer.ts) has useful byte-bounded
-      tiles and dirty rectangles. Update the affected objects/layers incrementally and
-      profile index/outliner/eviction cost before changing tile architecture.
-- [ ] **O62 / P2 — Load deck media for visible/nearby slides with bounded sharing.**
-      **Status: Open.**
-      [DeckView](../../src/views/DeckView.tsx), `useDeckAssets`, starts all collected
-      image reads and keeps data URLs for the view lifetime. Use an asset owner with
-      concurrency, byte budget, removed/versioned-entry pruning and visible-slide
-      prefetch. Test missing media, export requirements and presenter transitions.
-- [ ] **O63 / P2 — Reduce export-worker structured-clone copies.**
-      **Status: Open.**
-      [ink exportClient](../../src/lib/ink/exportClient.ts) and
-      [PPTX exportClient](../../src/lib/deck/pptx/exportClient.ts) post full document/
-      asset records. Transfer binary buffers where ownership permits, stage large
-      output outside the UI heap and budget concurrent exports. Existing termination
-      on cancel/completion must remain; measure peak main + worker memory.
+Implemented **2026-10-21**, Performance Batch 8. See
+[ownership, budgets, evidence and outstanding native acceptance](../desktop/structured-editors-history-export-performance.md).
+
+- [x] **O52 / P1 — Structured serialization checkpoints.** Sheet, ink, deck and
+      logic sessions coalesce immutable roots at 100 ms checkpoints; save, remote
+      comparison and leave barriers materialize the latest content. Logic drag
+      geometry stays transient until gesture end or a save barrier. Weakly cached
+      JSON projections avoid sheet/logic stringify/parse round trips. Exact base,
+      hash and conflict semantics remain; validation still runs synchronously.
+- [x] **O53 / P1 — Revisioned formula deltas.** Initial/structural seed, changed
+      inputs/removals, acknowledged revisions and changed outputs cross IPC.
+      Missing/evicted baselines recover through one full seed. Unchanged cell
+      inputs and worksheet address maps retain identity.
+- [x] **O54 / P1 — Independent native formula owners.** Short registry locks,
+      per-runtime locks, sixteen retained runtimes and two admitted evaluations.
+      Release cancels active work and retires queued owners; engine destruction
+      happens outside the registry lock.
+- [x] **O55 / P2 — Obsolete-work cancellation and volatile refresh.** One active
+      and latest pending evaluation per workbook; superseding/disposal signals
+      native cancellation. Manual recalculation and visible-document sixty-second
+      volatile refresh preserve dispatch-time time/random semantics and timeouts.
+- [x] **O56 / P1 — Byte-estimated sheet undo.** Refcounted immutable DAG history
+      charges shared objects once, bounded by 24 MiB and 100 steps across undo/redo.
+      Remote/path boundaries clear history; oversized snapshots are not retained.
+- [x] **O57 / P2 — Structural address indexes and bulk replacement.** Weakly
+      cached stable-ID row/column maps serve formulas, names, validation and search.
+      Replace-all scans populated cells and commits through one bulk operation.
+- [x] **O58 / P2 — Sparse sheet auxiliary work.** Existing virtualization retained;
+      conditional-format aggregates survive scrolling/selection while values and
+      rules invalidate them. Prefix offsets bound overlay rectangle calculation.
+      Charts remain demand-rendered in the analysis dialog.
+- [x] **O59 / P1 — Visibility/byte-bounded canvas previews.** At most 24 nearby
+      unique cards and 32 MiB estimated payload/decoded cost; obsolete leases abort
+      and offscreen/removed node payload references retire. Oversized results use
+      a stub. Actual browser/GPU retention remains O70 acceptance.
+- [x] **O60 / P2 — Gesture-aware graph derivation.** Stable semantic projections
+      keep logic evaluation independent of selection/position. Cached immutable
+      node conversion and dependency-keyed edge geometry recompute affected work;
+      routing sibling grouping and final serialization retain necessary scans.
+- [x] **O61 / P2 — Incremental ink spatial updates.** Weak scene-change hints
+      update affected bounds/tiles and preserve paint ordering. Unknown remote,
+      reorder and layer paths keep conservative full-diff fallback; existing tile
+      budgets and rendering architecture remain authoritative.
+- [x] **O62 / P2 — Shared deck media on demand.** Mounted slide/rail/presenter
+      renderers acquire independent leases; last release retires assets. Account,
+      vault, revision and asset identity scope a 64-entry/96 MiB estimated cache.
+      Native 1920-pixel thumbnails serve display; export/print read originals under
+      a separate preparation budget.
+- [x] **O63 / P2 — Transferable bounded exports.** Ink/PPTX workers receive owned
+      UTF-8 snapshots and binary assets, transferring buffers rather than cloning
+      object trees. Two concurrent workers, bounded snapshots/assets/preparation
+      and raw binary native output with atomic publication. Cancel/error/complete
+      release ownership. Worker-local parsing/encoding still allocates memory.
 
 ### Native Storage, Collaboration, Calendar And Background Work
 
@@ -778,10 +756,10 @@ The review does not recommend undoing work already present:
 
 ## Suggested Delivery Order
 
-The original priority grouping follows. **O01–O51 and O64 are now
+The original priority grouping follows. **O01–O64 are now
 implemented (O48 superseded)**; use the checkboxes and
 [open development work](../plans/open-development-work.md) for current scope.
-The next category is **Structured Editors, History And Export (O52–O63)**.
+The next category is **Native Storage, Collaboration, Calendar And Background Work (O65–O70)**.
 
 1. **Correctness first:** B01 autosave/session ownership; B02 Unicode; B06 staging
    collisions; B04 PDF lifetimes; B03/B05 stale requests/listeners. Validate the

@@ -77,6 +77,7 @@ import type {
   DocumentSessionController,
   DocumentSessionSnapshot,
 } from '../lib/documentSessionController';
+import { ImmutableHistory } from '../lib/immutableHistory';
 import { useLivePeers } from '../lib/liveAwareness';
 import { getMarkdownImageTarget } from '../lib/noteAssets';
 import type { SheetPosition } from '../lib/sheet/address';
@@ -321,10 +322,9 @@ export default function SheetView({ relativePath }: Props) {
   const [formulaCursor, setFormulaCursor] = useState(0);
   const formulaCursorRef = useRef(0);
   const restoredRef = useRef(false);
-  const historyRef = useRef<{ past: SheetDocument[]; future: SheetDocument[] }>({
-    past: [],
-    future: [],
-  });
+  const historyRef = useRef(
+    new ImmutableHistory<SheetDocument>(24 * 1024 * 1024, SHEET_HISTORY_LIMIT),
+  );
   const [historyCounts, setHistoryCounts] = useState({ past: 0, future: 0 });
   const [findOpen, setFindOpen] = useState(false);
   const [findResultLabel, setFindResultLabel] = useState('');
@@ -486,7 +486,7 @@ export default function SheetView({ relativePath }: Props) {
   }, []);
 
   useEffect(() => {
-    historyRef.current = { past: [], future: [] };
+    historyRef.current.clear();
     syncHistoryCounts();
   }, [relativePath, syncHistoryCounts]);
 
@@ -495,7 +495,7 @@ export default function SheetView({ relativePath }: Props) {
   // whenever live state advances; Yjs still retains the authoritative change.
   useEffect(() => {
     if (session.remoteRevision === 0) return;
-    historyRef.current = { past: [], future: [] };
+    historyRef.current.clear();
     syncHistoryCounts();
   }, [session.remoteRevision, syncHistoryCounts]);
 
@@ -519,11 +519,7 @@ export default function SheetView({ relativePath }: Props) {
           warnings = enforced.warnings;
           const next = enforced.document;
           if (next === current) return current;
-          historyRef.current.past.push(current);
-          if (historyRef.current.past.length > SHEET_HISTORY_LIMIT) {
-            historyRef.current.past.splice(0, historyRef.current.past.length - SHEET_HISTORY_LIMIT);
-          }
-          historyRef.current.future = [];
+          historyRef.current.record(current);
           syncHistoryCounts();
           return next;
         }),
@@ -536,9 +532,8 @@ export default function SheetView({ relativePath }: Props) {
   const undo = useCallback(() => {
     if (session.readOnly || historyRef.current.past.length === 0) return;
     session.updateDocument((current) => {
-      const previous = historyRef.current.past.pop();
+      const previous = historyRef.current.undo(current);
       if (!previous) return current;
-      historyRef.current.future.push(current);
       syncHistoryCounts();
       return previous;
     });
@@ -547,9 +542,8 @@ export default function SheetView({ relativePath }: Props) {
   const redo = useCallback(() => {
     if (session.readOnly || historyRef.current.future.length === 0) return;
     session.updateDocument((current) => {
-      const next = historyRef.current.future.pop();
+      const next = historyRef.current.redo(current);
       if (!next) return current;
-      historyRef.current.past.push(current);
       syncHistoryCounts();
       return next;
     });
@@ -1353,6 +1347,14 @@ export default function SheetView({ relativePath }: Props) {
               >
                 <Database size={13} />
                 Data
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={formulaState.recalculate}
+                disabled={!document || formulaState.calculating}
+                aria-label="Recalculate formulas"
+                title="Recalculate formulas, including time and random functions"
+              >
+                Recalculate
               </DocumentTopBarButton>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

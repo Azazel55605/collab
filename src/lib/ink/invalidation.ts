@@ -1,5 +1,6 @@
 import type { InkBounds, InkPage, InkScene } from '../../types/ink';
 
+import { inkSceneChangedIds } from './sceneChanges';
 import { objectBounds } from './svg';
 
 export type InkInvalidationPlan =
@@ -25,11 +26,15 @@ export function planInkPageInvalidation(
   const layerPlan = changedLayerBounds(previous.scene, next.scene);
   if (layerPlan.kind === 'all') return layerPlan;
 
+  const changedIds = inkSceneChangedIds(previous.scene, next.scene);
   const orderChanged = !sameOrder(previous.scene.objectOrder, next.scene.objectOrder);
-  if (orderChanged && !sameCommonOrder(previous.scene, next.scene)) return { kind: 'all' };
+  if (orderChanged && !changedIds && !sameCommonOrder(previous.scene, next.scene))
+    return { kind: 'all' };
 
   const bounds = layerPlan.kind === 'bounds' ? [...layerPlan.bounds] : [];
-  const ids = new Set([...Object.keys(previous.scene.objects), ...Object.keys(next.scene.objects)]);
+  const ids =
+    changedIds ??
+    new Set([...Object.keys(previous.scene.objects), ...Object.keys(next.scene.objects)]);
   for (const id of ids) {
     const before = previous.scene.objects[id];
     const after = next.scene.objects[id];
@@ -78,7 +83,10 @@ function changedLayerBounds(previous: InkScene, next: InkScene): InkInvalidation
 }
 
 function sameOrder(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
+  return (
+    left === right ||
+    (left.length === right.length && left.every((id, index) => id === right[index]))
+  );
 }
 
 /** Adding/removing objects preserves the relative order of everything else. */

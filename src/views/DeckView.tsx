@@ -113,13 +113,13 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { bytesDataUrl, readAssetBytes } from '../lib/assetBytes';
 import { useCollabIdentity } from '../lib/collabIdentity';
 import {
   ACTIVE_PRESENTATION_HEARTBEAT_MS,
   publishActivePresentation,
   stopPublishingActivePresentation,
 } from '../lib/deck/activePresentation';
-import { assetKey, collectDeckAssets } from '../lib/deck/assets';
 import {
   copyElements,
   parseClipboard,
@@ -166,6 +166,7 @@ import {
 } from '../lib/deck/insert';
 import type { DeckInsertKind } from '../lib/deck/insert';
 import { mergeRichText } from '../lib/deck/liveDeckDocument';
+import { useDeckMedia } from '../lib/deck/mediaCache';
 import {
   addElements,
   applyPatch,
@@ -358,36 +359,11 @@ function storedTextBody(deck: DeckDocument, active: TextSession): DeckRichText |
 }
 
 function useDeckAssets(
-  document: DeckDocument | null,
+  _document: DeckDocument | null,
   vault: ReturnType<typeof useVaultStore.getState>['vault'],
 ) {
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
-  const [assets, setAssets] = useState<Record<string, string>>({});
-  const entries = useMemo(() => (document ? collectDeckAssets(document) : []), [document]);
-  const key = entries.map((entry) => entry.key).join('\n');
-
-  useEffect(() => {
-    if (!client || entries.length === 0) return;
-    let cancelled = false;
-    for (const entry of entries) {
-      if (assets[entry.key]) continue;
-      client
-        .readAssetDataUrl(entry.path)
-        .then((url) => {
-          if (!cancelled) setAssets((current) => ({ ...current, [entry.key]: url }));
-        })
-        .catch(() => {
-          // A missing asset keeps its placeholder; the deck stays repairable.
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-    // `key` stands for `entries`; re-reading on every render would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, key]);
-
-  return useCallback((asset: DeckAssetRef) => assets[assetKey(asset)] ?? null, [assets]);
+  return useDeckMedia(client);
 }
 
 /**
@@ -1946,7 +1922,23 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   /* Presenting and export ---------------------------------------------------- */
 
   const deckTitle = getDocumentBaseName(relativePath, 'Presentation').replace(/\.deck$/i, '');
-  const deckExport = useDeckExport({ document, title: deckTitle, measurer, resolveAsset });
+  const loadExportAsset = useCallback(
+    async (asset: DeckAssetRef) => {
+      if (!vault) throw new Error('No vault is open');
+      return bytesDataUrl(
+        await readAssetBytes(createVaultClient(vault), asset.path),
+        asset.mediaType,
+      );
+    },
+    [vault],
+  );
+  const deckExport = useDeckExport({
+    document,
+    title: deckTitle,
+    measurer,
+    resolveAsset,
+    loadAsset: loadExportAsset,
+  });
   const [exportOpen, setExportOpen] = useState(false);
   const slideNumberById = useMemo(
     () => new Map(slideOrder.map((id, index) => [id, index + 1])),
@@ -3891,8 +3883,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         onExport={(request) => {
           void deckExport.exportDeck(request).then((done) => done && setExportOpen(false));
         }}
-        onPrint={(request) => {
-          if (deckExport.printDeck(request)) setExportOpen(false);
+        onPrint={async (request) => {
+          if (await deckExport.printDeck(request)) setExportOpen(false);
         }}
       />
       <DeckExportReportDialog

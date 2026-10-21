@@ -1,11 +1,19 @@
 /// <reference lib="webworker" />
+import { unpackExport } from '../exportTransport';
+
+import type { InkExportRuntimeRequest } from './exportRuntime';
 import { InkExportCancelledError, renderInkExport } from './exportRuntime';
 import type { InkExportWorkerInbound, InkExportWorkerOutbound } from './exportWorkerProtocol';
 
 const cancelledJobs = new Set<string>();
 
 function send(message: InkExportWorkerOutbound) {
-  self.postMessage(message);
+  self.postMessage(message, {
+    transfer:
+      message.type === 'complete' && message.result.bytes
+        ? [message.result.bytes.buffer as ArrayBuffer]
+        : [],
+  });
 }
 
 self.addEventListener('message', (event: MessageEvent<InkExportWorkerInbound>) => {
@@ -14,27 +22,43 @@ self.addEventListener('message', (event: MessageEvent<InkExportWorkerInbound>) =
     cancelledJobs.add(message.jobId);
     return;
   }
-  cancelledJobs.delete(message.jobId);
+  const jobId = message.jobId;
+  const { metadata, assets } = unpackExport<
+    Omit<InkExportRuntimeRequest, 'assets'> & {
+      assetMetadata: Record<string, { width: number; height: number }>;
+    }
+  >(message.packet);
+  const request: InkExportRuntimeRequest = {
+    ...metadata,
+    assets: Object.fromEntries(
+      Object.entries(assets).map(([id, dataUrl]) => [
+        id,
+        { dataUrl, ...metadata.assetMetadata[id] },
+      ]),
+    ),
+    binaryOutput: true,
+  };
+  cancelledJobs.delete(jobId);
   void renderInkExport(
-    message.request,
-    (progress) => send({ type: 'progress', jobId: message.jobId, progress }),
-    () => cancelledJobs.has(message.jobId),
+    request,
+    (progress) => send({ type: 'progress', jobId: jobId, progress }),
+    () => cancelledJobs.has(jobId),
   )
     .then((result) => {
-      if (cancelledJobs.has(message.jobId)) {
-        send({ type: 'cancelled', jobId: message.jobId });
+      if (cancelledJobs.has(jobId)) {
+        send({ type: 'cancelled', jobId: jobId });
       } else {
-        send({ type: 'complete', jobId: message.jobId, result });
+        send({ type: 'complete', jobId: jobId, result });
       }
     })
     .catch((error: unknown) => {
-      if (error instanceof InkExportCancelledError || cancelledJobs.has(message.jobId)) {
-        send({ type: 'cancelled', jobId: message.jobId });
+      if (error instanceof InkExportCancelledError || cancelledJobs.has(jobId)) {
+        send({ type: 'cancelled', jobId: jobId });
       } else {
-        send({ type: 'error', jobId: message.jobId, message: String(error) });
+        send({ type: 'error', jobId: jobId, message: String(error) });
       }
     })
-    .finally(() => cancelledJobs.delete(message.jobId));
+    .finally(() => cancelledJobs.delete(jobId));
 });
 
 export {};

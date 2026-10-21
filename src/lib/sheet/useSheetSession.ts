@@ -15,6 +15,7 @@ import {
   type RemoteCandidate,
   useDocumentSessionController,
 } from '../documentSessionController';
+import { immutableJson } from '../immutableJson';
 import { type JsonObject, type LiveJsonSession, openLiveJsonSession } from '../liveJsonDocument';
 import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
 import { createVaultClient } from '../vaultClient';
@@ -64,7 +65,7 @@ export interface SheetSession {
 }
 
 function sheetToJson(document: SheetDocument): JsonObject {
-  return JSON.parse(JSON.stringify(document)) as JsonObject;
+  return immutableJson(document) as JsonObject;
 }
 
 /**
@@ -120,6 +121,7 @@ export function useSheetSession({
   }, []);
 
   const { controller, snapshot } = useDocumentSessionController<SheetDocument>({
+    serializationCheckpointMs: 100,
     serialize: serializeSheetDocument,
     deserialize: (content) => parseSheetDocument(content, workbookName),
     applyDocument,

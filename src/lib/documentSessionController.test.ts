@@ -783,3 +783,68 @@ it('keeps the newest checkpoint recoverable when an in-flight write is rejected'
   expect(controller.getReconciliation()?.ours).toBe('even newer');
   controller.dispose();
 });
+
+describe('structured root checkpoints', () => {
+  it('coalesces roots while dirty immediately and flushes exact bytes at save/remote boundaries', async () => {
+    vi.useFakeTimers();
+    const serialize = vi.fn((doc: { value: number }) => JSON.stringify(doc));
+    const write = vi.fn(async () => ({ version: '2' }));
+    const controller = new DocumentSessionController({
+      serialize,
+      deserialize: JSON.parse,
+      applyDocument: vi.fn(),
+      write,
+      serializationCheckpointMs: 100,
+    });
+    controller.load('{"value":0}', '1');
+    for (let value = 1; value <= 100; value++) controller.markLocalChange({ value });
+    expect(controller.isDirty).toBe(true);
+    expect(serialize).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(serialize).toHaveBeenCalledTimes(1);
+    controller.markLocalChange({ value: 101 });
+    await controller.requestSave();
+    expect(write).toHaveBeenLastCalledWith({
+      content: '{"value":101}',
+      expectedVersion: '1',
+      baseContent: '{"value":0}',
+    });
+    expect(controller.isDirty).toBe(false);
+    controller.markLocalChange({ value: 102 });
+    controller.handleRemoteCandidate({
+      content: '{"value":103}',
+      document: { value: 103 },
+      version: '3',
+      source: 'rest',
+    });
+    expect(controller.getSnapshot().currentContent).toBe('{"value":102}');
+    expect(controller.getSnapshot().pendingRemote?.content).toBe('{"value":103}');
+    controller.dispose();
+    vi.useRealTimers();
+  });
+  it('materializes prepareSave gesture edits before capturing a write and cancels old load checkpoints', async () => {
+    vi.useFakeTimers();
+    const write = vi.fn(async () => ({ version: '2' }));
+    const controller = new DocumentSessionController<{ value: number }>({
+      serialize: JSON.stringify,
+      deserialize: JSON.parse,
+      applyDocument: vi.fn(),
+      write,
+      serializationCheckpointMs: 100,
+      prepareSave: () => controller.markLocalChange({ value: 2 }),
+    });
+    controller.load('{"value":0}', '1');
+    controller.markLocalChange({ value: 1 });
+    controller.load('{"value":10}', '10');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(controller.isDirty).toBe(false);
+    await controller.requestSave();
+    expect(write).toHaveBeenLastCalledWith({
+      content: '{"value":2}',
+      expectedVersion: '10',
+      baseContent: '{"value":10}',
+    });
+    controller.dispose();
+    vi.useRealTimers();
+  });
+});

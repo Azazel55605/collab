@@ -480,9 +480,17 @@ impl SheetFormulaEngine {
     /// Recomputes every dirty formula in the workbook and reports how many
     /// cells were actually recalculated.
     pub fn evaluate_all(&mut self) -> Result<usize, SheetEngineError> {
+        self.evaluate_all_cancellable(Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Cooperative adapter-owned cancellation shares the engine budget flag.
+    pub fn evaluate_all_cancellable(
+        &mut self,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<usize, SheetEngineError> {
         let budget = self.budget.max_evaluation;
         let workbook = &mut self.workbook;
-        let result = run_bounded(budget, |cancel| {
+        let result = run_bounded_with_cancel(budget, cancel, |cancel| {
             workbook.evaluate_all_cancellable(cancel.into())
         })?
         .map_err(|error| SheetEngineError::Engine(error.to_string()))?;
@@ -507,6 +515,17 @@ fn run_bounded<T, E>(
     budget: Duration,
     call: impl FnOnce(Arc<AtomicBool>) -> Result<T, E>,
 ) -> Result<Result<T, E>, SheetEngineError> {
+    run_bounded_with_cancel(budget, Arc::new(AtomicBool::new(false)), call)
+}
+
+fn run_bounded_with_cancel<T, E>(
+    budget: Duration,
+    external_cancel: Arc<AtomicBool>,
+    call: impl FnOnce(Arc<AtomicBool>) -> Result<T, E>,
+) -> Result<Result<T, E>, SheetEngineError> {
+    if external_cancel.load(Ordering::Relaxed) {
+        return Err(SheetEngineError::EvaluationTimeout(budget));
+    }
     let cancel = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
     let watchdog = {
@@ -515,7 +534,7 @@ fn run_bounded<T, E>(
         std::thread::spawn(move || {
             let started = Instant::now();
             while !finished.load(Ordering::Relaxed) {
-                if started.elapsed() >= budget {
+                if external_cancel.load(Ordering::Relaxed) || started.elapsed() >= budget {
                     cancel.store(true, Ordering::Relaxed);
                     return;
                 }
@@ -567,5 +586,18 @@ mod tests {
             .unwrap();
         engine.set_formula(&second, "=3").unwrap();
         assert_eq!(engine.formula_cell_count(), 1);
+    }
+    #[test]
+    fn caller_cancellation_is_observed_without_replacing_the_engine() {
+        let mut engine = SheetFormulaEngine::new(SheetFormulaBudget::default());
+        engine.add_worksheet("Sheet").unwrap();
+        engine
+            .set_formula(&SheetCellRef::new("Sheet", 1, 1), "=1+1")
+            .unwrap();
+        assert!(matches!(
+            engine.evaluate_all_cancellable(Arc::new(AtomicBool::new(true))),
+            Err(SheetEngineError::EvaluationTimeout(_))
+        ));
+        assert!(engine.evaluate_all().is_ok());
     }
 }

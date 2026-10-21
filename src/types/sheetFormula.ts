@@ -31,6 +31,10 @@ export interface SheetFormulaEvaluationRequest {
   cells: SheetFormulaCellInput[];
   evaluationTime: string;
   timeZone: string;
+  revision?: number;
+  baseRevision?: number;
+  fullSeed?: boolean;
+  removedCells?: string[];
 }
 
 export interface SheetFormulaComputedCell {
@@ -44,6 +48,10 @@ export interface SheetFormulaEvaluationResponse {
   cells: SheetFormulaComputedCell[];
   recalculated: number;
   incremental: boolean;
+  revision?: number | null;
+  fullResult?: boolean;
+  resetRequired?: boolean;
+  removedCells?: string[];
 }
 
 export type SheetFormulaValueMap = ReadonlyMap<string, SheetFormulaComputedValue>;

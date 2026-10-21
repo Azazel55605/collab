@@ -702,59 +702,41 @@ export function getAnchoredEdgeGeometry({
   };
 }
 
+const geometryByNode = new WeakMap<FlowNode<CanvasNodeData>, NodeGeometry>();
 function getNodeGeometryMap(nodes: FlowNode<CanvasNodeData>[]) {
-  return new Map(
-    nodes
-      .filter(
-        (node) =>
-          !!node &&
-          typeof node.id === 'string' &&
-          !!node.position &&
-          Number.isFinite(node.position.x) &&
-          Number.isFinite(node.position.y),
-      )
-      .map((node) => [
-        node.id,
-        {
-          centerX:
-            (node.position.x ?? 0) +
-            (typeof node.width === 'number'
-              ? node.width
-              : typeof node.measured?.width === 'number'
-                ? node.measured.width
-                : typeof node.style?.width === 'number'
-                  ? node.style.width
-                  : 300) /
-              2,
-          centerY:
-            (node.position.y ?? 0) +
-            (typeof node.height === 'number'
-              ? node.height
-              : typeof node.measured?.height === 'number'
-                ? node.measured.height
-                : typeof node.style?.height === 'number'
-                  ? node.style.height
-                  : DEFAULT_NODE_HEIGHT) /
-              2,
-          height:
-            typeof node.height === 'number'
-              ? node.height
-              : typeof node.measured?.height === 'number'
-                ? node.measured.height
-                : typeof node.style?.height === 'number'
-                  ? node.style.height
-                  : DEFAULT_NODE_HEIGHT,
-          width:
-            typeof node.width === 'number'
-              ? node.width
-              : typeof node.measured?.width === 'number'
-                ? node.measured.width
-                : typeof node.style?.width === 'number'
-                  ? node.style.width
-                  : 300,
-        } satisfies NodeGeometry,
-      ]),
-  );
+  const result = new Map<string, NodeGeometry>();
+  for (const node of nodes) {
+    if (!node?.position || !Number.isFinite(node.position.x) || !Number.isFinite(node.position.y))
+      continue;
+    let geometry = geometryByNode.get(node);
+    if (!geometry) {
+      const width =
+        typeof node.width === 'number'
+          ? node.width
+          : typeof node.measured?.width === 'number'
+            ? node.measured.width
+            : typeof node.style?.width === 'number'
+              ? node.style.width
+              : 300;
+      const height =
+        typeof node.height === 'number'
+          ? node.height
+          : typeof node.measured?.height === 'number'
+            ? node.measured.height
+            : typeof node.style?.height === 'number'
+              ? node.style.height
+              : DEFAULT_NODE_HEIGHT;
+      geometry = {
+        centerX: node.position.x + width / 2,
+        centerY: node.position.y + height / 2,
+        width,
+        height,
+      };
+      geometryByNode.set(node, geometry);
+    }
+    result.set(node.id, geometry);
+  }
+  return result;
 }
 
 function buildEdgeSiblingLookup(

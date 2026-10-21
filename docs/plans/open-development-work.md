@@ -119,7 +119,13 @@ search. See [budgets, evidence and outstanding native acceptance](../desktop/mar
 thumbnails, PDF canvas/cache budgets, disposable disk GC, image workers, bounded
 native OCR/downloads, and account-aware avatar refresh. O39/O47 remain implemented;
 O48 remains superseded by R08. See [limits, evidence and native acceptance](../desktop/previews-pdf-images-ocr-performance.md).
-The next category is **Structured Editors, History And Export (O52–O63)**.
+**Structured Editors, History And Export (O52–O63)** is implemented in Performance
+Batch 8 (**2026-10-21**): structured checkpoints, incremental/cancellable formula
+IPC, byte-bounded undo, structural indexes, visibility-owned media, incremental
+ink/graph derivation and transferable exports with atomic binary publication.
+See [budgets, evidence and outstanding native acceptance](../desktop/structured-editors-history-export-performance.md).
+**O01–O64 are checked off** (O48 superseded); **O65–O70 remain open**. Next is
+**Native Storage, Collaboration, Calendar And Background Work**.
 
 The **UR15 UI flicker follow-up (2026-10-20)** removes routine folder/sidebar/view
 and settings-category entrance fades while preserving document keys and menu

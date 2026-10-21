@@ -129,6 +129,8 @@ import {
   type DocumentSessionSnapshot,
   useDocumentSessionController,
 } from '../lib/documentSessionController';
+import { immutableJson } from '../lib/immutableJson';
+import { IncrementalMap } from '../lib/incrementalMap';
 import { useLivePeers } from '../lib/liveAwareness';
 import {
   type JsonObject,
@@ -137,6 +139,7 @@ import {
 } from '../lib/liveJsonDocument';
 import { buildLogicDiagramSvg } from '../lib/logicDiagramExport';
 import { getMarkdownImageTarget } from '../lib/noteAssets';
+import { retainProjection } from '../lib/stableProjection';
 import {
   type CircuitDcResult,
   type CircuitJobStatus,
@@ -466,7 +469,7 @@ function parseLogicDocumentContent(content: string, title: string): LogicDiagram
 }
 
 function logicDocumentToJson(document: LogicDiagramDocument): JsonObject {
-  return JSON.parse(JSON.stringify(normalizeLogicDiagramDocument(document))) as JsonObject;
+  return immutableJson(normalizeLogicDiagramDocument(document)) as JsonObject;
 }
 
 function logicDocumentFromJson(value: JsonObject): LogicDiagramDocument | null {
@@ -1254,10 +1257,43 @@ function LogicDiagramEditor({ relativePath }: Props) {
     () => edges.filter((edge) => edge.selected).map((edge) => edge.id),
     [edges],
   );
+  const semanticNodesRef = useRef<readonly LogicFlowNode[]>([]);
+  semanticNodesRef.current = retainProjection(
+    semanticNodesRef.current,
+    nodes,
+    (a, b) => a.id === b.id && a.data === b.data,
+  );
+  const semanticNodes = semanticNodesRef.current as LogicFlowNode[];
+  const semanticEdgesRef = useRef<readonly LogicFlowEdge[]>([]);
+  semanticEdgesRef.current = retainProjection(
+    semanticEdgesRef.current,
+    edges,
+    (a, b) =>
+      a.id === b.id &&
+      a.source === b.source &&
+      a.target === b.target &&
+      a.sourceHandle === b.sourceHandle &&
+      a.targetHandle === b.targetHandle &&
+      a.label === b.label,
+  );
+  const semanticEdges = semanticEdgesRef.current as LogicFlowEdge[];
+  const persistenceNodesRef = useRef<readonly LogicFlowNode[]>([]);
+  persistenceNodesRef.current = retainProjection(
+    persistenceNodesRef.current,
+    nodes,
+    (a, b) =>
+      a.id === b.id &&
+      a.data === b.data &&
+      a.position === b.position &&
+      a.parentId === b.parentId &&
+      a.style?.width === b.style?.width &&
+      a.style?.height === b.style?.height,
+  );
+  const persistenceNodes = persistenceNodesRef.current as LogicFlowNode[];
   const circuitInputSignature = useMemo(
     () =>
       JSON.stringify({
-        nodes: nodes
+        nodes: semanticNodes
           .filter((node) => isElectronicComponentKind(node.data.kind))
           .map((node) => ({
             id: node.id,
@@ -1265,7 +1301,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
             electrical: node.data.electrical ?? null,
           }))
           .sort((left, right) => left.id.localeCompare(right.id)),
-        wires: edges
+        wires: semanticEdges
           .map((edge) => ({
             id: edge.id,
             source: edge.source,
@@ -1276,7 +1312,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
           .sort((left, right) => left.id.localeCompare(right.id)),
         simulation: diagram.simulation ?? null,
       }),
-    [diagram.simulation, edges, nodes],
+    [diagram.simulation, semanticEdges, semanticNodes],
   );
   const circuitResultStale = Boolean(
     circuitResult && circuitResultSignature && circuitResultSignature !== circuitInputSignature,
@@ -1305,12 +1341,12 @@ function LogicDiagramEditor({ relativePath }: Props) {
     if (diagram.diagramMode === 'schematic') {
       return { nodeValues: {}, nodeOutputValues: {}, wireValues: {}, warnings: [] };
     }
-    const graph = fromFlowGraph(diagram, nodes, edges, diagram.viewport);
+    const graph = fromFlowGraph(diagram, semanticNodes, semanticEdges, diagram.viewport);
     return evaluateLogicDiagram(graph.nodes, graph.wires, {
       components: availableComponents,
       clockElapsedMs,
     });
-  }, [availableComponents, clockElapsedMs, diagram, edges, nodes]);
+  }, [availableComponents, clockElapsedMs, diagram, semanticEdges, semanticNodes]);
 
   const truthTable = useMemo(() => {
     if (!truthTableOpen) return { inputs: [], outputs: [], rows: [] };
@@ -1319,9 +1355,9 @@ function LogicDiagramEditor({ relativePath }: Props) {
         ? null
         : availableComponents.find((candidate) => candidate.id === truthTableScope);
     if (component) return generateComponentTruthTable(component, availableComponents);
-    const graph = fromFlowGraph(diagram, nodes, edges, diagram.viewport);
+    const graph = fromFlowGraph(diagram, semanticNodes, semanticEdges, diagram.viewport);
     return generateLogicTruthTable(graph.nodes, graph.wires, { components: availableComponents });
-  }, [availableComponents, diagram, edges, nodes, truthTableOpen, truthTableScope]);
+  }, [availableComponents, diagram, semanticEdges, semanticNodes, truthTableOpen, truthTableScope]);
 
   const clockCount = useMemo(
     () => nodes.filter((node) => node.data.kind === 'clock').length,
@@ -1403,18 +1439,54 @@ function LogicDiagramEditor({ relativePath }: Props) {
     () => new Map(renderedNodes.map((node) => [node.id, node])),
     [renderedNodes],
   );
-  const edgeGeometries = useMemo(
-    () =>
-      new Map(
-        renderedEdges
-          .map((edge) => [edge.id, logicEdgePath(edge, nodesById, viewport)] as const)
-          .filter(
-            (entry): entry is readonly [string, NonNullable<ReturnType<typeof logicEdgePath>>] =>
-              entry[1] !== null,
-          ),
-      ),
-    [nodesById, renderedEdges, viewport],
-  );
+  const geometryCache = useRef(new IncrementalMap<ReturnType<typeof logicEdgePath>>());
+  const edgeGeometries = useMemo(() => {
+    const lineage = (id: string) => {
+      const dependencies: unknown[] = [];
+      let node = nodesById.get(id);
+      const seen = new Set<string>();
+      while (node && !seen.has(node.id)) {
+        seen.add(node.id);
+        dependencies.push(
+          node.id,
+          node.position,
+          node.data.kind,
+          node.data.rotation,
+          node.data.component,
+          node.width,
+          node.height,
+          node.style?.width,
+          node.style?.height,
+          node.measured?.width,
+          node.measured?.height,
+        );
+        node = node.parentId ? nodesById.get(node.parentId) : undefined;
+      }
+      return dependencies;
+    };
+    const ids = new Set(renderedEdges.map((edge) => edge.id));
+    geometryCache.current.retain(ids);
+    return new Map(
+      renderedEdges.flatMap((edge) => {
+        const geometry = geometryCache.current.get(
+          edge.id,
+          [
+            edge.source,
+            edge.target,
+            edge.sourceHandle,
+            edge.targetHandle,
+            viewport.x,
+            viewport.y,
+            viewport.zoom,
+            ...lineage(edge.source),
+            ...lineage(edge.target),
+          ],
+          () => logicEdgePath(edge, nodesById, viewport),
+        );
+        return geometry ? [[edge.id, geometry] as const] : [];
+      }),
+    );
+  }, [nodesById, renderedEdges, viewport]);
 
   const title = getDocumentBaseName(relativePath, 'Logic Diagram').replace(/\.logic$/i, '');
   const noteTarget = useMemo(
@@ -1447,7 +1519,12 @@ function LogicDiagramEditor({ relativePath }: Props) {
     [setEdges, setNodes, structuralSignature],
   );
 
+  const flushLogicGeometryRef = useRef<() => void>(() => {});
+  const gestureDirtyRef = useRef(false);
+  const [gestureRevision, setGestureRevision] = useState(0);
   const { controller, snapshot } = useDocumentSessionController<LogicDiagramDocument>({
+    serializationCheckpointMs: 100,
+    flushPendingChanges: () => flushLogicGeometryRef.current(),
     serialize: (doc) => JSON.stringify(doc, null, 2),
     deserialize: (content) => parseLogicDocumentContent(content, title),
     applyDocument: (candidate) => applyLogicDocument(candidate.document),
@@ -1621,16 +1698,37 @@ function LogicDiagramEditor({ relativePath }: Props) {
   // mark idempotent per distinct signature so a re-render (from the controller's
   // own state change) never re-marks the same edit.
   const lastMarkedSigRef = useRef<string | null>(null);
+  flushLogicGeometryRef.current = () => {
+    if (!gestureDirtyRef.current || !readyRef.current || readOnly || componentEditSession) return;
+    gestureDirtyRef.current = false;
+    const next = fromFlowGraph(diagram, persistenceNodes, semanticEdges, getViewport());
+    lastMarkedSigRef.current = structuralSignature(
+      persistenceNodes,
+      semanticEdges,
+      diagram.diagramMode,
+      diagram.simulation,
+    );
+    if (liveSessionRef.current) liveSessionRef.current.writeJson(logicDocumentToJson(next));
+    else controller.markLocalChange(next);
+  };
+
   useEffect(() => {
     if (!vault || readOnly || !readyRef.current || componentEditSession) return;
-    const sig = structuralSignature(nodes, edges, diagram.diagramMode, diagram.simulation);
+    if (dragSessionRef.current?.moved) return;
+    flushLogicGeometryRef.current();
+    const sig = structuralSignature(
+      persistenceNodes,
+      semanticEdges,
+      diagram.diagramMode,
+      diagram.simulation,
+    );
     if (sig === savedStructuralRef.current) {
       lastMarkedSigRef.current = sig;
       return;
     }
     if (sig === lastMarkedSigRef.current) return;
     lastMarkedSigRef.current = sig;
-    const next = fromFlowGraph(diagram, nodes, edges, getViewport() as Viewport);
+    const next = fromFlowGraph(diagram, persistenceNodes, semanticEdges, getViewport() as Viewport);
     if (liveSessionRef.current) {
       liveSessionRef.current.writeJson(logicDocumentToJson(next));
     } else {
@@ -1640,9 +1738,10 @@ function LogicDiagramEditor({ relativePath }: Props) {
     componentEditSession,
     controller,
     diagram,
-    edges,
+    semanticEdges,
     getViewport,
-    nodes,
+    persistenceNodes,
+    gestureRevision,
     readOnly,
     structuralSignature,
     vault,
@@ -3638,6 +3737,8 @@ function LogicDiagramEditor({ relativePath }: Props) {
           Math.abs(event.clientY - session.start.y) > 2;
         if (moved) {
           dragSessionRef.current = { ...session, moved: true };
+          gestureDirtyRef.current = true;
+          if (!componentEditingRef.current) controller.markTransientChange();
         }
         const delta = {
           x: (event.clientX - session.start.x) / viewport.zoom,
@@ -3731,7 +3832,10 @@ function LogicDiagramEditor({ relativePath }: Props) {
         if (captureTarget instanceof HTMLElement && captureTarget.hasPointerCapture(pointerId)) {
           captureTarget.releasePointerCapture(pointerId);
         }
-        if (moved) markChanged();
+        if (moved) {
+          setGestureRevision((value) => value + 1);
+          markChanged();
+        }
       }
       if (selectionSessionRef.current?.pointerId === pointerId) {
         selectionSessionRef.current = null;
