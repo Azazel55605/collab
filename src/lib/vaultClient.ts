@@ -221,6 +221,7 @@ export interface VaultClient {
     relativePath: string,
     signal?: AbortSignal,
     thumbnailOnly?: boolean,
+    thumbnailMaxDimension?: number,
   ): Promise<Uint8Array>;
   /**
    * Reads the shared annotation sidecar for a PDF. Local vaults read the
@@ -1678,6 +1679,7 @@ export class HostedVaultClient implements VaultClient {
     relativePath: string,
     signal?: AbortSignal,
     thumbnailOnly = false,
+    thumbnailMaxDimension?: number,
   ): Promise<Uint8Array> {
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
@@ -1700,6 +1702,7 @@ export class HostedVaultClient implements VaultClient {
           { ...source, cached: true },
           thumbnailOnly,
           signal,
+          ...(thumbnailMaxDimension ? ([thumbnailMaxDimension] as [number]) : ([] as [])),
         );
         void syncReplicaManifestDelta(this.vault).catch(() => {});
         return bytes;
@@ -1709,7 +1712,12 @@ export class HostedVaultClient implements VaultClient {
       }
     }
     try {
-      return await tauriCommands.readVaultAssetBytes(source, thumbnailOnly, signal);
+      return await tauriCommands.readVaultAssetBytes(
+        source,
+        thumbnailOnly,
+        signal,
+        ...(thumbnailMaxDimension ? ([thumbnailMaxDimension] as [number]) : ([] as [])),
+      );
     } catch (error) {
       if (signal?.aborted || !isLikelyConnectivityError(error)) throw error;
       // Same offline fallback policy as readAssetDataUrl: permission failures never fall back.
@@ -1717,6 +1725,7 @@ export class HostedVaultClient implements VaultClient {
         { ...source, cached: true, expectedHash: null },
         thumbnailOnly,
         signal,
+        ...(thumbnailMaxDimension ? ([thumbnailMaxDimension] as [number]) : ([] as [])),
       );
     }
   }
@@ -2327,11 +2336,17 @@ export class LocalVaultClient implements VaultClient {
     return tauriCommands.clearSnapshotHistory(this.vault.path, relativePath);
   }
 
-  readAssetBytes(relativePath: string, signal?: AbortSignal, thumbnailOnly = false) {
+  readAssetBytes(
+    relativePath: string,
+    signal?: AbortSignal,
+    thumbnailOnly = false,
+    thumbnailMaxDimension?: number,
+  ) {
     return tauriCommands.readVaultAssetBytes(
       { kind: 'local', vaultPath: this.vault.path, relativePath },
       thumbnailOnly,
       signal,
+      ...(thumbnailMaxDimension ? ([thumbnailMaxDimension] as [number]) : ([] as [])),
     );
   }
 

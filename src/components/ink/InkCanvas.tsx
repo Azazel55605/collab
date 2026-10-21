@@ -275,7 +275,17 @@ export default function InkCanvas({
     });
   }, [colorPalette]);
 
-  const index = useMemo(() => (page ? new InkSpatialIndex(page.scene) : null), [page]);
+  const retainedIndex = useRef<{ pageId: string; index: InkSpatialIndex } | null>(null);
+  const index = useMemo(() => {
+    if (!page) {
+      retainedIndex.current = null;
+      return null;
+    }
+    if (retainedIndex.current?.pageId !== page.id)
+      retainedIndex.current = { pageId: page.id, index: new InkSpatialIndex(page.scene) };
+    else retainedIndex.current.index.updateScene(page.scene);
+    return retainedIndex.current.index;
+  }, [page]);
   const selection = useMemo(
     () => (page ? selectionFrame(page.scene, selectedIds) : null),
     [page, selectedIds],

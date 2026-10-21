@@ -7,6 +7,7 @@ import type {
 } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
 
+import { sheetAddressIndex } from './address';
 import type { SheetPosition } from './address';
 import { parseFormulaReferences, translateFormulaReferences } from './formulaReferences';
 import { expandNamedRangesInFormula } from './namedRanges';
@@ -35,12 +36,12 @@ function qualifyLocalReferences(formula: string, worksheetName: string): string 
 
 function bounds(worksheet: SheetWorksheet, range: SheetRange) {
   const rows = [
-    worksheet.rowOrder.indexOf(range.startRowId),
-    worksheet.rowOrder.indexOf(range.endRowId),
+    sheetAddressIndex(worksheet).rowIndexOf(range.startRowId) ?? -1,
+    sheetAddressIndex(worksheet).rowIndexOf(range.endRowId) ?? -1,
   ];
   const columns = [
-    worksheet.columnOrder.indexOf(range.startColumnId),
-    worksheet.columnOrder.indexOf(range.endColumnId),
+    sheetAddressIndex(worksheet).columnIndexOf(range.startColumnId) ?? -1,
+    sheetAddressIndex(worksheet).columnIndexOf(range.endColumnId) ?? -1,
   ];
   if ([...rows, ...columns].some((value) => value < 0)) return null;
   return {
@@ -100,8 +101,8 @@ function validationAnchor(
   validation: SheetValidation,
 ): SheetPosition | null {
   if (!validation.anchor) return null;
-  const row = worksheet.rowOrder.indexOf(validation.anchor.rowId);
-  const column = worksheet.columnOrder.indexOf(validation.anchor.columnId);
+  const row = sheetAddressIndex(worksheet).rowIndexOf(validation.anchor.rowId) ?? -1;
+  const column = sheetAddressIndex(worksheet).columnIndexOf(validation.anchor.columnId) ?? -1;
   return row >= 0 && column >= 0 ? { row, column } : null;
 }
 
@@ -154,15 +155,18 @@ export function buildSheetRuleFormulaInputs(document: SheetDocument): {
       }
     }
 
-    for (const [key, cell] of Object.entries(worksheet.cells)) {
-      const validation = cell.validationId
-        ? worksheet.validations?.find((item) => item.id === cell.validationId)
-        : undefined;
+    const customValidations = new Map(
+      worksheet.validations
+        ?.filter((rule) => rule.kind === 'custom')
+        .map((rule) => [rule.id, rule]),
+    );
+    for (const [key, cell] of customValidations.size ? Object.entries(worksheet.cells) : []) {
+      const validation = cell.validationId ? customValidations.get(cell.validationId) : undefined;
       if (validation?.kind !== 'custom' || !validation.formula) continue;
       const [rowId, columnId] = key.split(':');
       const position = {
-        row: worksheet.rowOrder.indexOf(rowId),
-        column: worksheet.columnOrder.indexOf(columnId),
+        row: sheetAddressIndex(worksheet).rowIndexOf(rowId) ?? -1,
+        column: sheetAddressIndex(worksheet).columnIndexOf(columnId) ?? -1,
       };
       if (position.row < 0 || position.column < 0) continue;
       add(

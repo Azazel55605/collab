@@ -17,6 +17,7 @@
 import type { InkBounds, InkObject, InkScene } from '../../types/ink';
 
 import { decodeSamples } from './codec';
+import { inkSceneChangedIds } from './sceneChanges';
 import { strokeHitTest } from './stroke';
 import { objectBounds } from './svg';
 import { INK_TILE_SIZE, tileId, tilesForBounds } from './tiles';
@@ -37,15 +38,45 @@ export interface InkHitOptions {
 export class InkSpatialIndex {
   private readonly cells = new Map<string, string[]>();
   private readonly bounds = new Map<string, InkBounds>();
+  private order = new Map<string, number>();
 
   constructor(
-    private readonly scene: InkScene,
+    private scene: InkScene,
     private readonly tileSize: number = INK_TILE_SIZE,
   ) {
+    this.order = new Map(scene.objectOrder.map((id, index) => [id, index]));
     for (const id of scene.objectOrder) {
       const object = scene.objects[id];
       if (object) this.insert(object);
     }
+  }
+
+  updateScene(next: InkScene): number {
+    if (next === this.scene) return 0;
+    const changed =
+      inkSceneChangedIds(this.scene, next) ??
+      new Set(
+        [...Object.keys(this.scene.objects), ...Object.keys(next.objects)].filter(
+          (id) => this.scene.objects[id] !== next.objects[id],
+        ),
+      );
+    for (const id of changed) {
+      const old = this.bounds.get(id);
+      if (old)
+        for (const key of tilesForBounds(old, this.tileSize)) {
+          const cell = tileId(key);
+          const remaining = this.cells.get(cell)?.filter((candidate) => candidate !== id);
+          if (remaining?.length) this.cells.set(cell, remaining);
+          else this.cells.delete(cell);
+        }
+      this.bounds.delete(id);
+      const object = next.objects[id];
+      if (object) this.insert(object);
+    }
+    if (this.scene.objectOrder !== next.objectOrder)
+      this.order = new Map(next.objectOrder.map((id, index) => [id, index]));
+    this.scene = next;
+    return changed.size;
   }
 
   private insert(object: InkObject): void {
@@ -87,7 +118,7 @@ export class InkSpatialIndex {
         seen.add(id);
       }
     }
-    return this.scene.objectOrder.filter((id) => seen.has(id));
+    return [...seen].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
   }
 
   private isPickable(object: InkObject, options: InkHitOptions): boolean {

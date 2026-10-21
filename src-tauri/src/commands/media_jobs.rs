@@ -44,6 +44,9 @@ impl MediaJob {
             cancelled: entry.flag.clone(),
         })
     }
+    pub fn cancellation_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancelled)
+    }
     pub fn check(&self) -> Result<(), String> {
         if self.cancelled.load(Ordering::Relaxed) {
             Err("Media job cancelled".into())

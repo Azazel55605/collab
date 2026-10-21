@@ -1,6 +1,7 @@
 import { SHEET_LIMITS } from '../../types/sheet';
 import type { SheetDocument, SheetNamedRange, SheetRange, SheetWorksheet } from '../../types/sheet';
 
+import { sheetAddressIndex } from './address';
 import { columnLabel } from './address';
 import { createSheetNamedRangeId, SheetDocumentError } from './document';
 import type { SheetSelection } from './selection';
@@ -118,10 +119,10 @@ function sheetPrefix(name: string): string {
 }
 
 function absoluteRangeText(worksheet: SheetWorksheet, range: SheetRange): string | null {
-  const startRow = worksheet.rowOrder.indexOf(range.startRowId);
-  const endRow = worksheet.rowOrder.indexOf(range.endRowId);
-  const startColumn = worksheet.columnOrder.indexOf(range.startColumnId);
-  const endColumn = worksheet.columnOrder.indexOf(range.endColumnId);
+  const startRow = sheetAddressIndex(worksheet).rowIndexOf(range.startRowId) ?? -1;
+  const endRow = sheetAddressIndex(worksheet).rowIndexOf(range.endRowId) ?? -1;
+  const startColumn = sheetAddressIndex(worksheet).columnIndexOf(range.startColumnId) ?? -1;
+  const endColumn = sheetAddressIndex(worksheet).columnIndexOf(range.endColumnId) ?? -1;
   if (startRow < 0 || endRow < 0 || startColumn < 0 || endColumn < 0) return null;
   const first = `$${columnLabel(startColumn)}$${startRow + 1}`;
   const last = `$${columnLabel(endColumn)}$${endRow + 1}`;
@@ -195,10 +196,13 @@ export function expandNamedRangesInFormula(
 }
 
 export function namedRangeSelection(resolved: ResolvedNamedRange): SheetSelection | null {
-  const startRow = resolved.worksheet.rowOrder.indexOf(resolved.range.startRowId);
-  const endRow = resolved.worksheet.rowOrder.indexOf(resolved.range.endRowId);
-  const startColumn = resolved.worksheet.columnOrder.indexOf(resolved.range.startColumnId);
-  const endColumn = resolved.worksheet.columnOrder.indexOf(resolved.range.endColumnId);
+  const startRow =
+    sheetAddressIndex(resolved.worksheet).rowIndexOf(resolved.range.startRowId) ?? -1;
+  const endRow = sheetAddressIndex(resolved.worksheet).rowIndexOf(resolved.range.endRowId) ?? -1;
+  const startColumn =
+    sheetAddressIndex(resolved.worksheet).columnIndexOf(resolved.range.startColumnId) ?? -1;
+  const endColumn =
+    sheetAddressIndex(resolved.worksheet).columnIndexOf(resolved.range.endColumnId) ?? -1;
   if (startRow < 0 || endRow < 0 || startColumn < 0 || endColumn < 0) return null;
   const start = { row: startRow, column: startColumn };
   const end = { row: endRow, column: endColumn };

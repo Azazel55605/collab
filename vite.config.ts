@@ -41,6 +41,8 @@ export default defineConfig(async () => ({
       "simple-icons",
       "lucide-react",
       "three",
+      // PPTX export also imports CommonJS JSZip from a module worker in dev.
+      "jszip",
       "highlight.js",
       "highlight.js/lib/core",
       "highlight.js/lib/languages/javascript",

@@ -25,6 +25,7 @@ export interface InkExportRuntimeRequest {
   options: InkExportOptions;
   assets: Record<string, InkExportAsset>;
   report: InkExportReport;
+  binaryOutput?: boolean;
 }
 
 export interface InkExportProgress {
@@ -142,7 +143,8 @@ export async function renderInkExport(
     return {
       mediaType: 'image/svg+xml',
       fileName,
-      contentBase64: textToBase64(svg),
+      contentBase64: request.binaryOutput ? '' : textToBase64(svg),
+      ...(request.binaryOutput ? { bytes: new TextEncoder().encode(svg) } : {}),
       report,
       source,
     };
@@ -175,7 +177,8 @@ export async function renderInkExport(
     return {
       mediaType: 'image/png',
       fileName,
-      contentBase64: bytesToBase64(bytes),
+      contentBase64: request.binaryOutput ? '' : bytesToBase64(bytes),
+      ...(request.binaryOutput ? { bytes } : {}),
       report,
       source,
     };
@@ -222,7 +225,8 @@ export async function renderInkExport(
   return {
     mediaType: 'application/pdf',
     fileName,
-    contentBase64: bytesToBase64(pdf),
+    contentBase64: request.binaryOutput ? '' : bytesToBase64(pdf),
+    ...(request.binaryOutput ? { bytes: pdf } : {}),
     report,
     source,
   };

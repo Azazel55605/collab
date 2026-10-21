@@ -1,9 +1,9 @@
 import { parseSheetCellKey } from '../../types/sheet';
 import type { SheetDocument, SheetWorksheet } from '../../types/sheet';
 
-import type { SheetPosition } from './address';
+import { sheetAddressIndex, type SheetPosition } from './address';
 import { formatCellEditText, parseCellInput } from './cellValue';
-import { getCell, setCell } from './operations';
+import { getCell, setCell, setCells } from './operations';
 
 export interface SheetSearchOptions {
   matchCase?: boolean;
@@ -25,15 +25,7 @@ export function findSheetMatches(
   query: string,
   options: SheetSearchOptions = {},
 ): SheetPosition[] {
-  if (!query) return [];
-  const matches: SheetPosition[] = [];
-  for (let row = 0; row < worksheet.rowOrder.length; row += 1) {
-    for (let column = 0; column < worksheet.columnOrder.length; column += 1) {
-      const text = formatCellEditText(getCell(worksheet, { row, column }));
-      if (text && matchesText(text, query, options)) matches.push({ row, column });
-    }
-  }
-  return matches;
+  return findPopulatedSheetMatches(worksheet, query, options);
 }
 
 /**
@@ -49,15 +41,14 @@ export function findPopulatedSheetMatches(
   options: SheetSearchOptions = {},
 ): SheetPosition[] {
   if (!query) return [];
-  const rows = new Map(worksheet.rowOrder.map((id, index) => [id, index]));
-  const columns = new Map(worksheet.columnOrder.map((id, index) => [id, index]));
+  const index = sheetAddressIndex(worksheet);
   const matches: SheetPosition[] = [];
   for (const [key, cell] of Object.entries(worksheet.cells)) {
     const parsed = parseSheetCellKey(key);
     if (!parsed) continue;
-    const row = rows.get(parsed.rowId);
-    const column = columns.get(parsed.columnId);
-    if (row === undefined || column === undefined) continue;
+    const row = index.rowIndexOf(parsed.rowId);
+    const column = index.columnIndexOf(parsed.columnId);
+    if (row === null || column === null) continue;
     const text = formatCellEditText(cell);
     if (text && matchesText(text, query, options)) matches.push({ row, column });
   }
@@ -123,9 +114,11 @@ export function replaceAllSheetMatches(
   const worksheet = document.worksheets.find((candidate) => candidate.id === worksheetId);
   if (!worksheet || !query) return { document, count: 0 };
   const matches = findSheetMatches(worksheet, query, options);
-  let next = document;
-  for (const position of matches) {
-    next = replaceSheetMatch(next, worksheetId, position, query, replacement, options);
-  }
-  return { document: next, count: matches.length };
+  const updates = matches.map((position) => ({
+    position,
+    cell: parseCellInput(
+      replaceText(formatCellEditText(getCell(worksheet, position)), query, replacement, options),
+    ),
+  }));
+  return { document: setCells(document, worksheetId, updates), count: matches.length };
 }

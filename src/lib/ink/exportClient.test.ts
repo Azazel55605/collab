@@ -47,3 +47,29 @@ describe('startInkExport', () => {
     expect(terminate).toHaveBeenCalledOnce();
   });
 });
+
+it('shares global export admission with PowerPoint and releases slots on cancellation', async () => {
+  const { startPptxExport } = await import('../deck/pptx/exportClient');
+  class BusyWorker {
+    addEventListener() {}
+    postMessage() {}
+    terminate() {}
+  }
+  globalThis.Worker = BusyWorker as unknown as typeof Worker;
+  const deck = {} as import('../../types/deck').DeckDocument;
+  const request = { deck, assets: {}, svgFallbacks: {}, missingFonts: {} };
+  const first = startPptxExport(request, vi.fn());
+  const second = startPptxExport(request, vi.fn());
+  await expect(startPptxExport(request, vi.fn()).promise).rejects.toThrow('Two exports');
+  const cancelled = expect(first.promise).rejects.toThrow('cancelled');
+  first.cancel();
+  await cancelled;
+  const another = startPptxExport(request, vi.fn());
+  const jobs = Promise.all([
+    expect(second.promise).rejects.toThrow('cancelled'),
+    expect(another.promise).rejects.toThrow('cancelled'),
+  ]);
+  second.cancel();
+  another.cancel();
+  await jobs;
+});

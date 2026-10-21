@@ -143,7 +143,7 @@ export function toFlowNode(
   };
 }
 
-export function fromFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
+function convertFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
   const width =
     typeof node.width === 'number'
       ? node.width
@@ -245,4 +245,14 @@ export function fromFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
     relativePath: node.data.relativePath ?? '',
     description: node.data.content || undefined,
   };
+}
+
+const convertedNodes = new WeakMap<FlowNode<CanvasNodeData>, CanvasNode>();
+export function fromFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
+  let result = convertedNodes.get(node);
+  if (!result) {
+    result = convertFlowNode(node);
+    convertedNodes.set(node, result);
+  }
+  return result;
 }

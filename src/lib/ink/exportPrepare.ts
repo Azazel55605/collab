@@ -39,21 +39,42 @@ export async function prepareInkExportRequest(
     warnings: [],
   };
 
-  await Promise.all(
-    dependencies.assetPaths.map(async (assetPath) => {
+  let cursor = 0;
+  let bytes = 0;
+  const load = async () => {
+    while (cursor < dependencies.assetPaths.length) {
+      const assetPath = dependencies.assetPaths[cursor++];
+      let dataUrl: string;
       try {
-        const dataUrl = await client.readAssetDataUrl(assetPath);
-        if (!/^data:image\//i.test(dataUrl)) throw new Error('Asset is not an image.');
-        assets[assetPath] = { dataUrl, ...(await imageDimensions(dataUrl)) };
+        dataUrl = await client.readAssetDataUrl(assetPath);
+      } catch {
+        report.missingAssets.push(assetPath);
+        continue;
+      }
+      bytes += dataUrl.length * 2;
+      if (bytes > 128 * 1024 * 1024)
+        throw new Error('Drawing export assets exceed the 128 MiB preparation budget');
+      try {
+        if (!/^data:image\//i.test(dataUrl)) throw new Error('Asset is not an image');
+        const size = await imageDimensions(dataUrl);
+        if (size.width * size.height > 48_000_000)
+          throw new Error('Image exceeds export decode limit');
+        assets[assetPath] = { dataUrl, ...size };
       } catch {
         report.missingAssets.push(assetPath);
       }
-    }),
-  );
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, dependencies.assetPaths.length) }, load));
 
   report.missingAssets.sort();
   if (options.format === 'pdf' && options.transparent) {
     report.warnings.push('PDF pages are opaque; the selected export background was used.');
   }
-  return { document, relativePath, options, assets, report };
+  const snapshot = {
+    ...document,
+    pageOrder: pageIds,
+    pages: Object.fromEntries(pageIds.map((id) => [id, document.pages[id]])),
+  };
+  return { document: snapshot, relativePath, options, assets, report };
 }

@@ -56,6 +56,8 @@ export interface InkExportResult {
   mediaType: string;
   fileName: string;
   contentBase64: string;
+  /** Worker output transfers its buffer; legacy inline renderers retain base64. */
+  bytes?: Uint8Array;
   report: InkExportReport;
   source: InkExportSource;
 }

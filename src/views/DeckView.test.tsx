@@ -76,6 +76,7 @@ const tauriMocks = vi.hoisted(() => ({
   hostedVaultRequest: vi.fn(),
   showExportDialog: vi.fn(),
   writeDownloadedFile: vi.fn(),
+  writeDownloadedBytes: vi.fn(),
 }));
 vi.mock('../lib/tauri', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/tauri')>();
@@ -86,6 +87,7 @@ vi.mock('../lib/tauri', async (importOriginal) => {
       hostedVaultRequest: tauriMocks.hostedVaultRequest,
       showExportDialog: tauriMocks.showExportDialog,
       writeDownloadedFile: tauriMocks.writeDownloadedFile,
+      writeDownloadedBytes: tauriMocks.writeDownloadedBytes,
     },
   };
 });
@@ -1098,18 +1100,18 @@ describe('DeckView: presenting and export', () => {
 
   it('exports a PDF through the save dialog without touching the deck', async () => {
     tauriMocks.showExportDialog.mockResolvedValue('/home/me/Fixture.pdf');
-    tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
+    tauriMocks.writeDownloadedBytes.mockResolvedValue(undefined);
     await openDeck();
     fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
     fireEvent.click(await screen.findByRole('button', { name: /Export…/ }));
-    await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalled());
+    await waitFor(() => expect(tauriMocks.writeDownloadedBytes).toHaveBeenCalled());
     expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pdf', {
       name: 'PDF',
       extensions: ['pdf'],
     });
-    const [destination, base64] = tauriMocks.writeDownloadedFile.mock.calls[0];
+    const [destination, bytes] = tauriMocks.writeDownloadedBytes.mock.calls[0];
     expect(destination).toBe('/home/me/Fixture.pdf');
-    const pdf = atob(base64);
+    const pdf = new TextDecoder().decode(bytes);
     expect(pdf.startsWith('%PDF-1.4')).toBe(true);
     expect(pdf).toContain('/Count 5');
     expect(pdf).toContain('/Title');
@@ -1124,7 +1126,7 @@ describe('DeckView: PowerPoint export', () => {
 
   it('exports a .pptx through the save dialog and shows what was approximated', async () => {
     tauriMocks.showExportDialog.mockResolvedValue('/home/me/Fixture.pptx');
-    tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
+    tauriMocks.writeDownloadedBytes.mockResolvedValue(undefined);
     await openDeck();
     fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
     const format = await screen.findByRole('combobox', { name: 'Format' });
@@ -1136,10 +1138,10 @@ describe('DeckView: PowerPoint export', () => {
       name: 'PowerPoint',
       extensions: ['pptx'],
     });
-    const [destination, base64] = tauriMocks.writeDownloadedFile.mock.calls[0];
+    const [destination, bytes] = tauriMocks.writeDownloadedBytes.mock.calls[0];
     expect(destination).toBe('/home/me/Fixture.pptx');
     // A zip package (PK…) holding a presentation.
-    expect(atob(base64).slice(0, 2)).toBe('PK');
+    expect(String.fromCharCode(...bytes.subarray(0, 2))).toBe('PK');
     const details = screen.getByLabelText('Export details');
     expect(details.textContent).toMatch(/vault file/);
     expect(screen.getByText(/Fonts the file uses: Inter/)).toBeTruthy();

@@ -358,9 +358,34 @@ publication and StrictMode-safe ownership. Last computed values remain while
 recalculating the same workbook; scope changes hide them immediately. Removing
 the last formula releases the runtime. Desktop/mobile adapters supply their own
 IPC wrappers, timezone and 80/120 ms delays; Android and deck request builders no
-longer import the desktop hook/UI store. Native registry locking, global job
-limits, running-job cancellation and explicit volatile recalculation remain
-separate work.
+longer import the desktop hook/UI store. Revisioned full seeds/deltas and changed outputs cross IPC; eviction requests
+one bounded reseed. Superseding/disposal signals native cancellation before
+waiting for release. The Rust registry stores independent per-runtime owners,
+locks the map briefly, admits two evaluations and retains at most sixteen runtimes.
+Manual recalculation and a sixty-second visible-document volatile timer share the
+same scheduler. External cancellation reaches the engine budget watchdog.
+
+Structured sheet/ink/deck/logic sessions opt into 100 ms serialization checkpoints
+in `documentSessionController.ts`. Save, remote comparison and leave barriers flush
+the newest immutable root. Logic geometry defers conversion/publication until the
+gesture ends or a flush barrier. `immutableJson.ts` weakly reuses JSON projections;
+validation and exact content/hash conflict semantics remain authoritative.
+`immutableHistory.ts` budgets sheet undo/redo by shared-object estimates and steps.
+`sheet/address.ts` caches structural indexes; conditional-format aggregates survive
+unrelated viewport updates. `stableProjection.ts` and `incrementalMap.ts` keep
+semantic circuit inputs and edge geometry stable across transient gestures.
+
+`ink/sceneChanges.ts` carries weak changed-object hints into spatial/invalidation
+updates, with conservative remote/reorder fallback. Canvas preview leases retire
+payloads outside the nearby-card and estimated-byte budgets, including references
+in node data. `deck/mediaCache.ts` shares demand-loaded native thumbnails across
+mounted stage/rail/presenter consumers; last release retires work. Export/print
+preparation separately reads originals. `exportTransport.ts` admits two workers
+and transfers bounded UTF-8 snapshots and asset buffers to ink/PPTX workers.
+`write_downloaded_bytes` accepts desktop raw binary IPC with a base64 UTF-8
+absolute-destination header; native publication stages privately and atomically
+persists under the canonical path mutation lock. Android keeps its platform export
+adapter. See [budgets and acceptance](./structured-editors-history-export-performance.md).
 
 `lib/previewScheduler.ts` owns account/vault/path/revision/variant-keyed preview
 jobs (four active, 256 retained). Each consumer has an independent cancellable

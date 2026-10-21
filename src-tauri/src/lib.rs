@@ -258,6 +258,7 @@ pub fn run() {
             commands::files::read_note,
             commands::files::read_note_asset_data_url,
             commands::media::read_vault_asset_bytes,
+            commands::media::write_downloaded_bytes,
             commands::media_jobs::cancel_media_job,
             commands::files::resolve_vault_file_path,
             commands::files::write_downloaded_file,

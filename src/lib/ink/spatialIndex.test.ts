@@ -275,3 +275,33 @@ describe('geometry primitives', () => {
     });
   });
 });
+
+it('updates one stroke without rebuilding unrelated bounds and retires removed spatial entries', async () => {
+  const { addObject, removeObject, updateObject } = await import('./operations');
+  const scene = sceneWith(
+    Array.from({ length: 1000 }, (_, i) => ({ id: `stroke-${i}`, x: i * 10000, y: 1000 })),
+  );
+  const index = new InkSpatialIndex(scene);
+  const stable = index.boundsOf('stroke-500');
+  const object = buildStroke('new', 'layer-1', {
+    samples: 12,
+    x: 500,
+    y: 9000,
+    length: 2000,
+    pressure: false,
+  });
+  const added = addObject(scene, object).result;
+  expect(index.updateScene(added)).toBe(1);
+  expect(index.boundsOf('stroke-500')).toBe(stable);
+  const changed = updateObject(added, 'new', (stroke) => ({ ...stroke, locked: true })).result;
+  expect(index.updateScene(changed)).toBe(1);
+  const removed = removeObject(changed, 'new').result;
+  expect(index.updateScene(removed)).toBe(1);
+  expect(index.boundsOf('new')).toBeUndefined();
+  const remote = {
+    ...removed,
+    objects: { ...removed.objects, 'stroke-0': { ...removed.objects['stroke-0'], locked: true } },
+  };
+  expect(index.updateScene(remote)).toBe(1);
+  expect(index.boundsOf('stroke-500')).toBe(stable);
+});

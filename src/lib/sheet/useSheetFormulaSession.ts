@@ -17,6 +17,7 @@ export interface SheetFormulaState {
   recalculated: number;
   calculating: boolean;
   error: string | null;
+  recalculate?: () => void;
 }
 interface ScopedFormulaState extends SheetFormulaState {
   scope: string | null;
@@ -41,6 +42,23 @@ export function useSheetFormulaSession(
   const ownerRef = useRef<SheetFormulaSession | null>(null);
   const [state, setState] = useState<ScopedFormulaState>(() => emptyState(scope));
   const enabled = Boolean(request);
+  const [recalculation, setRecalculation] = useState(0);
+  const recalculate = () => setRecalculation((value) => value + 1);
+  const requestRef = useRef(request);
+  requestRef.current = request;
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = setInterval(() => {
+      if (
+        document.visibilityState !== 'hidden' &&
+        requestRef.current?.cells.some((cell) =>
+          /\b(?:NOW|TODAY|RAND|RANDBETWEEN)\s*\(/i.test(cell.formula ?? ''),
+        )
+      )
+        setRecalculation((value) => value + 1);
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [enabled, scope]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -92,7 +110,7 @@ export function useSheetFormulaSession(
       window.clearTimeout(timer);
       owner.cancelPending();
     };
-  }, [request, scope, enabled, evaluate, release, debounceMs]);
+  }, [request, scope, enabled, evaluate, release, debounceMs, recalculation]);
 
-  return state.scope === scope && enabled ? state : emptyState(scope);
+  return { ...(state.scope === scope && enabled ? state : emptyState(scope)), recalculate };
 }

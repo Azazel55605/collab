@@ -765,10 +765,26 @@ export function circuitDiscardJob(jobId: string): Promise<void> {
 // Mobile shares the desktop native runtime: one bounded runtime per open
 // workbook tab, addressed by `runtimeId`, released when the screen closes.
 
-export function sheetFormulaEvaluate(
+export async function sheetFormulaEvaluate(
   request: SheetFormulaEvaluationRequest,
+  signal?: AbortSignal,
 ): Promise<SheetFormulaEvaluationResponse> {
-  return invoke('sheet_formula_evaluate', { request });
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  const requestId = crypto.randomUUID();
+  const cancel = () => {
+    void invoke('cancel_media_job', { requestId }).catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    const response = await invoke<SheetFormulaEvaluationResponse>('sheet_formula_evaluate', {
+      request,
+      requestId,
+    });
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    return response;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
 }
 
 export function sheetFormulaRelease(runtimeId: string): Promise<void> {

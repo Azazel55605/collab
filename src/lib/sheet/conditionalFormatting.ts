@@ -10,6 +10,7 @@ import type {
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
 
+import { sheetAddressIndex } from './address';
 import type { SheetPosition } from './address';
 import { createSheetConditionalFormatId, SheetDocumentError } from './document';
 import { conditionalFormulaExpressionId, ruleFormulaValue } from './formulaRules';
@@ -121,10 +122,10 @@ function rangeRectangle(
   worksheet: SheetWorksheet,
   range: SheetRange,
 ): { top: number; bottom: number; left: number; right: number } | null {
-  const top = worksheet.rowOrder.indexOf(range.startRowId);
-  const bottom = worksheet.rowOrder.indexOf(range.endRowId);
-  const left = worksheet.columnOrder.indexOf(range.startColumnId);
-  const right = worksheet.columnOrder.indexOf(range.endColumnId);
+  const top = sheetAddressIndex(worksheet).rowIndexOf(range.startRowId) ?? -1;
+  const bottom = sheetAddressIndex(worksheet).rowIndexOf(range.endRowId) ?? -1;
+  const left = sheetAddressIndex(worksheet).columnIndexOf(range.startColumnId) ?? -1;
+  const right = sheetAddressIndex(worksheet).columnIndexOf(range.endColumnId) ?? -1;
   if (top < 0 || bottom < 0 || left < 0 || right < 0) return null;
   return {
     top: Math.min(top, bottom),
@@ -206,7 +207,7 @@ interface PreparedRule {
   maximum?: number;
 }
 
-export function createConditionalFormatEvaluator(
+function buildConditionalFormatEvaluator(
   styles: SheetDocument['styles'],
   worksheet: SheetWorksheet,
   computedValues?: SheetFormulaValueMap,
@@ -297,4 +298,29 @@ export function createConditionalFormatEvaluator(
     }
     return result;
   };
+}
+
+const evaluators = new WeakMap<
+  object,
+  WeakMap<
+    SheetWorksheet,
+    { values: SheetFormulaValueMap | undefined; evaluate: (position: SheetPosition) => SheetStyle }
+  >
+>();
+/** Scrolling/selection repaint reuses aggregate rule preparation until its inputs change. */
+export function createConditionalFormatEvaluator(
+  styles: SheetDocument['styles'],
+  worksheet: SheetWorksheet,
+  computedValues?: SheetFormulaValueMap,
+) {
+  let sheets = evaluators.get(styles);
+  if (!sheets) {
+    sheets = new WeakMap();
+    evaluators.set(styles, sheets);
+  }
+  const hit = sheets.get(worksheet);
+  if (hit && hit.values === computedValues) return hit.evaluate;
+  const evaluate = buildConditionalFormatEvaluator(styles, worksheet, computedValues);
+  sheets.set(worksheet, { values: computedValues, evaluate });
+  return evaluate;
 }

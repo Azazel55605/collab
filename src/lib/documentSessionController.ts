@@ -168,6 +168,8 @@ export interface DocumentSessionControllerOptions<TDocument> {
   }): Promise<DocumentWriteOutcome>;
   /** Serialize a document to the string content written to the vault. */
   serialize(doc: TDocument): string;
+  /** Immutable structured roots can checkpoint once per interval rather than each gesture. */
+  serializationCheckpointMs?: number;
   /** Materialize deferred gesture state at a save boundary. */
   prepareSave?(): void;
   /** Materialize buffered editor transactions before any persistence/merge boundary. */
@@ -311,6 +313,8 @@ export class DocumentSessionController<TDocument> {
   private lastSavedContent: string | null = null;
   private currentContent: string | null = null;
   private currentDocument: TDocument | null = null;
+  private pendingSerialization = false;
+  private cancelSerialization: (() => void) | null = null;
   private dirty = false;
   private saving = false;
   private saveQueued = false;
@@ -378,6 +382,9 @@ export class DocumentSessionController<TDocument> {
    * remote, and conflict state.
    */
   load(content: string, version: string | null, source: DocumentSource = 'rest'): void {
+    this.cancelSerialization?.();
+    this.cancelSerialization = null;
+    this.pendingSerialization = false;
     const document = this.options.deserialize(content);
     this.loadedVersion = version;
     this.lastSavedContent = content;
@@ -449,6 +456,34 @@ export class DocumentSessionController<TDocument> {
    */
   markLocalChange(doc: TDocument): void {
     this.currentDocument = doc;
+    if (this.options.serializationCheckpointMs) {
+      this.pendingSerialization = true;
+      this.dirty = true;
+      this.offlineQueued = false;
+      this.justSaved = false;
+      this.scheduleAutosave();
+      if (!this.cancelSerialization) {
+        const schedule = this.options.schedule ?? defaultSchedule;
+        this.cancelSerialization = schedule(
+          () => this.checkpointSerialization(),
+          Math.min(250, this.options.serializationCheckpointMs),
+        );
+      }
+      this.invalidate();
+      return;
+    }
+    this.commitSerializedDocument(doc);
+  }
+
+  private checkpointSerialization(): void {
+    this.cancelSerialization?.();
+    this.cancelSerialization = null;
+    if (!this.pendingSerialization || this.currentDocument === null) return;
+    this.pendingSerialization = false;
+    this.commitSerializedDocument(this.currentDocument);
+  }
+
+  private commitSerializedDocument(doc: TDocument): void {
     const nextContent = this.options.serialize(doc);
     if (nextContent !== this.currentContent) this.offlineQueued = false;
     this.currentContent = nextContent;
@@ -493,6 +528,7 @@ export class DocumentSessionController<TDocument> {
     if (this.options.isLive?.()) return Promise.resolve();
     try {
       this.options.prepareSave?.();
+      this.checkpointSerialization();
     } catch (error) {
       return Promise.reject(error);
     }
@@ -507,9 +543,11 @@ export class DocumentSessionController<TDocument> {
 
   flushPendingChanges(): void {
     this.options.flushPendingChanges?.();
+    this.checkpointSerialization();
   }
 
   private async performSave(): Promise<void> {
+    this.flushPendingChanges();
     const content = this.currentContent;
     if (content === null || this.conflicted) return;
     this.lastLocalWriteStartedAt = this.nowMs();
@@ -957,6 +995,7 @@ export function useDocumentSessionController<TDocument>(
     const proxy: DocumentSessionControllerOptions<TDocument> = {
       write: (args) => optionsRef.current.write(args),
       serialize: (doc) => optionsRef.current.serialize(doc),
+      serializationCheckpointMs: options.serializationCheckpointMs,
       prepareSave: () => optionsRef.current.prepareSave?.(),
       flushPendingChanges: () => optionsRef.current.flushPendingChanges?.(),
       deserialize: (content) => optionsRef.current.deserialize(content),

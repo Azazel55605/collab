@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Node as FlowNode } from '@xyflow/react';
 
+import { boundedCanvasPreviews, CANVAS_PREVIEW_ENTRIES } from '../../lib/canvasPreviewBudget';
 import { getDocumentPreviewDataUrl, supportsDocumentPreview } from '../../lib/documentPreview';
 import { getImagePreviewDataUrl } from '../../lib/imagePreview';
 import { listenSafely } from '../../lib/nativeSubscription';
@@ -62,6 +64,22 @@ export function useCanvasPreviews({
   backgroundWebPreviewPrefetchEnabled,
   isVisible,
 }: UseCanvasPreviewsOptions) {
+  const visibleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const node of nodes) {
+      if (isVisible && !isVisible(node)) continue;
+      if (!['webCard', 'noteCard', 'fileCard'].includes(node.type ?? '')) continue;
+      const key =
+        node.type === 'webCard'
+          ? `web:${normalizeWebUrl(node.data.url ?? '')}`
+          : `vault:${node.data.relativePath ?? ''}`;
+      keys.add(key);
+      if (keys.size >= CANVAS_PREVIEW_ENTRIES) break;
+    }
+    return keys;
+  }, [nodes, isVisible]);
+  const visibleKeysRef = useRef(visibleKeys);
+  visibleKeysRef.current = visibleKeys;
   const generationRef = useRef(0);
   const loadingPreviewPathsRef = useRef(new Set<string>());
   const [previews, setPreviews] = useState<Record<string, PreviewState>>({});
@@ -132,7 +150,7 @@ export function useCanvasPreviews({
     void tauriCommands.openExternalUrl(normalized);
   }, []);
 
-  const previewRequests = useRef(new Set<AbortController>());
+  const previewRequests = useRef(new Map<AbortController, string>());
   const hydratePreview = useCallback(
     async (node: CanvasNode) => {
       if (!vault && node.type !== 'web') return;
@@ -140,10 +158,14 @@ export function useCanvasPreviews({
       if (loadingPreviewPathsRef.current.has(previewKey)) return;
 
       const request = new AbortController();
-      previewRequests.current.add(request);
+      previewRequests.current.set(request, previewKey);
       const generation = generationRef.current;
       const loading = loadingPreviewPathsRef.current;
-      const current = () => isMountedRef.current && generationRef.current === generation;
+      const current = () =>
+        !request.signal.aborted &&
+        visibleKeysRef.current.has(previewKey) &&
+        isMountedRef.current &&
+        generationRef.current === generation;
       loading.add(previewKey);
       setPreviews((prev) => ({
         ...prev,
@@ -237,7 +259,11 @@ export function useCanvasPreviews({
 
           return nextPreview;
         })();
-        const resolvedPreview: PreviewState = { ...nextPreview, loading: false, loaded: true };
+        let resolvedPreview: PreviewState = { ...nextPreview, loading: false, loaded: true };
+        resolvedPreview = boundedCanvasPreviews(
+          { ...previews, [previewKey]: resolvedPreview },
+          visibleKeysRef.current,
+        )[previewKey] ?? { loaded: true, loading: false };
         if (!current()) return;
 
         setPreviews((prev) => ({
@@ -339,7 +365,7 @@ export function useCanvasPreviews({
       .map((node) => normalizeWebUrl(node.data.url ?? ''))
       .filter((url) => /^https?:\/\//i.test(url));
     if (urls.length === 0) return;
-    prefetchWebPreviews(urls);
+    return prefetchWebPreviews(urls);
   }, [
     backgroundWebPreviewPrefetchEnabled,
     isVisible,
@@ -363,6 +389,7 @@ export function useCanvasPreviews({
         flowNode.type === 'webCard'
           ? `web:${normalizeWebUrl(flowNode.data.url ?? '')}`
           : `vault:${flowNode.data.relativePath ?? ''}`;
+      if (!visibleKeys.has(key)) continue;
       const existing = previews[key];
       if (existing?.loading || existing?.loaded) continue;
       const sourceNode = fromFlowNode(flowNode);
@@ -384,9 +411,48 @@ export function useCanvasPreviews({
     nodes,
     previews,
     requestedWebPreviewIds,
+    visibleKeys,
     vault,
     webPreviewsEnabled,
   ]);
+
+  useEffect(() => {
+    for (const [request, key] of previewRequests.current)
+      if (!visibleKeys.has(key)) request.abort();
+    setPreviews((previous) => boundedCanvasPreviews(previous, visibleKeys));
+    setNodes((previous) => {
+      let changed = false;
+      const next = previous.map((node) => {
+        const key =
+          node.type === 'webCard'
+            ? `web:${normalizeWebUrl(node.data.url ?? '')}`
+            : `vault:${node.data.relativePath ?? ''}`;
+        if (
+          (visibleKeys.has(key) && !previews[key]?.previewError?.includes('budget')) ||
+          (!node.data.imageSrc &&
+            !node.data.markdownContent &&
+            !node.data.excerpt &&
+            !node.data.faviconSrc)
+        )
+          return node;
+        changed = true;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            imageSrc: null,
+            markdownContent: undefined,
+            excerpt: '',
+            faviconSrc: null,
+            hasRichPreview: false,
+            previewLoaded: false,
+            previewLoading: false,
+          },
+        };
+      });
+      return changed ? next : previous;
+    });
+  }, [visibleKeys, previews, setNodes]);
 
   const previewsRef = useRef(previews);
   previewsRef.current = previews;
@@ -397,7 +463,7 @@ export function useCanvasPreviews({
         key.startsWith('vault:') && (!paths || paths.includes(key.slice(6)));
       if (!Object.keys(previewsRef.current).some(affects)) return;
       generationRef.current++;
-      for (const request of previewRequests.current) request.abort();
+      for (const request of previewRequests.current.keys()) request.abort();
       previewRequests.current.clear();
       loadingPreviewPathsRef.current = new Set();
       setPreviews((previous) =>
@@ -423,7 +489,7 @@ export function useCanvasPreviews({
 
   const resetPreviewState = useCallback(() => {
     generationRef.current++;
-    for (const request of previewRequests.current) request.abort();
+    for (const request of previewRequests.current.keys()) request.abort();
     previewRequests.current.clear();
     loadingPreviewPathsRef.current = new Set();
     setPreviews({});
@@ -433,7 +499,7 @@ export function useCanvasPreviews({
   useEffect(
     () => () => {
       generationRef.current++;
-      for (const request of previewRequests.current) request.abort();
+      for (const request of previewRequests.current.keys()) request.abort();
       previewRequests.current.clear();
     },
     [],

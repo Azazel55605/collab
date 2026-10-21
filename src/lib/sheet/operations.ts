@@ -26,6 +26,7 @@ import type {
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
 
+import { sheetAddressIndex } from './address';
 import type { SheetPosition } from './address';
 import { numericValueOf } from './cellValue';
 import {
@@ -723,10 +724,10 @@ function rangeFromSelection(
 /** Resolves a stable-ID range into current row/column indexes, or null if any
  * endpoint no longer exists on the worksheet. */
 export function rangeRectangle(worksheet: SheetWorksheet, range: SheetRange) {
-  const top = worksheet.rowOrder.indexOf(range.startRowId);
-  const bottom = worksheet.rowOrder.indexOf(range.endRowId);
-  const left = worksheet.columnOrder.indexOf(range.startColumnId);
-  const right = worksheet.columnOrder.indexOf(range.endColumnId);
+  const top = sheetAddressIndex(worksheet).rowIndexOf(range.startRowId) ?? -1;
+  const bottom = sheetAddressIndex(worksheet).rowIndexOf(range.endRowId) ?? -1;
+  const left = sheetAddressIndex(worksheet).columnIndexOf(range.startColumnId) ?? -1;
+  const right = sheetAddressIndex(worksheet).columnIndexOf(range.endColumnId) ?? -1;
   if (top < 0 || bottom < 0 || left < 0 || right < 0) return null;
   return {
     top: Math.min(top, bottom),

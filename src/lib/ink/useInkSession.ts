@@ -110,6 +110,7 @@ export function useInkSession({
   }, []);
 
   const { controller, snapshot } = useDocumentSessionController<InkDocument>({
+    serializationCheckpointMs: 100,
     serialize: serializeInkDocument,
     deserialize: (content) => parseInkDocument(content).document,
     applyDocument,

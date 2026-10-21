@@ -23,6 +23,7 @@ import type {
   InkScene,
 } from '../../types/ink';
 
+import { recordInkSceneChanges } from './sceneChanges';
 import { objectBounds } from './svg';
 
 /** A reversible edit. Applying `inverse` to the result restores the input. */
@@ -38,7 +39,7 @@ export type InkOperation<T> = (input: T) => InkEdit<T>;
  * ---------------------------------------------------------------------- */
 
 /** Inserts an object at the top of the paint order, or at `index`. */
-export function addObject(scene: InkScene, object: InkObject, index?: number): InkEdit<InkScene> {
+function addObjectImpl(scene: InkScene, object: InkObject, index?: number): InkEdit<InkScene> {
   if (scene.objects[object.id]) {
     throw new Error(`ink: object '${object.id}' already exists`);
   }
@@ -66,7 +67,7 @@ export function addObject(scene: InkScene, object: InkObject, index?: number): I
  * The inverse restores the paint index, not just the object: an erase followed
  * by an undo that reinserts on top would silently reorder the drawing.
  */
-export function removeObject(scene: InkScene, objectId: string): InkEdit<InkScene> {
+function removeObjectImpl(scene: InkScene, objectId: string): InkEdit<InkScene> {
   const object = scene.objects[objectId];
   if (!object) return { result: scene, inverse: (input) => ({ result: input, inverse: noop }) };
 
@@ -84,7 +85,7 @@ export function removeObject(scene: InkScene, objectId: string): InkEdit<InkScen
   };
 }
 
-export function removeObjects(scene: InkScene, objectIds: string[]): InkEdit<InkScene> {
+function removeObjectsImpl(scene: InkScene, objectIds: string[]): InkEdit<InkScene> {
   // Captured in reverse so the inverses reinsert ascending and each index is
   // still valid when its turn comes.
   const ordered = [...objectIds].sort(
@@ -113,7 +114,7 @@ export function removeObjects(scene: InkScene, objectIds: string[]): InkEdit<Ink
 }
 
 /** Replaces an object wholesale, e.g. after a transform or a restyle. */
-export function updateObject(
+function updateObjectImpl(
   scene: InkScene,
   objectId: string,
   update: (object: InkObject) => InkObject,
@@ -129,7 +130,7 @@ export function updateObject(
 }
 
 /** Applies a brush change to many objects at once. */
-export function restyleObjects(
+function restyleObjectsImpl(
   scene: InkScene,
   objectIds: string[],
   change: Partial<InkBrushParameters>,
@@ -170,7 +171,7 @@ export function restyleObjects(
 }
 
 /** Moves objects to another layer, keeping their relative paint order. */
-export function moveObjectsToLayer(
+function moveObjectsToLayerImpl(
   scene: InkScene,
   objectIds: string[],
   layerId: string,
@@ -649,4 +650,52 @@ export function boundsOf(scene: InkScene, objectIds: string[]): InkBounds | null
 
 function noop<T>(input: T): InkEdit<T> {
   return { result: input, inverse: noop };
+}
+
+export function addObject(scene: InkScene, object: InkObject, index?: number): InkEdit<InkScene> {
+  const edit = addObjectImpl(scene, object, index);
+  recordInkSceneChanges(scene, edit.result, [object.id]);
+  return edit;
+}
+
+export function removeObject(scene: InkScene, objectId: string): InkEdit<InkScene> {
+  const edit = removeObjectImpl(scene, objectId);
+  recordInkSceneChanges(scene, edit.result, [objectId]);
+  return edit;
+}
+
+export function removeObjects(scene: InkScene, objectIds: string[]): InkEdit<InkScene> {
+  const edit = removeObjectsImpl(scene, objectIds);
+  recordInkSceneChanges(scene, edit.result, objectIds);
+  return edit;
+}
+
+export function updateObject(
+  scene: InkScene,
+  objectId: string,
+  update: (object: InkObject) => InkObject,
+): InkEdit<InkScene> {
+  const edit = updateObjectImpl(scene, objectId, update);
+  recordInkSceneChanges(scene, edit.result, [objectId]);
+  return edit;
+}
+
+export function restyleObjects(
+  scene: InkScene,
+  objectIds: string[],
+  change: Partial<InkBrushParameters>,
+): InkEdit<InkScene> {
+  const edit = restyleObjectsImpl(scene, objectIds, change);
+  recordInkSceneChanges(scene, edit.result, objectIds);
+  return edit;
+}
+
+export function moveObjectsToLayer(
+  scene: InkScene,
+  objectIds: string[],
+  layerId: string,
+): InkEdit<InkScene> {
+  const edit = moveObjectsToLayerImpl(scene, objectIds, layerId);
+  recordInkSceneChanges(scene, edit.result, objectIds);
+  return edit;
 }
