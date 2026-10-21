@@ -1,8 +1,16 @@
+use super::media_jobs::MediaJob;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::io::Write;
+use std::io::{Read, Write};
+use std::process::Stdio;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
+static OCR_SLOTS: LazyLock<tokio::sync::Semaphore> =
+    LazyLock::new(|| tokio::sync::Semaphore::new(2));
+static LANGUAGE_SLOTS: LazyLock<tokio::sync::Semaphore> =
+    LazyLock::new(|| tokio::sync::Semaphore::new(1));
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -102,10 +110,16 @@ fn metadata_path(code: &str) -> Result<PathBuf, String> {
 }
 
 fn file_sha256(path: &PathBuf) -> Result<String, String> {
-    let bytes =
-        std::fs::read(path).map_err(|e| format!("Failed to read OCR language pack: {e}"))?;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
-    hasher.update(bytes);
+    let mut chunk = [0; 65536];
+    loop {
+        let count = file.read(&mut chunk).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&chunk[..count]);
+    }
     Ok(hex::encode(hasher.finalize()))
 }
 
@@ -160,20 +174,70 @@ pub fn list_ocr_language_packs() -> Result<Vec<OcrLanguagePack>, String> {
     Ok(OCR_LANGUAGES.iter().copied().map(pack_info).collect())
 }
 
+async fn stream_language(
+    mut response: reqwest::Response,
+    staged: &tempfile::NamedTempFile,
+    job: &MediaJob,
+    limit: usize,
+    minimum: usize,
+) -> Result<(usize, String), String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err("OCR language pack is too large".into());
+    }
+    let mut output = tokio::fs::File::from_std(staged.reopen().map_err(|e| e.to_string())?);
+    use tokio::io::AsyncWriteExt;
+    let mut size = 0usize;
+    let mut hasher = Sha256::new();
+    while let Some(chunk) = job
+        .wait(response.chunk())
+        .await?
+        .map_err(|e| format!("Failed to read OCR language download: {e}"))?
+    {
+        if chunk.len() > limit.saturating_sub(size) {
+            return Err("OCR language pack is too large".into());
+        }
+        size += chunk.len();
+        hasher.update(&chunk);
+        output.write_all(&chunk).await.map_err(|e| e.to_string())?;
+    }
+    if size < minimum {
+        return Err("Downloaded OCR language pack was unexpectedly small".into());
+    }
+    output.sync_all().await.map_err(|e| e.to_string())?;
+    drop(output);
+    Ok((size, hex::encode(hasher.finalize())))
+}
+
 #[tauri::command]
-pub async fn install_ocr_language_pack(code: String) -> Result<OcrLanguagePack, String> {
+pub async fn install_ocr_language_pack(
+    code: String,
+    request_id: Option<String>,
+) -> Result<OcrLanguagePack, String> {
     let language =
         language_definition(&code).ok_or_else(|| "Unsupported OCR language pack".to_string())?;
     if language.code == "eng" {
         return Ok(pack_info(language));
     }
 
+    let job = MediaJob::start(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))?;
+    let _slot = LANGUAGE_SLOTS
+        .try_acquire()
+        .map_err(|_| "Another language download is running")?;
     let source_url = official_fast_url(language.code);
-    let response = reqwest::Client::new()
-        .get(&source_url)
-        .header(reqwest::header::USER_AGENT, "collab-ocr-language-manager")
-        .send()
-        .await
+    let response = job
+        .wait(
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(180))
+                .build()
+                .map_err(|e| e.to_string())?
+                .get(&source_url)
+                .header(reqwest::header::USER_AGENT, "collab-ocr-language-manager")
+                .send(),
+        )
+        .await?
         .map_err(|e| format!("Failed to download OCR language pack: {e}"))?;
 
     if !response.status().is_success() {
@@ -189,32 +253,21 @@ pub async fn install_ocr_language_pack(code: String) -> Result<OcrLanguagePack, 
         }
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read OCR language pack download: {e}"))?;
-    if bytes.len() < 1024 {
-        return Err("Downloaded OCR language pack was unexpectedly small".to_string());
-    }
-    if bytes.len() > MAX_LANGUAGE_PACK_BYTES {
-        return Err("OCR language pack is too large".to_string());
-    }
-
     let pack_path = language_pack_path(language.code)?;
-    let temp_path = pack_path.with_extension("traineddata.part");
-    std::fs::write(&temp_path, &bytes)
-        .map_err(|e| format!("Failed to write OCR language pack: {e}"))?;
-    std::fs::rename(&temp_path, &pack_path)
-        .map_err(|e| format!("Failed to install OCR language pack: {e}"))?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    let staged =
+        tempfile::NamedTempFile::new_in(language_pack_dir()?).map_err(|e| e.to_string())?;
+    let (size, sha256) =
+        stream_language(response, &staged, &job, MAX_LANGUAGE_PACK_BYTES, 1024).await?;
+    job.check()?;
+    staged
+        .persist(&pack_path)
+        .map_err(|e| format!("Failed to publish OCR language pack: {e}"))?;
     let metadata = serde_json::json!({
         "code": language.code,
         "source": "official-fast",
         "sourceUrl": source_url,
-        "sizeBytes": bytes.len(),
-        "sha256": hex::encode(hasher.finalize()),
+        "sizeBytes": size,
+        "sha256": sha256,
         "installedAt": Utc::now().to_rfc3339(),
     });
     std::fs::write(
@@ -274,6 +327,9 @@ pub fn read_ocr_language_pack_data(code: String) -> Result<OcrLanguagePackData, 
 }
 
 fn decode_image_data_url(data_url: &str) -> Result<(Vec<u8>, &'static str), String> {
+    if data_url.len() > 64 * 1024 * 1024 {
+        return Err("OCR image exceeds its 48 MiB byte limit".into());
+    }
     let (header, encoded) = data_url
         .split_once(',')
         .ok_or_else(|| "OCR input is not a valid data URL.".to_string())?;
@@ -309,26 +365,108 @@ fn normalize_ocr_language(language: Option<String>) -> Result<String, String> {
     Ok(codes.join("+"))
 }
 
+struct ChildGuard(std::process::Child);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+fn bounded_text(path: &std::path::Path, limit: u64) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    if file.metadata().map_err(|e| e.to_string())?.len() > limit {
+        return Err("OCR output exceeds its byte limit".into());
+    }
+    let mut value = String::new();
+    file.take(limit + 1)
+        .read_to_string(&mut value)
+        .map_err(|e| e.to_string())?;
+    if value.len() as u64 > limit {
+        return Err("OCR output exceeds its byte limit".into());
+    }
+    Ok(value)
+}
+fn run_command(
+    mut command: Command,
+    job: &MediaJob,
+    outputs: &[PathBuf],
+    timeout: Duration,
+) -> Result<String, String> {
+    let stdout = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
+    let stderr = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
+    command
+        .stdin(Stdio::null())
+        .stdout(stdout.reopen().map_err(|e| e.to_string())?)
+        .stderr(stderr.reopen().map_err(|e| e.to_string())?);
+    let mut child = ChildGuard(
+        command
+            .spawn()
+            .map_err(|e| format!("Could not start tesseract (is it installed?): {e}"))?,
+    );
+    let started = Instant::now();
+    loop {
+        job.check()?;
+        if started.elapsed() > timeout {
+            return Err("OCR process timed out".into());
+        }
+        for path in outputs
+            .iter()
+            .map(|path| path.as_path())
+            .chain([stdout.path(), stderr.path()])
+        {
+            let limit = if path == stderr.path() {
+                256 * 1024
+            } else {
+                16 * 1024 * 1024
+            };
+            if std::fs::metadata(path).is_ok_and(|metadata| metadata.len() > limit) {
+                return Err("OCR output exceeds its byte limit".into());
+            }
+        }
+        if let Some(status) = child.0.try_wait().map_err(|e| e.to_string())? {
+            if !status.success() {
+                return Err(format!(
+                    "OCR failed: {}",
+                    bounded_text(stderr.path(), 256 * 1024)?.trim()
+                ));
+            }
+            return bounded_text(stdout.path(), 4 * 1024 * 1024);
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+fn prepare_input(data_url: &str) -> Result<tempfile::NamedTempFile, String> {
+    let (bytes, extension) = decode_image_data_url(data_url)?;
+    use image::ImageDecoder;
+    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?;
+    let decoder = reader.into_decoder().map_err(|e| e.to_string())?;
+    let (width, height) = decoder.dimensions();
+    if u64::from(width) * u64::from(height) > 48_000_000 {
+        return Err("OCR image exceeds its 48 megapixel limit".into());
+    }
+    let mut input = tempfile::Builder::new()
+        .prefix("collab-ocr-")
+        .suffix(&format!(".{extension}"))
+        .tempfile()
+        .map_err(|e| e.to_string())?;
+    input.write_all(&bytes).map_err(|e| e.to_string())?;
+    input.flush().map_err(|e| e.to_string())?;
+    Ok(input)
+}
 #[tauri::command]
 pub async fn recognize_image_data_url(
     data_url: String,
     language: Option<String>,
+    request_id: Option<String>,
 ) -> Result<String, String> {
+    let _permit = OCR_SLOTS.try_acquire().map_err(|_| "Native OCR is busy")?;
+    let job = MediaJob::start(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let (bytes, extension) = decode_image_data_url(&data_url)?;
+        job.check()?;
+        let input = prepare_input(&data_url)?;
         let language = normalize_ocr_language(language)?;
-        let mut input = tempfile::Builder::new()
-            .prefix("collab-ocr-")
-            .suffix(&format!(".{extension}"))
-            .tempfile()
-            .map_err(|e| format!("Failed to prepare OCR image: {e}"))?;
-        input
-            .write_all(&bytes)
-            .map_err(|e| format!("Failed to write OCR image: {e}"))?;
-        input
-            .flush()
-            .map_err(|e| format!("Failed to flush OCR image: {e}"))?;
-
         let mut command = Command::new("tesseract");
         command
             .arg(input.path())
@@ -338,28 +476,10 @@ pub async fn recognize_image_data_url(
         if !language.split('+').any(|code| code == "eng") {
             command.env("TESSDATA_PREFIX", language_pack_dir()?);
         }
-
-        let output = command.output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "OCR requires the tesseract command to be installed.".to_string()
-            } else {
-                format!("Failed to start OCR: {e}")
-            }
-        })?;
-
-        if !output.status.success() {
-            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(if detail.is_empty() {
-                "OCR failed.".to_string()
-            } else {
-                format!("OCR failed: {detail}")
-            });
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        run_command(command, &job, &[], Duration::from_secs(60)).map(|text| text.trim().to_string())
     })
     .await
-    .map_err(|e| format!("OCR task failed: {e}"))?
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize)]
@@ -422,32 +542,23 @@ fn parse_tesseract_tsv(tsv: &str) -> Vec<NativeOcrWord> {
 pub async fn recognize_image_data_url_words(
     data_url: String,
     language: Option<String>,
+    request_id: Option<String>,
 ) -> Result<NativeOcrResult, String> {
+    let _permit = OCR_SLOTS.try_acquire().map_err(|_| "Native OCR is busy")?;
+    let job = MediaJob::start(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let (bytes, extension) = decode_image_data_url(&data_url)?;
+        job.check()?;
+        let input = prepare_input(&data_url)?;
         let language = normalize_ocr_language(language)?;
-        let mut input = tempfile::Builder::new()
-            .prefix("collab-ocr-")
-            .suffix(&format!(".{extension}"))
-            .tempfile()
-            .map_err(|e| format!("Failed to prepare OCR image: {e}"))?;
-        input
-            .write_all(&bytes)
-            .map_err(|e| format!("Failed to write OCR image: {e}"))?;
-        input
-            .flush()
-            .map_err(|e| format!("Failed to flush OCR image: {e}"))?;
-
-        let out_dir = tempfile::Builder::new()
+        let directory = tempfile::Builder::new()
             .prefix("collab-ocr-out-")
             .tempdir()
-            .map_err(|e| format!("Failed to prepare OCR output: {e}"))?;
-        let out_base = out_dir.path().join("result");
-
+            .map_err(|e| e.to_string())?;
+        let base = directory.path().join("result");
         let mut command = Command::new("tesseract");
         command
             .arg(input.path())
-            .arg(&out_base)
+            .arg(&base)
             .arg("-l")
             .arg(&language)
             .arg("txt")
@@ -455,40 +566,73 @@ pub async fn recognize_image_data_url_words(
         if !language.split('+').any(|code| code == "eng") {
             command.env("TESSDATA_PREFIX", language_pack_dir()?);
         }
-
-        let output = command.output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "OCR requires the tesseract command to be installed.".to_string()
-            } else {
-                format!("Failed to start OCR: {e}")
-            }
-        })?;
-
-        if !output.status.success() {
-            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(if detail.is_empty() {
-                "OCR failed.".to_string()
-            } else {
-                format!("OCR failed: {detail}")
-            });
-        }
-
-        let text = std::fs::read_to_string(out_base.with_extension("txt"))
-            .map(|value| value.trim().to_string())
-            .unwrap_or_default();
-        let words = std::fs::read_to_string(out_base.with_extension("tsv"))
-            .map(|tsv| parse_tesseract_tsv(&tsv))
-            .unwrap_or_default();
-
-        Ok(NativeOcrResult { text, words })
+        run_command(
+            command,
+            &job,
+            &[base.with_extension("txt"), base.with_extension("tsv")],
+            Duration::from_secs(60),
+        )?;
+        job.check()?;
+        let text = bounded_text(&base.with_extension("txt"), 4 * 1024 * 1024)?;
+        let words = parse_tesseract_tsv(&bounded_text(
+            &base.with_extension("tsv"),
+            16 * 1024 * 1024,
+        )?);
+        Ok(NativeOcrResult {
+            text: text.trim().to_string(),
+            words,
+        })
     })
     .await
-    .map_err(|e| format!("OCR task failed: {e}"))?
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn kills_hung_and_noisy_processes_and_preserves_cleanup() {
+        let job = MediaJob::start(uuid::Uuid::new_v4().to_string()).unwrap();
+        let mut command = Command::new("/bin/sleep");
+        command.arg("5");
+        let start = Instant::now();
+        assert!(run_command(command, &job, &[], Duration::from_millis(50))
+            .unwrap_err()
+            .contains("timed out"));
+        assert!(start.elapsed() < Duration::from_secs(2));
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(
+            "while :; do printf 'abcdefghijklmnopqrstuvxyzabcdefghijklmnopqrstuvxyz' >&2; done",
+        );
+        assert!(run_command(command, &job, &[], Duration::from_secs(2))
+            .unwrap_err()
+            .contains("byte limit"));
+    }
+    #[tokio::test]
+    async fn streamed_pack_checks_actual_bytes_without_a_content_length() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            let _ = socket.read(&mut request).await;
+            socket.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nA\r\n0123456789\r\n0\r\n\r\n").await.unwrap();
+        });
+        let response = reqwest::get(format!("http://{address}/pack"))
+            .await
+            .unwrap();
+        let stage = tempfile::NamedTempFile::new().unwrap();
+        let job = MediaJob::start(uuid::Uuid::new_v4().to_string()).unwrap();
+        assert!(stream_language(response, &stage, &job, 8, 1)
+            .await
+            .unwrap_err()
+            .contains("too large"));
+        assert_eq!(std::fs::metadata(stage.path()).unwrap().len(), 0);
+        server.await.unwrap();
+    }
 
     #[test]
     fn parses_word_rows_and_skips_non_words() {

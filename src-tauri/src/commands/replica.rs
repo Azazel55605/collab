@@ -30,11 +30,14 @@ pub(crate) fn existing_at(
     Ok(store.with_encryption_key(key))
 }
 
-fn existing(server_url: &str, vault_id: &str) -> Result<ReplicaStore, String> {
+pub(super) fn existing(server_url: &str, vault_id: &str) -> Result<ReplicaStore, String> {
     existing_at(&app_config_dir()?, server_url, vault_id)
 }
 
-fn existing_read(server_url: &str, vault_id: &str) -> Result<Option<ReplicaStore>, String> {
+pub(super) fn existing_read(
+    server_url: &str,
+    vault_id: &str,
+) -> Result<Option<ReplicaStore>, String> {
     let Some(store) = ReplicaStore::open_existing(&app_config_dir()?, server_url, vault_id) else {
         return Ok(None);
     };

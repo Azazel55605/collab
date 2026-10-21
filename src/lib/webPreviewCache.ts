@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { webPreviewQueue } from './previewQueue';
+import { mediaGeneration, registerMediaCleanup } from './mediaLifecycle';
+import { type PreviewPriority, previewScheduler } from './previewScheduler';
 import { type LinkPreviewData, tauriCommands } from './tauri';
 
 export interface WebPreviewCacheEntry {
@@ -40,7 +41,10 @@ function currentEntry(url: string) {
   }
   return entry;
 }
-const inflight = new Map<string, Promise<LinkPreviewData>>();
+registerMediaCleanup(() => {
+  cache.clear();
+  for (const url of listeners.keys()) emit(url);
+});
 const listeners = new Map<string, Set<() => void>>();
 
 function emit(url: string) {
@@ -90,53 +94,79 @@ export function subscribeWebPreview(url: string, listener: () => void) {
   };
 }
 
-export async function requestWebPreview(url: string): Promise<LinkPreviewData> {
+export async function requestWebPreview(
+  url: string,
+  options: { signal?: AbortSignal; priority?: PreviewPriority } = {},
+): Promise<LinkPreviewData> {
   const normalizedUrl = normalizeWebPreviewUrl(url);
   if (!normalizedUrl) throw new Error('URL is required');
-
   const existing = currentEntry(normalizedUrl);
   if (existing?.status === 'loaded' && existing.data) return existing.data;
   if (existing?.status === 'error') throw new Error(existing.error ?? 'Preview unavailable');
-  if (existing?.status === 'loading') {
-    const running = inflight.get(normalizedUrl);
-    if (running) return running;
-  }
-
-  store(normalizedUrl, {
-    status: 'loading',
-    data: existing?.data ?? null,
-    error: null,
-  });
+  store(normalizedUrl, { status: 'loading', data: existing?.data ?? null, error: null });
   emit(normalizedUrl);
-
-  const promise = webPreviewQueue
-    .run(() => tauriCommands.fetchLinkPreview(normalizedUrl))
-    .then((data) => {
-      store(normalizedUrl, { status: 'loaded', data, error: null });
-      inflight.delete(normalizedUrl);
-      emit(normalizedUrl);
-      return data;
-    })
+  const generation = mediaGeneration();
+  return previewScheduler
+    .run(
+      `web:${normalizedUrl}`,
+      async (signal) => {
+        try {
+          const data = await tauriCommands.fetchLinkPreview(normalizedUrl, signal);
+          if (signal.aborted || generation !== mediaGeneration())
+            throw new DOMException('Cancelled', 'AbortError');
+          store(normalizedUrl, { status: 'loaded', data, error: null });
+          emit(normalizedUrl);
+          return data;
+        } catch (error) {
+          if (!previewScheduler.isCurrent(`web:${normalizedUrl}`, signal)) throw error;
+          if (signal.aborted || generation !== mediaGeneration()) cache.delete(normalizedUrl);
+          else
+            store(normalizedUrl, {
+              status: 'error',
+              data: null,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          emit(normalizedUrl);
+          throw error;
+        }
+      },
+      options,
+    )
     .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      store(normalizedUrl, { status: 'error', data: null, error: message });
-      inflight.delete(normalizedUrl);
-      emit(normalizedUrl);
+      if (
+        getCachedWebPreview(normalizedUrl).status === 'loading' &&
+        !previewScheduler.has(`web:${normalizedUrl}`)
+      ) {
+        cache.delete(normalizedUrl);
+        emit(normalizedUrl);
+      }
       throw error;
     });
-
-  inflight.set(normalizedUrl, promise);
-  return promise;
 }
 
-export function prefetchWebPreviews(urls: Iterable<string>) {
-  for (const url of urls) {
-    const normalizedUrl = normalizeWebPreviewUrl(url);
-    if (!normalizedUrl) continue;
-    const existing = currentEntry(normalizedUrl);
-    if (existing?.status === 'loaded' || existing?.status === 'loading') continue;
-    void requestWebPreview(normalizedUrl).catch(() => {});
-  }
+/** Lazy prefetch producers keep hundreds of links out of the scheduler's pending closures. */
+export function prefetchWebPreviews(urls: Iterable<string>, signal?: AbortSignal) {
+  const request = new AbortController();
+  const abort = () => request.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  const items = [...new Set(Array.from(urls, normalizeWebPreviewUrl).filter(Boolean))]
+    .slice(0, 512)
+    [Symbol.iterator]();
+  const run = async () => {
+    while (!request.signal.aborted) {
+      const next = items.next();
+      if (next.done) break;
+      try {
+        await requestWebPreview(next.value, { signal: request.signal, priority: 'background' });
+      } catch {
+        /* prefetch is optional */
+      }
+    }
+  };
+  void Promise.all(Array.from({ length: 4 }, run)).finally(() =>
+    signal?.removeEventListener('abort', abort),
+  );
+  return abort;
 }
 
 export function extractHttpUrls(text: string) {
@@ -176,11 +206,14 @@ export function useWebPreview(url: string | null | undefined, enabled: boolean) 
       setEntry(getCachedWebPreview(normalizedUrl));
     });
 
-    if (getCachedWebPreview(normalizedUrl).status === 'idle') {
-      void requestWebPreview(normalizedUrl).catch(() => {});
-    }
-
-    return unsubscribe;
+    const request = new AbortController();
+    void requestWebPreview(normalizedUrl, { signal: request.signal, priority: 'visible' }).catch(
+      () => {},
+    );
+    return () => {
+      request.abort();
+      unsubscribe();
+    };
   }, [enabled, normalizedUrl]);
 
   return {

@@ -56,3 +56,25 @@ it('does not evict a worker still used by another mounted consumer', async () =>
   expect(a.destroy).not.toHaveBeenCalled();
   two.release();
 });
+
+it('retires idle workers and destroys active resources immediately on privacy cleanup', async () => {
+  vi.useFakeTimers();
+  try {
+    const cache = new PdfResourceCache();
+    const idle = resource();
+    const active = resource();
+    const first = cache.acquire('idle', 1, () => idle);
+    await first.promise;
+    first.release();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(idle.destroy).toHaveBeenCalledOnce();
+    const second = cache.acquire('active', 1, () => active);
+    await second.promise;
+    cache.clear();
+    expect(active.destroy).toHaveBeenCalledOnce();
+    second.release();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});

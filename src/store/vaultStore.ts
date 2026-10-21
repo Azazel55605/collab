@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 
 import { runDocumentNavigation } from '../lib/documentNavigation';
 import { reconcileFileTreeIdentity } from '../lib/fileTreeIdentity';
+import { clearMediaResources } from '../lib/mediaLifecycle';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient, requireRuntimeCapability } from '../lib/vaultClient';
 import {
@@ -291,3 +292,8 @@ export const useVaultStore = create<VaultState>()(
     },
   ),
 );
+
+useVaultStore.subscribe((next, previous) => {
+  if (next.vault !== previous.vault || (!previous.isVaultLocked && next.isVaultLocked))
+    clearMediaResources();
+});

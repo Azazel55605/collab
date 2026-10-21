@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   native: vi.fn(),
 }));
 vi.mock('../store/uiStore', () => ({ useUiStore: { getState: () => mocks.settings } }));
+vi.mock('./imageProcessing', () => ({
+  encodeImageCanvas: async (canvas: HTMLCanvasElement) => canvas.toDataURL('image/png'),
+  preprocessCanvas: vi.fn(),
+}));
 vi.mock('tesseract.js', () => ({ createWorker: mocks.createWorker }));
 vi.mock('./ocrCache', () => ({
   readOcrCache: mocks.readCache,
@@ -247,4 +251,42 @@ it('waits for an idle worker to finish terminating before creating its replaceme
   termination.resolve();
   await next;
   expect(mocks.createWorker).toHaveBeenCalledTimes(2);
+});
+
+it('terminates cancelled recognition without native fallback or publishing its result', async () => {
+  const held = deferred<typeof recognized>();
+  mocks.recognize.mockImplementationOnce(() => held.promise);
+  const request = new AbortController();
+  const result = recognizeImageText(image(), undefined, {
+    signal: request.signal,
+    cacheScope: { file: 'cancelled' },
+  });
+  const rejected = expect(result).rejects.toThrow('Cancelled');
+  await vi.waitFor(() => expect(mocks.recognize).toHaveBeenCalledTimes(1));
+  request.abort();
+  await rejected;
+  held.resolve(recognized);
+  expect(mocks.terminate).toHaveBeenCalledTimes(1);
+  expect(mocks.native).not.toHaveBeenCalled();
+  expect(mocks.writeCache).not.toHaveBeenCalled();
+  expect((await recognizeImageText(image())).text).toBe('hello');
+});
+
+it('retires initialization that resolves after its consumer cancels', async () => {
+  const initialization = deferred<{
+    recognize: typeof mocks.recognize;
+    terminate: typeof mocks.terminate;
+  }>();
+  mocks.createWorker.mockImplementationOnce(() => initialization.promise);
+  const request = new AbortController();
+  const result = recognizeImageText(image(), undefined, { signal: request.signal });
+  const rejected = expect(result).rejects.toThrow('Cancelled');
+  await vi.waitFor(() => expect(mocks.createWorker).toHaveBeenCalledTimes(1));
+  request.abort();
+  initialization.resolve({ recognize: mocks.recognize, terminate: mocks.terminate });
+  await rejected;
+  expect(mocks.terminate).toHaveBeenCalledTimes(1);
+  expect(mocks.recognize).not.toHaveBeenCalled();
+  expect(mocks.native).not.toHaveBeenCalled();
+  expect((await recognizeImageText(image())).text).toBe('hello');
 });

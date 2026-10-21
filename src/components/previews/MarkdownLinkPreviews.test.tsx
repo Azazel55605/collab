@@ -95,7 +95,9 @@ describe('Markdown shared file previews', () => {
     render(<Harness />);
     fireEvent.mouseMove(screen.getByText('Spec'));
     await advance(200);
-    expect(mocks.pdf).toHaveBeenCalledWith(expect.anything(), 'Docs/spec.pdf');
+    expect(mocks.pdf).toHaveBeenCalledWith(expect.anything(), 'Docs/spec.pdf', {
+      signal: expect.any(AbortSignal),
+    });
     fireEvent.scroll(window);
     expect(screen.queryByRole('tooltip')).toBeNull();
     fireEvent.mouseMove(screen.getByText('Photo'));

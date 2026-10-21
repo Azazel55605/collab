@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { recognizeImageText } from './ocr';
 import { tauriCommands } from './tauri';
 
+vi.mock('./imageProcessing', () => ({
+  encodeImageCanvas: async (canvas: HTMLCanvasElement) => canvas.toDataURL('image/png'),
+  preprocessCanvas: vi.fn(),
+}));
+
 vi.mock('tesseract.js', () => ({
   createWorker: vi.fn(async () => {
     throw new Error('WASM unavailable');
@@ -49,6 +54,7 @@ describe('recognizeImageText', () => {
     expect(tauriCommands.recognizeImageDataUrlWords).toHaveBeenCalledWith(
       'data:image/png;base64,converted',
       'eng',
+      expect.any(AbortSignal),
     );
   });
 });

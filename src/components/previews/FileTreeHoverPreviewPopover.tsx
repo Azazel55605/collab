@@ -6,6 +6,7 @@ import { FileImage, FileText, Loader2 } from 'lucide-react';
 
 import { getDocumentPreviewDataUrl } from '../../lib/documentPreview';
 import type { FilePreviewType } from '../../lib/filePreviewType';
+import { getImagePreviewDataUrl } from '../../lib/imagePreview';
 import { getPdfPreviewDataUrl } from '../../lib/pdfPreview';
 import { createVaultClient } from '../../lib/vaultClient';
 import { getVaultDocumentTitle } from '../../lib/vaultLinks';
@@ -59,6 +60,7 @@ export function FileTreeHoverPreviewPopover({
     }
 
     let cancelled = false;
+    const request = new AbortController();
     setLoading(true);
     setPreviewSrc(null);
     setError(null);
@@ -66,10 +68,10 @@ export function FileTreeHoverPreviewPopover({
     const client = createVaultClient(vault);
     const loader =
       type === 'pdf'
-        ? getPdfPreviewDataUrl(client, relativePath)
+        ? getPdfPreviewDataUrl(client, relativePath, { signal: request.signal })
         : type === 'document'
-          ? getDocumentPreviewDataUrl(client, relativePath)
-          : client.readAssetDataUrl(relativePath);
+          ? getDocumentPreviewDataUrl(client, relativePath, { signal: request.signal })
+          : getImagePreviewDataUrl(client, relativePath, { signal: request.signal });
 
     void loader
       .then((rendered) => {
@@ -87,6 +89,7 @@ export function FileTreeHoverPreviewPopover({
 
     return () => {
       cancelled = true;
+      request.abort();
     };
   }, [enabled, isVisible, relativePath, type, vault]);
 

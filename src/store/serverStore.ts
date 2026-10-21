@@ -7,7 +7,9 @@ import {
   removeKnownServer,
   upsertKnownServer,
 } from '../lib/hostedServers';
+import { clearMediaResources } from '../lib/mediaLifecycle';
 import { type ServerConnectionStatus, tauriCommands } from '../lib/tauri';
+import { clearUserAvatars, setAvatarAccountResolver } from '../lib/userAvatars';
 import type { HostedVaultSummary } from '../types/vault';
 
 import { useSyncStore } from './syncStore';
@@ -354,6 +356,8 @@ export const useServerStore = create<ServerState>()((set, get) => {
 
     disconnect: async (serverUrl) => {
       await tauriCommands.disconnectServer(serverUrl);
+      clearMediaResources();
+      clearUserAvatars(serverUrl);
       removeKnownServer(serverUrl);
       removeConnection(serverUrl);
       set({ error: null });
@@ -426,4 +430,19 @@ export const useServerStore = create<ServerState>()((set, get) => {
       return created;
     },
   };
+});
+
+setAvatarAccountResolver((server) => useServerStore.getState().statusFor(server)?.user?.id ?? '');
+useServerStore.subscribe((next, previous) => {
+  for (const server of new Set([
+    ...Object.keys(previous.connections),
+    ...Object.keys(next.connections),
+  ])) {
+    if (
+      previous.connections[server]?.status.user?.id !== next.connections[server]?.status.user?.id
+    ) {
+      clearUserAvatars(server);
+      clearMediaResources();
+    }
+  }
 });

@@ -24,3 +24,28 @@ describe('enqueuePdfRender', () => {
     expect(events).toEqual(['slow:start', 'slow:end', 'fast:start', 'fast:end']);
   });
 });
+
+it('removes a cancelled page/zoom closure before it reaches the renderer', async () => {
+  let release!: () => void;
+  const slow = enqueuePdfRender(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await Promise.resolve();
+  const request = new AbortController();
+  let ran = false;
+  const obsolete = enqueuePdfRender(
+    async () => {
+      ran = true;
+    },
+    { signal: request.signal },
+  );
+  const rejection = expect(obsolete).rejects.toMatchObject({ name: 'AbortError' });
+  request.abort();
+  await rejection;
+  release();
+  await slow;
+  expect(ran).toBe(false);
+});

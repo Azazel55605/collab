@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createAnchoredAnnotationDocument } from '../../lib/viewAnnotations';
@@ -131,6 +132,21 @@ describe('useImageDocumentSession', () => {
     const calls = input.setAnnotationDoc.mock.calls;
     const document = calls[calls.length - 1]?.[0];
     expect(document.surfaces.image.scene.objects['legacy-pen'].type).toBe('stroke');
+  });
+
+  it('reports worker export failures and always releases the saving state', async () => {
+    const error = vi.spyOn(toast, 'error');
+    const input = { ...options(), image: new Image(), saveIntent: 'permanent' as const };
+    input.buildPermanentCanvas.mockRejectedValue(new Error('Image worker failed'));
+    const hook = renderHook(() => useImageDocumentSession(input));
+    await act(async () => {
+      await hook.result.current.saveImageOutput(false);
+    });
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Image worker failed'));
+    expect(input.setSaving).toHaveBeenCalledWith(true);
+    expect(input.setSaving).toHaveBeenLastCalledWith(false);
+    expect(input.openTab).not.toHaveBeenCalled();
+    hook.unmount();
   });
 
   it('publishes local annotation changes through VaultClient', async () => {

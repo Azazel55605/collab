@@ -114,7 +114,12 @@ and attachment discovery. See [validation and remaining native acceptance](../de
 transaction checkpoints, retained preview blocks/assets, bounded math workers,
 visibility-budgeted plots, on-demand WebGL, worker graph layout and bounded icon
 search. See [budgets, evidence and outstanding native acceptance](../desktop/markdown-math-graph-performance.md).
-The next category is **Previews, PDF, Images And OCR (O37–O41)**; O39 is already implemented.
+**Previews, PDF, Images And OCR (O37–O51)** is implemented in Performance Batch 7
+(**2026-10-21**): scoped binary assets, shared cancellable previews, native
+thumbnails, PDF canvas/cache budgets, disposable disk GC, image workers, bounded
+native OCR/downloads, and account-aware avatar refresh. O39/O47 remain implemented;
+O48 remains superseded by R08. See [limits, evidence and native acceptance](../desktop/previews-pdf-images-ocr-performance.md).
+The next category is **Structured Editors, History And Export (O52–O63)**.
 
 The **UR15 UI flicker follow-up (2026-10-20)** removes routine folder/sidebar/view
 and settings-category entrance fades while preserving document keys and menu

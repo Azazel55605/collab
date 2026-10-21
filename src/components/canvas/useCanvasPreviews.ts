@@ -3,9 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Node as FlowNode } from '@xyflow/react';
 
 import { getDocumentPreviewDataUrl, supportsDocumentPreview } from '../../lib/documentPreview';
+import { getImagePreviewDataUrl } from '../../lib/imagePreview';
 import { listenSafely } from '../../lib/nativeSubscription';
 import { getPdfPreviewDataUrl } from '../../lib/pdfPreview';
-import { canvasPreviewQueue } from '../../lib/previewQueue';
+import { previewIdentity } from '../../lib/previewIdentity';
+import { previewScheduler } from '../../lib/previewScheduler';
 import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
 import { onReplicaMutated } from '../../lib/vaultReplica';
@@ -130,12 +132,15 @@ export function useCanvasPreviews({
     void tauriCommands.openExternalUrl(normalized);
   }, []);
 
+  const previewRequests = useRef(new Set<AbortController>());
   const hydratePreview = useCallback(
     async (node: CanvasNode) => {
       if (!vault && node.type !== 'web') return;
       const previewKey = getPreviewKey(node);
       if (loadingPreviewPathsRef.current.has(previewKey)) return;
 
+      const request = new AbortController();
+      previewRequests.current.add(request);
       const generation = generationRef.current;
       const loading = loadingPreviewPathsRef.current;
       const current = () => isMountedRef.current && generationRef.current === generation;
@@ -168,7 +173,8 @@ export function useCanvasPreviews({
       }
 
       try {
-        const nextPreview = await canvasPreviewQueue.run(async () => {
+        const nextPreview = await (async () => {
+          if (!current()) throw new DOMException('Cancelled', 'AbortError');
           let nextPreview: PreviewState = {};
 
           if (node.type === 'web') {
@@ -176,7 +182,9 @@ export function useCanvasPreviews({
             if (!normalizedUrl) {
               nextPreview = { previewError: null };
             } else {
-              const linkPreview = await requestCachedWebPreview(normalizedUrl);
+              const linkPreview = await requestCachedWebPreview(normalizedUrl, {
+                signal: request.signal,
+              });
               nextPreview = {
                 linkPreview,
                 imageSrc: linkPreview.imageUrl ?? null,
@@ -188,25 +196,47 @@ export function useCanvasPreviews({
             const path = node.relativePath;
             const extension = path.split('.').pop()?.toLowerCase() ?? '';
             if (node.type === 'file' && isImageExtension(extension)) {
-              nextPreview = { imageSrc: await client.readAssetDataUrl(path) };
+              nextPreview = {
+                imageSrc: await getImagePreviewDataUrl(client, path, { signal: request.signal }),
+              };
             } else if (node.type === 'file' && extension === 'pdf') {
-              nextPreview = { imageSrc: await getPdfPreviewDataUrl(client, path) };
+              nextPreview = {
+                imageSrc: await getPdfPreviewDataUrl(client, path, { signal: request.signal }),
+              };
             } else if (node.type === 'note') {
-              const { content } = await client.readDocument(path);
+              const { content } = await previewScheduler.run(
+                previewIdentity(client, path, 'text'),
+                async (signal) => {
+                  if (signal.aborted || !current())
+                    throw new DOMException('Cancelled', 'AbortError');
+                  return client.readDocument(path);
+                },
+                { signal: request.signal },
+              );
               nextPreview = {
                 excerpt: cleanPreviewText(content),
                 markdownContent: content.slice(0, 32_000),
               };
             } else if (supportsDocumentPreview(path)) {
-              nextPreview = { imageSrc: await getDocumentPreviewDataUrl(client, path) };
+              nextPreview = {
+                imageSrc: await getDocumentPreviewDataUrl(client, path, { signal: request.signal }),
+              };
             } else if (canPreviewText(extension)) {
-              const { content } = await client.readDocument(path);
+              const { content } = await previewScheduler.run(
+                previewIdentity(client, path, 'text'),
+                async (signal) => {
+                  if (signal.aborted || !current())
+                    throw new DOMException('Cancelled', 'AbortError');
+                  return client.readDocument(path);
+                },
+                { signal: request.signal },
+              );
               nextPreview = { excerpt: cleanPreviewText(content) };
             }
           }
 
           return nextPreview;
-        }, current);
+        })();
         const resolvedPreview: PreviewState = { ...nextPreview, loading: false, loaded: true };
         if (!current()) return;
 
@@ -281,6 +311,7 @@ export function useCanvasPreviews({
           );
         }
       } finally {
+        previewRequests.current.delete(request);
         loading.delete(previewKey);
       }
     },
@@ -366,6 +397,8 @@ export function useCanvasPreviews({
         key.startsWith('vault:') && (!paths || paths.includes(key.slice(6)));
       if (!Object.keys(previewsRef.current).some(affects)) return;
       generationRef.current++;
+      for (const request of previewRequests.current) request.abort();
+      previewRequests.current.clear();
       loadingPreviewPathsRef.current = new Set();
       setPreviews((previous) =>
         Object.fromEntries(
@@ -390,6 +423,8 @@ export function useCanvasPreviews({
 
   const resetPreviewState = useCallback(() => {
     generationRef.current++;
+    for (const request of previewRequests.current) request.abort();
+    previewRequests.current.clear();
     loadingPreviewPathsRef.current = new Set();
     setPreviews({});
     setRequestedWebPreviewIds({});
@@ -398,6 +433,8 @@ export function useCanvasPreviews({
   useEffect(
     () => () => {
       generationRef.current++;
+      for (const request of previewRequests.current) request.abort();
+      previewRequests.current.clear();
     },
     [],
   );

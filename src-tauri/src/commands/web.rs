@@ -559,9 +559,18 @@ pub async fn fetch_calendar_feed(
 }
 
 #[tauri::command]
-pub async fn fetch_link_preview(url: String) -> Result<LinkPreviewData, String> {
+pub async fn fetch_link_preview(
+    url: String,
+    request_id: Option<String>,
+) -> Result<LinkPreviewData, String> {
     let client = build_preview_client()?;
-    fetch_link_preview_with_client(&client, url, false, false).await
+    if let Some(id) = request_id {
+        let job = super::media_jobs::MediaJob::start(id)?;
+        job.wait(fetch_link_preview_with_client(&client, url, false, false))
+            .await?
+    } else {
+        fetch_link_preview_with_client(&client, url, false, false).await
+    }
 }
 
 #[cfg(test)]
