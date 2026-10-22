@@ -12,7 +12,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     thread,
@@ -25,6 +25,10 @@ use crate::state::AppState;
 
 const MAX_ACTIVE_CIRCUIT_JOBS: usize = 4;
 const MAX_RETAINED_CIRCUIT_JOBS: usize = 32;
+const MAX_RETAINED_BYTES: usize = 64 * 1024 * 1024;
+const MAX_JOB_BYTES: usize = 16 * 1024 * 1024;
+const RESULT_TTL: std::time::Duration = std::time::Duration::from_secs(120);
+
 const MAX_SWEEP_CHUNK_SAMPLES: usize = 512;
 const MAX_TRANSIENT_CHUNK_SAMPLES: usize = 512;
 
@@ -212,6 +216,9 @@ impl CircuitJobState {
 
 #[derive(Debug)]
 struct CircuitJob {
+    budget: Arc<Mutex<usize>>,
+    retained_bytes: AtomicUsize,
+    accessed: Mutex<Instant>,
     cancelled: AtomicBool,
     created_at: Instant,
     state: Mutex<CircuitJobState>,
@@ -221,11 +228,36 @@ struct CircuitJob {
 
 #[derive(Debug, Default)]
 pub struct CircuitJobRegistry {
+    budget: Arc<Mutex<usize>>,
     jobs: Mutex<HashMap<String, Arc<CircuitJob>>>,
 }
 
+impl Drop for CircuitJob {
+    fn drop(&mut self) {
+        let mut bytes = self.budget.lock();
+        *bytes = bytes.saturating_sub(self.retained_bytes.load(Ordering::Relaxed));
+    }
+}
 impl CircuitJobRegistry {
+    pub(crate) fn collect_expired(&self) {
+        let mut jobs = self.jobs.lock();
+        let expired = jobs
+            .iter()
+            .filter(|(_, job)| {
+                job.state.lock().is_terminal() && job.accessed.lock().elapsed() >= RESULT_TTL
+            })
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        let retired = expired
+            .iter()
+            .filter_map(|id| jobs.remove(id))
+            .collect::<Vec<_>>();
+        drop(jobs);
+        drop(retired);
+    }
+
     fn reserve_job(&self) -> Result<(String, Arc<CircuitJob>), String> {
+        self.collect_expired();
         let mut jobs = self.jobs.lock();
         if jobs.len() >= MAX_RETAINED_CIRCUIT_JOBS {
             jobs.retain(|_, job| !job.state.lock().is_terminal());
@@ -248,6 +280,9 @@ impl CircuitJobRegistry {
 
         let job_id = uuid::Uuid::new_v4().to_string();
         let job = Arc::new(CircuitJob {
+            budget: Arc::clone(&self.budget),
+            retained_bytes: AtomicUsize::new(0),
+            accessed: Mutex::new(Instant::now()),
             cancelled: AtomicBool::new(false),
             created_at: Instant::now(),
             state: Mutex::new(CircuitJobState::Queued),
@@ -417,6 +452,7 @@ impl CircuitJobRegistry {
             .get(job_id)
             .cloned()
             .ok_or_else(|| format!("Unknown circuit job '{job_id}'."))?;
+        *job.accessed.lock() = Instant::now();
         let state = job.state.lock();
         let elapsed_millis = match &*state {
             CircuitJobState::Terminal { elapsed_millis, .. } => *elapsed_millis,
@@ -453,6 +489,7 @@ impl CircuitJobRegistry {
             .get(job_id)
             .cloned()
             .ok_or_else(|| format!("Unknown circuit job '{job_id}'."))?;
+        *job.accessed.lock() = Instant::now();
         let outcome = match &*job.state.lock() {
             CircuitJobState::Terminal { outcome, .. } => Some(outcome.clone()),
             _ => None,
@@ -495,6 +532,7 @@ impl CircuitJobRegistry {
         ) {
             return Err("The circuit sweep result is not ready.".to_string());
         }
+        *job.accessed.lock() = Instant::now();
         let data = job.sweep_data.lock();
         let data = data
             .as_ref()
@@ -548,6 +586,7 @@ impl CircuitJobRegistry {
         ) {
             return Err("The circuit transient result is not ready.".to_string());
         }
+        *job.accessed.lock() = Instant::now();
         let data = job.transient_data.lock();
         let data = data
             .as_ref()
@@ -618,7 +657,60 @@ fn set_job_stage(job: &CircuitJob, stage: CircuitJobStage) {
     };
 }
 
-fn set_terminal(job: &CircuitJob, outcome: CircuitJobOutcome) {
+fn set_terminal(job: &CircuitJob, mut outcome: CircuitJobOutcome) {
+    // Waveform arrays dominate retention. Count their capacities directly;
+    // charge serialized metadata conservatively without cloning the result.
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(b.len());
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut metadata = Counter(0);
+    let _ = serde_json::to_writer(&mut metadata, &outcome);
+    let mut cost = metadata.0.saturating_mul(4);
+    if let Some(data) = job.sweep_data.lock().as_ref() {
+        cost = cost.saturating_add(
+            8 * (data.result.source_values.capacity()
+                + data
+                    .result
+                    .traces
+                    .iter()
+                    .map(|t| t.values.capacity())
+                    .sum::<usize>()),
+        );
+    }
+    if let Some(data) = job.transient_data.lock().as_ref() {
+        cost = cost.saturating_add(
+            8 * (data.result.time_seconds.capacity()
+                + data
+                    .result
+                    .traces
+                    .iter()
+                    .map(|t| t.values.capacity())
+                    .sum::<usize>()),
+        );
+    }
+    let admitted = {
+        let mut used = job.budget.lock();
+        if cost <= MAX_JOB_BYTES && used.saturating_add(cost) <= MAX_RETAINED_BYTES {
+            *used += cost;
+            job.retained_bytes.store(cost, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
+    };
+    if !admitted {
+        *job.sweep_data.lock() = None;
+        *job.transient_data.lock() = None;
+        outcome=CircuitJobOutcome::Failed{error:CircuitCommandError::Configuration{message:"Circuit result exceeds the 16 MiB result / 64 MiB retained budget. Release old results or request fewer samples.".into()}};
+    }
+    *job.accessed.lock() = Instant::now();
     *job.state.lock() = CircuitJobState::Terminal {
         outcome,
         elapsed_millis: elapsed_millis(job.created_at),
@@ -1382,6 +1474,9 @@ mod tests {
         let registry = CircuitJobRegistry::default();
         let job_id = "queued-job".to_string();
         let job = Arc::new(CircuitJob {
+            budget: Arc::clone(&registry.budget),
+            retained_bytes: AtomicUsize::new(0),
+            accessed: Mutex::new(Instant::now()),
             cancelled: AtomicBool::new(false),
             created_at: Instant::now(),
             state: Mutex::new(CircuitJobState::Queued),
@@ -1426,6 +1521,9 @@ mod tests {
             registry.jobs.lock().insert(
                 format!("queued-{index}"),
                 Arc::new(CircuitJob {
+                    budget: Arc::clone(&registry.budget),
+                    retained_bytes: AtomicUsize::new(0),
+                    accessed: Mutex::new(Instant::now()),
                     cancelled: AtomicBool::new(false),
                     created_at: Instant::now(),
                     state: Mutex::new(CircuitJobState::Queued),
@@ -1440,5 +1538,41 @@ mod tests {
             error,
             format!("At most {MAX_ACTIVE_CIRCUIT_JOBS} circuit simulations may run at once.")
         );
+    }
+    #[test]
+    fn retained_results_expire_without_retiring_active_jobs_and_release_their_byte_charge() {
+        let registry = CircuitJobRegistry::default();
+        let (id, job) = registry.reserve_job().unwrap();
+        set_terminal(&job, CircuitJobOutcome::Cancelled);
+        assert!(*registry.budget.lock() > 0);
+        *job.accessed.lock() = Instant::now() - RESULT_TTL - Duration::from_secs(1);
+        let (active_id, active) = registry.reserve_job().unwrap();
+        registry.collect_expired();
+        assert!(!registry.jobs.lock().contains_key(&id));
+        assert!(registry.jobs.lock().contains_key(&active_id));
+        drop(job);
+        assert_eq!(*registry.budget.lock(), 0);
+        assert!(!active.state.lock().is_terminal());
+    }
+    #[test]
+    fn oversized_waveforms_fail_visibly_instead_of_retaining_unbounded_arrays() {
+        let registry = CircuitJobRegistry::default();
+        let (id, job) = registry.reserve_job().unwrap();
+        let mut data = sweep_document_with_control(sweep_document(), || false, |_| {}).unwrap();
+        data.result.source_values = vec![0.; MAX_JOB_BYTES / 8 + 1];
+        let summary = CircuitSweepSummary {
+            source: data.result.source.clone(),
+            sample_count: data.result.source_values.len(),
+            outputs: vec![],
+            source_map: data.source_map.clone(),
+        };
+        *job.sweep_data.lock() = Some(data);
+        set_terminal(&job, CircuitJobOutcome::SweepCompleted { summary });
+        assert!(job.sweep_data.lock().is_none());
+        assert_eq!(*registry.budget.lock(), 0);
+        assert!(matches!(
+            registry.take_outcome(&id).unwrap(),
+            Some(CircuitJobOutcome::Failed { .. })
+        ));
     }
 }

@@ -47,6 +47,8 @@ async fn reconcile_platform_schedule(
     #[cfg(not(target_os = "android"))]
     {
         let _ = (profile_id, store);
+        #[cfg(not(mobile))]
+        crate::background_lifecycle::wake_scheduler();
     }
     Ok(())
 }

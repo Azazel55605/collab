@@ -9,8 +9,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{Emitter, Listener, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
+
+static SCHEDULER_WAKE: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
+pub(crate) fn wake_scheduler() {
+    SCHEDULER_WAKE.notify_one();
+}
 
 const TRAY_ID: &str = "collab-background";
 const TRAY_OPEN_ID: &str = "background-open";
@@ -34,6 +40,7 @@ pub fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        wake_scheduler();
         let _ = app.emit("background:window-shown", ());
     }
     if let Some(state) = app.try_state::<AppState>() {
@@ -61,6 +68,7 @@ pub fn set_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String
 }
 
 pub fn apply_settings(app: &tauri::AppHandle, settings: &BackgroundSettings) {
+    wake_scheduler();
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_visible(settings.run_in_background);
     }
@@ -182,9 +190,18 @@ fn update_tray_status(app: &tauri::AppHandle) {
 }
 
 fn start_scheduler(app: tauri::AppHandle) {
+    app.listen("background:status", |_| wake_scheduler());
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            // Minute-scale jobs do not need a two-second heartbeat. Reminder
+            // deadlines and explicit state changes wake the same scheduler.
+            let delay = crate::desktop_notifications::next_dispatch_delay(&app)
+                .await
+                .unwrap_or(Duration::from_secs(60));
+            tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = SCHEDULER_WAKE.notified() => {} }
+            app.state::<AppState>().circuit_jobs.collect_expired();
+            crate::drag_staging::scavenge();
+            let _trace = crate::performance::span("background.wake");
             update_tray_status(&app);
             let _ = crate::desktop_notifications::dispatch_due(&app).await;
 

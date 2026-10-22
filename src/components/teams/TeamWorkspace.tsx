@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { subscribeBackgroundPoll } from '../../lib/backgroundPolls';
 import type {
   TeamChannel,
   TeamMember,
@@ -117,15 +118,10 @@ export function TeamWorkspace({
       }
     }
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    const wake = () => void refresh();
-    window.addEventListener('focus', wake);
-    window.addEventListener('online', wake);
+    const unsubscribe = subscribeBackgroundPoll(refresh, 5000);
     return () => {
       generation.current = gen + 1;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', wake);
-      window.removeEventListener('online', wake);
+      unsubscribe();
     };
   }, [request, connected, after]);
   async function select(value: TeamSummary) {
@@ -610,10 +606,10 @@ function PrivateChannelPeople({
       }
     }
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
+    const unsubscribe = subscribeBackgroundPoll(refresh, 5000);
     return () => {
       alive = false;
-      window.clearInterval(timer);
+      unsubscribe();
     };
   }, [id, load, teamMembers]);
   return (

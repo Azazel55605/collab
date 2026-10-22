@@ -56,6 +56,7 @@ import {
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { readAssetBytes } from '../lib/assetBytes';
+import { subscribeBackgroundPoll } from '../lib/backgroundPolls';
 import {
   compareDocumentVersions,
   type RemoteCandidate,
@@ -1474,12 +1475,7 @@ export default function PdfView({ relativePath }: Props) {
         checking = false;
       }
     };
-    const interval = window.setInterval(() => void check(), 2_000);
-    window.addEventListener('focus', check);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('focus', check);
-    };
+    return subscribeBackgroundPoll(check, 2_000);
   }, [pdfSessionController, relativePath, sidecarLoaded, vault]);
 
   useEffect(() => {

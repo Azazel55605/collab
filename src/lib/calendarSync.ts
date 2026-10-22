@@ -393,7 +393,8 @@ export async function syncHostedCalendarOrigin(
   }
 }
 
-export async function syncHostedCalendars(
+const originFlights = new Map<string, Promise<CalendarOriginSyncResult[]>>();
+async function syncHostedCalendarsUncoalesced(
   profileId: string,
   origins: HostedCalendarOrigin[],
   cachedCalendars: CalendarDefinition[],
@@ -467,4 +468,32 @@ export async function syncHostedCalendars(
       syncHostedCalendarOrigin(profileId, origin, cachedCalendars, onProgress, adapter),
     ),
   );
+}
+
+export async function syncHostedCalendars(
+  profileId: string,
+  origins: HostedCalendarOrigin[],
+  cachedCalendars: CalendarDefinition[],
+  onProgress?: CalendarSyncProgressListener,
+  adapter: CalendarSyncAdapter = tauriCommands,
+): Promise<CalendarOriginSyncResult[]> {
+  const batches = await Promise.all(
+    normalizeHostedCalendarOrigins(origins).map((origin) => {
+      const key = JSON.stringify([profileId, origin.serverUrl, origin.userId]);
+      const existing = originFlights.get(key);
+      if (existing) return existing;
+      const flight = syncHostedCalendarsUncoalesced(
+        profileId,
+        [origin],
+        cachedCalendars,
+        onProgress,
+        adapter,
+      ).finally(() => {
+        if (originFlights.get(key) === flight) originFlights.delete(key);
+      });
+      originFlights.set(key, flight);
+      return flight;
+    }),
+  );
+  return batches.flat();
 }

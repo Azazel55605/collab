@@ -8,11 +8,13 @@ mod commands;
 mod crypto;
 #[cfg(not(mobile))]
 mod desktop_notifications;
+mod drag_staging;
 mod hosted_client;
 mod hosted_session;
 mod local_mutation;
 mod models;
 mod notifications;
+mod performance;
 mod server_token_store;
 mod state;
 #[cfg(test)]
@@ -34,6 +36,7 @@ fn linux_webkit_acceleration_policy(value: Option<&str>) -> webkit2gtk::Hardware
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    performance::initialize();
     let builder = tauri::Builder::default().manage(AppState::new());
 
     // This must be the first plugin so a second launch hands focus back before
@@ -263,6 +266,7 @@ pub fn run() {
             commands::files::resolve_vault_file_path,
             commands::files::write_downloaded_file,
             commands::files::write_temp_file_for_drag,
+            commands::files::release_drag_temp_file,
             commands::files::sidecars::read_image_overlay,
             commands::files::sidecars::write_image_overlay,
             commands::files::sidecars::delete_image_overlay,
@@ -436,7 +440,10 @@ pub fn run() {
             commands::replica::replica_cache_asset,
             commands::replica::replica_read_cached_asset,
             commands::replica::replica_cached_content_status,
+            crate::performance::performance_snapshot,
             commands::replica::replica_cache_crdt_state,
+            commands::replica::replica_append_crdt_update,
+            commands::replica::replica_read_crdt_updates,
             commands::replica::replica_read_crdt_state,
             commands::replica::replica_clear_crdt_state,
             commands::replica::replica_verify,

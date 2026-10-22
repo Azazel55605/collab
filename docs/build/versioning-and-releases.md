@@ -111,6 +111,13 @@ pnpm admin:release:check admin-web-v0.6.4
 These checks compare the target tag against `versions.json` and the synced
 manifest files for that target.
 
+Desktop tags also require [native performance qualification](../desktop/native-background-performance.md#opt-in-diagnostics-and-release-gate).
+Build and test a candidate through the manual workflow first, then commit the
+actual version-matching reports under `docs/build/performance-evidence/desktop-v<version>/`
+before tagging. The build workflow rejects missing/failed Linux, Windows or macOS
+evidence before it enters the release matrix. This does not apply to server,
+Android or admin-web release tags.
+
 ## Git Tags
 
 Desktop releases use:

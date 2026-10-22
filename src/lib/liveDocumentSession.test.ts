@@ -459,6 +459,7 @@ describe('durable live checkpoint ordering', () => {
           finish = done;
         }),
     );
+    session.text.insert(0, 'pending edit');
     const pending = session.flushOfflineState!();
     session.discardOfflineState();
     expect(tauriCommands.replicaClearCrdtState).not.toHaveBeenCalled();

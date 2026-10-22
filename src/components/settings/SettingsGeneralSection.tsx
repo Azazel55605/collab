@@ -1,6 +1,7 @@
 import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
 
+import PerformanceDiagnosticsControls from './PerformanceDiagnosticsControls';
 import { OptionRow, SectionLabel, ToggleSwitch } from './settingsControls';
 
 type Props = {
@@ -127,6 +128,7 @@ export default function SettingsGeneralSection({
         />
       </OptionRow>
 
+      <PerformanceDiagnosticsControls />
       <div
         className={cn(
           'mt-3 rounded-xl border border-border/35 bg-card/55 p-3 text-xs text-muted-foreground shadow-sm',

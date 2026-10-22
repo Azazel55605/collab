@@ -1,6 +1,7 @@
 import type { ChatMessage, PresenceEntry } from '../types/collab';
 import type { HostedVaultMeta, VaultConfig, VaultMeta } from '../types/vault';
 
+import { subscribeBackgroundPoll } from './backgroundPolls';
 import { listenSafely } from './nativeSubscription';
 import { tauriCommands } from './tauri';
 
@@ -128,13 +129,11 @@ export class HostedServerTransport implements CollabTransport {
   }
 
   onPresenceChanged(cb: () => void): Unsubscribe {
-    const interval = window.setInterval(cb, 3000);
-    return () => window.clearInterval(interval);
+    return subscribeBackgroundPoll(cb, 3000);
   }
 
   onChatUpdated(cb: () => void): Unsubscribe {
-    const interval = window.setInterval(cb, 5000);
-    return () => window.clearInterval(interval);
+    return subscribeBackgroundPoll(cb, 5000);
   }
 
   onConfigChanged(_cb: () => void): Unsubscribe {

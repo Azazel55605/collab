@@ -61,3 +61,5 @@ fn android_files_dir() -> Result<PathBuf, String> {
 }
 
 pub(crate) mod vault_jobs;
+
+pub(crate) mod live_queue;

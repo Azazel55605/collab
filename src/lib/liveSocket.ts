@@ -62,6 +62,8 @@ class TauriLiveSocket implements LiveSocket {
 
   private id: number | null = null;
   private closed = false;
+  private pendingSends = 0;
+  private pendingBytes = 0;
 
   constructor(serverUrl: string, websocketUrl: string) {
     const channel = new Channel<LiveWsEvent>();
@@ -88,7 +90,7 @@ class TauriLiveSocket implements LiveSocket {
   }
 
   private handleEvent(event: LiveWsEvent) {
-    if (this.closed) return;
+    if (this.closed || this.readyState === LIVE_SOCKET_CLOSED) return;
     switch (event.type) {
       case 'text':
         this.onmessage?.({ data: event.data });
@@ -97,6 +99,7 @@ class TauriLiveSocket implements LiveSocket {
         this.onmessage?.({ data: base64ToArrayBuffer(event.data) });
         break;
       case 'closed':
+        this.closed = true;
         this.readyState = LIVE_SOCKET_CLOSED;
         // The backend socket ended on its own (server close / network drop).
         // Drop the backend registry entry so it does not leak across reconnects;
@@ -113,11 +116,30 @@ class TauriLiveSocket implements LiveSocket {
 
   send(data: string | Uint8Array): void {
     if (this.id === null || this.readyState !== LIVE_SOCKET_OPEN) return;
-    if (typeof data === 'string') {
-      void tauriCommands.liveWsSend(this.id, 'text', data).catch(() => {});
-    } else {
-      void tauriCommands.liveWsSend(this.id, 'binary', bytesToBase64(data)).catch(() => {});
+    const cost = typeof data === 'string' ? data.length * 2 : Math.ceil((data.byteLength * 11) / 3);
+    if (this.pendingSends >= 32 || this.pendingBytes + cost > 64 * 1024 * 1024) {
+      if (typeof data !== 'string' && data[0] === 3) return;
+      this.handleEvent({ type: 'closed', code: 1013 });
+      return;
     }
+    this.pendingSends++;
+    this.pendingBytes += cost;
+    const sending =
+      typeof data === 'string'
+        ? tauriCommands.liveWsSend(this.id, 'text', data)
+        : tauriCommands.liveWsSend(this.id, 'binary', bytesToBase64(data));
+    void sending
+      .finally(() => {
+        this.pendingSends--;
+        this.pendingBytes -= cost;
+      })
+      .catch(() => {
+        if (this.closed || this.readyState !== LIVE_SOCKET_OPEN) return;
+        // The Y.Doc retains edits; force a fresh state-vector handshake instead
+        // of silently losing a rejected durable frame on a stalled connection.
+        this.handleEvent({ type: 'closed', code: 1013 });
+        this.onerror?.();
+      });
   }
 
   close(): void {

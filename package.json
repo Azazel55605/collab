@@ -69,6 +69,7 @@
     "server:security:scan": "./scripts/server-security-scan.sh",
     "server:load-test": "./scripts/server-load-test.sh",
     "server:image:build": "./scripts/server-container-build.sh",
+    "desktop:performance:check": "node scripts/desktop-performance-gate.mjs",
     "desktop:release:check": "node scripts/check-release-version.mjs --target desktop",
     "mobile:release:check": "node scripts/check-release-version.mjs --target mobile",
     "admin:release:check": "node scripts/check-release-version.mjs --target admin-web",

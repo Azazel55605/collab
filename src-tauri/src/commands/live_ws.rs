@@ -16,8 +16,10 @@
 //! handshake (authenticate / subscribe / Yjs sync) still runs in the frontend
 //! exactly as before — only the transport moved.
 
+use super::live_queue::{LiveQueue, MAX_FRAME_BYTES};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
@@ -25,7 +27,7 @@ use reqwest_websocket::{Message, Upgrade};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::State;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 
 use crate::hosted_client::ws_server_client;
 use crate::hosted_session::session_for;
@@ -44,7 +46,7 @@ pub enum LiveWsEvent {
 }
 
 struct LiveConn {
-    outbound: mpsc::UnboundedSender<Message>,
+    outbound: Arc<LiveQueue>,
     reader: tokio::task::JoinHandle<()>,
     writer: tokio::task::JoinHandle<()>,
 }
@@ -112,15 +114,26 @@ pub async fn live_ws_connect(
         .map_err(|error| format!("Live collaboration upgrade failed: {error}"))?;
     let (mut sink, mut stream) = websocket.split();
 
-    let (outbound, mut outbound_rx) = mpsc::unbounded_channel::<Message>();
+    let outbound = Arc::new(LiveQueue::default());
+    let writer_queue = Arc::clone(&outbound);
+    let writer_events = on_event.clone();
 
     let writer = tokio::spawn(async move {
-        while let Some(message) = outbound_rx.recv().await {
-            if sink.send(message).await.is_err() {
+        loop {
+            let queued = writer_queue.next().await;
+            if super::live_queue::send_with_deadline(
+                &mut sink,
+                queued.message,
+                std::time::Duration::from_secs(15),
+            )
+            .await
+            .is_err()
+            {
                 break;
             }
         }
-        let _ = sink.close().await;
+        let _ = writer_events.send(LiveWsEvent::Closed { code: Some(1013) });
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await;
     });
 
     let events = on_event.clone();
@@ -149,7 +162,13 @@ pub async fn live_ws_connect(
     });
 
     let id = state.live_ws.next_id.fetch_add(1, Ordering::Relaxed);
-    state.live_ws.conns.lock().await.insert(
+    let mut conns = state.live_ws.conns.lock().await;
+    if conns.len() >= 16 {
+        reader.abort();
+        writer.abort();
+        return Err("Live connection limit reached; close an unused document".into());
+    }
+    conns.insert(
         id,
         LiveConn {
             outbound,
@@ -169,6 +188,9 @@ pub async fn live_ws_send(
     kind: String,
     data: String,
 ) -> Result<(), String> {
+    if data.len() > MAX_FRAME_BYTES * 4 / 3 + 4 {
+        return Err("Live frame exceeds its input limit".into());
+    }
     let message = match kind.as_str() {
         "text" => Message::Text(data),
         "binary" => Message::Binary(
@@ -183,9 +205,8 @@ pub async fn live_ws_send(
     let conn = conns
         .get(&id)
         .ok_or_else(|| "The live collaboration connection is closed.".to_string())?;
-    conn.outbound
-        .send(message)
-        .map_err(|_| "The live collaboration connection is closed.".to_string())
+    let _trace = crate::performance::span("live.queue.push");
+    conn.outbound.push(message)
 }
 
 /// Closes and forgets a proxied live socket. Safe to call for an unknown id.

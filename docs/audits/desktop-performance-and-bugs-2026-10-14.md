@@ -313,9 +313,8 @@ Each opportunity has a source, a concrete change and a verification target. Wher
 it overlaps a bug, the bug's correctness fix comes first. Items marked P3 are not
 instructions to optimize code before measuring it.
 
-Checklist reconciled **2026-10-21**: **O01–O47, O49–O64 are implemented;
-O48 is superseded by R08**. These 64 implementation items are checked off; the
-other **6 entries remain open**. Native release acceptance is tracked
+Checklist reconciled **2026-10-21**: **O01–O47, O49–O70 are implemented;
+O48 is superseded by R08**. All **70 implementation items are checked off**. Native release acceptance is tracked
 separately below and in the implementation tracker; checkboxes do not claim
 measured startup/RSS gains or certification on every platform.
 
@@ -672,57 +671,49 @@ Implemented **2026-10-21**, Performance Batch 8. See
       allowed. Tests cover 10k sparse/unrelated inputs and actual native conflict
       preservation. End-to-end native latency/RSS and encrypted-vault acceptance
       remain part of the measurement matrix, not claimed speedups.
-- [ ] **O65 / P1 — Add bounded native live-socket backpressure.**
-      **Status: Open.**
-      [live_ws.rs](../../src-tauri/src/commands/live_ws.rs) uses an unbounded outbound
-      channel. A stalled socket can retain arbitrary queued frames. Bound bytes and
-      messages, coalesce replaceable awareness and preserve/replay durable document
-      updates under explicit semantics. Test slow send, disconnect and reconnect;
-      silently dropping arbitrary CRDT frames is not an acceptable memory fix.
-- [ ] **O66 / P2 — Reduce full-state replica/CRDT persistence churn.**
-      **Status: Partial — native live checkpoints serialize/coalesce; full-state replica/CRDT churn remains.**
-      [liveDocumentSession](../../src/lib/liveDocumentSession.ts) periodically encodes
-      full Yjs state; [ReplicaStore](../../crates/collab-replica/src/store.rs) reads/
-      writes encrypted JSON/document payloads. Measure state growth, manifest parsing,
-      queue rewrites and crypto copies; introduce delta/checkpoint storage only with
-      durability, quarantine and account-scoping tests intact.
-- [ ] **O67 / P2 — Incrementalize and single-flight calendar projection/sync.**
-      **Status: Open.**
-      [CalendarSyncCoordinator](../../src/components/layout/CalendarSyncCoordinator.tsx)
-      relists/reads local kanbans, replaces generated items and reloads a range on
-      refresh; focus/online/timer triggers can overlap. Reuse the attachment/revision
-      index and coalesce per-profile/origin jobs. Test assignments, deletions, mirrors
-      and events arriving during a sync; preserve reminder delivery.
-- [ ] **O68 / P2 — Consolidate desktop polling and background wakeups.**
-      **Status: Partial — replica synchronization coalesced; consolidated polling/wakeup policy remains.**
-      [collabTransport](../../src/lib/collabTransport.ts),
-      [useHostedChat](../../src/lib/useHostedChat.ts), team/inbox/member surfaces,
-      PDF sidecar polling and [background_lifecycle](../../src-tauri/src/background_lifecycle.rs)
-      use independent cadences. The latter wakes every two seconds even though some
-      decisions are minute-scale. Coordinate visibility/connection-aware scheduling,
-      backoff and event-driven invalidation. Count idle wakeups/network calls and test
-      tray/notification/reconnect correctness. Keep existing inventory throttling.
-- [ ] **O69 / P2 — Bound completed simulation resources and native staging retention.**
-      **Status: Open.**
-      [circuit.rs](../../src-tauri/src/commands/circuit.rs) caps job counts and chunk
-      sizes but retained jobs may hold large results. Add aggregate retained-byte/TTL
-      policy and explicit release. Separately, [files.rs](../../src-tauri/src/commands/files.rs)
-      stages plaintext native-drag exports in process-named temp paths without a
-      matching cleanup here. Define lifecycle/scavenging without deleting active
-      transfers. Test circuit navigation/cancel and stale staging after restart.
-- [ ] **O70 / P1 — Make performance measurements a maintained release gate.**
-      **Status: Partial — opt-in synthetic text-merge benchmark added; native release gate open.**
-      Run `cargo run --release -p collab-live --example text_merge_benchmark` for
-      1k/10k sparse and unrelated line fixtures, exact-result assertions and CSV
-      p50/p95 timings over 25 runs. This measures the portable core only.
-      Startup batch also adds reproducible static-import/worker artifact checks
-      under O09; native release telemetry and timing gates are still open.
-      Existing fixture budgets and [rendering](../../src/lib/rendering.ts) are useful,
-      but build warnings/test durations are not native performance telemetry. Add
-      cold/warm startup, idle power/network, p95 interaction, heap/RSS/worker/GPU,
-      cache/disk and open-close soak fixtures. Correlate IPC job/bytes/lock timings
-      with UI traces; report Linux WebKitGTK, Windows WebView2 and macOS WebKit
-      separately. Keep instrumentation disabled/bounded outside explicit diagnostics.
+      Implemented **2026-10-21**, Performance Batch 9. See
+      [ownership, budgets, diagnostics and release qualification](../desktop/native-background-performance.md).
+
+- [x] **O65 / P1 — Bounded live-socket backpressure and recovery.** Native
+      queues retain at most 128 frames/roughly 32 MiB including in-flight bytes,
+      with sixteen connections and the existing sixteen MiB update limit.
+      Frontend IPC admission is bounded by 32 submissions/64 MiB estimated bytes.
+      Single-client awareness coalesces; ephemeral overload may drop awareness.
+      Durable rejection/stalled sends disconnect, then Yjs state vectors replay
+      retained edits. Early closure cannot resurrect a connection.
+- [x] **O66 / P2 — Incremental CRDT persistence.** State-vector deltas append to
+      independently encrypted, fsynced journals; full checkpoints compact at
+      64 deltas/about one MiB or durable leave barriers. Per-document locks give
+      coherent generations. Compaction publishes before retiring deltas; torn
+      tails recover, unreadable generations are preserved and failed writes do
+      not acknowledge vectors. No-op tracked JSON skips data/integrity rewrites.
+      Existing pending-operation schema and quarantine rules remain intact.
+- [x] **O67 / P2 — Indexed and single-flight calendar reconciliation.** Local
+      board reads use immutable tree/content revisions and bounded source caches;
+      unchanged projections skip native replacement/range reload. Deletion,
+      unreadable-source retention, publication retry and events arriving in flight
+      reconcile through one trailing pass. Privacy cleanup retires plaintext caches;
+      hosted origin flights share overlapping profile/server/account requests.
+- [x] **O68 / P2 — Shared polling and native deadline wakeups.** One visible/
+      online clock serves chat/inbox/teams/members/presence/PDF/calendar consumers,
+      with per-callback single flight, rejection backoff and event invalidation.
+      Native reminders use deadlines/settings/status wakeups with a minute-scale
+      inventory bound; denied permission does not spin on overdue notifications.
+      Inventory/reconnect throttling remains intact.
+- [x] **O69 / P2 — Result and staging lifecycle bounds.** Circuit terminal results
+      have sixteen MiB/job, sixty-four MiB aggregate estimates, two-minute idle
+      expiry and explicit release. Over-budget results retire arrays and fail
+      visibly. Private drag directories use locked process leases, 256 MiB/32
+      ownership bounds, delayed-reader grace and bounded restart/periodic GC that
+      preserves active leases and skips symlinks.
+- [x] **O70 / P1 — Maintained diagnostics and release qualification gate.** Opt-in
+      bounded native/IPC/interaction/poll timing, process RSS/high-water counters,
+      scenario capture and native report export. A checked-in budget command gates
+      p95 startup/interaction, idle calls/wakes and soak retention. Desktop tags
+      require version-matched Linux/Windows/macOS reports before release builds;
+      missing evidence fails. Unit fixtures are not installed certification.
+      Main-process counters exclude separate webview/worker/GPU processes: the
+      measurement matrix below remains required native release acceptance.
 
 ## Existing Optimizations And Safety Boundaries To Preserve
 
@@ -756,10 +747,11 @@ The review does not recommend undoing work already present:
 
 ## Suggested Delivery Order
 
-The original priority grouping follows. **O01–O64 are now
+The original priority grouping follows. **O01–O70 are now
 implemented (O48 superseded)**; use the checkboxes and
 [open development work](../plans/open-development-work.md) for current scope.
-The next category is **Native Storage, Collaboration, Calendar And Background Work (O65–O70)**.
+All implementation categories are complete; the next step is the native release
+measurement/acceptance matrix, including the new O70 qualification reports.
 
 1. **Correctness first:** B01 autosave/session ownership; B02 Unicode; B06 staging
    collisions; B04 PDF lifetimes; B03/B05 stale requests/listeners. Validate the

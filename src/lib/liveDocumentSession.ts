@@ -181,6 +181,10 @@ export class WebSocketYProvider {
   // When set, the offline replica state for this document has been discarded as
   // degenerate: stop persisting and do not flush on destroy.
   private offlineDiscarded = false;
+  private persistDirty = false;
+  private persistedVector: Uint8Array | undefined;
+  private deltaCount = 0;
+  private deltaBytes = 0;
 
   /**
    * @param offlineReplica when true, the merged CRDT state is persisted to the
@@ -225,14 +229,25 @@ export class WebSocketYProvider {
   async hydrateFromReplica(): Promise<void> {
     if (!this.offlineReplica || this.destroyed) return;
     try {
-      const base64 = await tauriCommands.replicaReadCrdtState(
-        this.target.serverUrl,
-        this.target.vaultId,
-        this.target.fileId,
-      );
-      if (base64 && !this.destroyed) {
-        Y.applyUpdate(this.doc, base64ToBytes(base64), SEED_ORIGIN);
-      }
+      const bundled = Boolean(tauriCommands.replicaReadCrdtUpdates);
+      const deltas = bundled
+        ? await tauriCommands.replicaReadCrdtUpdates(
+            this.target.serverUrl,
+            this.target.vaultId,
+            this.target.fileId,
+          )
+        : [
+            await tauriCommands.replicaReadCrdtState(
+              this.target.serverUrl,
+              this.target.vaultId,
+              this.target.fileId,
+            ),
+          ].filter((value): value is string => Boolean(value));
+      if (this.destroyed) return;
+      for (const delta of deltas) Y.applyUpdate(this.doc, base64ToBytes(delta), SEED_ORIGIN);
+      this.deltaCount = deltas.length;
+      this.deltaBytes = deltas.reduce((n, delta) => n + delta.length, 0);
+      if (deltas.length) this.persistedVector = Y.encodeStateVector(this.doc);
     } catch {
       // Best-effort: fall through to a server-seeded document.
     }
@@ -242,6 +257,7 @@ export class WebSocketYProvider {
     // Seeded state came from the cache; everything else (local edits and merged
     // remote updates) is persisted so the replica reflects the converged state.
     if (origin === SEED_ORIGIN || this.offlineDiscarded) return;
+    this.persistDirty = true;
     this.schedulePersist();
   };
 
@@ -281,15 +297,62 @@ export class WebSocketYProvider {
   private async persistNow(strict = false) {
     if (!this.offlineReplica || this.offlineDiscarded) return;
     try {
-      const state = bytesToBase64(Y.encodeStateAsUpdate(this.doc));
       await this.persistRunner.run(async () => {
-        if (this.offlineDiscarded) return;
-        await tauriCommands.replicaCacheCrdtState(
-          this.target.serverUrl,
-          this.target.vaultId,
-          this.target.fileId,
-          state,
-        );
+        do {
+          if (this.offlineDiscarded || (!this.persistDirty && !(strict && this.deltaCount))) return;
+          const checkpoint =
+            strict ||
+            !this.persistedVector ||
+            this.deltaCount >= 64 ||
+            this.deltaBytes >= 1024 * 1024 ||
+            !tauriCommands.replicaAppendCrdtUpdate;
+          const bytes = Y.encodeStateAsUpdate(
+            this.doc,
+            checkpoint ? undefined : this.persistedVector,
+          );
+          const vector = Y.encodeStateVector(this.doc);
+          this.persistDirty = false;
+          try {
+            if (checkpoint) {
+              await tauriCommands.replicaCacheCrdtState(
+                this.target.serverUrl,
+                this.target.vaultId,
+                this.target.fileId,
+                bytesToBase64(bytes),
+              );
+              this.deltaCount = this.deltaBytes = 0;
+            } else {
+              try {
+                await tauriCommands.replicaAppendCrdtUpdate(
+                  this.target.serverUrl,
+                  this.target.vaultId,
+                  this.target.fileId,
+                  bytesToBase64(bytes),
+                );
+                this.deltaCount++;
+                this.deltaBytes += bytes.byteLength;
+              } catch {
+                // A full journal or failed append can always recover by atomically
+                // checkpointing the latest immutable CRDT state before retiring deltas.
+                const full = Y.encodeStateAsUpdate(this.doc);
+                const latest = Y.encodeStateVector(this.doc);
+                await tauriCommands.replicaCacheCrdtState(
+                  this.target.serverUrl,
+                  this.target.vaultId,
+                  this.target.fileId,
+                  bytesToBase64(full),
+                );
+                this.persistedVector = latest;
+                this.deltaCount = this.deltaBytes = 0;
+                return;
+              }
+            }
+            this.persistedVector = vector;
+          } catch (error) {
+            this.persistDirty = true;
+            throw error;
+          }
+        } while (strict && this.persistDirty && !this.offlineDiscarded);
       });
     } catch (error) {
       if (strict) throw error;

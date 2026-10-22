@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "platforms": ["linux-webkitgtk", "windows-webview2", "macos-webkit"],
+  "maxPeakRssBytes": 1073741824,
+  "maxStartupP95Ms": { "cold-start": 5000, "warm-start": 2500 },
+  "maxInteractionP95Ms": 200,
+  "minInteractionSamples": 100,
+  "minStartupSamples": 5,
+  "minIdleDurationMs": 60000,
+  "maxIdleIpcPerMinute": 120,
+  "maxIdlePollWakesPerMinute": 60,
+  "maxSoakGrowthBytes": 67108864,
+  "minSoakDurationMs": 120000
+}

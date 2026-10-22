@@ -1,5 +1,5 @@
 import { getVersion } from '@tauri-apps/api/app';
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel, invoke as nativeInvoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 
@@ -76,6 +76,7 @@ import type {
   WriteResult,
 } from '../types/vault';
 
+import { installPerformanceDiagnostics, traceIpc } from './performanceDiagnostics';
 import type {
   CacheCleanupReport,
   CachedContentStatus,
@@ -87,6 +88,37 @@ import type {
   ReplicaSyncState,
   Tombstone,
 } from './vaultReplica';
+
+function invoke<T>(...input: Parameters<typeof nativeInvoke>): Promise<T> {
+  const [command, args] = input;
+  return traceIpc<T>(command, args, () =>
+    nativeInvoke<T>(...input).then((result) => {
+      if (
+        command === 'hosted_conversation_request' &&
+        args &&
+        typeof args === 'object' &&
+        'method' in args &&
+        args.method !== 'GET'
+      )
+        window.dispatchEvent(new Event('collab:poll-invalidate'));
+      return result;
+    }),
+  );
+}
+installPerformanceDiagnostics(
+  () => nativeInvoke('performance_snapshot'),
+  async (report) => {
+    const path = await tauriCommands.showExportDialog('collab-performance.json', {
+      name: 'Performance report',
+      extensions: ['json'],
+    });
+    if (path)
+      await tauriCommands.writeDownloadedBytes(
+        path,
+        new TextEncoder().encode(JSON.stringify(report, null, 2)),
+      );
+  },
+);
 
 export const getAppVersion = getVersion;
 
@@ -582,6 +614,7 @@ export const tauriCommands = {
   writeDownloadedFile: (destinationPath: string, contentBase64: string) =>
     invoke<void>('write_downloaded_file', { destinationPath, contentBase64 }),
   /** Materialize bytes to a temp file (for dragging a hosted file out to the OS). */
+  releaseDragTempFile: (path: string) => invoke<void>('release_drag_temp_file', { path }),
   writeTempFileForDrag: (fileName: string, contentBase64: string) =>
     invoke<string>('write_temp_file_for_drag', { fileName, contentBase64 }),
   /** Save dialog for an exported file of one type. */
@@ -1307,6 +1340,14 @@ export const tauriCommands = {
       kind,
       expectedSha256,
     }),
+  replicaReadCrdtUpdates: (serverUrl: string, vaultId: string, fileId: string) =>
+    invoke<string[]>('replica_read_crdt_updates', { serverUrl, vaultId, fileId }),
+  replicaAppendCrdtUpdate: (
+    serverUrl: string,
+    vaultId: string,
+    fileId: string,
+    base64Content: string,
+  ) => invoke<void>('replica_append_crdt_update', { serverUrl, vaultId, fileId, base64Content }),
   replicaCacheCrdtState: (
     serverUrl: string,
     vaultId: string,

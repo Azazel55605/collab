@@ -28,6 +28,7 @@ static REGISTRY: LazyLock<(Mutex<Registry>, Condvar)> =
     LazyLock::new(|| (Mutex::new(Registry::default()), Condvar::new()));
 
 pub(crate) struct MutationGuard {
+    _trace: crate::performance::Span,
     id: u64,
     _thread_bound: PhantomData<Rc<()>>,
 }
@@ -72,6 +73,7 @@ pub(crate) fn lock_path(path: &Path) -> Result<MutationGuard, String> {
 }
 
 pub(crate) fn lock_paths(paths: &[&Path]) -> Result<MutationGuard, String> {
+    let _wait = crate::performance::span("storage.lock.wait");
     let paths = paths
         .iter()
         .map(|path| identity(path))
@@ -129,6 +131,7 @@ pub(crate) fn lock_paths(paths: &[&Path]) -> Result<MutationGuard, String> {
     registry.waiting.retain(|entry| entry.id != id);
     registry.active.push(Reservation { id, owner, paths });
     Ok(MutationGuard {
+        _trace: crate::performance::span("storage.lock.hold"),
         id,
         _thread_bound: PhantomData,
     })

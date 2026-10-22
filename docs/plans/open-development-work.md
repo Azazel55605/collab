@@ -124,8 +124,16 @@ Batch 8 (**2026-10-21**): structured checkpoints, incremental/cancellable formul
 IPC, byte-bounded undo, structural indexes, visibility-owned media, incremental
 ink/graph derivation and transferable exports with atomic binary publication.
 See [budgets, evidence and outstanding native acceptance](../desktop/structured-editors-history-export-performance.md).
-**O01–O64 are checked off** (O48 superseded); **O65–O70 remain open**. Next is
-**Native Storage, Collaboration, Calendar And Background Work**.
+**Native Storage, Collaboration, Calendar And Background Work (O64–O70)** is
+implemented in Performance Batch 9 (**2026-10-21**); O64 was already implemented.
+Bounded/recoverable sockets, encrypted CRDT deltas, incremental calendar work,
+shared/deadline polling, completed-result/drag leases and opt-in diagnostics are
+shipped. Desktop release tags now require real version-matched performance reports
+for Linux, Windows and macOS. See [limits and qualification procedure](../desktop/native-background-performance.md).
+**O01–O70 are checked off** (O48 superseded). Native release acceptance remains
+open: installed/physical platform tests, multi-client offline/reconnect/conflict
+soak and the measurement matrix require actual evidence. No cross-platform RSS,
+GPU or startup certification is inferred from unit/build success.
 
 The **UR15 UI flicker follow-up (2026-10-20)** removes routine folder/sidebar/view
 and settings-category entrance fades while preserving document keys and menu
