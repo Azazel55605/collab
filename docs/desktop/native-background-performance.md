@@ -158,11 +158,14 @@ pnpm desktop:performance:check --platform linux-webkitgtk /path/to/reports/*.jso
 pnpm desktop:performance:check /path/to/linux/*.json /path/to/windows/*.json /path/to/macos/*.json
 ```
 
-Tagged desktop builds first require reports under
-`docs/build/performance-evidence/desktop-v<version>/`. The qualification job runs
-before the build matrix; missing evidence, mismatched app versions or any failed
-platform budget stops release publication. Manual workflow builds still work
-without qualification, so candidates can be built and tested before tagging.
+Desktop builds and publication do not depend on native performance reports.
+Version-manifest validation remains required for desktop tags. Collect real reports
+under `docs/build/performance-evidence/desktop-v<version>/`, then run the separate
+**Native Performance Qualification** workflow manually with `desktop-v<version>`
+on a branch containing those reports, or use the CLI above. Missing evidence,
+mismatched versions or failed budgets fails that explicit qualification check.
+Manual diagnostic builds remain available for collecting evidence. Packaging
+success does not establish native performance acceptance.
 
 The checked-in budget file gates startup p95, interaction p95, native peak RSS,
 idle IPC/wake rates and soak retention. Missing scenarios, missing memory,

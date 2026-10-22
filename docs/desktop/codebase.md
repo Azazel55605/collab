@@ -1994,7 +1994,8 @@ installed acceptance and tagged-release evidence remain distinct.
   records without payload/path/token logs. Diagnostic-only Settings controls in
   `PerformanceDiagnosticsControls.tsx` capture/export scenarios without a developer
   console, retaining captures across Settings remounts. `scripts/desktop-performance-gate.mjs`
-  and its budget file validate native reports. Tagged desktop workflows require
-  version-matched reports in `docs/build/performance-evidence/<tag>/` before the
-  build matrix; manual candidate builds remain available. Native process memory
+  and its budget file validate native reports. The separate manual Native Performance
+  Qualification workflow checks version-matched reports in
+  `docs/build/performance-evidence/<tag>/`. Desktop build/publication jobs depend
+  only on release-version validation; diagnostic candidate builds remain available. Native process memory
   excludes webview/worker/GPU allocations, which need separate release evidence.

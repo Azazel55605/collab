@@ -110,8 +110,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       releaseVersion = tag.slice('desktop-v'.length);
       argv.splice(releaseIndex, 2);
       const directory = path.join('docs/build/performance-evidence', tag);
-      const paths = fs
-        .readdirSync(directory)
+      let names;
+      try {
+        names = fs.readdirSync(directory);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        throw new Error(
+          `Missing native performance evidence: ${directory}. Collect and commit real version-matched reports before running qualification. Desktop builds do not require this check.`,
+          { cause: error },
+        );
+      }
+      const paths = names
         .filter((name) => name.endsWith('.json'))
         .map((name) => path.join(directory, name));
       if (!paths.length) throw new Error(`Missing native release evidence: ${directory}`);
