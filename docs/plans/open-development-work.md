@@ -128,8 +128,8 @@ See [budgets, evidence and outstanding native acceptance](../desktop/structured-
 implemented in Performance Batch 9 (**2026-10-21**); O64 was already implemented.
 Bounded/recoverable sockets, encrypted CRDT deltas, incremental calendar work,
 shared/deadline polling, completed-result/drag leases and opt-in diagnostics are
-shipped. Desktop release tags now require real version-matched performance reports
-for Linux, Windows and macOS. See [limits and qualification procedure](../desktop/native-background-performance.md).
+shipped. Separate opt-in qualification requires real version-matched performance
+reports for Linux, Windows and macOS; desktop builds do not depend on those reports. See [limits and qualification procedure](../desktop/native-background-performance.md).
 **O01–O70 are checked off** (O48 superseded). Native release acceptance remains
 open: installed/physical platform tests, multi-client offline/reconnect/conflict
 soak and the measurement matrix require actual evidence. No cross-platform RSS,

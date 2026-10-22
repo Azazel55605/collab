@@ -709,9 +709,9 @@ Implemented **2026-10-21**, Performance Batch 8. See
 - [x] **O70 / P1 — Maintained diagnostics and release qualification gate.** Opt-in
       bounded native/IPC/interaction/poll timing, process RSS/high-water counters,
       scenario capture and native report export. A checked-in budget command gates
-      p95 startup/interaction, idle calls/wakes and soak retention. Desktop tags
-      require version-matched Linux/Windows/macOS reports before release builds;
-      missing evidence fails. Unit fixtures are not installed certification.
+      p95 startup/interaction, idle calls/wakes and soak retention. Explicit native
+      qualification requires version-matched Linux/Windows/macOS reports; missing
+      evidence fails qualification. Desktop builds/publication remain independent. Unit fixtures are not installed certification.
       Main-process counters exclude separate webview/worker/GPU processes: the
       measurement matrix below remains required native release acceptance.
 

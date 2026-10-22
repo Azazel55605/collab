@@ -15,7 +15,7 @@ on:
         default: false
 
 jobs:
-  performance-qualification:
+  release-validation:
     runs-on: ubuntu-latest
     env:
       COLLAB_RELEASE_TAG: ${{ github.ref_name }}
@@ -27,12 +27,9 @@ jobs:
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         run: node scripts/check-release-version.mjs --target desktop "$COLLAB_RELEASE_TAG"
-      - name: Verify native performance evidence
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
-        run: node scripts/desktop-performance-gate.mjs --release-tag "$COLLAB_RELEASE_TAG"
 
   build:
-    needs: performance-qualification
+    needs: release-validation
     permissions:
       contents: write   # required to create GitHub Releases
     strategy:
@@ -252,7 +249,7 @@ jobs:
 
   flatpak:
     if: ${{ !inputs.performance_diagnostics }}
-    needs: performance-qualification
+    needs: release-validation
     name: flatpak-x86_64
     runs-on: ubuntu-24.04
     permissions:

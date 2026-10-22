@@ -1,3 +1,10 @@
+// @vitest-environment node
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { expect, it } from 'vitest';
 
 import budgets from './desktop-performance-budgets.json';
@@ -74,4 +81,25 @@ it('release qualification rejects reports from another app version', () => {
   expect(checkReports([report()], budgets, ['linux-webkitgtk'], '0.8.8').join()).toContain(
     'does not match release',
   );
+});
+
+it('explicit qualification fails clearly when a release has no committed reports', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'collab-performance-missing-'));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL('./desktop-performance-gate.mjs', import.meta.url)),
+        '--release-tag',
+        'desktop-v0.8.8',
+      ],
+      { cwd, encoding: 'utf8' },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Missing native performance evidence');
+    expect(result.stderr).toContain('desktop-v0.8.8');
+    expect(result.stderr).not.toContain('ENOENT');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });

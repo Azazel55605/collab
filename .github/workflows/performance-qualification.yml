@@ -1,0 +1,23 @@
+name: Native Performance Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Desktop version whose committed native reports should be checked (desktop-vX.Y.Z)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    env:
+      COLLAB_RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Checkout evidence
+        uses: actions/checkout@v7
+      - name: Verify native performance evidence
+        run: node scripts/desktop-performance-gate.mjs --release-tag "$COLLAB_RELEASE_TAG"

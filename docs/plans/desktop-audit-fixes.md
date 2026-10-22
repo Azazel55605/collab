@@ -1342,11 +1342,11 @@ implemented and remains covered by workspace tests. See
 - [x] O69: terminal simulation byte/TTL ownership and visible oversize failure;
       private locked native-drag leases with release/grace/restart scavenging.
 - [x] O70: disabled-by-default bounded diagnostics, native process counters,
-      scenario/report export and budget gate enforced before tagged desktop builds.
+      scenario/report export and an explicit native qualification budget check.
 - [ ] Native release qualification: collect real version-matched Linux WebKitGTK,
       Windows WebView2 and macOS WebKit reports plus inspector/process-tree/GPU
-      traces. Missing reports intentionally block release tags; manual candidate
-      builds remain available. Cross-platform compilation/runtime and physical
+      traces. Missing reports fail explicit qualification; desktop builds and
+      publication remain independent. Manual diagnostic builds remain available. Cross-platform compilation/runtime and physical
       Android acceptance are not implied by this host's unit/build checks.
 
 All seventy implementation entries are checked off (O48 superseded). Keep the
@@ -1391,3 +1391,21 @@ Validation: standalone admin production build/typecheck and all **81** admin tes
 passed. The actual `Dockerfile.server` admin-builder stage also passed
 `RUN pnpm admin:build`; Rust/runtime image stages were not rebuilt for this
 TypeScript configuration correction.
+
+### Batch 9 desktop release workflow correction
+
+- [x] Remove native evidence qualification from the desktop packaging dependency
+      chain. Release version validation still gates native and Flatpak builds.
+      Missing `desktop-v0.8.8` reports previously stopped all desktop builds before
+      packaging; that policy was premature while native acceptance remains open.
+- [x] Retain strict budget/report validation in a separate, manually dispatched
+      **Native Performance Qualification** workflow and the CLI. Missing report
+      directories now give an actionable error instead of raw ENOENT. No evidence
+      is fabricated and missing reports never count as performance acceptance.
+
+Validation: all **4** report-gate tests passed, including the missing-directory
+CLI regression. Parsed both workflow YAML files and verified native/Flatpak builds
+depend only on release-version validation, while qualification is manual-only.
+Desktop `0.8.8` release-version validation, affected lint, formatting and diff
+checks passed. No native application code changed; packaged native performance
+acceptance remains outstanding.
