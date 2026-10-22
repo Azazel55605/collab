@@ -1378,3 +1378,16 @@ Verification completed **2026-10-22**, after implementation:
 
 No production database was used. Windows/macOS native qualification, installed
 process-tree/GPU measurements and physical Android acceptance remain open above.
+
+### Batch 9 server-image build correction
+
+- [x] Add `vite/client` to the admin portal's explicit TypeScript types. Its
+      shared diagnostics import uses `import.meta.env`; the desktop's ambient
+      declaration is outside the portal's include roots. Reproduced TS2339 with the
+      portal's standalone typecheck before correcting the configuration. This corrects
+      the earlier admin-build validation claim for the final shared import graph.
+
+Validation: standalone admin production build/typecheck and all **81** admin tests
+passed. The actual `Dockerfile.server` admin-builder stage also passed
+`RUN pnpm admin:build`; Rust/runtime image stages were not rebuilt for this
+TypeScript configuration correction.
