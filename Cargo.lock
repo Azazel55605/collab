@@ -1018,6 +1018,7 @@ dependencies = [
  "image",
  "jni",
  "keyring",
+ "libc",
  "ndk-context",
  "notify",
  "notify-debouncer-mini",
@@ -1047,6 +1048,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "webkit2gtk",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

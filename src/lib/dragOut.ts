@@ -1,5 +1,7 @@
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
 
+import { tauriCommands } from './tauri';
+
 // A 1x1 transparent PNG used as the native drag preview. The plugin requires an
 // icon and accepts a `data:image/png;base64,...` string, so we avoid needing a
 // real file on disk; the OS typically shows its own file-drag affordance anyway.
@@ -14,7 +16,11 @@ const DRAG_ICON =
  */
 export async function startFileDragOut(absolutePaths: string[]): Promise<void> {
   if (absolutePaths.length === 0) return;
-  await startDrag({ item: absolutePaths, icon: DRAG_ICON, mode: 'copy' });
+  try {
+    await startDrag({ item: absolutePaths, icon: DRAG_ICON, mode: 'copy' });
+  } finally {
+    await Promise.allSettled(absolutePaths.map((path) => tauriCommands.releaseDragTempFile(path)));
+  }
 }
 
 /** Join a native vault root with a vault-relative path using the OS separator. */

@@ -1322,3 +1322,59 @@ only checks affected by corrections are repeated. Existing generated
 temporary directory.
 
 Next: **Native Storage, Collaboration, Calendar And Background Work (O65–O70)**.
+
+## Performance Batch 9 — Native Storage, Collaboration, Calendar And Background Work
+
+Implemented **2026-10-21**, completing **O64–O70**. O64's bounded merge was already
+implemented and remains covered by workspace tests. See
+[ownership, limits and release qualification](../desktop/native-background-performance.md).
+
+- [x] O64: preserve bounded native/server merge and exact conflict behavior.
+- [x] O65: message/byte/IPC/connection budgets, awareness coalescing, stalled-send
+      timeout, durable reconnect/replay and early-close lifecycle.
+- [x] O66: acknowledged state-vector deltas, encrypted framed journal, coherent
+      per-document reads/compaction, torn-tail repair, unreadable-generation
+      preservation, failure recovery and no-op metadata writes.
+- [x] O67: indexed changed-board reads, bounded privacy-cleared source caches,
+      per-scope trailing reconciliation and shared hosted-origin flights.
+- [x] O68: shared visibility/connectivity-aware polling clock, per-callback admission
+      and backoff; native reminder deadlines/settings/status wakeups.
+- [x] O69: terminal simulation byte/TTL ownership and visible oversize failure;
+      private locked native-drag leases with release/grace/restart scavenging.
+- [x] O70: disabled-by-default bounded diagnostics, native process counters,
+      scenario/report export and budget gate enforced before tagged desktop builds.
+- [ ] Native release qualification: collect real version-matched Linux WebKitGTK,
+      Windows WebView2 and macOS WebKit reports plus inspector/process-tree/GPU
+      traces. Missing reports intentionally block release tags; manual candidate
+      builds remain available. Cross-platform compilation/runtime and physical
+      Android acceptance are not implied by this host's unit/build checks.
+
+All seventy implementation entries are checked off (O48 superseded). Keep the
+plan active for the audit's native acceptance matrix and user regression testing.
+Existing generated `dist-mobile/index.html` remains outside the commit.
+
+Verification completed **2026-10-22**, after implementation:
+
+- Desktop regression sweep and affected follow-ups passed. The initial sweep's
+  idle-flush assertion was updated to make a real edit; affected tests passed
+  afterward. The final save-barrier/calendar/settings follow-up passed **31/31**,
+  including edits arriving during a single pending leave checkpoint. Performance
+  fixtures passed **26/26**.
+- Admin tests **81/81**, Android tests **258/258** after correcting typed-invoke
+  argument forwarding, and desktop/admin/Android TypeScript and frontend builds
+  passed. Android output was directed outside the generated tracked tree.
+- Rust workspace tests passed **738** tests (one existing ignored benchmark),
+  followed by a successful workspace check. An enabled-diagnostics native follow-up
+  passed **8/8**, covering counters, mutation locking and bounded socket sends.
+- Bundle budgets, crate boundaries, version synchronization, Rust formatting and
+  frontend formatting passed. ESLint has **zero errors**, with **183** existing
+  warnings. Dependency scans introduced no new accepted advisories; Cargo audit
+  reported no vulnerabilities and the frontend audit retained its documented
+  patched/accepted findings.
+- Chromium and Linux WebKitGTK exercised collector/export through synthetic native
+  adapters. Diagnostic settings also survived close/reopen during capture; narrow
+  and desktop layouts showed no horizontal overflow. These checks establish UI
+  behavior and report privacy, not installed application performance.
+
+No production database was used. Windows/macOS native qualification, installed
+process-tree/GPU measurements and physical Android acceptance remain open above.

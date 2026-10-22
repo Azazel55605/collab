@@ -195,3 +195,32 @@ pub async fn dispatch_due(app: &tauri::AppHandle) -> Result<u64, String> {
     }
     Ok(delivered)
 }
+
+/// Minute inventory bound, but due reminders retain deadline-level delivery.
+pub(crate) async fn next_dispatch_delay(
+    app: &tauri::AppHandle,
+) -> Result<std::time::Duration, String> {
+    // Permission-denied due items stay pending; do not spin on their past deadline.
+    if !app_is_focused(app)
+        && permission_status(app)
+            .map(|p| p.status != "granted")
+            .unwrap_or(true)
+    {
+        return Ok(std::time::Duration::from_secs(60));
+    }
+    let root = commands::app_config_dir()?;
+    let now = chrono::Utc::now();
+    let mut delay = std::time::Duration::from_secs(60);
+    for profile in profile_ids(&root).map_err(|e| e.to_string())? {
+        if let Some(due) = commands::notifications::store(&profile)
+            .await?
+            .next_delivery_at(&profile)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            let remaining = (due - now).to_std().unwrap_or(std::time::Duration::ZERO);
+            delay = delay.min(remaining.max(std::time::Duration::from_secs(1)));
+        }
+    }
+    Ok(delay)
+}

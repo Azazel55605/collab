@@ -112,3 +112,52 @@ describe('createLiveSocket (Tauri transport)', () => {
     expect(socket.readyState).toBe(LIVE_SOCKET_CLOSED);
   });
 });
+
+it('a rejected durable send closes the old native connection for state-vector replay', async () => {
+  enableTauri();
+  mocks.liveWsConnect.mockResolvedValue(23);
+  mocks.liveWsSend.mockRejectedValueOnce(new Error('backpressure'));
+  const socket = createLiveSocket('https://srv', 'wss://srv/ws');
+  const closed = vi.fn();
+  socket.onclose = closed;
+  await vi.waitFor(() => expect(socket.readyState).toBe(LIVE_SOCKET_OPEN));
+  socket.send(new Uint8Array([2, 1, 2]));
+  await vi.waitFor(() => expect(closed).toHaveBeenCalledWith({ code: 1013 }));
+  expect(mocks.liveWsClose).toHaveBeenCalledWith(23);
+  delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+});
+it('does not reopen when native closure arrives before connect resolves', async () => {
+  enableTauri();
+  let finish!: (id: number) => void;
+  mocks.liveWsConnect.mockImplementationOnce(
+    () =>
+      new Promise<number>((r) => {
+        finish = r;
+      }),
+  );
+  const socket = createLiveSocket('https://srv', 'wss://srv/ws');
+  mocks.FakeChannel.instances[mocks.FakeChannel.instances.length - 1].emit({
+    type: 'closed',
+    code: 1006,
+  });
+  finish(24);
+  await Promise.resolve();
+  expect(socket.readyState).toBe(LIVE_SOCKET_CLOSED);
+  expect(mocks.liveWsClose).toHaveBeenCalledWith(24);
+  delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+});
+
+it('bounds in-flight IPC submissions before native backlog rejection arrives', async () => {
+  enableTauri();
+  mocks.liveWsConnect.mockResolvedValue(25);
+  mocks.liveWsSend.mockImplementation(() => new Promise(() => {}));
+  const socket = createLiveSocket('https://srv', 'wss://srv/ws');
+  const closed = vi.fn();
+  socket.onclose = closed;
+  await vi.waitFor(() => expect(socket.readyState).toBe(LIVE_SOCKET_OPEN));
+  for (let i = 0; i < 33; i++) socket.send('control');
+  expect(closed).toHaveBeenCalledWith({ code: 1013 });
+  expect(mocks.liveWsSend.mock.calls.filter((c) => c[0] === 25)).toHaveLength(32);
+  mocks.liveWsSend.mockResolvedValue(undefined);
+  delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+});

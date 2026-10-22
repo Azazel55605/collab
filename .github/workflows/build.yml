@@ -8,9 +8,31 @@ on:
     tags:
       - 'desktop-v[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
+    inputs:
+      performance_diagnostics:
+        description: 'Include the opt-in performance capture controls in candidate builds'
+        type: boolean
+        default: false
 
 jobs:
+  performance-qualification:
+    runs-on: ubuntu-latest
+    env:
+      COLLAB_RELEASE_TAG: ${{ github.ref_name }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        run: node scripts/check-release-version.mjs --target desktop "$COLLAB_RELEASE_TAG"
+      - name: Verify native performance evidence
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        run: node scripts/desktop-performance-gate.mjs --release-tag "$COLLAB_RELEASE_TAG"
+
   build:
+    needs: performance-qualification
     permissions:
       contents: write   # required to create GitHub Releases
     strategy:
@@ -48,6 +70,8 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     name: ${{ matrix.artifact-label }}
+    env:
+      VITE_COLLAB_PERFORMANCE_DIAGNOSTICS: ${{ inputs.performance_diagnostics && '1' || '0' }}
 
     steps:
       - name: Checkout
@@ -227,6 +251,8 @@ jobs:
             collab-${{ matrix.artifact-label }}-portable.tar.gz
 
   flatpak:
+    if: ${{ !inputs.performance_diagnostics }}
+    needs: performance-qualification
     name: flatpak-x86_64
     runs-on: ubuntu-24.04
     permissions:

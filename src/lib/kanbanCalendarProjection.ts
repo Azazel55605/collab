@@ -12,6 +12,22 @@ import type { VaultMeta } from '../types/vault';
 import { tauriCommands } from './tauri';
 import { createVaultClient } from './vaultClient';
 
+export type CalendarFileChange = {
+  path?: string;
+  oldPath?: string;
+  newPath?: string;
+  vaultPath?: string;
+};
+export function calendarInvalidationPaths(
+  payload: CalendarFileChange,
+  vaultPath: string,
+): string[] {
+  if (payload.vaultPath && payload.vaultPath !== vaultPath) return [];
+  return [payload.path, payload.oldPath, payload.newPath].filter(
+    (path): path is string => typeof path === 'string',
+  );
+}
+
 export interface LocalKanbanProjectionSource {
   fileId: string;
   path: string;

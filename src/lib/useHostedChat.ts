@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { HostedChatPageMessage, HostedChatScope, PendingChatMessage } from '../types/chat';
 
+import { subscribeBackgroundPoll } from './backgroundPolls';
 import {
   CHAT_WINDOW_LIMIT,
   chatOutbox,
@@ -196,18 +197,7 @@ export function useHostedChat(
       return;
     }
     void loadRef.current();
-    const refresh = () => {
-      if (document.visibilityState === 'hidden') return;
-      void loadRef.current('new');
-    };
-    const timer = window.setInterval(refresh, 5000);
-    window.addEventListener('online', refresh);
-    window.addEventListener('focus', refresh);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('online', refresh);
-      window.removeEventListener('focus', refresh);
-    };
+    return subscribeBackgroundPoll(() => loadRef.current('new'), 5000);
   }, [connected, key]);
 
   async function transmit(message: PendingChatMessage, create: boolean) {

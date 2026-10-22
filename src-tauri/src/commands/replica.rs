@@ -501,9 +501,13 @@ pub fn replica_cache_crdt_state(
     base64_content: String,
 ) -> Result<(), String> {
     use base64::Engine;
+    if base64_content.len() > 24 * 1024 * 1024 {
+        return Err("CRDT checkpoint exceeds its IPC budget".into());
+    }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64_content.as_bytes())
         .map_err(|e| e.to_string())?;
+    let _trace = crate::performance::span("replica.crdt.write");
     validate_crdt_cache_state(&bytes)?;
     existing(&server_url, &vault_id)?.cache_crdt_state(&file_id, &bytes)
 }
@@ -614,4 +618,40 @@ mod tests {
         );
         assert!(validate_crdt_cache_state(b"not-yjs").is_err());
     }
+}
+
+#[tauri::command]
+pub fn replica_append_crdt_update(
+    server_url: String,
+    vault_id: String,
+    file_id: String,
+    base64_content: String,
+) -> Result<(), String> {
+    use base64::Engine;
+    if base64_content.len() > 8 * 1024 * 1024 {
+        return Err("CRDT delta exceeds its IPC budget".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_content)
+        .map_err(|e| e.to_string())?;
+    let _trace = crate::performance::span("replica.crdt.write");
+    validate_crdt_cache_state(&bytes)?;
+    existing(&server_url, &vault_id)?.append_crdt_update(&file_id, &bytes)
+}
+#[tauri::command]
+pub fn replica_read_crdt_updates(
+    server_url: String,
+    vault_id: String,
+    file_id: String,
+) -> Result<Vec<String>, String> {
+    use base64::Engine;
+    let Some(store) = existing_read(&server_url, &vault_id)? else {
+        return Ok(vec![]);
+    };
+    store.read_crdt_checkpoint(&file_id).map(|updates| {
+        updates
+            .into_iter()
+            .map(|u| base64::engine::general_purpose::STANDARD.encode(u))
+            .collect()
+    })
 }

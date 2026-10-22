@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { ConversationAccount, ConversationSummary } from '../types/conversation';
 
+import { subscribeBackgroundPoll } from './backgroundPolls';
 import { conversationEvents, listConversations, listPinnedConversations } from './conversations';
 
 export function useConversationInbox(account: ConversationAccount, connected: boolean) {
@@ -110,15 +111,10 @@ export function useConversationInbox(account: ConversationAccount, connected: bo
       }
     };
     void poll();
-    const timer = window.setInterval(() => void poll(), 5000);
-    const wake = () => void poll();
-    window.addEventListener('online', wake);
-    window.addEventListener('focus', wake);
+    const unsubscribe = subscribeBackgroundPoll(poll, 5000);
     return () => {
       generation.current = gen + 1;
-      window.clearInterval(timer);
-      window.removeEventListener('online', wake);
-      window.removeEventListener('focus', wake);
+      unsubscribe();
     };
     // Serialized server/account identity owns this lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps

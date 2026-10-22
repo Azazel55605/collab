@@ -1548,30 +1548,13 @@ pub fn write_temp_file_for_drag(
     file_name: String,
     content_base64: String,
 ) -> Result<String, String> {
+    if content_base64.len() > 256 * 1024 * 1024 * 4 / 3 + 4 {
+        return Err("Drag source exceeds its 256 MiB budget".into());
+    }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_base64.as_bytes())
-        .map_err(|e| format!("Failed to decode file contents: {}", e))?;
-    let safe_name = Path::new(&file_name)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .filter(|n| !n.is_empty())
-        .unwrap_or("file");
-    let mut dir = std::env::temp_dir();
-    dir.push(format!("collab-drag-{}", std::process::id()));
-    dir.push(format!(
-        "{}-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0),
-        safe_name
-    ));
-    if let Some(parent) = dir.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to prepare temp folder: {}", e))?;
-    }
-    std::fs::write(&dir, bytes).map_err(|e| format!("Failed to write temp file: {}", e))?;
-    Ok(dir.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())?;
+    crate::drag_staging::stage(&file_name, &bytes)
 }
 
 #[tauri::command]
@@ -3123,4 +3106,9 @@ pub fn create_folder(vault_path: String, relative_path: String) -> Result<(), St
     let _mutation = crate::local_mutation::lock_path(Path::new(&vault_path))?;
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     std::fs::create_dir_all(&full_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn release_drag_temp_file(path: String) {
+    crate::drag_staging::release(&path)
 }

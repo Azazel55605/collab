@@ -1961,3 +1961,40 @@ store fields; GridView selects only the active workspace. `useSidebarResize`
 paints a local CSS custom property once per frame and commits width on release;
 GridView coalesces ResizeObserver geometry while preserving save-before-unmount.
 See [session performance](./session-performance.md) for acceptance boundaries.
+
+## Native And Background Performance Ownership
+
+[Performance Batch 9](./native-background-performance.md) completes O64–O70;
+installed acceptance and tagged-release evidence remain distinct.
+
+- `commands/live_queue.rs` owns bounded native socket frames/bytes and awareness
+  coalescing. `liveSocket.ts` bounds in-flight IPC and reconnects on durable
+  rejection, preserving the provider's state-vector replay. `live_ws.rs` enforces
+  connection/send limits and reports native writer failure.
+- `liveDocumentSession.ts` persists acknowledged state-vector deltas between
+  compacted checkpoints. `ReplicaStore` appends encrypted framed records,
+  serializes generations per document, repairs torn tails, preserves unreadable
+  generations and publishes checkpoints before journal retirement. New
+  `replica_append_crdt_update`/`replica_read_crdt_updates` commands validate/scoped
+  storage; the latter reads checkpoint and journal coherently. Existing snapshot
+  commands and pending-operation format remain supported.
+- `CalendarSyncCoordinator` reuses `vaultTreeIndex`, bounded revision-aware sources
+  and per-scope `CoalescedTask` owners. Events in flight schedule a trailing pass;
+  failed publication and profile/privacy changes cannot establish stale baselines.
+  `calendarSync.ts` also shares work by hosted profile/server/account origin.
+- `backgroundPolls.ts` owns one nearest-deadline clock and wake listener set for
+  desktop polls; each subscription has visibility/connectivity, single-flight,
+  failure backoff and disposal rules. `background_lifecycle.rs` instead follows
+  native reminder deadlines and explicit settings/job/notification wakeups, so
+  tray reminders remain independent of the hidden renderer.
+- Circuit results have aggregate/per-job retained-byte estimates and idle expiry;
+  active solvers retain their existing resource guards. `drag_staging.rs` owns
+  private locked drag directories, explicit release, grace and bounded scavenging.
+- `performanceDiagnostics.ts` and native `performance.rs` provide opt-in bounded
+  records without payload/path/token logs. Diagnostic-only Settings controls in
+  `PerformanceDiagnosticsControls.tsx` capture/export scenarios without a developer
+  console, retaining captures across Settings remounts. `scripts/desktop-performance-gate.mjs`
+  and its budget file validate native reports. Tagged desktop workflows require
+  version-matched reports in `docs/build/performance-evidence/<tag>/` before the
+  build matrix; manual candidate builds remain available. Native process memory
+  excludes webview/worker/GPU allocations, which need separate release evidence.

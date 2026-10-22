@@ -20,6 +20,23 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+static CRDT_LOCKS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Weak<std::sync::Mutex<()>>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+fn crdt_lock(path: PathBuf) -> Result<std::sync::Arc<std::sync::Mutex<()>>, String> {
+    let mut locks = CRDT_LOCKS
+        .lock()
+        .map_err(|_| "CRDT lock registry poisoned")?;
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&path).and_then(std::sync::Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = std::sync::Arc::new(std::sync::Mutex::new(()));
+    locks.insert(path, std::sync::Arc::downgrade(&lock));
+    Ok(lock)
+}
+const MAX_CRDT_JOURNAL_BYTES: u64 = 16 * 1024 * 1024;
+
 const META_FILE: &str = "meta.json";
 const MANIFEST_FILE: &str = "manifest.json";
 const SYNC_STATE_FILE: &str = "sync-state.json";
@@ -728,13 +745,138 @@ impl ReplicaStore {
     /// latest compacted state the client holds locally; a later increment uses
     /// it to resume synchronization via state vectors after reconnecting.
     pub fn cache_crdt_state(&self, file_id: &str, bytes: &[u8]) -> Result<(), String> {
+        let owner = crdt_lock(self.crdt_path(file_id)?)?;
+        let _guard = owner.lock().map_err(|_| "CRDT storage lock poisoned")?;
         let path = self.crdt_path(file_id)?;
+        if bytes.len() > 16 * 1024 * 1024 {
+            return Err("CRDT checkpoint exceeds its 16 MiB budget".into());
+        }
+        // Preserve unreadable generations before replacing a re-fetchable
+        // checkpoint. Pending local deltas may still matter for manual recovery.
+        if path.exists() && self.read_cached_crdt_state(file_id)?.is_none() {
+            self.quarantine_unreadable(&format!("{CRDT_DIR}/{}.bin", safe_segment(file_id)?));
+        }
+        if self.read_crdt_updates_unlocked(file_id).is_err() {
+            self.quarantine_unreadable(&format!("{CRDT_DIR}/{}.updates", safe_segment(file_id)?));
+        }
         let bytes = self.encrypt_persisted(bytes)?;
-        write_file_atomic(&path, &bytes)
+        write_file_atomic(&path, &bytes)?;
+        // Publish the checkpoint first. A crash before removal only replays
+        // idempotent Yjs updates already represented by the checkpoint.
+        let journal = path.with_extension("updates");
+        match std::fs::remove_file(journal) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
     }
 
+    /// Each delta is independently authenticated; appending avoids re-encrypting
+    /// the whole document. The caller compacts through cache_crdt_state.
+    pub fn append_crdt_update(&self, file_id: &str, bytes: &[u8]) -> Result<(), String> {
+        use std::io::Write;
+        let owner = crdt_lock(self.crdt_path(file_id)?)?;
+        let _guard = owner.lock().map_err(|_| "CRDT storage lock poisoned")?;
+        let path = self.crdt_path(file_id)?.with_extension("updates");
+        let encrypted = self.encrypt_persisted(bytes)?;
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if size + encrypted.len() as u64 + 4 > MAX_CRDT_JOURNAL_BYTES {
+            return Err("CRDT delta journal requires a checkpoint".into());
+        }
+        // Repair an interrupted final append before writing another record.
+        // Otherwise its tail could consume the next record's header on recovery.
+        if size > 0 {
+            let raw = std::fs::read(&path).map_err(|e| e.to_string())?;
+            let mut at = 0;
+            while at + 4 <= raw.len() {
+                let len = u32::from_le_bytes(raw[at..at + 4].try_into().unwrap()) as usize;
+                if len > MAX_CRDT_JOURNAL_BYTES as usize {
+                    return Err("Invalid CRDT delta length".into());
+                }
+                if at + 4 + len > raw.len() {
+                    break;
+                }
+                at += 4 + len;
+            }
+            if at != raw.len() {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .and_then(|f| f.set_len(at as u64))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        if size == 0 {
+            std::fs::File::open(path.parent().ok_or("Missing journal folder")?)
+                .and_then(|f| f.sync_all())
+                .map_err(|e| e.to_string())?;
+        }
+        file.write_all(&(encrypted.len() as u32).to_le_bytes())
+            .and_then(|_| file.write_all(&encrypted))
+            .and_then(|_| file.sync_all())
+            .map_err(|e| e.to_string())
+    }
+
+    /// A truncated final record is an interrupted append; preserve preceding
+    /// authenticated records. Corrupt complete records are errors, never plaintext.
+    pub fn read_crdt_updates(&self, file_id: &str) -> Result<Vec<Vec<u8>>, String> {
+        let owner = crdt_lock(self.crdt_path(file_id)?)?;
+        let _guard = owner.lock().map_err(|_| "CRDT storage lock poisoned")?;
+        self.read_crdt_updates_unlocked(file_id)
+    }
+    fn read_crdt_updates_unlocked(&self, file_id: &str) -> Result<Vec<Vec<u8>>, String> {
+        let path = self.crdt_path(file_id)?.with_extension("updates");
+        let size = match std::fs::metadata(&path) {
+            Ok(m) => m.len(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(e) => return Err(e.to_string()),
+        };
+        if size > MAX_CRDT_JOURNAL_BYTES {
+            return Err("CRDT delta journal exceeds its budget".into());
+        }
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        let mut at = 0;
+        let mut updates = vec![];
+        while at + 4 <= bytes.len() {
+            let len = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+            at += 4;
+            if len > MAX_CRDT_JOURNAL_BYTES as usize {
+                return Err("Invalid CRDT delta length".into());
+            }
+            if at + len > bytes.len() {
+                break;
+            }
+            updates.push(self.decrypt_persisted(&bytes[at..at + len])?);
+            at += len;
+            if updates.len() > 4096 {
+                return Err("Too many CRDT deltas; checkpoint required".into());
+            }
+        }
+        Ok(updates)
+    }
+
+    /// Read one coherent checkpoint/journal generation while compaction is excluded.
+    pub fn read_crdt_checkpoint(&self, file_id: &str) -> Result<Vec<Vec<u8>>, String> {
+        let owner = crdt_lock(self.crdt_path(file_id)?)?;
+        let _guard = owner.lock().map_err(|_| "CRDT storage lock poisoned")?;
+        let mut updates = vec![];
+        if let Some(checkpoint) = self.read_cached_crdt_state(file_id)? {
+            updates.push(checkpoint)
+        }
+        updates.extend(self.read_crdt_updates_unlocked(file_id)?);
+        Ok(updates)
+    }
     pub fn read_cached_crdt_state(&self, file_id: &str) -> Result<Option<Vec<u8>>, String> {
         let path = self.crdt_path(file_id)?;
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > 17 * 1024 * 1024) {
+            return Err("CRDT checkpoint exceeds its storage budget".into());
+        }
         match std::fs::read(&path) {
             Ok(bytes) => Ok(self.decrypt_content_or_miss(&bytes)),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -747,7 +889,14 @@ impl ReplicaStore {
     /// degenerate (e.g. it would lose nodes), so a corrupt cache cannot persist.
     /// A missing file is treated as success.
     pub fn clear_cached_crdt_state(&self, file_id: &str) -> Result<(), String> {
+        let owner = crdt_lock(self.crdt_path(file_id)?)?;
+        let _guard = owner.lock().map_err(|_| "CRDT storage lock poisoned")?;
         let path = self.crdt_path(file_id)?;
+        match std::fs::remove_file(path.with_extension("updates")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.to_string()),
+        }
         match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -999,7 +1148,14 @@ impl ReplicaStore {
 
     /// Atomically write a tracked file and update its recorded checksum.
     fn write_atomic(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
-        write_file_atomic(&self.root.join(name), bytes)?;
+        let path = self.root.join(name);
+        // No-op checkpoints must not rewrite the data and integrity map.
+        if std::fs::read(&path).is_ok_and(|old| old == bytes)
+            && self.read_integrity()?.get(name) == Some(&sha256_hex(bytes))
+        {
+            return Ok(());
+        }
+        write_file_atomic(&path, bytes)?;
         let mut integrity = self.read_integrity()?;
         integrity.insert(name.to_string(), sha256_hex(bytes));
         self.write_integrity(&integrity)
@@ -1920,5 +2076,85 @@ mod tests {
     fn server_key_is_stable_across_trailing_slash() {
         assert_eq!(server_key("https://a.test"), server_key("https://a.test/"));
         assert_ne!(server_key("https://a.test"), server_key("https://b.test"));
+    }
+    #[test]
+    fn crdt_journal_is_encrypted_scoped_atomic_and_recovers_an_interrupted_append() {
+        use std::io::Write;
+        let dir = TempDir::new().unwrap();
+        let store = open(&dir).with_encryption_key([7; 32]);
+        store.cache_crdt_state("file-a", b"checkpoint").unwrap();
+        store.append_crdt_update("file-a", b"delta-one").unwrap();
+        let journal = store.crdt_path("file-a").unwrap().with_extension("updates");
+        let raw = std::fs::read(&journal).unwrap();
+        assert!(!raw.windows(9).any(|w| w == b"delta-one"));
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&journal)
+            .unwrap();
+        file.write_all(&100_u32.to_le_bytes()).unwrap();
+        file.write_all(b"cut").unwrap();
+        drop(file);
+        assert_eq!(
+            store.read_crdt_checkpoint("file-a").unwrap(),
+            vec![b"checkpoint".to_vec(), b"delta-one".to_vec()]
+        );
+        store.append_crdt_update("file-a", b"delta-two").unwrap();
+        assert_eq!(store.read_crdt_updates("file-a").unwrap().len(), 2);
+        assert!(store.read_crdt_checkpoint("file-b").unwrap().is_empty());
+        let wrong = open(&dir).with_encryption_key([8; 32]);
+        assert!(wrong.read_crdt_updates("file-a").is_err());
+        assert!(journal.exists());
+        store.cache_crdt_state("file-a", b"compacted").unwrap();
+        assert!(!journal.exists());
+        assert_eq!(
+            store.read_crdt_checkpoint("file-a").unwrap(),
+            vec![b"compacted".to_vec()]
+        );
+        store.append_crdt_update("file-a", b"next").unwrap();
+        store.clear_cached_crdt_state("file-a").unwrap();
+        assert!(store.read_crdt_checkpoint("file-a").unwrap().is_empty());
+    }
+    #[test]
+    fn crdt_storage_rejects_oversized_checkpoints_and_journals_before_reading() {
+        let dir = TempDir::new().unwrap();
+        let store = open(&dir);
+        let path = store.crdt_path("huge").unwrap();
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(18 * 1024 * 1024)
+            .unwrap();
+        assert!(store.read_cached_crdt_state("huge").is_err());
+        std::fs::File::create(path.with_extension("updates"))
+            .unwrap()
+            .set_len(MAX_CRDT_JOURNAL_BYTES + 1)
+            .unwrap();
+        assert!(store.read_crdt_updates("huge").is_err());
+    }
+    #[test]
+    fn compaction_preserves_unreadable_checkpoint_and_journal_generations() {
+        let dir = TempDir::new().unwrap();
+        let old = open(&dir).with_encryption_key([7; 32]);
+        old.cache_crdt_state("recover", b"old checkpoint").unwrap();
+        old.append_crdt_update("recover", b"old unsynced delta")
+            .unwrap();
+        let fresh = open(&dir).with_encryption_key([8; 32]);
+        fresh
+            .cache_crdt_state("recover", b"new checkpoint")
+            .unwrap();
+        let names = std::fs::read_dir(fresh.root.join(CRDT_DIR))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(names
+            .iter()
+            .any(|n| n.starts_with("recover.bin.unreadable-")));
+        assert!(names
+            .iter()
+            .any(|n| n.starts_with("recover.updates.unreadable-")));
+        assert_eq!(
+            fresh.read_crdt_checkpoint("recover").unwrap(),
+            vec![b"new checkpoint".to_vec()]
+        );
     }
 }

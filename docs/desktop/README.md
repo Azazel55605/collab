@@ -10,6 +10,7 @@ Implementation references:
 - [UI Guide](./ui-guide.md)
 - [Startup And Packaged Asset Budgets](./startup-performance.md)
 - [State, Sessions And Navigation Performance](./session-performance.md)
+- [Native Storage And Background Performance](./native-background-performance.md)
 - [Structured Editors, History And Export Performance](./structured-editors-history-export-performance.md)
 - [Previews, PDF, Images And OCR Performance](./previews-pdf-images-ocr-performance.md)
 - [Markdown, Math And Graph Performance](./markdown-math-graph-performance.md)

@@ -2,45 +2,126 @@ import { useCallback, useEffect, useMemo } from 'react';
 
 import { listen } from '@tauri-apps/api/event';
 
+import { subscribeBackgroundPoll } from '../../lib/backgroundPolls';
 import { type HostedCalendarOrigin, normalizeHostedCalendarOrigins } from '../../lib/calendarSync';
-import { projectLocalKanbanCalendar } from '../../lib/kanbanCalendarProjection';
+import { CoalescedTask } from '../../lib/coalescedTask';
+import {
+  type CalendarFileChange,
+  calendarInvalidationPaths,
+  projectLocalKanbanCalendar,
+} from '../../lib/kanbanCalendarProjection';
+import type { LocalKanbanProjectionSource } from '../../lib/kanbanCalendarProjection';
+import { registerDocumentResourceCleanup } from '../../lib/sharedDocumentResources';
 import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
+import { vaultTreeIndex } from '../../lib/vaultTreeIndex';
 import { useCalendarStore } from '../../store/calendarStore';
 import { useCollabStore } from '../../store/collabStore';
 import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
-import type { NoteFile } from '../../types/vault';
 
 const BACKGROUND_SYNC_INTERVAL_MS = 60_000;
 
-function flattenFiles(files: NoteFile[]): NoteFile[] {
-  return files.flatMap((file) => [file, ...(file.children ? flattenFiles(file.children) : [])]);
+type SourceCache = Map<string, { stamp: string; source: LocalKanbanProjectionSource }>;
+const sourceCaches = new Map<string, SourceCache>();
+let sourceGeneration = 0;
+registerDocumentResourceCleanup(() => {
+  sourceGeneration++;
+  sourceCaches.clear();
+  sourceEpochs.clear();
+});
+const sourceEpochs = new Map<string, number>();
+const localTasks = new Map<string, CoalescedTask>();
+function scopeKey(
+  profileId: string,
+  vault: NonNullable<ReturnType<typeof useVaultStore.getState>['vault']>,
+) {
+  return JSON.stringify([profileId, vault.id, vault.kind === 'local' ? vault.path : 'hosted']);
 }
-
+function invalidateSource(
+  profileId: string,
+  vault: NonNullable<ReturnType<typeof useVaultStore.getState>['vault']>,
+  path: string,
+) {
+  const key = scopeKey(profileId, vault);
+  sourceEpochs.set(key, (sourceEpochs.get(key) ?? 0) + 1);
+  const cache = sourceCaches.get(key);
+  for (const [source, entry] of cache ?? [])
+    if (source === path || source.startsWith(`${path}/`)) entry.stamp = '';
+}
 export async function syncLocalKanbanProjection(
+  profileId: string,
+  vault: NonNullable<ReturnType<typeof useVaultStore.getState>['vault']>,
+): Promise<void> {
+  const key = scopeKey(profileId, vault);
+  let task = localTasks.get(key);
+  if (!task) {
+    task = new CoalescedTask();
+    localTasks.set(key, task);
+  }
+  try {
+    await task.run(() => projectLocal(profileId, vault));
+  } finally {
+    if (localTasks.get(key) === task) localTasks.delete(key);
+  }
+}
+async function projectLocal(
   profileId: string,
   vault: NonNullable<ReturnType<typeof useVaultStore.getState>['vault']>,
 ): Promise<void> {
   if (vault.kind === 'hosted') return;
   const client = createVaultClient(vault);
-  const files = flattenFiles(await client.listFiles()).filter(
-    (file) => !file.isFolder && file.relativePath.toLowerCase().endsWith('.kanban'),
+  const key = scopeKey(profileId, vault);
+  const generation = sourceGeneration;
+  const state = useVaultStore.getState();
+  if (state.isVaultLocked) return;
+  if (state.vault?.id === vault.id && state.isLoading) return;
+  const tree = state.vault?.id === vault.id ? state.fileTree : await client.listFiles();
+  const files = vaultTreeIndex(tree).files.filter((file) =>
+    file.relativePath.toLowerCase().endsWith('.kanban'),
   );
-  const sources = [];
+  const epoch = sourceEpochs.get(key) ?? 0;
+  const previous = sourceCaches.get(key);
+  const initial = !previous;
+  const cache = new Map(previous);
+  const present = new Set(files.map((file) => file.relativePath));
+  let changed = initial;
+  for (const path of cache.keys())
+    if (!present.has(path)) {
+      cache.delete(path);
+      changed = true;
+    }
+  const sources: LocalKanbanProjectionSource[] = [];
+  let retainedBytes = 0;
   for (const file of files) {
+    const stamp = JSON.stringify([file.modifiedAt, file.size, file.contentRevision]);
+    const hit = cache.get(file.relativePath);
+    if (hit?.stamp === stamp) {
+      sources.push(hit.source);
+      retainedBytes += hit.source.content.length * 2;
+      continue;
+    }
     try {
       const document = await client.readDocument(file.relativePath);
-      sources.push({
+      const source = {
         fileId: file.relativePath,
         path: file.relativePath,
         sourceRevision: Math.max(0, Math.trunc(file.modifiedAt)),
         content: document.content,
-      });
+      };
+      sources.push(source);
+      changed = true;
+      retainedBytes += source.content.length * 2;
+      if (retainedBytes <= 4 * 1024 * 1024) cache.set(file.relativePath, { stamp, source });
+      else cache.delete(file.relativePath);
     } catch {
-      // One unreadable board must not hide assignments from the other boards.
+      // Keep an established projection for transiently unreadable boards.
+      // Actual deletions are removed by the indexed file set above.
+      if (hit) sources.push(hit.source);
+      else changed = true;
     }
   }
+  if (!changed || generation !== sourceGeneration || useVaultStore.getState().isVaultLocked) return;
   const projection = projectLocalKanbanCalendar({
     profileId,
     originKey: `local-vault:${client.id}`,
@@ -52,7 +133,16 @@ export async function syncLocalKanbanProjection(
     projection.calendar,
     projection.items,
   );
+  if (generation === sourceGeneration && (sourceEpochs.get(key) ?? 0) === epoch) {
+    sourceCaches.set(key, cache);
+    while (sourceCaches.size > 8) {
+      const oldest = sourceCaches.keys().next().value!;
+      sourceCaches.delete(oldest);
+      sourceEpochs.delete(oldest);
+    }
+  } else sourceCaches.delete(key);
   const calendars = await tauriCommands.calendarList(profileId);
+  if (useCalendarStore.getState().profileId !== profileId) return;
   useCalendarStore.setState((state) => {
     const activeIds = calendars
       .filter((calendar) => !calendar.archived)
@@ -94,34 +184,28 @@ export default function CalendarSyncCoordinator() {
   const sync = useCallback(async () => {
     if (!profileId) return;
     await initialize(profileId);
+    if (useCollabStore.getState().myUserId !== profileId) return;
     if (vault?.kind === 'local') await syncLocalKanbanProjection(profileId, vault);
-    if (origins.length > 0) await syncHosted(origins);
+    if (useCalendarStore.getState().profileId === profileId && origins.length > 0)
+      await syncHosted(origins);
   }, [initialize, origins, profileId, syncHosted, vault]);
 
   const runSync = useCallback(() => {
-    void sync().catch((error) => {
+    return sync().catch((error) => {
+      if (useCalendarStore.getState().profileId !== profileId) throw error;
       useCalendarStore.setState({
         error: error instanceof Error ? error.message : String(error),
       });
+      throw error;
     });
-  }, [sync]);
+  }, [sync, profileId]);
 
   useEffect(() => {
-    runSync();
+    void runSync().catch(() => {});
   }, [runSync]);
 
   useEffect(() => {
-    const runWhenVisible = () => {
-      if (document.visibilityState === 'visible') runSync();
-    };
-    const timer = window.setInterval(runWhenVisible, BACKGROUND_SYNC_INTERVAL_MS);
-    window.addEventListener('focus', runWhenVisible);
-    window.addEventListener('online', runWhenVisible);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', runWhenVisible);
-      window.removeEventListener('online', runWhenVisible);
-    };
+    return subscribeBackgroundPoll(runSync, BACKGROUND_SYNC_INTERVAL_MS);
   }, [runSync]);
 
   useEffect(() => {
@@ -129,12 +213,24 @@ export default function CalendarSyncCoordinator() {
     let timer: number | null = null;
     let disposed = false;
     let unlisten: Array<() => void> = [];
-    const handleKanbanChange = (event: { payload: { path: string } }) => {
-      if (!event.payload.path.toLowerCase().endsWith('.kanban')) return;
+    const handleKanbanChange = (event: { payload: CalendarFileChange }) => {
+      const paths = calendarInvalidationPaths(event.payload, vault.path);
+      if (!paths.length) return;
+      const cache = sourceCaches.get(scopeKey(profileId, vault));
+      const affected = paths.some(
+        (path) =>
+          path.toLowerCase().endsWith('.kanban') ||
+          [...(cache?.keys() ?? [])].some(
+            (source) => source === path || source.startsWith(`${path}/`),
+          ),
+      );
+      if (!affected && !event.payload.oldPath && !event.payload.newPath) return;
+      for (const path of paths) invalidateSource(profileId, vault, path);
       if (timer != null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         timer = null;
         void syncLocalKanbanProjection(profileId, vault).catch((error) => {
+          if (useCalendarStore.getState().profileId !== profileId) return;
           useCalendarStore.setState({
             error: error instanceof Error ? error.message : String(error),
           });
@@ -142,10 +238,10 @@ export default function CalendarSyncCoordinator() {
       }, 250);
     };
     void Promise.all([
-      listen<{ path: string }>('vault:file-created', handleKanbanChange),
-      listen<{ path: string }>('vault:file-deleted', handleKanbanChange),
-      listen<{ path: string }>('vault:file-renamed', handleKanbanChange),
-      listen<{ path: string }>('vault:file-modified', handleKanbanChange),
+      listen<CalendarFileChange>('vault:file-created', handleKanbanChange),
+      listen<CalendarFileChange>('vault:file-deleted', handleKanbanChange),
+      listen<CalendarFileChange>('vault:file-renamed', handleKanbanChange),
+      listen<CalendarFileChange>('vault:file-modified', handleKanbanChange),
     ]).then((dispose) => {
       if (disposed) dispose.forEach((callback) => callback());
       else unlisten = dispose;

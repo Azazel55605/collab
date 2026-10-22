@@ -174,6 +174,7 @@ impl SheetFormulaRegistry {
         request: SheetFormulaEvaluationRequest,
         cancel: Arc<AtomicBool>,
     ) -> Result<SheetFormulaEvaluationResponse, String> {
+        let _trace = crate::performance::span("sheet.evaluate");
         validate_request(&request)?;
         let mut slot = owner
             .runtime
