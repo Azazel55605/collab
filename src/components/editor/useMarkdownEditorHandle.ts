@@ -88,6 +88,7 @@ export function restoreEditorViewState(view: EditorView, editorViewState: Markdo
 }
 
 type MarkdownEditorHandleShape = {
+  getContent?: () => string;
   insertAround: (before: string, after: string, placeholder: string) => void;
   insertLine: (prefix: string) => void;
   insertSnippet: (text: string) => void;
@@ -121,6 +122,9 @@ export function useMarkdownEditorHandle({
   useImperativeHandle(
     ref,
     () => ({
+      getContent() {
+        return viewRef.current?.state.doc.toString() ?? '';
+      },
       insertAround(before, after, placeholder) {
         const view = viewRef.current;
         if (!view) return;

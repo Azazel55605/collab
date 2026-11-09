@@ -3,13 +3,14 @@ import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { syntaxHighlighting } from '@codemirror/language';
-import { EditorState, type Extension, type Text } from '@codemirror/state';
+import { Compartment, EditorState, type Extension, type Text } from '@codemirror/state';
 import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
 
 import '../../generated/katex.css';
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import type { EditorToolbarAction } from '../../lib/editorToolbarActions';
 import { getMarkdownImageTarget } from '../../lib/noteAssets';
+import type { NotePageSettings } from '../../lib/notePageLayout';
 import { EDITOR_FONTS, useUiStore } from '../../store/uiStore';
 import { MarkdownLinkPreviews } from '../previews/MarkdownLinkPreviews';
 import { useMarkdownLinkPreviews } from '../previews/useMarkdownLinkPreviews';
@@ -36,6 +37,7 @@ import {
   MATH_SOLVER_ACTION_EVENT,
   type MathSolverActionDetail,
 } from './mathBlockCommands';
+import { noteEditorPagination } from './noteEditorPagination';
 import { createSlashCommandSource } from './slashCommands';
 import { createSnippetSessionExtension } from './snippetEngine';
 import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
@@ -47,6 +49,7 @@ import {
 } from './useMarkdownEditorIntegrations';
 
 export interface MarkdownEditorHandle {
+  getContent?: () => string;
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
   insertAround: (before: string, after: string, placeholder: string) => void;
   /** Toggle a line prefix (e.g. `# `, `> `) on the current line. */
@@ -66,6 +69,7 @@ export interface MarkdownEditorHandle {
 }
 
 interface MarkdownEditorProps {
+  pageSettings?: NotePageSettings | null;
   content: string;
   onChange: (value: string) => void;
   /** Immutable transaction snapshots; avoids serializing on every keystroke. */
@@ -408,6 +412,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       onViewStateChange,
       readOnly = false,
       collabExtension = null,
+      pageSettings = null,
     },
     ref,
   ) {
@@ -427,6 +432,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const onSaveRef = useRef(onSave);
     const onViewStateChangeRef = useRef(onViewStateChange);
     const compartmentsRef = useRef(createMarkdownEditorCompartments());
+    const paginationCompartment = useRef(new Compartment());
+    useEffect(() => {
+      if (!editorView) return;
+      editorView.dispatch({
+        effects: paginationCompartment.current.reconfigure(
+          pageSettings ? noteEditorPagination(pageSettings) : [],
+        ),
+      });
+    }, [editorView, pageSettings]);
     const {
       theme,
       editorFont,
@@ -658,7 +672,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           createSnippetSessionExtension(),
         ],
         readOnly,
-        extraExtensions: collabExtension ?? [],
+        extraExtensions: [collabExtension ?? [], paginationCompartment.current.of([])],
       });
 
       let view: EditorView;

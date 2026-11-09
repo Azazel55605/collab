@@ -219,6 +219,22 @@ interface KanbanContext {
 }
 ```
 
+### Markdown page layouts
+
+`NoteView` exposes an editable Pages mode without remounting CodeMirror.
+`components/editor/noteEditorPagination.ts` owns layout-only page gap decorations;
+`lib/notePageLayout.ts` supplies physical paper geometry and `store/notePageStore.ts`
+persists page layout preferences. These do not change Markdown, save handling or
+collaboration ownership.
+
+`NotePrintView` takes an optional current-editor snapshot via `lib/notePdfExport.ts`.
+`components/editor/PaginatedNotePreview.tsx` waits for rendered assets/fonts, then
+`lib/paginateNote.ts` fragments the snapshot into numbered physical sheets. Printing
+uses those prepared sheets and requires an explicit action. Editable live-preview
+and print typography can produce different page counts. See
+[Markdown pagination](../plans/markdown-pagination.md) for implementation and
+remaining native acceptance.
+
 ### NoteView autosave flow
 
 ```

@@ -710,7 +710,7 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
                 icon={<Printer size={13} />}
                 label="Export note as PDF"
                 onClick={() => {
-                  requestNotePdfExport(relativePath);
+                  requestNotePdfExport(relativePath, ed()?.getContent?.());
                 }}
               />
               <TagsBtn />

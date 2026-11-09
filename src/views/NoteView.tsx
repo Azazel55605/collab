@@ -9,7 +9,11 @@ import { yCollab } from 'y-codemirror.next';
 import LivePeers from '../components/collaboration/LivePeers';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
+import { NotePageControls } from '../components/editor/NotePageControls';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
+import { Label } from '../components/ui/label';
 import { useCollabIdentity } from '../lib/collabIdentity';
 import { saveConflictedCopy } from '../lib/conflictedCopy';
 import { useDocumentPaneIsActive, useDocumentViewKey } from '../lib/documentPaneContext';
@@ -24,6 +28,7 @@ import {
 import { addTagToContent, ensureTagsLine, setTagsInContent } from '../lib/frontmatter';
 import { useLivePeers } from '../lib/liveAwareness';
 import { type LiveDocumentSession, openLiveNoteSession } from '../lib/liveDocumentSession';
+import { requestNotePdfExport } from '../lib/notePdfExport';
 import { findSearchJumpRange } from '../lib/searchNavigation';
 import { mergeText } from '../lib/textMerge';
 import { useLiveDocumentStatus } from '../lib/useLiveDocumentStatus';
@@ -33,6 +38,7 @@ import { extractHttpUrls, prefetchWebPreviews } from '../lib/webPreviewCache';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useEditorStore } from '../store/editorStore';
 import type { NoteEditorViewState } from '../store/editorStore';
+import { useNotePageStore } from '../store/notePageStore';
 import { useNoteSnippetStore } from '../store/noteSnippetStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
@@ -58,6 +64,9 @@ function sanitizeFilename(name: string): string {
 
 export default function NoteView({ relativePath }: { relativePath: string }) {
   const viewKey = useDocumentViewKey(relativePath);
+  const paged = useNotePageStore((state) => state.paged);
+  const setPaged = useNotePageStore((state) => state.setPaged);
+  const pageSettings = useNotePageStore((state) => state.settings);
   const isActivePane = useDocumentPaneIsActive();
   const vault = useVaultStore((state) => state.vault);
   const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
@@ -558,6 +567,27 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
           documentStatus={snapshot.status}
         />
       )}
+      <div className="note-page-toolbar">
+        <Label className="flex items-center gap-2">
+          <Checkbox
+            checked={paged}
+            onCheckedChange={(checked) => setPaged(checked === true)}
+            aria-label="Pages view"
+          />
+          Pages
+        </Label>
+        {paged && <NotePageControls />}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            flushDocument();
+            requestNotePdfExport(relativePath, editorRef.current?.getContent?.() ?? editorContent);
+          }}
+        >
+          Print preview
+        </Button>
+      </div>
       {/* position:relative establishes the containing block for the absolutely-positioned
           CodeMirror container. This avoids flex % height resolution bugs in WebKitGTK
           where height:100% on a flex-1 child resolves to 0 (the flex-basis) rather than
@@ -572,6 +602,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
           )}
         </div>
         <MarkdownEditor
+          pageSettings={paged ? pageSettings : null}
           ref={editorRef}
           content={editorContent}
           onChange={handleChange}

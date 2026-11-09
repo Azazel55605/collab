@@ -107,6 +107,7 @@ export default function App() {
   const [activePrintNotePath, setActivePrintNotePath] = useState<string | null>(
     exportNoteRelativePath,
   );
+  const [printContentSnapshot, setPrintContentSnapshot] = useState<string | undefined>();
   const vault = useVaultStore((state) => state.vault);
   const isVaultLocked = useVaultStore((state) => state.isVaultLocked);
   const openVault = useVaultStore((state) => state.openVault);
@@ -372,9 +373,10 @@ export default function App() {
 
   useEffect(() => {
     const handleExportRequest = (event: Event) => {
-      const customEvent = event as CustomEvent<{ relativePath?: string }>;
+      const customEvent = event as CustomEvent<{ relativePath?: string; contentSnapshot?: string }>;
       const relativePath = customEvent.detail?.relativePath;
       if (!relativePath) return;
+      setPrintContentSnapshot(customEvent.detail?.contentSnapshot);
       setActivePrintNotePath(relativePath);
     };
 
@@ -412,6 +414,7 @@ export default function App() {
         <div className="note-print-overlay-host">
           <NotePrintView
             relativePath={activePrintNotePath}
+            contentSnapshot={printContentSnapshot}
             onClose={() => setActivePrintNotePath(null)}
           />
         </div>

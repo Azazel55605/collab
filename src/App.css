@@ -2656,3 +2656,185 @@ html[data-motion='off'] .deck-playback-animation-scope [data-element] {
     animation-delay: 0ms !important;
   }
 }
+
+/* Markdown paper layouts share physical dimensions with the print surface. */
+.note-page-toolbar,
+.note-print-layout-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.note-editor-paged .cm-gutters {
+  display: none;
+}
+.note-editor-paged .cm-scroller {
+  background: var(--muted);
+  overflow: auto !important;
+  padding: 24px;
+}
+.note-editor-paged .cm-content {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: var(--note-page-width);
+  max-width: none;
+  margin: 0 auto;
+  padding: var(--note-page-margin) !important;
+  background: var(--background);
+  box-shadow: 0 2px 10px #0002;
+}
+.note-editor-paged .cm-line {
+  padding: 0;
+}
+.note-editor-page-gap {
+  position: relative;
+  box-sizing: border-box;
+  margin-inline: calc(-1 * var(--note-page-margin));
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(100% - var(--note-page-margin) - 28px),
+    var(--muted) calc(100% - var(--note-page-margin) - 28px),
+    var(--muted) calc(100% - var(--note-page-margin)),
+    transparent calc(100% - var(--note-page-margin))
+  );
+  pointer-events: none;
+  user-select: none;
+}
+.note-editor-page-gap span {
+  position: absolute;
+  right: var(--note-page-margin);
+  bottom: 10px;
+  font:
+    11px system-ui,
+    sans-serif;
+  color: var(--muted-foreground);
+}
+.note-editor-paged .cm-content img,
+.note-editor-paged .cm-content svg {
+  max-height: var(--note-page-content-height);
+  object-fit: contain;
+}
+.note-pagination-host {
+  position: relative;
+  overflow: auto;
+  padding: 24px;
+}
+.note-print-document.note-pagination-source {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.note-print-document.note-paged-preview {
+  width: max-content;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.note-paper {
+  box-sizing: border-box;
+  position: relative;
+  margin-bottom: 28px;
+  background: white;
+  box-shadow: 0 2px 10px #0002;
+  overflow: hidden;
+}
+.note-paper:last-child {
+  margin-bottom: 0;
+}
+.note-paper-body {
+  display: flow-root;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.note-paper-body > :first-child {
+  margin-top: 0;
+}
+.note-paper-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-paper-body img,
+.note-paper-body svg {
+  max-width: 100%;
+  height: auto;
+}
+.note-paper-body table {
+  display: table;
+  table-layout: fixed;
+}
+.note-paper-number {
+  position: absolute;
+  bottom: 8mm;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font:
+    11px system-ui,
+    sans-serif;
+  color: #6b7280;
+}
+
+@media print {
+  html[data-note-print-mode='true'],
+  html[data-note-print-mode='true'] body,
+  html[data-note-print-mode='true'] #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .note-print-layout-toolbar,
+  .note-pagination-source {
+    display: none !important;
+  }
+  .note-pagination-host {
+    padding: 0;
+    overflow: visible;
+  }
+  .note-print-document.note-paged-preview {
+    margin: 0;
+  }
+  .note-paper {
+    margin: 0;
+    box-shadow: none;
+    break-after: page;
+    break-inside: avoid;
+  }
+  .note-paper:last-child {
+    break-after: auto;
+  }
+}
+
+/* Highlight.js attaches its theme to code, not consistently to pre. */
+:root .note-print-document .markdown-preview pre.hljs,
+:root .note-print-document .markdown-preview .hljs {
+  background: #f6f8fa !important;
+  color: #383a42;
+  border-color: #d1d5db;
+}
+:root .note-print-document .markdown-preview pre.hljs code {
+  color: inherit;
+}
+.note-print-document .markdown-preview pre code,
+.note-print-document .markdown-preview pre code span {
+  background: transparent !important;
+}
+.note-paper-body > [style*='display: contents']:first-child > :first-child {
+  margin-top: 0;
+}
