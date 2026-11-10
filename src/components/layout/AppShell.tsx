@@ -31,6 +31,7 @@ import {
   CalendarPage,
   CanvasPage,
   ChatsPage,
+  DatabasePage,
   DeckView,
   GraphPage,
   GridView,
@@ -262,6 +263,7 @@ export default function AppShell() {
 
   const renderMainContent = () => {
     // Grid mode is self-contained — always shown when activeView === 'grid'
+    if (activeView === 'databases') return <DatabasePage />;
     if (activeView === 'grid') return <GridView />;
     if (activeView === 'calendar') return <CalendarPage />;
     if (activeView === 'chats') return <ChatsPage standalone={false} />;
@@ -310,7 +312,7 @@ export default function AppShell() {
     return <EmptyEditor />;
   };
 
-  const showSidebar = isSidebarOpen && activeView !== 'chats';
+  const showSidebar = isSidebarOpen && activeView !== 'chats' && activeView !== 'databases';
   return (
     <CollabProvider>
       <CalendarSyncCoordinator />
@@ -354,9 +356,10 @@ export default function AppShell() {
 
           {/* Main pane */}
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-            {activeView !== 'grid' && activeView !== 'calendar' && activeView !== 'chats' && (
-              <TabBar />
-            )}
+            {activeView !== 'grid' &&
+              activeView !== 'calendar' &&
+              activeView !== 'chats' &&
+              activeView !== 'databases' && <TabBar />}
             {/* position:relative so the split drop zones are positioned inside the content area */}
             <div className="relative flex-1 overflow-hidden">
               <EditorErrorBoundary key={activeTabPath ?? activeView}>
@@ -375,9 +378,10 @@ export default function AppShell() {
                 </div>
               </EditorErrorBoundary>
               {/* Edge drop zones — only visible when a tab is being dragged */}
-              {activeView !== 'grid' && activeView !== 'calendar' && activeView !== 'chats' && (
-                <SplitDropZones />
-              )}
+              {activeView !== 'grid' &&
+                activeView !== 'calendar' &&
+                activeView !== 'chats' &&
+                activeView !== 'databases' && <SplitDropZones />}
             </div>
             <StatusBar />
           </div>

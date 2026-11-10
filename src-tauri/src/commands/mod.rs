@@ -4,6 +4,8 @@ pub mod chat;
 pub mod circuit;
 pub mod collab;
 pub mod crypto;
+#[cfg(not(mobile))]
+pub mod database;
 pub mod files;
 pub mod index;
 pub mod live_ws;

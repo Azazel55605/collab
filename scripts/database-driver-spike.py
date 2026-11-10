@@ -43,7 +43,7 @@ def certificates(directory):
     (directory/'server.key').chmod(0o644)
 
 
-def fixture(version, image, work, record):
+def fixture(version, image, work, record, native_adapter=False):
     name = f'collab-db-phase0-{version}-{uuid.uuid4().hex[:10]}'
     tls = work/'tls'
     certificates(tls)
@@ -96,6 +96,8 @@ def fixture(version, image, work, record):
                     raise RuntimeError('fixture SQL login was not ready within 60 seconds') from None
                 time.sleep(2)
         run(sqlcmd + ['CREATE DATABASE collab_phase0'], env=bootstrap_env)
+        if native_adapter:
+            run(sqlcmd + ["USE collab_phase0; CREATE TABLE dbo.phase1_metadata (id int PRIMARY KEY, label nvarchar(100) NULL); CREATE INDEX phase1_label ON dbo.phase1_metadata(label); DECLARE @i int=0, @sql nvarchar(200); WHILE @i<105 BEGIN SET @sql=N'CREATE TABLE dbo.page_'+CAST(@i AS nvarchar(10))+N' (id int)'; EXEC(@sql); SET @i+=1; END"], env=bootstrap_env)
         port = run(['docker', 'port', name, '1433/tcp']).rsplit(':', 1)[1]
         base = dict(os.environ, COLLAB_DATABASE_DISPOSABLE_FIXTURE='yes', COLLAB_DB_SPIKE_PORT=port,
                     COLLAB_DB_SPIKE_PASSWORD_FILE=str(password_file), COLLAB_DB_SPIKE_CA=str(tls/'ca.pem'), SSL_CERT_FILE=str(tls/'ca.pem'))
@@ -116,6 +118,19 @@ def fixture(version, image, work, record):
                 report.update(fixture_version=version, image=digest, tls_case=mode)
                 reports.append(report)
                 record(report)
+        if native_adapter:
+            # Compilation should be completed before this isolated TLS environment;
+            # offline mode prevents the fixture CA from affecting registry downloads.
+            native_output = run(['cargo', 'test', '--offline', '-p', 'collab',
+                 'database::tests::real_disposable_registry_connections_and_metadata',
+                 '--', '--ignored', '--test-threads=1'], env=base, timeout=180)
+            if '1 passed; 0 failed' not in native_output:
+                raise RuntimeError('native registry fixture did not execute its required test')
+            record({'kind': 'native_registry', 'fixture_version': version, 'image': digest,
+                    'passed': True, 'checks': ['test-connect-closes-socket', 'independent-connections',
+                    'pinned-tabs', 'forged-binding-rejected', 'paged-metadata', 'typed-cursor',
+                    'columns-and-indexes', 'disconnect-isolation', 'connection-budget', 'profile-cleanup']})
+            print(f'{version}: native registry fixture passed', flush=True)
         return reports
     finally:
         # Name and volumes belong only to this invocation. Never compose-down a
@@ -128,6 +143,7 @@ def main():
     parser.add_argument('--versions', nargs='+', choices=['2019', '2022', '2025'], default=['2022'])
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--skip-build', action='store_true')
+    parser.add_argument('--native-adapter', action='store_true', help='Also run the desktop native registry integration fixture (prebuild its tests first)')
     parser.add_argument('--image', help='Override image reference for a single explicitly selected version')
     args = parser.parse_args()
     if os.environ.get('COLLAB_DB_SPIKE_ACCEPT_EULA') != 'yes':
@@ -147,7 +163,7 @@ def main():
         save(False)
     for version in args.versions:
         with tempfile.TemporaryDirectory(prefix='collab-db-phase0-') as work:
-            fixture(version, args.image or f'mcr.microsoft.com/mssql/server:{version}-latest', Path(work), record)
+            fixture(version, args.image or f'mcr.microsoft.com/mssql/server:{version}-latest', Path(work), record, args.native_adapter)
     save(True)
     print(f'Wrote {len(reports)} real-driver fixture reports to {args.output}')
 

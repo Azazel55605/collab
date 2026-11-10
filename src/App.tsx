@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 
 import './App.css';
 import { MathPlotModalHost } from './components/editor/MathPlotModalHost';
+import ActivityBar from './components/layout/ActivityBar';
 import AppShell from './components/layout/AppShell';
 import {
   LiveDebugPanel,
@@ -23,12 +24,13 @@ import { useDesktopQuitGuard } from './lib/useDesktopQuitGuard';
 import { useDocumentResourceLifecycle } from './lib/useDocumentResourceLifecycle';
 import { useOcrCacheLifecycle } from './lib/useOcrCacheLifecycle';
 import { useServerAutoReconnect } from './lib/useServerAutoReconnect';
+import { useCollabStore } from './store/collabStore';
 import { useEditorStore } from './store/editorStore';
 import { useServerStore } from './store/serverStore';
 import { ACCENT_COLORS, INTERFACE_FONTS, useUiStore } from './store/uiStore';
 import { useUpdateStore } from './store/updateStore';
 import { useVaultStore } from './store/vaultStore';
-import { ChatsPage, NotePrintView } from './views/deferredViews';
+import { ChatsPage, DatabasePage, NotePrintView } from './views/deferredViews';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
@@ -386,10 +388,33 @@ export default function App() {
     };
   }, []);
 
+  useEffect(
+    () =>
+      useCollabStore.subscribe((state, previous) => {
+        if (state.myUserId !== previous.myUserId) {
+          void tauriCommands
+            .databaseProfileChanged(previous.myUserId, state.myUserId)
+            .catch(() =>
+              toast.error(
+                'Could not close database sessions for the previous profile. Restart Collab before reconnecting.',
+              ),
+            );
+        }
+      }),
+    [],
+  );
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className={activePrintNotePath ? 'app-print-hidden' : undefined}>
-        {activeView === 'chats' && (!vault || isVaultLocked) ? (
+        {activeView === 'databases' && (!vault || isVaultLocked) ? (
+          <div className="flex h-screen overflow-hidden bg-background text-foreground">
+            <ActivityBar />
+            <div className="min-w-0 flex-1">
+              <DatabasePage />
+            </div>
+          </div>
+        ) : activeView === 'chats' && (!vault || isVaultLocked) ? (
           <ChatsPage />
         ) : vault ? (
           isVaultLocked ? (

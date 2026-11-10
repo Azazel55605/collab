@@ -7,6 +7,8 @@ mod background_observer;
 mod commands;
 mod crypto;
 #[cfg(not(mobile))]
+mod database;
+#[cfg(not(mobile))]
 mod desktop_notifications;
 mod drag_staging;
 mod hosted_client;
@@ -168,6 +170,26 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(not(mobile))]
+            commands::database::database_activate,
+            #[cfg(not(mobile))]
+            commands::database::database_deactivate,
+            #[cfg(not(mobile))]
+            commands::database::database_profile_changed,
+            #[cfg(not(mobile))]
+            commands::database::database_save,
+            #[cfg(not(mobile))]
+            commands::database::database_remove,
+            #[cfg(not(mobile))]
+            commands::database::database_connect,
+            #[cfg(not(mobile))]
+            commands::database::database_disconnect,
+            #[cfg(not(mobile))]
+            commands::database::database_open_tab,
+            #[cfg(not(mobile))]
+            commands::database::database_close_tab,
+            #[cfg(not(mobile))]
+            commands::database::database_metadata,
             // user calendar profile store
             commands::calendar::calendar_list,
             commands::calendar::calendar_save,

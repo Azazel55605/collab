@@ -396,6 +396,10 @@ pub struct ExecutionError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContractError {
+    #[error("The operating system credential store is unavailable")]
+    CredentialStoreUnavailable,
+    #[error("Credential cleanup needs to be retried")]
+    CredentialCleanupFailed,
     #[error("The database connection failed")]
     ConnectionFailed,
     #[error("Database authentication failed")]

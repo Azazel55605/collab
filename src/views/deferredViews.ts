@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 
 import { deferredView } from '../components/layout/deferredView';
 
+export const DatabasePage = deferredView(() => import('./DatabasePage'));
 export const CalendarPage = deferredView(() => import('./CalendarPage'));
 export const CanvasPage = deferredView(() => import('./CanvasPage'));
 export const ChatsPage = deferredView<

@@ -27,6 +27,14 @@ import type {
   CircuitTransientChunk,
 } from '../types/circuitRuntime';
 import type { ChatMessage, PresenceEntry, SnapshotMeta } from '../types/collab';
+import type {
+  DatabaseBinding,
+  DatabaseConnected,
+  DatabaseConnection,
+  DatabaseMetadataPage,
+  DatabaseMetadataRequest,
+  DatabaseWorkspace,
+} from '../types/database';
 import type { KanbanBoard } from '../types/kanban';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
 import type { NoteIndexDelta, SearchPage } from '../types/note';
@@ -353,7 +361,37 @@ export async function invokeMedia<T>(
   }
 }
 
+let databaseProfileChange: Promise<void> = Promise.resolve();
+
 export const tauriCommands = {
+  databaseActivate: async (owner: string) => {
+    await databaseProfileChange;
+    return invoke<DatabaseWorkspace>('database_activate', { owner });
+  },
+  databaseDeactivate: (token: string) => invoke<void>('database_deactivate', { token }),
+  databaseProfileChanged: (previousOwner: string, nextOwner: string) => {
+    databaseProfileChange = databaseProfileChange
+      .catch(() => {})
+      .then(() => invoke<void>('database_profile_changed', { previousOwner, nextOwner }));
+    return databaseProfileChange;
+  },
+  databaseSave: (token: string, config: DatabaseConnection, password?: string) =>
+    invoke<DatabaseConnection>('database_save', { token, config, password }),
+  databaseRemove: (token: string, id: string) => invoke<void>('database_remove', { token, id }),
+  databaseConnect: (token: string, id: string, password?: string, testOnly = false) =>
+    invoke<DatabaseConnected>('database_connect', { token, id, password, testOnly }),
+  databaseDisconnect: (token: string, id: string) =>
+    invoke<void>('database_disconnect', { token, id }),
+  databaseOpenTab: (token: string, id: string, database: string) =>
+    invoke<DatabaseBinding>('database_open_tab', { token, id, database }),
+  databaseCloseTab: (token: string, binding: DatabaseBinding) =>
+    invoke<void>('database_close_tab', { token, binding }),
+  databaseMetadata: (
+    token: string,
+    connectionId: string,
+    binding: DatabaseBinding | null,
+    request: DatabaseMetadataRequest,
+  ) => invoke<DatabaseMetadataPage>('database_metadata', { token, connectionId, binding, request }),
   writeDownloadedBytes: (destinationPath: string, bytes: Uint8Array) => {
     if (bytes.byteLength > 256 * 1024 * 1024)
       return Promise.reject(new Error('Export exceeds its 256 MiB output budget'));

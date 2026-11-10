@@ -239,6 +239,13 @@ export default function VaultPicker() {
             >
               Open chats
             </Button>
+            <Button
+              className="mb-3 w-full"
+              variant="outline"
+              onClick={() => useUiStore.getState().setActiveView('databases')}
+            >
+              Open databases
+            </Button>
             <div className="mb-3 flex items-center gap-2">
               <Separator className="flex-1 bg-border/40" />
               <span className="flex shrink-0 items-center gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">

@@ -40,6 +40,9 @@ vi.mock('../collaboration/CollabProvider', () => ({
     return <>{children}</>;
   },
 }));
+vi.mock('../../views/DatabasePage', () => ({
+  default: () => <div data-testid="database-workspace" />,
+}));
 vi.mock('../../views/ChatsPage', () => ({
   default: ({ standalone }: { standalone: boolean }) => (
     <div data-testid="personal-chats">{String(standalone)}</div>
@@ -183,6 +186,21 @@ describe('AppShell document remounting', () => {
     expect(
       screen.getByTestId('sidebar').closest('[aria-hidden]')?.getAttribute('aria-hidden'),
     ).toBe('false');
+    expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
+  });
+  it('loads the databases route only when opened and keeps the vault session alive', async () => {
+    render(<AppShell />);
+    await screen.findByTestId('note-view');
+    expect(screen.queryByTestId('database-workspace')).toBeNull();
+    await act(async () => useUiStore.getState().setActiveView('databases'));
+    await screen.findByTestId('database-workspace');
+    expect(screen.queryByTestId('tab-bar')).toBeNull();
+    expect(
+      screen.getByTestId('sidebar').closest('[aria-hidden]')?.getAttribute('aria-hidden'),
+    ).toBe('true');
+    expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
+    await act(async () => useUiStore.getState().setActiveView('editor'));
+    await screen.findByTestId('note-view');
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
   });
 });

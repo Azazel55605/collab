@@ -50,6 +50,7 @@ const allowedWorkspaceEdges = new Map([
   [
     'collab',
     new Set([
+      'collab-database',
       'collab-calendar',
       'collab-circuit',
       'collab-core',
