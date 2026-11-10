@@ -7,10 +7,10 @@ export function buildNotePdfExportRoute(relativePath: string) {
   return `${basePath}?${params.toString()}`;
 }
 
-export function requestNotePdfExport(relativePath: string) {
+export function requestNotePdfExport(relativePath: string, contentSnapshot?: string) {
   window.dispatchEvent(
-    new CustomEvent<{ relativePath: string }>(NOTE_PDF_EXPORT_EVENT, {
-      detail: { relativePath },
+    new CustomEvent<{ relativePath: string; contentSnapshot?: string }>(NOTE_PDF_EXPORT_EVENT, {
+      detail: { relativePath, ...(contentSnapshot === undefined ? {} : { contentSnapshot }) },
     }),
   );
 }

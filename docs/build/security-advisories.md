@@ -56,6 +56,48 @@ patched, the patch and a regression test must be committed alongside it.
 There are currently no Rust advisory ignores. The RSA dependency was removed
 from the resolved graph by the SQLx upgrade described below.
 
+## Dependency updates for PR #116 (2026-11-10)
+
+The failing dependency job reported one critical and ten high-severity findings.
+The lockfile now resolves the affected packages to these patched releases:
+
+| Package                          | Previous release | Fixed release | Resolution                                                                                                                                            |
+| -------------------------------- | ---------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dompurify` (Mermaid dependency) | 3.4.16           | 3.4.17        | Raise the existing compatible override to match the direct dependency.                                                                                |
+| `body-parser`                    | 2.3.0            | 2.4.0         | Compatible with Express 5.3's `^2.3.0` requirement.                                                                                                   |
+| `undici` 7                       | 7.30.0           | 7.30.1        | Raise the existing override within the parents' Undici 7 ranges.                                                                                      |
+| `systeminformation`              | 5.33.15          | 5.33.16       | Patch update within dotenvx's declared range.                                                                                                         |
+| `zod` 4                          | 4.6.5            | 4.6.7         | Dedupe the older ESLint dependency onto the already-used fixed release.                                                                               |
+| `happy-dom`                      | 20.14.6          | 21.0.4        | Upgrade the Lexical packages together from 0.52.0 to 0.53.0; the new headless parent explicitly requires `^21.0.4`. Vitest permits this peer version. |
+
+In particular, [the Happy DOM host-code-execution fix](https://github.com/advisories/GHSA-834v-8h66-3h79)
+is in 21.0.4, so upgrading only to 20.14.7 would leave a high-severity finding.
+The Lexical parent upgrade avoids forcing an unsupported Happy DOM major through
+an override. Lexical remains a development/evaluation dependency.
+
+A fresh registry audit of the updated lockfile reports **zero high and zero
+critical findings**, with six moderate and three low findings remaining. These
+remain visible at the existing CI threshold; no advisory ignore or scan setting
+was added or weakened. The existing reproducible `braces` patch/ignore remains.
+
+### Rust audit findings reached after the JavaScript fixes
+
+A freshly fetched RustSec database also found two vulnerabilities in the old
+lockfile; the failing CI run had stopped before executing its Rust audit step.
+
+- **RUSTSEC-2026-0385:** `ctutils` 0.4.3 may generate non-constant-time secret
+  comparisons. A compatible lockfile update selects 0.4.8 (fixed in 0.4.4).
+- **RUSTSEC-2026-0459:** bundled SQLite can expose uninitialized page-cache
+  memory when opening crafted database/WAL pairs. SQLx 0.9.0 accepts
+  `libsqlite3-sys >=0.30.1, <0.38.0`, excluding the fixed 0.39 release line.
+  The [manifest-only SQLx SQLite backport](../../vendor/sqlx-sqlite/UPSTREAM.md)
+  permits only `>=0.39.0, <0.40.0`; the driver source and licenses remain
+  byte-identical to the published archive and are checksum-tested.
+
+The backport preserves bundled SQLite and all calendar/local-store functionality.
+No Rust advisory ignore is added. Native desktop/Android database acceptance
+remains a release requirement after rebuilding with the new bundled SQLite.
+
 ## TLS verification advisories resolved in PR #108 (2026-10-21)
 
 The refreshed CI database found three vulnerabilities missed by the earlier

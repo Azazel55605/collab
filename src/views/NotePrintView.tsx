@@ -3,15 +3,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Printer, X } from 'lucide-react';
 
-import { MarkdownPreview } from '../components/editor/MarkdownPreview';
+import { NotePageControls } from '../components/editor/NotePageControls';
+import { PaginatedNotePreview } from '../components/editor/PaginatedNotePreview';
 import { Button } from '../components/ui/button';
 import { resolveNoteAssetTarget } from '../lib/noteAssets';
+import { notePageGeometry } from '../lib/notePageLayout';
 import { createVaultClient } from '../lib/vaultClient';
 import { getVaultDocumentTitle } from '../lib/vaultLinks';
+import { useNotePageStore } from '../store/notePageStore';
 import { useVaultStore } from '../store/vaultStore';
 import type { NoteFile, VaultMeta } from '../types/vault';
 
 interface NotePrintViewProps {
+  contentSnapshot?: string;
   relativePath: string;
   standalone?: boolean;
   onClose?: () => void;
@@ -103,13 +107,16 @@ export default function NotePrintView({
   relativePath,
   standalone = false,
   onClose,
+  contentSnapshot,
 }: NotePrintViewProps) {
   const vault = useVaultStore((state) => state.vault);
   const fileTree = useVaultStore((state) => state.fileTree);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [didAutoPrint, setDidAutoPrint] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
+  const [pageCount, setPageCount] = useState(0);
+  const settings = useNotePageStore((state) => state.settings);
+  const geometry = notePageGeometry(settings);
   const title = useMemo(() => getVaultDocumentTitle(relativePath), [relativePath]);
 
   useEffect(() => {
@@ -132,9 +139,13 @@ export default function NotePrintView({
     if (!vault) return;
     let cancelled = false;
     setPreviewReady(false);
+    setContent(null);
+    setError(null);
 
-    createVaultClient(vault)
-      .readDocument(relativePath)
+    (contentSnapshot === undefined
+      ? createVaultClient(vault).readDocument(relativePath)
+      : Promise.resolve({ content: contentSnapshot })
+    )
       .then(async (doc) => {
         if (cancelled) return;
         const printableContent = await inlinePrintableImages(
@@ -154,25 +165,21 @@ export default function NotePrintView({
     return () => {
       cancelled = true;
     };
-  }, [fileTree, relativePath, vault]);
+  }, [fileTree, relativePath, vault, contentSnapshot]);
 
   const printWhenReady = useCallback(async () => {
     await waitForPrintableFonts();
     window.print();
   }, []);
 
-  const handlePreviewReady = useCallback(() => {
+  const handlePreviewReady = useCallback((pages: number) => {
+    setPageCount(pages);
     setPreviewReady(true);
   }, []);
 
   useEffect(() => {
-    if (content === null || !previewReady || didAutoPrint) return;
-    const handle = window.setTimeout(() => {
-      setDidAutoPrint(true);
-      void printWhenReady();
-    }, 80);
-    return () => window.clearTimeout(handle);
-  }, [content, didAutoPrint, previewReady, printWhenReady]);
+    setPreviewReady(false);
+  }, [settings]);
 
   const handleClose = () => {
     if (standalone) {
@@ -213,13 +220,20 @@ export default function NotePrintView({
 
   return (
     <div className="note-print-shell">
+      <style>{`@page { size: ${geometry.widthMm}mm ${geometry.heightMm}mm; margin: 0; }`}</style>
       <div className="note-print-toolbar">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{title}</div>
           <div className="truncate text-xs text-muted-foreground">{relativePath}</div>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void printWhenReady()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!previewReady}
+            onClick={() => void printWhenReady()}
+          >
             <Printer size={14} />
             Print / Save PDF
           </Button>
@@ -234,21 +248,18 @@ export default function NotePrintView({
           </Button>
         </div>
       </div>
-
-      <div className="note-print-page">
-        <div className="note-print-document">
-          <div className="note-print-header">
-            <h1>{title}</h1>
-            <div>{relativePath}</div>
-          </div>
-          <MarkdownPreview
-            content={content}
-            currentDocumentRelativePath={relativePath}
-            className="note-print-markdown"
-            onReady={handlePreviewReady}
-          />
-        </div>
+      <div className="note-print-layout-toolbar">
+        <NotePageControls />
+        <span role="status">
+          {previewReady ? `${pageCount} ${pageCount === 1 ? 'page' : 'pages'}` : 'Preparing pages…'}
+        </span>
       </div>
+      <PaginatedNotePreview
+        content={content}
+        relativePath={relativePath}
+        settings={settings}
+        onReady={handlePreviewReady}
+      />
     </div>
   );
 }
