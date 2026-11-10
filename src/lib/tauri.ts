@@ -27,6 +27,12 @@ import type {
   CircuitTransientChunk,
 } from '../types/circuitRuntime';
 import type { ChatMessage, PresenceEntry, SnapshotMeta } from '../types/collab';
+import type { DatabaseBrowseRequest } from '../types/database';
+import type {
+  DatabaseHistoryEntry,
+  DatabaseQueryPoll,
+  DatabaseQueryStatus,
+} from '../types/database';
 import type {
   DatabaseBinding,
   DatabaseConnected,
@@ -364,6 +370,31 @@ export async function invokeMedia<T>(
 let databaseProfileChange: Promise<void> = Promise.resolve();
 
 export const tauriCommands = {
+  databaseTableBrowse: (token: string, binding: DatabaseBinding, request: DatabaseBrowseRequest) =>
+    invoke<string>('database_table_browse', { token, binding, request }),
+  databaseQueryStart: (
+    token: string,
+    binding: DatabaseBinding,
+    sql: string,
+    selection?: { start_utf16: number; end_utf16: number },
+  ) => invoke<string>('database_query_start', { token, binding, sql, selection }),
+  databaseQueryRollback: (token: string, binding: DatabaseBinding) =>
+    invoke<string>('database_query_rollback', { token, binding }),
+  databaseQueryPoll: (
+    token: string,
+    binding: DatabaseBinding,
+    queryId: string,
+    after: number | null,
+  ) => invoke<DatabaseQueryPoll>('database_query_poll', { token, binding, queryId, after }),
+  databaseQueryCancel: (token: string, binding: DatabaseBinding, queryId: string) =>
+    invoke<void>('database_query_cancel', { token, binding, queryId }),
+  databaseQueryStatus: (token: string, binding: DatabaseBinding) =>
+    invoke<DatabaseQueryStatus>('database_query_status', { token, binding }),
+  databaseQueryHistory: (token: string, binding: DatabaseBinding, clear = false) =>
+    invoke<DatabaseHistoryEntry[]>('database_query_history', { token, binding, clear }),
+  databaseCanQuit: () => invoke<boolean>('database_can_quit'),
+  databaseQueryExport: (token: string, binding: DatabaseBinding, content: string, json: boolean) =>
+    invoke<boolean>('database_query_export', { token, binding, content, json }),
   databaseActivate: async (owner: string) => {
     await databaseProfileChange;
     return invoke<DatabaseWorkspace>('database_activate', { owner });
@@ -372,7 +403,12 @@ export const tauriCommands = {
   databaseProfileChanged: (previousOwner: string, nextOwner: string) => {
     databaseProfileChange = databaseProfileChange
       .catch(() => {})
-      .then(() => invoke<void>('database_profile_changed', { previousOwner, nextOwner }));
+      .then(async () => {
+        await invoke<void>('database_profile_changed', { previousOwner, nextOwner });
+        window.dispatchEvent(
+          new CustomEvent('database:profile-closed', { detail: { profile: previousOwner } }),
+        );
+      });
     return databaseProfileChange;
   },
   databaseSave: (token: string, config: DatabaseConnection, password?: string) =>
@@ -384,8 +420,8 @@ export const tauriCommands = {
     invoke<void>('database_disconnect', { token, id }),
   databaseOpenTab: (token: string, id: string, database: string) =>
     invoke<DatabaseBinding>('database_open_tab', { token, id, database }),
-  databaseCloseTab: (token: string, binding: DatabaseBinding) =>
-    invoke<void>('database_close_tab', { token, binding }),
+  databaseCloseTab: (token: string, binding: DatabaseBinding, discard = false) =>
+    invoke<void>('database_close_tab', { token, binding, discard }),
   databaseMetadata: (
     token: string,
     connectionId: string,

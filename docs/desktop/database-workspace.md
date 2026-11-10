@@ -1,8 +1,8 @@
 # Database Workspace
 
 Phase 1 adds desktop SQL Server connection management and metadata browsing.
-Query editing/execution and result browsing are Phase 2; row/schema mutation
-executors are later phases. [Plan](../plans/database-editor-plan.md),
+Phase 2 now adds [queries and read-only results](./database-queries.md).
+Row/schema mutation executors remain later phases. [Plan](../plans/database-editor-plan.md),
 [Phase 0 contract](../plans/database-editor-phase0-contract.md).
 
 ## Connect And Browse
@@ -35,9 +35,8 @@ alone. Closing a tab closes only its physical session. Editing a saved connectio
 closes its current connections/tabs. Removing it also attempts to delete its saved
 credentials; credential-store failure is explicit and can be retried.
 
-The current tabs cannot execute SQL or open transactions, so they have no pending
-SQL edits or transaction disposal decisions yet. Those guards must be extended
-before Phase 2/3 adds executable/manual transaction state.
+Phase 2 executes SQL and guards running work, dirty scripts and open/unknown
+transactions before disposal. See [queries and read-only results](./database-queries.md).
 
 ## Native Ownership And Credentials
 

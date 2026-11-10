@@ -20,6 +20,9 @@ vi.mock('../lib/tauri', () => ({
     databaseRemove: vi.fn(),
   },
 }));
+vi.mock('../components/database/QueryPanel', () => ({
+  default: () => <div>SQL query editor</div>,
+}));
 let workspace: DatabaseWorkspace;
 const binding: DatabaseBinding = {
   profile_id: 'profile-a',
@@ -84,6 +87,7 @@ describe('database workspace', () => {
       button: 0,
       ctrlKey: false,
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Browse metadata' }));
     await waitFor(() =>
       expect(tauriCommands.databaseMetadata).toHaveBeenCalledWith('workspace-a', 'a', binding, {
         kind: 'schemas',
@@ -140,4 +144,15 @@ describe('database workspace', () => {
       false,
     );
   });
+});
+
+it('uses Ctrl+W to request explicit SQL session discard', async () => {
+  renderPage();
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Server A · catalog-a' }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  fireEvent.keyDown(document, { key: 'w', ctrlKey: true });
+  expect(await screen.findByRole('dialog', { name: 'Close database session?' })).toBeTruthy();
+  expect(tauriCommands.databaseCloseTab).not.toHaveBeenCalled();
 });

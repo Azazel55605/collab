@@ -217,6 +217,10 @@ pub fn rewrite_note_references(
     old_path: &str,
     new_path: Option<&str>,
 ) -> String {
+    if note_relative_path.to_ascii_lowercase().ends_with(".sql") {
+        return content.to_string();
+    }
+
     let content = IMAGE_MD.replace_all(content, |caps: &Captures| {
         match rewrite_target_reference(&caps[2], note_relative_path, old_path, new_path) {
             Some(Some(next_target)) => format!("![{}]({next_target})", &caps[1]),
@@ -584,6 +588,10 @@ pub fn collect_note_references(
     lookup: &[ReferenceLookupEntry],
     target_path: &str,
 ) -> Vec<FileReference> {
+    if note_relative_path.to_ascii_lowercase().ends_with(".sql") {
+        return vec![];
+    }
+
     let mut references = Vec::new();
 
     for caps in IMAGE_MD.captures_iter(content) {
@@ -1433,4 +1441,23 @@ pub fn rewrite_deck_references(
     serde_json::to_string_pretty(&document)
         .map(|text| format!("{text}\n"))
         .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))
+}
+
+#[cfg(test)]
+mod sql_tests {
+    use super::*;
+    #[test]
+    fn sql_literals_are_never_rewritten_as_markdown_links() {
+        let sql = "SELECT N'[[Notes/Old]]', N'[x](Notes/Old.md)'";
+        assert_eq!(
+            rewrite_note_references(
+                sql,
+                "Queries/test.SQL",
+                "Notes/Old.md",
+                Some("Notes/New.md")
+            ),
+            sql
+        );
+        assert!(collect_note_references(sql, "Queries/test.sql", &[], "Notes/Old.md").is_empty());
+    }
 }

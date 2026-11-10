@@ -1246,7 +1246,11 @@ fn create_note_at_path(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let initial_content = format!("# {}\n\n", name);
+    let initial_content = if relative_path.to_ascii_lowercase().ends_with(".sql") {
+        String::new()
+    } else {
+        format!("# {}\n\n", name)
+    };
     let bytes_to_write: Vec<u8> = if let Some(ref key) = key_opt {
         crypto::encrypt_bytes(key, initial_content.as_bytes())?
     } else {
@@ -2378,6 +2382,18 @@ mod tests {
         assert_eq!(vault.read_text("Notes/Test.md").unwrap(), "after");
     }
 
+    #[test]
+    fn sql_scripts_have_no_markdown_preamble_and_preserve_literal_content() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("test.sql");
+        create_note_at_path(&target, "test.sql", None).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "");
+        let sql = "-- SQL script\nSELECT N'[[not a note]]', N'---';\n";
+        std::fs::write(&target, sql).unwrap();
+        let note = super::read_note_from_path(&target, "test.sql", None).unwrap();
+        assert_eq!(note.content, sql);
+        assert!(super::is_allowed_extension("sql"));
+    }
     #[test]
     fn create_note_never_truncates_an_existing_document() {
         let vault = TempVault::new().unwrap();

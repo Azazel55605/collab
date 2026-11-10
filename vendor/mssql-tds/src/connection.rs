@@ -1,0 +1,37 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! Connection management types for TDS protocol communication with SQL Server.
+//!
+//! Key types:
+//! - [`tds_client::TdsClient`] — primary client for executing queries and managing connections
+//! - [`client_context::ClientContext`] — connection configuration (credentials, encryption, timeouts)
+//! - [`bulk_copy::BulkCopy`] — bulk data loading
+
+pub(crate) mod blocking;
+pub mod bulk_copy;
+pub(crate) mod bulk_copy_state;
+/// Client connection context and authentication factories.
+pub mod client_context;
+pub mod connect_stage;
+pub(crate) mod connection_actions;
+/// Server cursor RPCs (`sp_cursor*`) via the
+/// [`CursorClient`](crate::connection::cursor_ops::CursorClient) trait.
+pub mod cursor_ops;
+pub(crate) mod datasource_parser;
+pub(crate) mod dns_cache;
+pub(crate) mod execution_context;
+pub(crate) mod instance_cache;
+pub(crate) mod metadata_retriever;
+pub mod multi_subnet_failover;
+pub(crate) mod session_recovery;
+/// Primary client type and result set traits.
+pub mod tds_client;
+/// Transport layer (TCP, Named Pipes, Shared Memory).
+pub mod transport;
+
+/// This computer's name, as the client compares a data source's host with it
+/// to decide whether the data source is local.
+pub fn this_computer_name() -> Option<String> {
+    datasource_parser::ParsedDataSource::get_computer_name()
+}

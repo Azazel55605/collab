@@ -1,0 +1,627 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+use crate::core::TdsResult;
+use crate::handler::handler_factory::NegotiatedSettings;
+use crate::token::tokens::{EnvChangeContainer, EnvChangeToken, EnvChangeTokenSubType};
+use tracing::{info, instrument};
+
+/// Execution context tracks the state of the current connection session.
+/// This includes transaction state and batch execution state.
+#[derive(Debug)]
+pub(crate) struct ExecutionContext {
+    transaction_descriptor: u64,
+    outstanding_requests: u32,
+    has_open_batch: bool,
+    #[cfg(test)]
+    has_open_result_set: bool,
+}
+
+impl ExecutionContext {
+    pub(crate) fn new() -> Self {
+        Self {
+            transaction_descriptor: 0,
+            outstanding_requests: 1,
+            has_open_batch: false,
+            #[cfg(test)]
+            has_open_result_set: false,
+        }
+    }
+
+    pub(crate) fn get_transaction_descriptor(&self) -> u64 {
+        self.transaction_descriptor
+    }
+
+    /// Returns true if a transaction is currently active.
+    ///
+    /// A transaction is considered active when the transaction_descriptor
+    /// is non-zero, which occurs after a BEGIN TRANSACTION and before
+    /// COMMIT or ROLLBACK.
+    pub(crate) fn has_active_transaction(&self) -> bool {
+        self.transaction_descriptor != 0
+    }
+
+    pub(crate) fn get_outstanding_requests(&self) -> u32 {
+        self.outstanding_requests
+    }
+
+    #[instrument(skip(self))]
+    pub fn has_open_batch(&self) -> bool {
+        self.has_open_batch
+    }
+
+    #[cfg(test)]
+    pub fn has_open_result_set(&self) -> bool {
+        self.has_open_result_set
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) fn set_has_open_batch(&mut self, has_open_batch: bool) {
+        self.has_open_batch = has_open_batch;
+    }
+
+    #[cfg(test)]
+    #[instrument(skip(self))]
+    pub(crate) fn set_has_open_result_set(&mut self, has_open_result_set: bool) {
+        self.has_open_result_set = has_open_result_set;
+    }
+
+    /// Sets the transaction descriptor directly.
+    ///
+    /// Used by the connection-reset path to mirror the server discarding the
+    /// transaction on a full RESETCONNECTION, and by tests (including downstream
+    /// crates via `test-util`) to reach guards that depend on an active
+    /// transaction.
+    pub(crate) fn set_transaction_descriptor(&mut self, descriptor: u64) {
+        self.transaction_descriptor = descriptor;
+    }
+
+    /// Applies an ENVCHANGE token to the connection session state.
+    ///
+    /// Transaction-descriptor changes are tracked on the execution context
+    /// itself. Database / language / collation changes are written through to
+    /// `negotiated_settings`, which is the authoritative store for the session
+    /// values negotiated during and after login.
+    pub(crate) fn capture_change_property(
+        &mut self,
+        change_token: &EnvChangeToken,
+        negotiated_settings: &mut NegotiatedSettings,
+    ) -> TdsResult<()> {
+        let sub_type = change_token.sub_type;
+        let change_type = &change_token.change_type;
+
+        match &sub_type {
+            EnvChangeTokenSubType::BeginTransaction
+            | EnvChangeTokenSubType::CommitTransaction
+            | EnvChangeTokenSubType::RollbackTransaction
+            | EnvChangeTokenSubType::EnlistDtcTransaction
+            | EnvChangeTokenSubType::DefectTransaction => {
+                if let EnvChangeContainer::UInt64(u64_change) = change_type {
+                    self.transaction_descriptor = *u64_change.new_value();
+                    Ok(())
+                } else {
+                    Err(crate::error::Error::ProtocolError(format!(
+                        "Expected UInt64 change container, but got: {change_token:?}",
+                    )))
+                }
+            }
+            EnvChangeTokenSubType::Database => {
+                if let EnvChangeContainer::String(string_change) = change_type {
+                    info!("Database change detected: {}", string_change.new_value());
+                    negotiated_settings.database = string_change.new_value().clone();
+                    // Counted on every token, not only when the name differs:
+                    // `USE [master]` while already in `master` still reports a
+                    // change, and it is the only signal a per-database cache
+                    // gets that the principal may have changed under an
+                    // `EXECUTE AS`. msodbcsql flags its own refresh the same
+                    // unconditional way (`sqlctokn.cpp:2866-2882`).
+                    negotiated_settings.database_change_count =
+                        negotiated_settings.database_change_count.wrapping_add(1);
+                    Ok(())
+                } else {
+                    Err(crate::error::Error::ProtocolError(format!(
+                        "Expected String change container, but got: {change_token:?}",
+                    )))
+                }
+            }
+            EnvChangeTokenSubType::Language => {
+                if let EnvChangeContainer::String(string_change) = change_type {
+                    negotiated_settings.language = string_change.new_value().clone();
+                    Ok(())
+                } else {
+                    Err(crate::error::Error::ProtocolError(format!(
+                        "Expected String change container, but got: {change_token:?}",
+                    )))
+                }
+            }
+            EnvChangeTokenSubType::SqlCollation => {
+                if let EnvChangeContainer::SqlCollation(collation_change) = change_type {
+                    info!("Collation change detected: {:?}", collation_change);
+                    if let Some(collation) = *collation_change.new_value() {
+                        negotiated_settings.database_collation = collation;
+                    }
+                    Ok(())
+                } else {
+                    Err(crate::error::Error::ProtocolError(format!(
+                        "Expected Collation change container, but got: {change_token:?}",
+                    )))
+                }
+            }
+            EnvChangeTokenSubType::PacketSize => Err(crate::error::Error::ProtocolError(
+                "packet_size change unexpected".to_string(),
+            )),
+            EnvChangeTokenSubType::CharacterSet => Err(crate::error::Error::UnimplementedFeature {
+                feature: "CharacterSet environment change".to_string(),
+                context: "capture_change_property".to_string(),
+            }),
+            EnvChangeTokenSubType::UnicodeDataSortingLocalId => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "UnicodeDataSortingLocalId environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::UnicodeDataSortingComparisonFlags => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "UnicodeDataSortingComparisonFlags environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::DatabaseMirroringPartner => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "DatabaseMirroringPartner environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::PromoteTransaction => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "PromoteTransaction environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::TransactionManagerAddress => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "TransactionManagerAddress environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::TransactionEnded => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "TransactionEnded environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::ResetConnection => {
+                // Server acknowledgement that the connection was reset to login
+                // defaults (in response to a RESETCONNECTION / RESETCONNECTIONSKIPTRAN
+                // request). The full client-side transition — restoring the
+                // negotiated database/language/collation and clearing
+                // session-bound caches — is applied by
+                // `TdsClient::on_reset_connection_ack`, which runs before this
+                // token is captured, so nothing is done here beyond logging.
+                info!("Connection reset acknowledged by server");
+                Ok(())
+            }
+            EnvChangeTokenSubType::UserInstanceName => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "UserInstanceName environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::Routing | EnvChangeTokenSubType::EnhancedRouting => {
+                Err(crate::error::Error::UnimplementedFeature {
+                    feature: "Routing environment change".to_string(),
+                    context: "capture_change_property".to_string(),
+                })
+            }
+            EnvChangeTokenSubType::Unknown(value) => {
+                // Log unknown environment change subtypes but don't fail
+                info!("Unknown environment change subtype: {}", value);
+                Ok(())
+            }
+        }
+    }
+}
+
+pub(crate) const ALREADY_EXECUTING_ERROR: &str = "There is an open batch on the current connection. It must be closed or fully consumed before executing another operation.";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token::tokens::{
+        EnvChangeContainer, EnvChangeToken, EnvChangeTokenSubType, SqlCollation,
+    };
+
+    /// Fresh `NegotiatedSettings` for exercising `capture_change_property`'s
+    /// database / language / collation write-through.
+    fn new_ns() -> NegotiatedSettings {
+        crate::handler::handler_factory::create_test_negotiated_settings_internal()
+    }
+
+    #[test]
+    fn test_new_execution_context() {
+        let ctx = ExecutionContext::new();
+        assert_eq!(ctx.get_transaction_descriptor(), 0);
+        assert_eq!(ctx.get_outstanding_requests(), 1);
+        assert!(!ctx.has_open_batch());
+        assert!(!ctx.has_open_result_set());
+        assert!(!ctx.has_active_transaction());
+    }
+
+    #[test]
+    fn test_has_active_transaction() {
+        let mut ctx = ExecutionContext::new();
+
+        // Initially no active transaction
+        assert!(!ctx.has_active_transaction());
+        assert_eq!(ctx.get_transaction_descriptor(), 0);
+
+        // Simulate BEGIN TRANSACTION by setting a non-zero descriptor
+        // (In practice this happens via ENVCHANGE token processing)
+        let begin_txn_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::BeginTransaction,
+            change_type: (0u64, 12345678u64).into(),
+        };
+        ctx.capture_change_property(&begin_txn_token, &mut new_ns())
+            .unwrap();
+
+        // Now transaction is active
+        assert!(ctx.has_active_transaction());
+        assert_eq!(ctx.get_transaction_descriptor(), 12345678);
+
+        // Simulate COMMIT TRANSACTION by setting descriptor back to 0
+        let commit_txn_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::CommitTransaction,
+            change_type: (12345678u64, 0u64).into(),
+        };
+        ctx.capture_change_property(&commit_txn_token, &mut new_ns())
+            .unwrap();
+
+        // Transaction is no longer active
+        assert!(!ctx.has_active_transaction());
+        assert_eq!(ctx.get_transaction_descriptor(), 0);
+    }
+
+    #[test]
+    fn test_set_has_open_batch() {
+        let mut ctx = ExecutionContext::new();
+        assert!(!ctx.has_open_batch());
+        ctx.set_has_open_batch(true);
+        assert!(ctx.has_open_batch());
+        ctx.set_has_open_batch(false);
+        assert!(!ctx.has_open_batch());
+    }
+
+    #[test]
+    fn test_set_has_open_result_set() {
+        let mut ctx = ExecutionContext::new();
+        assert!(!ctx.has_open_result_set());
+        ctx.set_has_open_result_set(true);
+        assert!(ctx.has_open_result_set());
+        ctx.set_has_open_result_set(false);
+        assert!(!ctx.has_open_result_set());
+    }
+
+    #[test]
+    fn test_capture_begin_transaction() {
+        let mut ctx = ExecutionContext::new();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::BeginTransaction,
+            change_type: EnvChangeContainer::from((0_u64, 12345_u64)),
+        };
+        ctx.capture_change_property(&change_token, &mut new_ns())
+            .unwrap();
+        assert_eq!(ctx.get_transaction_descriptor(), 12345);
+    }
+
+    #[test]
+    fn test_capture_commit_transaction() {
+        let mut ctx = ExecutionContext::new();
+        ctx.transaction_descriptor = 999;
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::CommitTransaction,
+            change_type: EnvChangeContainer::from((999_u64, 0_u64)),
+        };
+        ctx.capture_change_property(&change_token, &mut new_ns())
+            .unwrap();
+        assert_eq!(ctx.get_transaction_descriptor(), 0);
+    }
+
+    #[test]
+    fn test_capture_rollback_transaction() {
+        let mut ctx = ExecutionContext::new();
+        ctx.transaction_descriptor = 888;
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::RollbackTransaction,
+            change_type: EnvChangeContainer::from((888_u64, 0_u64)),
+        };
+        ctx.capture_change_property(&change_token, &mut new_ns())
+            .unwrap();
+        assert_eq!(ctx.get_transaction_descriptor(), 0);
+    }
+
+    #[test]
+    fn test_capture_database_change() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Database,
+            change_type: EnvChangeContainer::from(("OldDB".to_string(), "NewDB".to_string())),
+        };
+        let before = ns.database_change_count;
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+        assert_eq!(ns.database, "NewDB");
+        assert_eq!(ns.database_change_count, before.wrapping_add(1));
+    }
+
+    /// `USE [X]` while already in `X` reports an `ENV_DATABASE` whose old and
+    /// new names are equal. The name alone therefore cannot tell a consumer
+    /// anything changed, which is why the count advances regardless — msodbcsql
+    /// flags its `USER_NAME()` refresh on any such token without comparing
+    /// names (`sqlctokn.cpp:2866-2882`), and combined with an `EXECUTE AS` this
+    /// is the only signal that the database principal moved.
+    #[test]
+    fn test_capture_database_change_counts_a_same_name_event() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Database,
+            change_type: EnvChangeContainer::from(("master".to_string(), "master".to_string())),
+        };
+        let before = ns.database_change_count;
+
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+
+        assert_eq!(ns.database, "master", "the name is unchanged, as expected");
+        assert_eq!(
+            ns.database_change_count,
+            before.wrapping_add(1),
+            "a same-name database change must still be counted; the name cannot carry this"
+        );
+    }
+
+    #[test]
+    fn test_capture_language_change() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Language,
+            change_type: EnvChangeContainer::from(("".to_string(), "us_english".to_string())),
+        };
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+        assert_eq!(ns.language, "us_english");
+    }
+
+    #[test]
+    fn test_capture_sql_collation() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let collation = SqlCollation {
+            info: 0,
+            lcid_language_id: 1033,
+            col_flags: 0,
+            sort_id: 52,
+        };
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::SqlCollation,
+            change_type: EnvChangeContainer::from((Some(SqlCollation::default()), Some(collation))),
+        };
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+        assert_eq!(ns.database_collation.lcid_language_id, 1033);
+    }
+
+    #[test]
+    fn test_database_change_writes_through_to_negotiated_settings() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Database,
+            change_type: EnvChangeContainer::from(("master".to_string(), "tempdb".to_string())),
+        };
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+        assert_eq!(ns.database, "tempdb");
+    }
+
+    #[test]
+    fn test_language_change_writes_through_to_negotiated_settings() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Language,
+            change_type: EnvChangeContainer::from(("".to_string(), "français".to_string())),
+        };
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+        assert_eq!(ns.language, "français");
+    }
+
+    #[test]
+    fn test_collation_change_writes_through_to_negotiated_settings() {
+        let mut ctx = ExecutionContext::new();
+        let mut ns = new_ns();
+        let collation = SqlCollation {
+            info: 0,
+            lcid_language_id: 1036,
+            col_flags: 0,
+            sort_id: 52,
+        };
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::SqlCollation,
+            change_type: EnvChangeContainer::from((Some(SqlCollation::default()), Some(collation))),
+        };
+        ctx.capture_change_property(&change_token, &mut ns).unwrap();
+        assert_eq!(ns.database_collation.lcid_language_id, 1036);
+    }
+
+    #[test]
+    fn test_capture_enlist_dtc_transaction() {
+        let mut ctx = ExecutionContext::new();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::EnlistDtcTransaction,
+            change_type: EnvChangeContainer::from((0_u64, 54321_u64)),
+        };
+        ctx.capture_change_property(&change_token, &mut new_ns())
+            .unwrap();
+        assert_eq!(ctx.get_transaction_descriptor(), 54321);
+    }
+
+    #[test]
+    fn test_capture_defect_transaction() {
+        let mut ctx = ExecutionContext::new();
+        ctx.transaction_descriptor = 777;
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::DefectTransaction,
+            change_type: EnvChangeContainer::from((777_u64, 0_u64)),
+        };
+        ctx.capture_change_property(&change_token, &mut new_ns())
+            .unwrap();
+        assert_eq!(ctx.get_transaction_descriptor(), 0);
+    }
+
+    #[test]
+    fn test_capture_unknown_subtype() {
+        let mut ctx = ExecutionContext::new();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Unknown(255),
+            change_type: EnvChangeContainer::from((0_u64, 0_u64)),
+        };
+        // Should not error on unknown subtype
+        assert!(
+            ctx.capture_change_property(&change_token, &mut new_ns())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_capture_packet_size_error() {
+        let mut ctx = ExecutionContext::new();
+        let change_token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::PacketSize,
+            change_type: EnvChangeContainer::from((0_u64, 0_u64)),
+        };
+        assert!(
+            ctx.capture_change_property(&change_token, &mut new_ns())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_already_executing_error_constant() {
+        assert!(ALREADY_EXECUTING_ERROR.contains("open batch"));
+    }
+
+    // --- Type mismatch error tests ---
+
+    #[test]
+    fn test_transaction_with_non_uint64_container() {
+        let mut ctx = ExecutionContext::new();
+        for sub_type in [
+            EnvChangeTokenSubType::BeginTransaction,
+            EnvChangeTokenSubType::CommitTransaction,
+            EnvChangeTokenSubType::RollbackTransaction,
+            EnvChangeTokenSubType::EnlistDtcTransaction,
+            EnvChangeTokenSubType::DefectTransaction,
+        ] {
+            let token = EnvChangeToken {
+                sub_type,
+                change_type: EnvChangeContainer::from(("a".to_string(), "b".to_string())),
+            };
+            let err = ctx
+                .capture_change_property(&token, &mut new_ns())
+                .unwrap_err();
+            assert!(
+                matches!(err, crate::error::Error::ProtocolError(ref msg) if msg.contains("UInt64")),
+                "Expected ProtocolError for {sub_type:?}, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_database_with_non_string_container() {
+        let mut ctx = ExecutionContext::new();
+        let token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Database,
+            change_type: EnvChangeContainer::from((0_u64, 1_u64)),
+        };
+        let err = ctx
+            .capture_change_property(&token, &mut new_ns())
+            .unwrap_err();
+        assert!(
+            matches!(err, crate::error::Error::ProtocolError(ref msg) if msg.contains("String"))
+        );
+    }
+
+    #[test]
+    fn test_language_with_non_string_container() {
+        let mut ctx = ExecutionContext::new();
+        let token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::Language,
+            change_type: EnvChangeContainer::from((0_u64, 1_u64)),
+        };
+        let err = ctx
+            .capture_change_property(&token, &mut new_ns())
+            .unwrap_err();
+        assert!(
+            matches!(err, crate::error::Error::ProtocolError(ref msg) if msg.contains("String"))
+        );
+    }
+
+    #[test]
+    fn test_sql_collation_with_non_collation_container() {
+        let mut ctx = ExecutionContext::new();
+        let token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::SqlCollation,
+            change_type: EnvChangeContainer::from(("a".to_string(), "b".to_string())),
+        };
+        let err = ctx
+            .capture_change_property(&token, &mut new_ns())
+            .unwrap_err();
+        assert!(
+            matches!(err, crate::error::Error::ProtocolError(ref msg) if msg.contains("Collation"))
+        );
+    }
+
+    // --- Unimplemented feature tests ---
+
+    #[test]
+    fn test_unimplemented_env_change_subtypes() {
+        let mut ctx = ExecutionContext::new();
+        let dummy = EnvChangeContainer::from((0_u64, 0_u64));
+        let unimplemented_subtypes = [
+            EnvChangeTokenSubType::CharacterSet,
+            EnvChangeTokenSubType::UnicodeDataSortingLocalId,
+            EnvChangeTokenSubType::UnicodeDataSortingComparisonFlags,
+            EnvChangeTokenSubType::DatabaseMirroringPartner,
+            EnvChangeTokenSubType::PromoteTransaction,
+            EnvChangeTokenSubType::TransactionManagerAddress,
+            EnvChangeTokenSubType::TransactionEnded,
+            EnvChangeTokenSubType::UserInstanceName,
+            EnvChangeTokenSubType::Routing,
+            EnvChangeTokenSubType::EnhancedRouting,
+        ];
+        for sub_type in unimplemented_subtypes {
+            let token = EnvChangeToken {
+                sub_type,
+                change_type: dummy.clone(),
+            };
+            let err = ctx
+                .capture_change_property(&token, &mut new_ns())
+                .unwrap_err();
+            assert!(
+                matches!(err, crate::error::Error::UnimplementedFeature { .. }),
+                "Expected UnimplementedFeature for {sub_type:?}, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_reset_connection_env_change_is_accepted() {
+        // The server sends a ResetConnection ENVCHANGE to acknowledge a
+        // RESETCONNECTION / RESETCONNECTIONSKIPTRAN request. It must be
+        // accepted gracefully rather than treated as an unimplemented feature.
+        let mut ctx = ExecutionContext::new();
+        let token = EnvChangeToken {
+            sub_type: EnvChangeTokenSubType::ResetConnection,
+            change_type: EnvChangeContainer::from((Vec::<u8>::new(), Vec::<u8>::new())),
+        };
+        assert!(ctx.capture_change_property(&token, &mut new_ns()).is_ok());
+    }
+}

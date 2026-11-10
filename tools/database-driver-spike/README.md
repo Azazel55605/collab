@@ -46,3 +46,9 @@ database::tests -- --test-threads=1`, then add `--native-adapter` to the harness
 command. It seeds paginated metadata fixtures and runs one ignored native registry
 integration test per owned SQL Server instance. Reports record the native checks
 separately; this does not certify OS keystore or installed GUI behavior.
+
+Phase 2 extends the same native fixture with query execution, multi-results,
+transaction observation, cancellation, bounded values/results/diagnostics,
+server-side stopped-work checks and unknown outcomes. `--native-only` skips the
+published-driver comparison for focused adapter verification. Numeric/boolean
+query metrics are recorded separately from fixture metadata.

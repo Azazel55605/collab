@@ -2,10 +2,12 @@
 //! secrets, selected files and authorization; scripts never grant execution authority.
 
 mod session;
+mod sql;
 mod stream;
 mod values;
 
 pub use session::*;
+pub use sql::*;
 pub use stream::*;
 pub use values::*;
 

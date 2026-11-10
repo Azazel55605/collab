@@ -14,11 +14,13 @@ export default function MetadataExplorer({
   connectionId,
   binding,
   onOpen,
+  onBrowse,
 }: {
   token: string;
   connectionId: string;
   binding: DatabaseBinding | null;
   onOpen: (database: string) => void;
+  onBrowse?: (schema: string, table: string) => void;
 }) {
   const initial: DatabaseMetadataRequest = binding
     ? { kind: 'schemas', after: 0 }
@@ -125,6 +127,15 @@ export default function MetadataExplorer({
               )}
               {current.request.kind === 'objects' && (
                 <>
+                  {onBrowse && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onBrowse(current.title, item.name)}
+                    >
+                      Browse rows
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"

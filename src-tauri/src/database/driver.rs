@@ -23,6 +23,8 @@ pub fn classify(error: Error) -> E {
     match error {
         Error::TlsError(_) | Error::TlsHandshakeError { .. } => E::TlsRejected,
         Error::TimeoutError(_) => E::Timeout,
+        Error::OperationCancelledError(_) => E::Cancelled,
+        Error::EncodedValueTooLong { .. } => E::LimitReached,
         Error::SqlServerError { diagnostics } => {
             if diagnostics
                 .errors
@@ -45,7 +47,8 @@ pub fn classify(error: Error) -> E {
 }
 
 pub struct Live {
-    client: Mutex<Option<TdsClient>>,
+    pub(super) client: Mutex<Option<TdsClient>>,
+    pub query: super::query::Runtime,
     pub cancel: CancellationToken,
     _permit: OwnedSemaphorePermit,
 }
@@ -74,13 +77,22 @@ impl Live {
         );
         let provider = TdsConnectionProvider::new();
         let endpoint = format!("tcp:{},{}", config.host, config.port);
-        let client = tokio::select! {
+        let mut client = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(E::WrongBinding),
             result = tokio::time::timeout(Duration::from_secs(12), provider.create_client(context, &endpoint, None)) => result.map_err(|_| E::Timeout)?.map_err(classify)?,
         };
+        client.set_info_message_limits(256, 64 << 10);
+        // Establish the application's explicit new-session baseline. User SQL can
+        // still open transactions/change options; execution probes expose that.
+        tokio::select! {biased;_ = cancel.cancelled()=>return Err(E::WrongBinding),result=tokio::time::timeout(Duration::from_secs(3),async {
+            let mut result=client.execute("SET IMPLICIT_TRANSACTIONS OFF;".into(),ExecuteOptions::new().timeout_secs(2)).await.map_err(classify)?;
+            while !matches!(result,StatementResult::End){result=client.advance().await.map_err(classify)?;}
+            client.close_query().await.map_err(classify)
+        })=>result.map_err(|_|E::Timeout)??};
         Ok(Arc::new(Self {
             client: Mutex::new(Some(client)),
+            query: Default::default(),
             cancel,
             _permit: permit,
         }))
@@ -106,6 +118,7 @@ impl Live {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MetadataRequest {
+    Completion { after: String },
     Databases { after: String },
     Schemas { after: i32 },
     Objects { schema_id: i32, after: i32 },
@@ -115,6 +128,8 @@ pub enum MetadataRequest {
 impl MetadataRequest {
     fn sql(&self) -> Result<(String, Vec<RpcParameter>), E> {
         let (sql, values) = match self {
+            Self::Completion{after}=>{let (object,column)=after.split_once(':').ok_or(E::InvalidParameter)?;let object=nonnegative(object.parse().map_err(|_|E::InvalidParameter)?)?;let column=nonnegative(column.parse().map_err(|_|E::InvalidParameter)?)?;
+            ("SELECT TOP(101) CAST(CONCAT(o.object_id,':',c.column_id) AS nvarchar(40)), CAST(c.name AS nvarchar(128)), CAST(o.name AS nvarchar(128)), CAST(s.name AS nvarchar(128)) FROM sys.objects o JOIN sys.schemas s ON o.schema_id=s.schema_id JOIN sys.columns c ON c.object_id=o.object_id WHERE o.type IN ('U','V') AND o.is_ms_shipped=0 AND (o.object_id>@P1 OR (o.object_id=@P1 AND c.column_id>@P2)) ORDER BY o.object_id,c.column_id",vec![SqlType::Int(Some(object)),SqlType::Int(Some(column))])},
             Self::Databases { after } => {
                 if after.len()>512 || after.contains('\0') {return Err(E::InvalidParameter);}
                 ("SELECT TOP(101) CAST(name AS nvarchar(128)), CAST(name AS nvarchar(128)), N'database', N'' FROM sys.databases WHERE HAS_DBACCESS(name)=1 AND state=0 AND name > @P1 ORDER BY name",vec![SqlType::NVarchar(Some(SqlString::from_utf8_string(after.clone())),512)])

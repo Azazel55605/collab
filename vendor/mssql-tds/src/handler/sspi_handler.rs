@@ -1,0 +1,369 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! SSPI Authentication Handler
+//!
+//! This module provides the `SspiAuthHandler` which manages the SSPI/GSSAPI
+//! authentication flow with SQL Server. It abstracts the platform-specific
+//! security context operations and handles the multi-round authentication
+//! protocol.
+//!
+//! # Authentication Flow
+//!
+//! 1. **Initial Token**: Generate first SSPI token for Login7 packet
+//! 2. **Challenge-Response Loop**: Exchange tokens until authentication completes
+//!    - Receive SSPI challenge token from server (token type 0xED)
+//!    - Generate response using security context
+//!    - Send response in SSPI message (packet type 0x11)
+//! 3. **Completion**: Security context indicates authentication complete
+//!
+//! # Platform Support
+//!
+//! - **Windows**: Uses SSPI with Negotiate/Kerberos/NTLM packages
+//! - **Linux/macOS**: Uses GSSAPI with Kerberos
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! let config = context.integrated_auth_config();
+//! let mut handler = SspiAuthHandler::new(&config, "server.domain.com", 1433, None)?;
+//!
+//! // Get initial token for Login7
+//! let initial_token = handler.get_initial_token()?;
+//!
+//! // Later, when server sends challenge:
+//! if let Some(response) = handler.process_challenge(&challenge_data)? {
+//!     // Send response to server
+//! }
+//! ```
+
+use crate::core::TdsResult;
+use crate::error::Error;
+use crate::security::{
+    IntegratedAuthConfig, SecurityContext, SecurityContextProvider, SecurityError,
+    create_security_context,
+};
+
+/// State machine for SSPI authentication
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SspiAuthState {
+    /// Not started yet
+    Initial,
+    /// Sent initial token, waiting for server challenge
+    WaitingForChallenge,
+    /// Processing challenge, sending response
+    SendingResponse,
+    /// Authentication completed successfully
+    Complete,
+    /// Authentication failed
+    Failed,
+}
+
+/// Handler for SSPI/GSSAPI authentication with SQL Server.
+///
+/// This handler manages the security context and handles the multi-round
+/// authentication protocol used by SSPI and GSSAPI.
+pub(crate) struct SspiAuthHandler {
+    /// The platform-specific security context
+    security_context: Box<dyn SecurityContext>,
+    /// Current authentication state
+    state: SspiAuthState,
+    /// Target SPN, recorded on the login's connect stage.
+    target_spn: String,
+}
+
+impl SspiAuthHandler {
+    /// Creates a new SSPI authentication handler.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The integrated authentication configuration
+    /// * `server` - The server hostname or IP address
+    /// * `port` - The server port
+    /// * `provider` - Custom context provider; `None` uses the platform one
+    ///
+    /// # Returns
+    ///
+    /// A new handler ready to generate the initial token, or an error
+    /// if the security context could not be created.
+    pub(crate) fn new(
+        config: &IntegratedAuthConfig,
+        server: &str,
+        port: u16,
+        provider: Option<&dyn SecurityContextProvider>,
+    ) -> TdsResult<Self> {
+        let security_context = match provider {
+            Some(provider) => provider.create_context(config, server, port)?,
+            None => create_security_context(config, server, port)?,
+        };
+        let target_spn = security_context.imported_name().to_string();
+
+        Ok(Self {
+            security_context,
+            state: SspiAuthState::Initial,
+            target_spn,
+        })
+    }
+
+    /// Creates a new handler using a pre-created security context.
+    ///
+    /// This is useful for testing with mock security contexts.
+    #[cfg(test)]
+    pub(crate) fn with_context(
+        security_context: Box<dyn SecurityContext>,
+        target_spn: String,
+    ) -> Self {
+        Self {
+            security_context,
+            state: SspiAuthState::Initial,
+            target_spn,
+        }
+    }
+
+    /// Generates the initial SSPI token to include in the Login7 packet.
+    ///
+    /// This must be called before any challenge-response exchange.
+    ///
+    /// # Returns
+    ///
+    /// The initial authentication token bytes, or an error if token
+    /// generation failed.
+    pub(crate) fn get_initial_token(&mut self) -> TdsResult<Vec<u8>> {
+        if self.state != SspiAuthState::Initial {
+            return Err(Error::Security(SecurityError::InitContextFailed {
+                message: "get_initial_token called in wrong state".to_string(),
+                code: 0,
+            }));
+        }
+
+        let result = self.security_context.generate_token(None)?;
+
+        if result.is_complete {
+            // Single-round authentication (possible with Kerberos)
+            self.state = SspiAuthState::Complete;
+        } else {
+            self.state = SspiAuthState::WaitingForChallenge;
+        }
+
+        Ok(result.data)
+    }
+
+    /// Processes a challenge token from the server and generates a response.
+    ///
+    /// # Arguments
+    ///
+    /// * `challenge` - The SSPI challenge token received from the server
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(data))` - Response token to send to server
+    /// * `Ok(None)` - Authentication complete, no more tokens needed
+    /// * `Err(...)` - Authentication failed
+    pub(crate) fn process_challenge(&mut self, challenge: &[u8]) -> TdsResult<Option<Vec<u8>>> {
+        match self.state {
+            SspiAuthState::WaitingForChallenge | SspiAuthState::SendingResponse => {}
+            SspiAuthState::Complete => return Ok(None),
+            SspiAuthState::Initial => {
+                return Err(Error::Security(SecurityError::InitContextFailed {
+                    message: "process_challenge called before get_initial_token".to_string(),
+                    code: 0,
+                }));
+            }
+            SspiAuthState::Failed => {
+                return Err(Error::Security(SecurityError::InitContextFailed {
+                    message: "Authentication already failed".to_string(),
+                    code: 0,
+                }));
+            }
+        }
+
+        self.state = SspiAuthState::SendingResponse;
+
+        let result = match self.security_context.generate_token(Some(challenge)) {
+            Ok(r) => r,
+            Err(e) => {
+                self.state = SspiAuthState::Failed;
+                return Err(Error::Security(e));
+            }
+        };
+
+        if result.is_complete {
+            self.state = SspiAuthState::Complete;
+            // Server may still expect a final response token
+            if result.data.is_empty() {
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(result.data))
+    }
+
+    /// [`Self::process_challenge`] on a blocking thread, so a security context
+    /// that blocks cannot stall the login's timeout and cancellation.
+    pub(crate) async fn process_challenge_off_runtime(
+        mut self,
+        challenge: Vec<u8>,
+    ) -> TdsResult<(Self, Option<Vec<u8>>)> {
+        crate::connection::blocking::off_runtime_thread(move || {
+            let response = self.process_challenge(&challenge)?;
+            Ok((self, response))
+        })
+        .await
+    }
+
+    /// Returns true if authentication is complete.
+    #[cfg(test)]
+    pub(crate) fn is_complete(&self) -> bool {
+        self.state == SspiAuthState::Complete
+    }
+
+    /// Returns the current authentication state.
+    #[cfg(test)]
+    pub(crate) fn state(&self) -> SspiAuthState {
+        self.state
+    }
+
+    /// Returns the target SPN being used for authentication.
+    pub(crate) fn target_spn(&self) -> &str {
+        &self.target_spn
+    }
+
+    /// Returns the security package name being used.
+    pub(crate) fn package_name(&self) -> &str {
+        self.security_context.package_name()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::security::mock::MockSecurityContext;
+
+    #[test]
+    fn test_sspi_handler_single_round() {
+        let mock = MockSecurityContext::single_round("test_token".as_bytes().to_vec());
+        let mut handler =
+            SspiAuthHandler::with_context(Box::new(mock), "MSSQLSvc/server:1433".to_string());
+
+        assert_eq!(handler.state(), SspiAuthState::Initial);
+
+        let initial_token = handler.get_initial_token().unwrap();
+        assert_eq!(initial_token, b"test_token");
+        assert!(handler.is_complete());
+    }
+
+    #[test]
+    fn test_sspi_handler_multi_round() {
+        let mock = MockSecurityContext::multi_round(
+            b"ntlm_type1".to_vec(), // Initial token
+            b"ntlm_type3".to_vec(), // Response to challenge
+        );
+        let mut handler =
+            SspiAuthHandler::with_context(Box::new(mock), "MSSQLSvc/server:1433".to_string());
+
+        // Get initial token
+        let initial_token = handler.get_initial_token().unwrap();
+        assert_eq!(initial_token, b"ntlm_type1");
+        assert!(!handler.is_complete());
+        assert_eq!(handler.state(), SspiAuthState::WaitingForChallenge);
+
+        // Process challenge
+        let response = handler.process_challenge(b"ntlm_type2_challenge").unwrap();
+        assert!(response.is_some());
+        assert_eq!(response.unwrap(), b"ntlm_type3");
+        assert!(handler.is_complete());
+    }
+
+    #[test]
+    fn test_sspi_handler_state_validation() {
+        let mock = MockSecurityContext::multi_round(b"token1".to_vec(), b"token2".to_vec());
+        let mut handler =
+            SspiAuthHandler::with_context(Box::new(mock), "MSSQLSvc/server:1433".to_string());
+
+        // Should fail if challenge is processed before initial token
+        let result = handler.process_challenge(b"challenge");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sspi_handler_getters() {
+        let mock = MockSecurityContext::single_round(vec![]);
+        let handler =
+            SspiAuthHandler::with_context(Box::new(mock), "MSSQLSvc/server:1433".to_string());
+
+        assert_eq!(handler.target_spn(), "MSSQLSvc/server:1433");
+        assert!(!handler.package_name().is_empty());
+    }
+
+    struct MockProvider;
+
+    impl SecurityContextProvider for MockProvider {
+        fn create_context(
+            &self,
+            _config: &IntegratedAuthConfig,
+            _server: &str,
+            _port: u16,
+        ) -> Result<Box<dyn SecurityContext>, SecurityError> {
+            Ok(Box::new(MockSecurityContext::single_round(
+                b"custom".to_vec(),
+            )))
+        }
+    }
+
+    #[test]
+    fn test_sspi_handler_uses_custom_provider() {
+        let config = IntegratedAuthConfig::new();
+        let mut handler = SspiAuthHandler::new(&config, "host", 1433, Some(&MockProvider)).unwrap();
+
+        assert_eq!(handler.get_initial_token().unwrap(), b"custom");
+    }
+
+    /// Records the thread each challenge round runs on.
+    struct ThreadRecordingContext(
+        MockSecurityContext,
+        std::sync::mpsc::Sender<std::thread::ThreadId>,
+    );
+
+    impl SecurityContext for ThreadRecordingContext {
+        fn package_name(&self) -> &str {
+            self.0.package_name()
+        }
+        fn generate_token(
+            &mut self,
+            server_token: Option<&[u8]>,
+        ) -> Result<crate::security::SspiAuthToken, SecurityError> {
+            if server_token.is_some() {
+                self.1.send(std::thread::current().id()).unwrap();
+            }
+            self.0.generate_token(server_token)
+        }
+        fn is_complete(&self) -> bool {
+            self.0.is_complete()
+        }
+        fn spn(&self) -> &str {
+            self.0.spn()
+        }
+    }
+
+    /// A provider's challenge round can block, so it must not run on the
+    /// thread polling the login's timeout and cancellation.
+    #[tokio::test]
+    async fn test_challenge_runs_off_the_runtime_thread() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mock = MockSecurityContext::multi_round(b"t1".to_vec(), b"t3".to_vec());
+        let mut handler = SspiAuthHandler::with_context(
+            Box::new(ThreadRecordingContext(mock, tx)),
+            "MSSQLSvc/server:1433".to_string(),
+        );
+        handler.get_initial_token().unwrap();
+
+        let (handler, response) = handler
+            .process_challenge_off_runtime(b"t2".to_vec())
+            .await
+            .unwrap();
+
+        assert_eq!(response.as_deref(), Some(&b"t3"[..]));
+        assert!(handler.is_complete());
+        assert_ne!(rx.recv().unwrap(), std::thread::current().id());
+    }
+}

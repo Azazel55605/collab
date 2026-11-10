@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 
 import { flushEditorPersistence } from '../store/editorStore';
 
+import { hasDatabaseDrafts } from './databaseLifecycle';
 import { runDocumentNavigation } from './documentNavigation';
 import { listenSafely } from './nativeSubscription';
 import { tauriCommands } from './tauri';
@@ -18,7 +19,14 @@ export function useDesktopQuitGuard() {
       pending = true;
       void (async () => {
         try {
-          const allowed = await runDocumentNavigation(() => {});
+          const documentsReady = await runDocumentNavigation(() => {});
+          const databasesReady =
+            documentsReady && !hasDatabaseDrafts() && (await tauriCommands.databaseCanQuit());
+          if (documentsReady && !databasesReady)
+            toast.error(
+              'Save SQL drafts and resolve or explicitly close database sessions before quitting. Open transactions are never committed on quit.',
+            );
+          const allowed = documentsReady && databasesReady;
           if (allowed && !disposed) flushEditorPersistence();
           await tauriCommands.backgroundCompleteQuit(allowed && !disposed);
         } catch (error) {

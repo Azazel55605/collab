@@ -1,0 +1,5640 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! TDS value serialization utilities for RPC parameters and bulk copy operations.
+//!
+//! This module provides shared value encoding logic that can be used by both
+//! RPC parameter serialization (SqlType) and bulk copy ROW token serialization.
+//! It separates the concerns of type metadata encoding from value encoding.
+
+use std::borrow::Cow;
+
+use crate::core::TdsResult;
+use crate::datatypes::column_values::ColumnValues;
+use crate::datatypes::sql_json::SqlJson;
+use crate::datatypes::sql_string::{
+    EncodingType, NARROW_SUBSTITUTE_BYTE, NarrowEncoded, SqlString, encode_narrow,
+    encode_narrow_with, try_resolve_collation,
+};
+use crate::datatypes::sql_vector::{SqlVector, VectorData};
+use crate::datatypes::sqldatatypes::TdsDataType;
+use crate::datatypes::sqltypes::get_time_length_from_scale;
+use crate::error::Error;
+use crate::io::packet_writer::{PacketWriter, TdsPacketWriter, TdsPacketWriterUnchecked};
+use crate::token::tokens::SqlCollation;
+
+// NULL markers for different type classes
+pub(crate) const NULL_LENGTH: u8 = 0x00;
+pub(crate) const VARNULL: u16 = 0xFFFF;
+
+/// PLP sentinel indicating a SQL NULL value.
+pub const PLP_NULL: u64 = 0xFFFFFFFFFFFFFFFF;
+/// PLP sentinel indicating unknown total length.
+pub const PLP_UNKNOWN_LEN: u64 = 0xFFFFFFFFFFFFFFFE;
+/// PLP chunk terminator (zero-length chunk).
+pub const PLP_TERMINATOR: u32 = 0x00000000;
+
+// TDS type byte constants for string types
+const NVARCHAR: u8 = TdsDataType::NVarChar as u8; // 0xE7
+const NCHAR: u8 = TdsDataType::NChar as u8; // 0xEF
+const NTEXT: u8 = TdsDataType::NText as u8; // 0x63
+const VARCHAR: u8 = TdsDataType::BigVarChar as u8; // 0xA7
+const CHAR: u8 = TdsDataType::BigChar as u8; // 0xAF
+const TEXT: u8 = TdsDataType::Text as u8; // 0x23
+const SQL_VARIANT: u8 = TdsDataType::SsVariant as u8; // 0x62
+
+/// Collation a `sql_variant`'s inner string declares and is encoded under
+/// when no collation is otherwise known: US English / SQL_Latin1_General_CP1_CI_AS
+/// (LCID 1033). Shared by [`TdsValueSerializer::write_type_info_bytes`] and
+/// [`TdsValueSerializer::resolve_narrow_wire_bytes`] so the declared
+/// `VARIANT_PROPERTIES` collation and the collation the narrow payload is
+/// actually transcoded under can never independently drift apart in this
+/// no-collation case.
+const DEFAULT_VARIANT_COLLATION: SqlCollation = SqlCollation {
+    info: 0x00000409, // LCID 1033 (US English)
+    lcid_language_id: 0x0409,
+    col_flags: 0,
+    sort_id: 52, // SQL_Latin1_General_CP1_CI_AS
+};
+
+// TDS type byte constant for binary types
+const IMAGE: u8 = TdsDataType::Image as u8; // 0x22
+
+/// Context for value serialization, containing type metadata needed for encoding.
+///
+/// This struct encapsulates the TDS type information required to properly encode
+/// a value without duplicating the type metadata itself.
+#[derive(Debug, Clone)]
+pub struct TdsTypeContext {
+    /// TDS type byte (e.g., 0x26 for INTN, 0xE7 for NVARCHAR)
+    pub tds_type: u8,
+
+    /// Maximum type size (for nullable types: 1/2/4/8 for INTN, 4/8 for FLTN, etc.)
+    /// For NVARCHAR/NCHAR: character count (not byte count)
+    /// For VARCHAR/CHAR: byte count
+    /// Can be up to 8000 for NVARCHAR(4000) or VARCHAR(8000)
+    pub max_size: usize,
+
+    /// Whether this is a PLP (Partial Length Prefix) type (MAX types)
+    pub is_plp: bool,
+
+    /// Whether this is a fixed-length type (e.g., BINARY(n) vs VARBINARY(n)), or an
+    /// element of sql_variant with fixed length (e.g., INT4, GUID, NUMERIC inside sql_variant).
+    /// Fixed-length types write exactly max_size bytes with no length prefix in ROW tokens
+    pub is_fixed_length: bool,
+
+    /// For Decimal/Numeric: precision
+    pub precision: Option<u8>,
+
+    /// For Decimal/Numeric/Time/DateTime2/DateTimeOffset: scale
+    #[allow(dead_code)]
+    pub scale: Option<u8>,
+
+    /// Collation for string types (CHAR/VARCHAR/NCHAR/NVARCHAR/TEXT/NTEXT)
+    pub collation: Option<SqlCollation>,
+
+    /// Whether the type is nullable (affects NULL encoding)
+    #[allow(dead_code)]
+    pub is_nullable: bool,
+}
+
+impl TdsTypeContext {
+    /// Check if this is a fixed-length type (no length prefix needed in ROW data).
+    pub fn is_fixed_type(&self) -> bool {
+        matches!(
+            self.tds_type,
+            // Fixed types: INT1-INT8, BIT, FLT4, FLT8, DATETIME, MONEY, etc.
+            0x30..=0x3F | 0x7A | 0x7F
+        )
+    }
+}
+
+/// Main value serializer - writes ONLY the value bytes (no type metadata).
+pub struct TdsValueSerializer;
+
+impl TdsValueSerializer {
+    fn effective_narrow_string_byte_limit(
+        value: &SqlString,
+        column_limit: Option<usize>,
+    ) -> Option<usize> {
+        match (value.narrow_string_byte_limit(), column_limit) {
+            (Some(value_limit), Some(column_limit)) => Some(value_limit.min(column_limit)),
+            (Some(value_limit), None) => Some(value_limit),
+            (None, column_limit) => column_limit,
+        }
+    }
+
+    fn narrow_string_maximum(
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> Option<usize> {
+        match (narrow_string_byte_limit, ctx.is_plp) {
+            (Some(maximum), false) => Some(maximum.min(ctx.max_size)),
+            (Some(maximum), true) => Some(maximum),
+            (None, false) => Some(ctx.max_size),
+            (None, true) => None,
+        }
+    }
+
+    /// Serialize a value using the provided type context.
+    ///
+    /// This writes ONLY the value portion:
+    /// - For nullable types (INTN, FLTN): length byte + value bytes
+    /// - For fixed types (INT4, FLT8): value bytes only
+    /// - For variable-length types: length prefix + value bytes
+    /// - For PLP types: total_length + chunks + terminator
+    ///
+    /// Type metadata (TDS type byte, max_size, precision, scale, collation)
+    /// must be written separately by the caller.
+    #[inline]
+    pub async fn serialize_value<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &ColumnValues,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        if ctx.tds_type == SQL_VARIANT {
+            return Self::serialize_as_variant(writer, value, ctx, None, false).await;
+        }
+
+        Self::serialize_value_inner(writer, value, ctx, None, false).await
+    }
+
+    #[inline]
+    pub(crate) async fn serialize_value_with_narrow_string_byte_limit<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &ColumnValues,
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Check if target column is sql_variant (TDS type SQL_VARIANT)
+        // If so, wrap the value with variant wire format
+        if ctx.tds_type == SQL_VARIANT {
+            return Self::serialize_as_variant(writer, value, ctx, narrow_string_byte_limit, true)
+                .await;
+        }
+
+        Self::serialize_value_inner(writer, value, ctx, narrow_string_byte_limit, true).await
+    }
+
+    pub(crate) fn validate_narrow_string_length(
+        value: &ColumnValues,
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<()> {
+        if !matches!(ctx.tds_type, VARCHAR | CHAR | TEXT) {
+            return Ok(());
+        }
+
+        let narrow_string_byte_limit = match value {
+            ColumnValues::String(value) => {
+                Self::effective_narrow_string_byte_limit(value, narrow_string_byte_limit)
+            }
+            _ => narrow_string_byte_limit,
+        };
+        let Some(maximum) = Self::narrow_string_maximum(ctx, narrow_string_byte_limit) else {
+            return Ok(());
+        };
+        Self::narrow_string_bytes(value, ctx, Some(maximum))?;
+        Ok(())
+    }
+
+    pub(crate) fn narrow_string_bytes<'a>(
+        value: &'a ColumnValues,
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<Option<(Cow<'a, [u8]>, bool)>> {
+        let ColumnValues::String(value) = value else {
+            return Ok(None);
+        };
+        if !matches!(ctx.tds_type, VARCHAR | CHAR | TEXT) {
+            return Ok(None);
+        }
+
+        let narrow_string_byte_limit =
+            Self::effective_narrow_string_byte_limit(value, narrow_string_byte_limit);
+        let maximum = Self::narrow_string_maximum(ctx, narrow_string_byte_limit);
+        if let Some(bytes) = value.as_raw_wire_bytes() {
+            let bytes = match maximum {
+                Some(maximum) => Self::fit_narrow_bytes(bytes, maximum)?,
+                None => bytes,
+            };
+            return Ok(Some((Cow::Borrowed(bytes), false)));
+        }
+
+        let text = value.to_utf8_string();
+        let mut encoded = Self::encode_narrow_for_wire(&text, ctx.collation);
+        if let Some(maximum) = maximum {
+            let fitted_len = Self::fit_narrow_bytes(&encoded.bytes, maximum)?.len();
+            encoded.bytes.truncate(fitted_len);
+        }
+        Ok(Some((Cow::Owned(encoded.bytes), encoded.had_loss)))
+    }
+
+    /// Shared by the async string serializer and the batched RPC fast path so
+    /// both emit the same event from the same target.
+    pub(crate) fn trace_variable_length_string(
+        is_unicode: bool,
+        tds_type: u8,
+        char_count: usize,
+        data_len: usize,
+    ) {
+        tracing::debug!(
+            "Writing variable-length string: is_unicode={}, tds_type=0x{:02X}, char_count={}, data_len={}, length_prefix={}, utf16_bytes.len()={}",
+            is_unicode,
+            tds_type,
+            char_count,
+            data_len,
+            data_len as u16,
+            data_len
+        );
+    }
+
+    /// Serialize a NULL value using the appropriate NULL marker for the type.
+    #[inline(always)]
+    pub async fn serialize_null<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Check type class and write appropriate NULL marker
+        match ctx.tds_type {
+            // Legacy LOB types (TEXT, NTEXT, IMAGE) use single byte 0x00 for NULL
+            0x23 | 0x63 | 0x22 => {
+                writer.write_byte_async(0x00).await?;
+            }
+            // Nullable types (INTN, FLTN, BITN, MONEYN, DATETIMEN, DecimalN, NumericN, Guid, DateN, TimeN, DateTime2N, DateTimeOffsetN) use length = 0x00
+            0x26 | 0x6D | 0x68 | 0x6E | 0x6F | 0x6A | 0x6C | 0x24 | 0x28 | 0x29 | 0x2A | 0x2B => {
+                writer.write_byte_async(NULL_LENGTH).await?;
+            }
+            // Fixed BIT type (0x32) cannot be NULL - must use BitN (0x68) for nullable
+            0x32 => {
+                return Err(Error::UsageError(
+                    "Cannot serialize NULL for fixed BIT type 0x32. Use BitN (0x68) for nullable BIT columns.".to_string()
+                ));
+            }
+            _ => {
+                // Other types depend on length classification
+                if ctx.is_plp {
+                    // PLP NULL: 8 bytes of 0xFF
+                    writer.write_u64_async(PLP_NULL).await?;
+                } else if ctx.is_fixed_type() {
+                    // Fixed-length types cannot be NULL - must use nullable variant (INTN, FLTN, etc.)
+                    return Err(Error::UsageError(format!(
+                        "Cannot serialize NULL for fixed-length type 0x{:02X}.",
+                        ctx.tds_type
+                    )));
+                } else {
+                    // Variable-length NULL: 0xFFFF
+                    writer.write_u16_async(VARNULL).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_bit<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: bool,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        let byte_value = if value { 1u8 } else { 0u8 };
+
+        if !ctx.is_fixed_type() {
+            // Nullable BIT (BITN with length 1): length byte + value (2 bytes total)
+            match writer.has_space(2) {
+                false => {
+                    writer.write_byte_async(1).await?; // Length for BITN (1 byte)
+                    writer.write_byte_async(byte_value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(1); // Length for BITN (1 byte)
+                    writer.write_byte_unchecked(byte_value);
+                }
+            }
+        } else {
+            // Fixed type (BIT, 0x32) - just write value (1 byte)
+            match writer.has_space(1) {
+                false => {
+                    writer.write_byte_async(byte_value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(byte_value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_tinyint<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: u8,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Phase 1 Optimization: Batch writes for fixed types
+        if !ctx.is_fixed_type() {
+            // Nullable TINYINT (INTN with length 1): length byte + value (2 bytes total)
+            match writer.has_space(2) {
+                false => {
+                    writer.write_byte_async(1).await?; // Length for INTN (1 byte)
+                    writer.write_byte_async(value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(1); // Length for INTN (1 byte)
+                    writer.write_byte_unchecked(value);
+                }
+            }
+        } else {
+            // Fixed type (INT1, 0x30) - just write value (1 byte)
+            match writer.has_space(1) {
+                false => {
+                    writer.write_byte_async(value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_smallint<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: i16,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Phase 1 Optimization: Batch writes for fixed types
+        if !ctx.is_fixed_type() {
+            // Nullable SMALLINT (INTN with length 2): length byte + value (3 bytes total)
+            match writer.has_space(3) {
+                false => {
+                    writer.write_byte_async(2).await?; // Length for INTN (2 bytes)
+                    writer.write_i16_async(value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(2); // Length for INTN (2 bytes)
+                    writer.write_i16_unchecked(value);
+                }
+            }
+        } else {
+            // Fixed type (INT2, 0x34) - just write value (2 bytes)
+            match writer.has_space(2) {
+                false => {
+                    writer.write_i16_async(value).await?;
+                }
+                true => {
+                    writer.write_i16_unchecked(value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_int<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: i32,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Phase 1 Optimization: Batch writes for fixed types
+        if !ctx.is_fixed_type() {
+            // Ensure space for length byte + value (5 bytes total)
+            match writer.has_space(5) {
+                false => {
+                    writer.write_byte_async(4).await?; // Length for INTN
+                    writer.write_i32_async(value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(4); // Length for INTN
+                    writer.write_i32_unchecked(value);
+                }
+            }
+        } else {
+            // Fixed type - just write value (4 bytes)
+            match writer.has_space(4) {
+                false => {
+                    writer.write_i32_async(value).await?;
+                }
+                true => {
+                    writer.write_i32_unchecked(value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_bigint<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: i64,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Phase 1 Optimization: Batch writes for fixed types
+        if !ctx.is_fixed_type() {
+            // Nullable BIGINT (INTN with length 8): length byte + value (9 bytes total)
+            match writer.has_space(9) {
+                false => {
+                    writer.write_byte_async(8).await?; // Length for INTN (8 bytes)
+                    writer.write_i64_async(value).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(8); // Length for INTN (8 bytes)
+                    writer.write_i64_unchecked(value);
+                }
+            }
+        } else {
+            // Fixed type (INT8, 0x7F) - just write value (8 bytes)
+            match writer.has_space(8) {
+                false => {
+                    writer.write_i64_async(value).await?;
+                }
+                true => {
+                    writer.write_i64_unchecked(value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_real<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: f32,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // REAL is 4-byte IEEE 754 float
+        // TDS FloatN format: length byte + IEEE 754 bytes (little-endian)
+        if !ctx.is_fixed_type() {
+            // Nullable REAL (FLOATN with length 4): length byte + value (5 bytes total)
+            match writer.has_space(5) {
+                false => {
+                    writer.write_byte_async(4).await?; // Length for FLOATN (4 bytes)
+                    // Write f32 as i32 bytes (same bit pattern)
+                    writer.write_i32_async(value.to_bits() as i32).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(4); // Length for FLOATN (4 bytes)
+                    // Write f32 as i32 bytes (same bit pattern)
+                    writer.write_i32_unchecked(value.to_bits() as i32);
+                }
+            }
+        } else {
+            // Fixed type (FLT4, 0x3B) - just write value (4 bytes)
+            match writer.has_space(4) {
+                false => {
+                    // Write f32 as i32 bytes (same bit pattern)
+                    writer.write_i32_async(value.to_bits() as i32).await?;
+                }
+                true => {
+                    // Write f32 as i32 bytes (same bit pattern)
+                    writer.write_i32_unchecked(value.to_bits() as i32);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_float<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: f64,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // FLOAT is 8-byte IEEE 754 double
+        // TDS FloatN format: length byte + IEEE 754 bytes (little-endian)
+        if !ctx.is_fixed_type() {
+            // Nullable FLOAT (FLOATN with length 8): length byte + value (9 bytes total)
+            match writer.has_space(9) {
+                false => {
+                    writer.write_byte_async(8).await?; // Length for FLOATN (8 bytes)
+                    writer.write_f64_unchecked(value);
+                }
+                true => {
+                    writer.write_byte_unchecked(8); // Length for FLOATN (8 bytes)
+                    writer.write_f64_unchecked(value);
+                }
+            }
+        } else {
+            // Fixed type (FLT8, 0x3E) - just write value (8 bytes)
+            match writer.has_space(8) {
+                false => {
+                    // Write f64 as i64 bytes (same bit pattern)
+                    writer.write_i64_async(value.to_bits() as i64).await?;
+                }
+                true => {
+                    writer.write_f64_unchecked(value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_decimal<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::decoder::DecimalParts,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Decimal/Numeric format in TDS:
+        // - Length byte (number of bytes in the value, excluding the length byte)
+        // - Sign byte (0 = negative, 1 = positive)
+        // - Little-endian bytes representing the value
+        //
+        // Length is determined by precision (from metadata):
+        // Precision 1-9:   5 bytes (1 sign + 4 value bytes)
+        // Precision 10-19: 9 bytes (1 sign + 8 value bytes)
+        // Precision 20-28: 13 bytes (1 sign + 12 value bytes)
+        // Precision 29-38: 17 bytes (1 sign + 16 value bytes)
+
+        let precision = ctx.precision.unwrap_or(38);
+
+        // Determine required byte length based on precision
+        let value_bytes = match precision {
+            1..=9 => 4,
+            10..=19 => 8,
+            20..=28 => 12,
+            29..=38 => 16,
+            _ => {
+                return Err(Error::ProtocolError(format!(
+                    "Invalid precision {} for DECIMAL/NUMERIC type",
+                    precision
+                )));
+            }
+        };
+
+        let total_length = 1 + value_bytes; // sign byte + value bytes
+
+        // Write length byte (skip in case of sql_variant when is_fixed_length=true)
+        if !ctx.is_fixed_length {
+            writer.write_byte_async(total_length as u8).await?;
+        }
+
+        // Write sign byte
+        writer
+            .write_byte_async(if value.is_positive { 1 } else { 0 })
+            .await?;
+
+        // Write value bytes in little-endian order
+        // Pad with zeros if value has fewer chunks than needed
+        let chunks_needed = value_bytes / 4;
+        for i in 0..chunks_needed {
+            writer.write_i32_async(value.word(i)).await?;
+        }
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_smallmoney<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlSmallMoney,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // SMALLMONEY format in TDS:
+        // - For MoneyN (nullable, 0x6E): length byte (4) + 4-byte integer
+        // - For Money4 (fixed, 0x7A): 4-byte integer only
+        // The value is stored as a 4-byte signed integer scaled by 10,000
+        // (e.g., $123.4567 is stored as 1234567)
+
+        // Skip length prefix in case of sql_variant when is_fixed_length=true or
+        // when we're dealing with fixed Money types
+        if !ctx.is_fixed_type() && !ctx.is_fixed_length {
+            // MoneyN with length 4: length byte + value (5 bytes total)
+            match writer.has_space(5) {
+                false => {
+                    writer.write_byte_async(4).await?; // Length for MoneyN (4 bytes)
+                    writer.write_i32_async(value.int_val).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(4); // Length for MoneyN (4 bytes)
+                    writer.write_i32_unchecked(value.int_val);
+                }
+            }
+        } else {
+            // Fixed type (Money4, 0x7A) - just write value (4 bytes)
+            match writer.has_space(4) {
+                false => {
+                    writer.write_i32_async(value.int_val).await?;
+                }
+                true => {
+                    writer.write_i32_unchecked(value.int_val);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_money<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlMoney,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // MONEY format in TDS:
+        // - For MoneyN (nullable, 0x6E): length byte (8) + 8 bytes (two 4-byte integers)
+        // - For Money (fixed, 0x3C): 8 bytes (two 4-byte integers) only
+        // The value is stored as two 4-byte signed integers in mixed endian format:
+        //   - First 4 bytes: MSB (most significant 4 bytes)
+        //   - Second 4 bytes: LSB (least significant 4 bytes)
+        // The combined value is scaled by 10,000 (e.g., $123.4567 is stored as 1234567)
+
+        if !ctx.is_fixed_type() {
+            // MoneyN with length 8: length byte + value (9 bytes total)
+            match writer.has_space(9) {
+                false => {
+                    writer.write_byte_async(8).await?; // Length for MoneyN (8 bytes)
+                    writer.write_i32_async(value.msb_part).await?; // MSB first
+                    writer.write_i32_async(value.lsb_part).await?; // LSB second
+                }
+                true => {
+                    writer.write_byte_unchecked(8); // Length for MoneyN (8 bytes)
+                    writer.write_i32_unchecked(value.msb_part); // MSB first
+                    writer.write_i32_unchecked(value.lsb_part); // LSB second
+                }
+            }
+        } else {
+            // Fixed type (Money, 0x3C) - just write value (8 bytes)
+            match writer.has_space(8) {
+                false => {
+                    writer.write_i32_async(value.msb_part).await?; // MSB first
+                    writer.write_i32_async(value.lsb_part).await?; // LSB second
+                }
+                true => {
+                    writer.write_i32_unchecked(value.msb_part); // MSB first
+                    writer.write_i32_unchecked(value.lsb_part); // LSB second
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_date<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlDate,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // DATE format in TDS:
+        // - For DateN (nullable, 0x28): length byte (3) + 3-byte unsigned integer
+        // - For Date (fixed, 0x2A): 3-byte unsigned integer only
+        // - In sql_variant: 3-byte unsigned integer (no length prefix due to is_fixed_length flag)
+        // The value is stored as a 3-byte unsigned integer representing days since 0001-01-01
+        // Valid range: 1 (0001-01-01) to 3,652,059 (9999-12-31)
+        // The 3-byte unsigned integer can hold values up to 0xFFFFFF (16,777,215),
+        // but SQL Server DATE type has a more restricted range.
+
+        if !ctx.is_fixed_type() && !ctx.is_fixed_length {
+            // DateN with length 3: length byte + value (4 bytes total)
+            let days = value.get_days();
+            match writer.has_space(4) {
+                false => {
+                    writer.write_byte_async(3).await?; // Length for DateN (3 bytes)
+                    // Write 3 bytes in little-endian format (u32 as 3 bytes)
+                    writer.write_byte_async((days & 0xFF) as u8).await?;
+                    writer.write_byte_async(((days >> 8) & 0xFF) as u8).await?;
+                    writer.write_byte_async(((days >> 16) & 0xFF) as u8).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(3); // Length for DateN (3 bytes)
+                    // Write 3 bytes in little-endian format (u32 as 3 bytes)
+                    writer.write_byte_unchecked((days & 0xFF) as u8);
+                    writer.write_byte_unchecked(((days >> 8) & 0xFF) as u8);
+                    writer.write_byte_unchecked(((days >> 16) & 0xFF) as u8);
+                }
+            }
+        } else {
+            // Fixed type (Date, 0x2A) - just write value (3 bytes)
+            let days = value.get_days();
+
+            match writer.has_space(3) {
+                false => {
+                    writer.write_byte_async((days & 0xFF) as u8).await?;
+                    writer.write_byte_async(((days >> 8) & 0xFF) as u8).await?;
+                    writer.write_byte_async(((days >> 16) & 0xFF) as u8).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked((days & 0xFF) as u8);
+                    writer.write_byte_unchecked(((days >> 8) & 0xFF) as u8);
+                    writer.write_byte_unchecked(((days >> 16) & 0xFF) as u8);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_time<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlTime,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // TIME format in TDS:
+        // - For TimeN (nullable, 0x29): length byte + time_nanoseconds (3, 4, or 5 bytes)
+        // - For Time (fixed, 0x2A): time_nanoseconds only (3, 4, or 5 bytes)
+        // The value is stored as little-endian unsigned integer representing 100-nanosecond units
+        // Length depends on scale:
+        //   - Scale 0-2: 3 bytes
+        //   - Scale 3-4: 4 bytes
+        //   - Scale 5-7: 5 bytes
+
+        // Determine the byte length based on scale
+        let time_length = get_time_length_from_scale(value.scale)?;
+
+        // Scale the time value based on the scale
+        // The time_nanoseconds is always in 100-nanosecond units internally
+        // But SQL Server expects the value to be in units appropriate for the scale:
+        // Scale 0: seconds (divide by 10^7)
+        // Scale 1: tenths of seconds (divide by 10^6)
+        // Scale 2: hundredths of seconds (divide by 10^5)
+        // Scale 3: milliseconds (divide by 10^4)
+        // Scale 4: ten-thousandths (divide by 10^3)
+        // Scale 5: hundred-thousandths (divide by 10^2)
+        // Scale 6: microseconds (divide by 10^1)
+        // Scale 7: 100-nanoseconds (divide by 10^0 = no scaling)
+        let time_value = match value.scale {
+            0 => value.time_nanoseconds / 10_000_000, // Seconds
+            1 => value.time_nanoseconds / 1_000_000,  // Tenths
+            2 => value.time_nanoseconds / 100_000,    // Hundredths
+            3 => value.time_nanoseconds / 10_000,     // Milliseconds
+            4 => value.time_nanoseconds / 1_000,      // Ten-thousandths
+            5 => value.time_nanoseconds / 100,        // Hundred-thousandths
+            6 => value.time_nanoseconds / 10,         // Microseconds
+            7 => value.time_nanoseconds,              // 100-nanoseconds (no scaling)
+            _ => value.time_nanoseconds,
+        };
+
+        if !ctx.is_fixed_type() && !ctx.is_fixed_length {
+            // TimeN with length prefix
+            let total_size = (1 + time_length) as usize;
+            match writer.has_space(total_size) {
+                false => {
+                    writer.write_byte_async(time_length).await?; // Length byte
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        let byte_val = ((time_value >> (i * 8)) & 0xFF) as u8;
+                        writer.write_byte_async(byte_val).await?;
+                    }
+                }
+                true => {
+                    writer.write_byte_unchecked(time_length); // Length byte
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        let byte_val = ((time_value >> (i * 8)) & 0xFF) as u8;
+                        writer.write_byte_unchecked(byte_val);
+                    }
+                }
+            }
+        } else {
+            // Fixed type (Time, 0x2A) - just write value (3, 4, or 5 bytes)
+            match writer.has_space(time_length as usize) {
+                false => {
+                    for i in 0..time_length {
+                        writer
+                            .write_byte_async(((time_value >> (i * 8)) & 0xFF) as u8)
+                            .await?;
+                    }
+                }
+                true => {
+                    for i in 0..time_length {
+                        writer.write_byte_unchecked(((time_value >> (i * 8)) & 0xFF) as u8);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_datetime<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlDateTime,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // DATETIME format in TDS:
+        // - For DateTimeN (nullable, 0x6F): length byte (8) + 4-byte days + 4-byte time
+        // - For DateTime (fixed, 0x3D): 4-byte days + 4-byte time (8 bytes total)
+        //
+        // Days: Signed 32-bit integer representing days since January 1, 1900
+        //       (negative for dates before 1900, back to January 1, 1753)
+        // Time: Unsigned 32-bit integer representing 1/300th of a second since midnight
+        //       (300 ticks per second, range 0 to 25,919,999 for 23:59:59.997)
+
+        if !ctx.is_fixed_type() {
+            // DateTimeN with length 8: length byte + value (9 bytes total)
+            match writer.has_space(9) {
+                false => {
+                    writer.write_byte_async(8).await?; // Length for DateTimeN (8 bytes)
+                    writer.write_i32_async(value.days).await?;
+                    writer.write_u32_async(value.time).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(8); // Length for DateTimeN (8 bytes)
+                    writer.write_i32_unchecked(value.days);
+                    // Note: No unchecked version for u32, use the bytes directly
+                    let time_bytes = value.time.to_le_bytes();
+                    writer.write_byte_unchecked(time_bytes[0]);
+                    writer.write_byte_unchecked(time_bytes[1]);
+                    writer.write_byte_unchecked(time_bytes[2]);
+                    writer.write_byte_unchecked(time_bytes[3]);
+                }
+            }
+        } else {
+            // Fixed type (DateTime, 0x3D) - just write value (8 bytes)
+            match writer.has_space(8) {
+                false => {
+                    writer.write_i32_async(value.days).await?;
+                    writer.write_u32_async(value.time).await?;
+                }
+                true => {
+                    writer.write_i32_unchecked(value.days);
+                    // Note: No unchecked version for u32, use the bytes directly
+                    let time_bytes = value.time.to_le_bytes();
+                    writer.write_byte_unchecked(time_bytes[0]);
+                    writer.write_byte_unchecked(time_bytes[1]);
+                    writer.write_byte_unchecked(time_bytes[2]);
+                    writer.write_byte_unchecked(time_bytes[3]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_smalldatetime<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlSmallDateTime,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // SMALLDATETIME format in TDS:
+        // - For DateTimeN (nullable, 0x6F): length byte (4) + 2-byte days + 2-byte time
+        // - SMALLDATETIME always uses DateTimeN (0x6F) with length 4
+        //
+        // Days: Unsigned 16-bit integer representing days since January 1, 1900
+        //       (range 0 to 65535 for dates from 1900-01-01 to 2079-06-06)
+        // Time: Unsigned 16-bit integer representing minutes since midnight
+        //       (range 0 to 1439 for times from 00:00 to 23:59)
+
+        if !ctx.is_fixed_type() {
+            // DateTimeN with length 4: length byte + value (5 bytes total)
+            match writer.has_space(5) {
+                false => {
+                    writer.write_byte_async(4).await?; // Length for SmallDateTime (4 bytes)
+                    writer.write_u16_async(value.days).await?;
+                    writer.write_u16_async(value.time).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(4); // Length for SmallDateTime (4 bytes)
+                    writer.write_u16_unchecked(value.days);
+                    writer.write_u16_unchecked(value.time);
+                }
+            }
+        } else {
+            // Fixed type - just write value (4 bytes)
+            match writer.has_space(4) {
+                false => {
+                    writer.write_u16_async(value.days).await?;
+                    writer.write_u16_async(value.time).await?;
+                }
+                true => {
+                    writer.write_u16_unchecked(value.days);
+                    writer.write_u16_unchecked(value.time);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Serialize a UNIQUEIDENTIFIER (GUID/UUID) value.
+    ///
+    /// UNIQUEIDENTIFIER wire format:
+    /// - TDS type 0x24 (GUIDTYPE)
+    /// - Fixed 16-byte value in mixed-endian format
+    /// - Always uses nullable variant (no fixed GUID type)
+    ///
+    /// Format: 1-byte length (0x10 = 16) + 16 bytes GUID data
+    ///
+    /// The uuid crate's to_bytes_le() method directly produces the correct
+    /// SQL Server mixed-endian format (Data1-3 little-endian, Data4 big-endian).
+    #[inline(always)]
+    async fn serialize_uuid<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &uuid::Uuid,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // GUID wire format:
+        // - In sql_variant: Fixed 16 bytes (no length prefix)
+        // - In regular columns: 1-byte length (0x10) + 16 bytes of GUID data
+        let guid_bytes = value.to_bytes_le();
+
+        if ctx.is_fixed_length {
+            // Fixed-length context (sql_variant) - write 16 bytes directly without length prefix
+            match writer.has_space(16) {
+                false => {
+                    writer.write_async(&guid_bytes).await?;
+                }
+                true => {
+                    for &byte in &guid_bytes {
+                        writer.write_byte_unchecked(byte);
+                    }
+                }
+            }
+        } else {
+            // Nullable context (regular columns) - write length byte + 16 bytes
+            match writer.has_space(17) {
+                false => {
+                    writer.write_byte_async(16u8).await?;
+                    writer.write_async(&guid_bytes).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(16u8);
+                    for &byte in &guid_bytes {
+                        writer.write_byte_unchecked(byte);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    async fn serialize_datetime2<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlDateTime2,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // DATETIME2 format in TDS:
+        // - For DateTime2N (nullable, 0x2A): length byte + time_nanoseconds + 3-byte days
+        // - Time portion: 3, 4, or 5 bytes (same encoding as TIME type)
+        // - Date portion: 3 bytes (unsigned, days since 0001-01-01)
+        // Total length depends on scale:
+        //   - Scale 0-2: 6 bytes (3 for time + 3 for date)
+        //   - Scale 3-4: 7 bytes (4 for time + 3 for date)
+        //   - Scale 5-7: 8 bytes (5 for time + 3 for date)
+
+        // Determine the time length based on scale
+        let time_length = get_time_length_from_scale(value.time.scale)?;
+
+        let date_length = 3u8;
+        let total_value_length = time_length + date_length;
+
+        // Scale the time value based on the scale (same logic as serialize_time)
+        let time_value = match value.time.scale {
+            0 => value.time.time_nanoseconds / 10_000_000, // Seconds
+            1 => value.time.time_nanoseconds / 1_000_000,  // Tenths
+            2 => value.time.time_nanoseconds / 100_000,    // Hundredths
+            3 => value.time.time_nanoseconds / 10_000,     // Milliseconds
+            4 => value.time.time_nanoseconds / 1_000,      // Ten-thousandths
+            5 => value.time.time_nanoseconds / 100,        // Hundred-thousandths
+            6 => value.time.time_nanoseconds / 10,         // Microseconds
+            7 => value.time.time_nanoseconds,              // 100-nanoseconds (no scaling)
+            _ => value.time.time_nanoseconds,
+        };
+
+        if !ctx.is_fixed_type() && !ctx.is_fixed_length {
+            // DateTime2N with length prefix
+            let total_size = (1 + total_value_length) as usize;
+            match writer.has_space(total_size) {
+                false => {
+                    writer.write_byte_async(total_value_length).await?; // Length byte
+
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        let byte_val = ((time_value >> (i * 8)) & 0xFF) as u8;
+                        writer.write_byte_async(byte_val).await?;
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.days.to_le_bytes();
+                    writer.write_byte_async(date_bytes[0]).await?;
+                    writer.write_byte_async(date_bytes[1]).await?;
+                    writer.write_byte_async(date_bytes[2]).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(total_value_length); // Length byte
+
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        let byte_val = ((time_value >> (i * 8)) & 0xFF) as u8;
+                        writer.write_byte_unchecked(byte_val);
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.days.to_le_bytes();
+                    writer.write_byte_unchecked(date_bytes[0]);
+                    writer.write_byte_unchecked(date_bytes[1]);
+                    writer.write_byte_unchecked(date_bytes[2]);
+                }
+            }
+        } else {
+            // Fixed type - just write value (time + 3-byte date)
+            match writer.has_space(total_value_length as usize) {
+                false => {
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        writer
+                            .write_byte_async(((time_value >> (i * 8)) & 0xFF) as u8)
+                            .await?;
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.days.to_le_bytes();
+                    writer.write_byte_async(date_bytes[0]).await?;
+                    writer.write_byte_async(date_bytes[1]).await?;
+                    writer.write_byte_async(date_bytes[2]).await?;
+                }
+                true => {
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        writer.write_byte_unchecked(((time_value >> (i * 8)) & 0xFF) as u8);
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.days.to_le_bytes();
+                    writer.write_byte_unchecked(date_bytes[0]);
+                    writer.write_byte_unchecked(date_bytes[1]);
+                    writer.write_byte_unchecked(date_bytes[2]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Serialize a DATETIMEOFFSET value to the TDS stream.
+    ///
+    /// DATETIMEOFFSET wire format:
+    /// - 1 byte: length (0 for NULL, or time_length + 3 + 2 for date + offset)
+    /// - time_length bytes: time component (3, 4, or 5 bytes based on scale)
+    /// - 3 bytes: date component (days since 0001-01-01, little-endian)
+    /// - 2 bytes: timezone offset in minutes (little-endian, signed i16)
+    ///
+    /// Time length by scale:
+    /// - Scale 0-2: 3 bytes
+    /// - Scale 3-4: 4 bytes
+    /// - Scale 5-7: 5 bytes
+    async fn serialize_datetimeoffset<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlDateTimeOffset,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // DATETIMEOFFSET format in TDS:
+        // - For DateTimeOffsetN (nullable, 0x2B): length byte + time + 3-byte days + 2-byte offset
+        // - Time portion: 3, 4, or 5 bytes (same encoding as TIME/DATETIME2 type)
+        // - Date portion: 3 bytes (unsigned, days since 0001-01-01)
+        // - Offset portion: 2 bytes (signed i16, minutes from UTC)
+        // Total length depends on scale:
+        //   - Scale 0-2: 8 bytes (3 for time + 3 for date + 2 for offset)
+        //   - Scale 3-4: 9 bytes (4 for time + 3 for date + 2 for offset)
+        //   - Scale 5-7: 10 bytes (5 for time + 3 for date + 2 for offset)
+
+        // Determine the time length based on scale
+        let time_length = get_time_length_from_scale(value.datetime2.time.scale)?;
+
+        let date_length = 3u8;
+        let offset_length = 2u8;
+        let total_value_length = time_length + date_length + offset_length;
+
+        // Scale the time value based on the scale (same logic as serialize_time)
+        let time_value = match value.datetime2.time.scale {
+            0 => value.datetime2.time.time_nanoseconds / 10_000_000, // Seconds
+            1 => value.datetime2.time.time_nanoseconds / 1_000_000,  // Tenths
+            2 => value.datetime2.time.time_nanoseconds / 100_000,    // Hundredths
+            3 => value.datetime2.time.time_nanoseconds / 10_000,     // Milliseconds
+            4 => value.datetime2.time.time_nanoseconds / 1_000,      // Ten-thousandths
+            5 => value.datetime2.time.time_nanoseconds / 100,        // Hundred-thousandths
+            6 => value.datetime2.time.time_nanoseconds / 10,         // Microseconds
+            7 => value.datetime2.time.time_nanoseconds,              // 100-nanoseconds (no scaling)
+            _ => value.datetime2.time.time_nanoseconds,
+        };
+
+        if !ctx.is_fixed_type() && !ctx.is_fixed_length {
+            // DateTimeOffsetN with length prefix
+            let total_size = (1 + total_value_length) as usize;
+            match writer.has_space(total_size) {
+                false => {
+                    writer.write_byte_async(total_value_length).await?; // Length byte
+
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        let byte_val = ((time_value >> (i * 8)) & 0xFF) as u8;
+                        writer.write_byte_async(byte_val).await?;
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.datetime2.days.to_le_bytes();
+                    writer.write_byte_async(date_bytes[0]).await?;
+                    writer.write_byte_async(date_bytes[1]).await?;
+                    writer.write_byte_async(date_bytes[2]).await?;
+
+                    // Write timezone offset as 2-byte little-endian signed integer
+                    let offset_bytes = value.offset.to_le_bytes();
+                    writer.write_byte_async(offset_bytes[0]).await?;
+                    writer.write_byte_async(offset_bytes[1]).await?;
+                }
+                true => {
+                    writer.write_byte_unchecked(total_value_length); // Length byte
+
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        let byte_val = ((time_value >> (i * 8)) & 0xFF) as u8;
+                        writer.write_byte_unchecked(byte_val);
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.datetime2.days.to_le_bytes();
+                    writer.write_byte_unchecked(date_bytes[0]);
+                    writer.write_byte_unchecked(date_bytes[1]);
+                    writer.write_byte_unchecked(date_bytes[2]);
+
+                    // Write timezone offset as 2-byte little-endian signed integer
+                    let offset_bytes = value.offset.to_le_bytes();
+                    writer.write_byte_unchecked(offset_bytes[0]);
+                    writer.write_byte_unchecked(offset_bytes[1]);
+                }
+            }
+        } else {
+            // Fixed type or sql_variant - just write value (time + date + offset, no length prefix)
+            match writer.has_space(total_value_length as usize) {
+                false => {
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        writer
+                            .write_byte_async(((time_value >> (i * 8)) & 0xFF) as u8)
+                            .await?;
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.datetime2.days.to_le_bytes();
+                    writer.write_byte_async(date_bytes[0]).await?;
+                    writer.write_byte_async(date_bytes[1]).await?;
+                    writer.write_byte_async(date_bytes[2]).await?;
+
+                    // Write timezone offset as 2-byte little-endian signed integer
+                    let offset_bytes = value.offset.to_le_bytes();
+                    writer.write_byte_async(offset_bytes[0]).await?;
+                    writer.write_byte_async(offset_bytes[1]).await?;
+                }
+                true => {
+                    // Write time_value in little-endian format (variable bytes)
+                    for i in 0..time_length {
+                        writer.write_byte_unchecked(((time_value >> (i * 8)) & 0xFF) as u8);
+                    }
+
+                    // Write date as 3-byte little-endian unsigned integer
+                    let date_bytes = value.datetime2.days.to_le_bytes();
+                    writer.write_byte_unchecked(date_bytes[0]);
+                    writer.write_byte_unchecked(date_bytes[1]);
+                    writer.write_byte_unchecked(date_bytes[2]);
+
+                    // Write timezone offset as 2-byte little-endian signed integer
+                    let offset_bytes = value.offset.to_le_bytes();
+                    writer.write_byte_unchecked(offset_bytes[0]);
+                    writer.write_byte_unchecked(offset_bytes[1]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Serialize BINARY/VARBINARY/IMAGE data to the TDS stream.
+    ///
+    /// BINARY/VARBINARY wire format:
+    /// - For variable-length types (BINARY/VARBINARY):
+    ///   - If length <= 8000:
+    ///     - 2 bytes: actual length (0xFFFF for NULL)
+    ///     - n bytes: actual byte data
+    ///   - If length > 8000 (MAX types, not common for BINARY):
+    ///     - 8 bytes: total length (0xFFFFFFFFFFFFFFFF for NULL)
+    ///     - chunks of data with 4-byte length prefixes
+    ///     - 4-byte terminator (0x00000000)
+    ///
+    /// IMAGE wire format (legacy LOB type):
+    /// - Format: textptr_len (1) + textptr (16 x 0xFF) + timestamp (8 x 0xFF) + length (4) + data
+    /// - This matches the format used by TEXT and NTEXT types
+    /// - Reference: TdsParser.cs s_longDataHeader constant
+    ///
+    /// For BINARY(n): If data length < n, pad with zeros to reach fixed length
+    /// For VARBINARY(n): Use exact data length, no padding
+    ///
+    /// TDS types:
+    /// - 0xAD: BINARY(n) / VARBINARY(n) - fixed/variable-length binary
+    /// - 0xA5: VARBINARY(MAX) - variable-length binary with PLP encoding
+    /// - 0x22: IMAGE - legacy LOB type with special header format
+    #[inline(always)]
+    async fn serialize_bytes<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &[u8],
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        let data_len = value.len();
+        let schema_size = ctx.max_size;
+
+        // Check for size overflow (skip for PLP types and legacy LOB types which support up to 2GB)
+        if !ctx.is_plp && ctx.tds_type != IMAGE && data_len > schema_size {
+            return Err(Error::UsageError(format!(
+                "Binary data length ({}) exceeds schema size ({})",
+                data_len, schema_size
+            )));
+        }
+
+        // Handle IMAGE type (legacy LOB type, similar to TEXT/NTEXT)
+        if ctx.tds_type == IMAGE {
+            // Legacy LOB type format: textptr_len (1) + textptr (16 x 0xFF) + timestamp (8 x 0xFF) + length (4) + data
+            // This matches the format used by TEXT and NTEXT
+
+            // Write textptr length as 16 (0x10)
+            writer.write_byte_async(0x10).await?;
+
+            // Write 16-byte textptr (all 0xFF as per .NET SqlClient)
+            for _ in 0..16 {
+                writer.write_byte_async(0xFF).await?;
+            }
+
+            // Write 8-byte timestamp (all 0xFF as per .NET SqlClient)
+            for _ in 0..8 {
+                writer.write_byte_async(0xFF).await?;
+            }
+
+            // Write data length (4 bytes)
+            writer.write_u32_async(data_len as u32).await?;
+
+            // Write actual data
+            writer.write_async(value).await?;
+        } else if ctx.is_plp {
+            // For PLP types (MAX types), use PLP encoding
+            // Write PLP_UNKNOWN_LEN (0xFFFFFFFFFFFFFFFE) to indicate total length is unknown
+            // This matches .NET SqlBulkCopy behavior
+            writer.write_u64_async(PLP_UNKNOWN_LEN).await?;
+
+            // For empty data, skip the chunk entirely: a 4-byte zero-length chunk header
+            // IS the PLP terminator per MS-TDS, so writing chunk_len=0 followed by an extra
+            // terminator desyncs the stream (server reports "premature end of message").
+            if data_len > 0 {
+                // Write chunk length (4 bytes)
+                writer.write_u32_async(data_len as u32).await?;
+
+                // Write actual data
+                writer.write_async(value).await?;
+            }
+
+            // Write terminator (4 bytes of 0x00)
+            writer.write_u32_async(PLP_TERMINATOR).await?;
+        } else if ctx.is_fixed_length {
+            // Fixed-length BINARY(n): Write exactly n bytes (no length prefix)
+            // Write actual data
+            for &byte in value {
+                writer.write_byte_async(byte).await?;
+            }
+
+            // Pad with zeros to reach fixed size
+            let padding_needed = schema_size.saturating_sub(data_len);
+            for _ in 0..padding_needed {
+                writer.write_byte_async(0u8).await?;
+            }
+        } else {
+            // Variable-length VARBINARY(n): Write 2-byte length prefix + data (no padding)
+            writer.write_u16_async(data_len as u16).await?;
+
+            // Write actual data
+            for &byte in value {
+                writer.write_byte_async(byte).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serialize a JSON value using PLP encoding.
+    ///
+    /// JSON type (0xF4) uses UTF-8 encoding and PLP (Partially Length Prefixed) structure.
+    /// Format: PLP_UNKNOWN_LEN (8 bytes) + chunk_len (4 bytes) + data + terminator (4 bytes)
+    async fn serialize_json<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &SqlJson,
+        _ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // CRITICAL: JSON bulk copy uses NVARCHAR (0xE7) encoding, which requires UTF-16LE
+        // Convert UTF-8 JSON to UTF-16LE like .NET SqlBulkCopy does
+        let json_str = std::str::from_utf8(&value.bytes).map_err(|e| {
+            Error::TypeConversionError(format!("Invalid UTF-8 in JSON data: {}", e))
+        })?;
+
+        // Encode as UTF-16LE (no BOM needed for NVARCHAR)
+        let utf16_data: Vec<u16> = json_str.encode_utf16().collect();
+        let byte_len = utf16_data.len() * 2; // Each u16 is 2 bytes
+
+        // JSON uses PLP encoding with UTF-16LE for NVARCHAR type
+        // Write PLP_UNKNOWN_LEN (0xFFFFFFFFFFFFFFFE)
+        writer.write_u64_async(PLP_UNKNOWN_LEN).await?;
+
+        // Skip empty chunk: chunk_len=0 IS the PLP terminator (see MS-TDS).
+        if byte_len > 0 {
+            // Write chunk length (4 bytes)
+            writer.write_u32_async(byte_len as u32).await?;
+
+            // Write UTF-16LE encoded data
+            for code_unit in utf16_data {
+                writer.write_u16_async(code_unit).await?;
+            }
+        }
+
+        // Write terminator (4 bytes of 0x00)
+        writer.write_u32_async(PLP_TERMINATOR).await?;
+
+        Ok(())
+    }
+
+    /// Serialize an XML value for bulk copy using PLP encoding.
+    ///
+    /// XML bulk copy format (matching parameter serialization):
+    /// - 8 bytes: PLP_UNKNOWN_LEN (0xFFFFFFFFFFFFFFFE)
+    /// - 4 bytes: chunk length
+    /// - 2 bytes: BOM (0xFFFE) if not present in data
+    /// - n bytes: XML data
+    /// - 4 bytes: PLP_TERMINATOR (0x00000000)
+    ///
+    /// Note: No chunking support right now - single chunk only
+    async fn serialize_xml<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::column_values::SqlXml,
+        _ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        let data = &value.bytes;
+
+        // Write PLP_UNKNOWN_LEN (8 bytes) - modern format
+        writer.write_u64_async(PLP_UNKNOWN_LEN).await?;
+
+        // Calculate data length: add BOM if not present
+        let data_len = if value.has_bom() {
+            data.len()
+        } else {
+            data.len() + 2
+        };
+
+        // Skip empty chunk: chunk_len=0 IS the PLP terminator (see MS-TDS).
+        if data_len > 0 {
+            // Write chunk length (4 bytes)
+            writer.write_u32_async(data_len as u32).await?;
+
+            // Write BOM if not present (UTF-16LE: 0xFF 0xFE)
+            if !value.has_bom() {
+                writer.write_byte_async(0xFF).await?;
+                writer.write_byte_async(0xFE).await?;
+            }
+
+            // Write XML data
+            writer.write_async(data).await?;
+        }
+
+        // Write PLP terminator (4 bytes)
+        writer.write_u32_async(PLP_TERMINATOR).await?;
+
+        Ok(())
+    }
+
+    /// Serialize a String (NVARCHAR/VARCHAR/NCHAR/CHAR) to the TDS stream.
+    ///
+    /// String wire format depends on type and encoding:
+    /// - For NVARCHAR(n), NCHAR(n) where n <= 4000 (non-MAX types):
+    ///   - 2 bytes: character count (0xFFFF for NULL) - NOT byte count!
+    ///   - n*2 bytes: UTF-16LE encoded characters
+    /// - For NVARCHAR(MAX) (PLP types):
+    ///   - 8 bytes: PLP_UNKNOWN_LEN (0xFFFFFFFFFFFFFFFE) to indicate unknown total length
+    ///   - 4 bytes: chunk byte length
+    ///   - n*2 bytes: UTF-16LE encoded characters
+    ///   - 4 bytes: terminator (0x00000000)
+    /// - For VARCHAR(n), CHAR(n) where n <= 8000 (non-MAX types):
+    ///   - 2 bytes: byte count (0xFFFF for NULL)
+    ///   - n bytes: single-byte encoded characters (based on collation)
+    ///
+    /// CRITICAL: For NVARCHAR types, the length prefix is CHARACTER count, not byte count!
+    /// Each character is 2 bytes in UTF-16LE, so byte_count = char_count * 2.
+    ///
+    /// This matches .NET SqlBulkCopy behavior where:
+    /// - NVARCHAR(4000) → max 4000 characters (8000 bytes)
+    /// - VARCHAR(8000) → max 8000 bytes
+    ///
+    /// TDS types handled:
+    /// - 0xE7: NVARCHAR(n) / NVARCHAR(MAX) - UTF-16LE encoding
+    /// - 0xEF: NCHAR(n) - UTF-16LE encoding with padding
+    /// - 0xA7: VARCHAR(n) / VARCHAR(MAX) - single-byte encoding
+    /// - 0xAF: CHAR(n) - single-byte encoding with padding
+    async fn serialize_string<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &crate::datatypes::sql_string::SqlString,
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+        fit_narrow_overflow: bool,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        let narrow_string_byte_limit =
+            Self::effective_narrow_string_byte_limit(value, narrow_string_byte_limit);
+
+        // For NVARCHAR/NCHAR types, we need UTF-16LE encoding
+        // The SqlString might already be UTF-16 encoded, so check first to avoid re-encoding
+        let (utf16_bytes, is_unicode) = match ctx.tds_type {
+            NVARCHAR | NCHAR => {
+                // NVARCHAR/NCHAR - UTF-16LE encoding required
+                let bytes = if let Some(utf16_data) = value.as_utf16_bytes() {
+                    // Already UTF-16 encoded, use directly (zero-copy optimization)
+                    utf16_data
+                } else if let Some(raw_bytes) = value.as_raw_wire_bytes() {
+                    // DelayedSet/LcidBased: bytes are already in wire format, use directly.
+                    // This is critical for the RPC path where bytes are pre-encoded.
+                    raw_bytes
+                } else {
+                    // Need to encode to UTF-16LE
+                    // Get UTF-8 string first
+                    let utf8_str = value.to_utf8_string();
+                    // Encode to UTF-16LE and store temporarily
+                    // NOTE: This creates a temporary Vec, but SqlString should ideally store UTF-16 already
+                    return Self::serialize_string_utf16(writer, &utf8_str, ctx).await;
+                };
+                (bytes, true)
+            }
+            NTEXT => {
+                // NTEXT - UTF-16LE encoding required (legacy LOB type)
+                // For NTEXT, we need UTF-16 encoding but will handle serialization differently
+                if let Some(utf16_data) = value.as_utf16_bytes() {
+                    // Already UTF-16 encoded, use directly
+                    (utf16_data, true)
+                } else {
+                    // UTF-8 bytes that need conversion to UTF-16
+                    (&value.bytes[..], false)
+                }
+            }
+            VARCHAR | CHAR | TEXT => {
+                let (bytes, had_loss) = Self::narrow_string_wire_bytes(value, ctx.collation);
+                // Marked only once the value has actually serialized.
+                // `serialize_char_varchar_direct` rejects an over-length value
+                // before writing a byte, and a substitution shortens nothing
+                // into range -- an astral `??` still overflows `varchar(1)`.
+                // Marking first would report loss for bytes that never reached
+                // the wire, which the bulk-load error path then publishes
+                // (AB#47598).
+                let result = Self::serialize_char_varchar_direct(
+                    writer,
+                    &bytes,
+                    ctx,
+                    narrow_string_byte_limit,
+                    fit_narrow_overflow,
+                )
+                .await;
+                if result.is_ok() && had_loss {
+                    writer.note_code_page_conversion_loss();
+                }
+                return result;
+            }
+            _ => {
+                return Err(Error::UsageError(format!(
+                    "Unsupported TDS type for string serialization: 0x{:02X}",
+                    ctx.tds_type
+                )));
+            }
+        };
+
+        // Determine data length based on encoding
+        let (data_len, char_count) = if is_unicode {
+            // UTF-16LE: byte_len must be even, char_count = byte_len / 2
+            let byte_len = utf16_bytes.len();
+            if byte_len % 2 != 0 {
+                return Err(Error::UsageError(format!(
+                    "Invalid UTF-16 data: byte length {} is odd",
+                    byte_len
+                )));
+            }
+            let char_count = byte_len / 2;
+            (byte_len, char_count)
+        } else {
+            // Single-byte encoding: char_count = byte_len
+            (utf16_bytes.len(), utf16_bytes.len())
+        };
+
+        // CRITICAL: For NVARCHAR(n), the schema size is in characters, not bytes!
+        // max_size represents character count for Unicode types
+        let schema_char_count = ctx.max_size;
+
+        // Check for size overflow (skip for PLP types which support up to 1GB)
+        if !ctx.is_plp && char_count > schema_char_count {
+            return Err(Error::UsageError(format!(
+                "String length ({} characters) exceeds schema size ({} characters)",
+                char_count, schema_char_count
+            )));
+        }
+
+        // Serialize based on type classification
+        if ctx.tds_type == NTEXT || ctx.tds_type == TEXT {
+            // Legacy LOB types (NTEXT=0x63, TEXT=0x23): Use special format matching .NET SqlClient
+            // Format: textptr_len (1) + textptr (16 × 0xFF) + timestamp (8 × 0xFF) + length (4) + data
+            // Reference: TdsParser.cs s_longDataHeader constant
+
+            // Write textptr length as 16 (0x10)
+            writer.write_byte_async(0x10).await?;
+
+            // Write 16-byte textptr (all 0xFF as per .NET SqlClient)
+            for _ in 0..16 {
+                writer.write_byte_async(0xFF).await?;
+            }
+
+            // Write 8-byte timestamp (all 0xFF as per .NET SqlClient)
+            for _ in 0..8 {
+                writer.write_byte_async(0xFF).await?;
+            }
+
+            // For NTEXT, we need to ensure we have UTF-16LE encoded data
+            if ctx.tds_type == NTEXT {
+                // NTEXT - need UTF-16LE encoding
+                if is_unicode {
+                    // Already UTF-16, use as-is
+                    writer.write_u32_async(data_len as u32).await?;
+                    writer.write_async(utf16_bytes).await?;
+                } else {
+                    // Need to convert UTF-8 to UTF-16LE
+                    let utf8_str = value.to_utf8_string();
+                    let utf16_vec: Vec<u16> = utf8_str.encode_utf16().collect();
+                    let utf16_byte_len = utf16_vec.len() * 2;
+
+                    // Write data length (4 bytes)
+                    writer.write_u32_async(utf16_byte_len as u32).await?;
+
+                    // Write UTF-16LE data
+                    for code_unit in &utf16_vec {
+                        writer.write_u16_async(*code_unit).await?;
+                    }
+                }
+            } else {
+                // TEXT - single-byte encoding
+                writer.write_u32_async(data_len as u32).await?;
+                writer.write_async(utf16_bytes).await?;
+            }
+        } else if ctx.is_plp {
+            // PLP types (NVARCHAR(MAX), VARCHAR(MAX)): Use PLP encoding
+            // Write PLP_UNKNOWN_LEN (0xFFFFFFFFFFFFFFFE) to indicate total length is unknown
+            writer.write_u64_async(PLP_UNKNOWN_LEN).await?;
+
+            // For empty strings, skip the chunk entirely: a 4-byte zero-length chunk header
+            // IS the PLP terminator per MS-TDS, so writing chunk_len=0 followed by an extra
+            // terminator desyncs the stream (server reports "premature end of message",
+            // SQL error 4804). This matches the bug observed in microsoft/mssql-python#547.
+            if data_len > 0 {
+                // Write chunk byte length (4 bytes)
+                writer.write_u32_async(data_len as u32).await?;
+
+                // Write actual data
+                writer.write_async(utf16_bytes).await?;
+            }
+
+            // Write terminator (4 bytes of 0x00)
+            writer.write_u32_async(PLP_TERMINATOR).await?;
+        } else if ctx.is_fixed_length {
+            // Fixed-length types (NCHAR(n), CHAR(n)): Write exactly n characters
+            // For NCHAR: Write char_count * 2 bytes (no length prefix)
+            // For CHAR: Write char_count bytes (no length prefix)
+
+            // Write actual data
+            writer.write_async(utf16_bytes).await?;
+
+            // Pad with zeros (space characters in UTF-16) to reach fixed size
+            let padding_chars = schema_char_count.saturating_sub(char_count);
+            if is_unicode {
+                // Pad with UTF-16 space (0x0020)
+                for _ in 0..padding_chars {
+                    writer.write_u16_async(0x0020).await?;
+                }
+            } else {
+                // Pad with ASCII space (0x20)
+                for _ in 0..padding_chars {
+                    writer.write_byte_async(0x20).await?;
+                }
+            }
+        } else {
+            // Variable-length types (NVARCHAR(n), VARCHAR(n)): Write length prefix + data
+            // CRITICAL: Length prefix is ALWAYS byte count, not character count
+            // This matches .NET SqlClient behavior: WriteShort(length * ADP.CharSize)
+            // where ADP.CharSize = 2 for Unicode
+            let length_prefix = data_len as u16;
+
+            Self::trace_variable_length_string(is_unicode, ctx.tds_type, char_count, data_len);
+
+            writer.write_u16_async(length_prefix).await?;
+
+            // Write actual data
+            writer.write_async(utf16_bytes).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Resolve once when RPC metadata and the value both need the encoded length.
+    pub(crate) fn narrow_string_wire_bytes(
+        value: &crate::datatypes::sql_string::SqlString,
+        collation: Option<SqlCollation>,
+    ) -> (Cow<'_, [u8]>, bool) {
+        if let Some(raw_bytes) = value.as_raw_wire_bytes() {
+            return (Cow::Borrowed(raw_bytes), false);
+        }
+        // A declared encoding is not proof that the bytes are valid. Preserve
+        // the existing decoder path for malformed input (AB#47576).
+        let borrowed = match value.encoding_type() {
+            EncodingType::Utf8 => std::str::from_utf8(&value.bytes).ok(),
+            _ => None,
+        };
+        if borrowed.is_some() && collation.is_some_and(|c| c.utf8()) {
+            return (Cow::Borrowed(&value.bytes), false);
+        }
+        let decoded = match borrowed {
+            Some(text) => Cow::Borrowed(text),
+            None => Cow::Owned(value.to_utf8_string()),
+        };
+        let encoded = Self::encode_narrow_for_wire(&decoded, collation);
+        (Cow::Owned(encoded.bytes), encoded.had_loss)
+    }
+
+    /// Encodes `text` into the wire representation used for VARCHAR/CHAR/TEXT:
+    /// `collation`'s narrow encoding, or a Latin-1-like mapping when the
+    /// collation is absent or names no encoding this crate maps.
+    ///
+    /// Extracted from [`Self::serialize_string`]'s `VARCHAR | CHAR | TEXT` arm
+    /// so it stays available to a caller needing that exact behaviour.
+    ///
+    /// Resolution is [`try_resolve_collation`], the same order [`encode_narrow`]
+    /// uses: the UTF-8 flag, then the SQL sort ID's code page, then the LCID's.
+    /// It previously resolved the LCID alone (AB#48437).
+    ///
+    /// The fallback is deliberately *not* shared. [`encode_narrow`] defaults an
+    /// unmapped collation to Windows-1252; this arm keeps its own Latin-1
+    /// mapping, which is also what it uses when no collation is known at all,
+    /// so the two unmapped cases stay identical to each other and to what this
+    /// path has always sent. Unifying that default is a separate behaviour
+    /// change and is not part of the resolver fix.
+    ///
+    /// Both differ from msodbcsql, which has no fallback here at all:
+    /// `CodePageFromTDSCollation` (`cli_common/src/clntcomn.cpp:152-157`)
+    /// returns `E_FAIL` when the LCID names no ANSI code page, rather than
+    /// substituting one. So neither of this crate's defaults is the reference
+    /// behaviour -- they are a deliberate choice to keep sending *something*
+    /// for a collation the crate cannot map, made in knowledge of the
+    /// reference rather than in ignorance of it. Recorded as entry 24 in
+    /// `mssql-odbc/docs/parity-deviations.md`.
+    ///
+    /// A character the resolved encoding cannot represent becomes
+    /// [`NARROW_SUBSTITUTE_BYTE`] and sets [`NarrowEncoded::had_loss`], matching
+    /// msodbcsql. That must not be left to `encoding_rs`, which emits a numeric
+    /// character reference (`U+65E5` as the eight ASCII bytes `&#26085;`)
+    /// rather than substituting a single byte (AB#47598); [`encode_narrow`]
+    /// handles it.
+    ///
+    /// **Not only parameters.** `serialize_value` is also the serializer for
+    /// bulk copy (`message/bulk_load.rs`, per column from `col_meta.collation`)
+    /// and for TVP rows (`datatypes/sql_tvp.rs`, from `db_collation`), so both
+    /// resolve through here. Both were previously writing the LCID's
+    /// single-byte encoding under a collation they had declared as `_UTF8` or
+    /// a CP437/CP850 sort ID -- a BCP cell stored corrupt rather than merely
+    /// mis-framed -- and both are fixed by the same change. The over-length
+    /// rejection below reaches them too: a cell that fit before can now exceed
+    /// its declared length once the encoding grows it, surfacing mid-stream
+    /// rather than before the first row is written (AB#47584).
+    fn encode_narrow_for_wire(text: &str, collation: Option<SqlCollation>) -> NarrowEncoded {
+        let Some(collation) = collation else {
+            return Self::encode_latin1_for_wire(text);
+        };
+        let Some(resolved) = try_resolve_collation(collation) else {
+            let lcid = collation.info & 0x000F_FFFF;
+            tracing::warn!(
+                "Unsupported collation (LCID 0x{lcid:04X}, sort ID {}), falling back to Latin-1.",
+                collation.sort_id
+            );
+            return Self::encode_latin1_for_wire(text);
+        };
+        encode_narrow_with(text, resolved)
+    }
+
+    /// The Latin-1-like mapping [`Self::encode_narrow_for_wire`] falls back to:
+    /// a scalar value at or below U+00FF is its own byte, and anything above it
+    /// becomes [`NARROW_SUBSTITUTE_BYTE`] -- one per UTF-16 code unit, for the
+    /// reason [`crate::datatypes::sql_string::substitute_unmappable`]
+    /// documents.
+    fn encode_latin1_for_wire(text: &str) -> NarrowEncoded {
+        let mut had_loss = false;
+        let mut bytes = Vec::with_capacity(text.len());
+        for c in text.chars() {
+            match u8::try_from(u32::from(c)) {
+                Ok(byte) => bytes.push(byte),
+                Err(_) => {
+                    had_loss = true;
+                    bytes.extend(std::iter::repeat_n(NARROW_SUBSTITUTE_BYTE, c.len_utf16()));
+                }
+            }
+        }
+        NarrowEncoded { bytes, had_loss }
+    }
+
+    /// Resolves the final wire bytes for a narrow (non-UTF-16) string about to
+    /// be wrapped in a `sql_variant`.
+    ///
+    /// A narrow `SqlString` may still need transcoding to reach the wire,
+    /// which can change its byte length. `serialize_as_variant` resolves this
+    /// once and reuses the result for the declared `VARIANT_PROPERTIES`
+    /// length, the inner [`TdsTypeContext::max_size`], and the data write
+    /// itself, so the three can never disagree -- which is exactly how the
+    /// narrow `sql_variant` payload broke under AB#47800 (a declared length
+    /// computed from the pre-transcoding source, bytes written from a
+    /// separate re-encode).
+    ///
+    /// Always resolves to a concrete collation -- [`DEFAULT_VARIANT_COLLATION`]
+    /// when none is known -- and calls the public, collation-aware
+    /// [`encode_narrow`], so a UTF-8-aware collation gets correct UTF-8 wire
+    /// bytes here (this variant path is new with this PR, so there is no
+    /// pre-existing behaviour on a UTF-8-collation database to preserve), and
+    /// the no-collation case encodes under the exact same default
+    /// [`write_type_info_bytes`] declares, rather than the different
+    /// Latin-1-like mapping [`Self::encode_narrow_for_wire`] uses for its own
+    /// no-collation case -- unreachable today (every `ColumnValues::String`
+    /// inside a `sql_variant` already carries `Some(collation)`, see
+    /// `sqltypes.rs`'s `to_column_value_and_context` arms), but not by
+    /// anything this layer enforces on its own.
+    ///
+    /// # Loss
+    ///
+    /// Reports [`NarrowEncoded::had_loss`] from [`encode_narrow`] alongside the
+    /// bytes. Raw wire bytes are passed through, so they never report loss:
+    /// whatever encoding produced them already happened elsewhere.
+    fn resolve_narrow_wire_bytes(
+        value: &SqlString,
+        collation: Option<SqlCollation>,
+    ) -> (Cow<'_, [u8]>, bool) {
+        if let Some(raw) = value.as_raw_wire_bytes() {
+            return (Cow::Borrowed(raw), false);
+        }
+        let text = value.to_utf8_string();
+        let collation = collation.unwrap_or(DEFAULT_VARIANT_COLLATION);
+        let encoded = encode_narrow(&text, collation);
+        (Cow::Owned(encoded.bytes), encoded.had_loss)
+    }
+
+    /// Helper to serialize a UTF-8 string as UTF-16LE for NVARCHAR/NCHAR types.
+    ///
+    /// This is used when the SqlString is not already UTF-16 encoded.
+    async fn serialize_string_utf16<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        utf8_str: &str,
+        ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Encode to UTF-16LE
+        let utf16_data: Vec<u16> = utf8_str.encode_utf16().collect();
+        let char_count = utf16_data.len();
+        let byte_len = char_count * 2;
+
+        // Check schema constraints
+        let schema_char_count = ctx.max_size;
+        if !ctx.is_plp && char_count > schema_char_count {
+            return Err(Error::UsageError(format!(
+                "String length ({} characters) exceeds schema size ({} characters)",
+                char_count, schema_char_count
+            )));
+        }
+
+        // Serialize based on type classification
+        if ctx.is_plp {
+            // PLP types (NVARCHAR(MAX)): Use PLP encoding
+            writer.write_u64_async(PLP_UNKNOWN_LEN).await?;
+
+            // Skip empty chunk: chunk_len=0 IS the PLP terminator (see MS-TDS).
+            if byte_len > 0 {
+                writer.write_u32_async(byte_len as u32).await?;
+
+                // Write UTF-16LE data
+                for code_unit in &utf16_data {
+                    writer.write_u16_async(*code_unit).await?;
+                }
+            }
+
+            writer.write_u32_async(PLP_TERMINATOR).await?;
+        } else if ctx.is_fixed_length {
+            // Fixed-length types (NCHAR(n)): Write exactly n characters with padding
+            // Write actual data
+            for code_unit in &utf16_data {
+                writer.write_u16_async(*code_unit).await?;
+            }
+
+            // Pad with UTF-16 space (0x0020)
+            let padding_chars = schema_char_count.saturating_sub(char_count);
+            for _ in 0..padding_chars {
+                writer.write_u16_async(0x0020).await?;
+            }
+        } else {
+            // Variable-length types (NVARCHAR(n)): Write character count + data
+            writer.write_u16_async(char_count as u16).await?;
+
+            // Write UTF-16LE data
+            for code_unit in &utf16_data {
+                writer.write_u16_async(*code_unit).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Serialize VECTOR value to the TDS stream.
+    ///
+    /// Wire format for VECTOR (non-PLP):
+    /// - 2 bytes: actual length (USHORT) = 8 (header) + dims * element_size
+    /// - 8 bytes: header [layout_format=0xA9, version=0x01, dims:u16, base_type:u8, 0,0,0]
+    /// - n bytes: element values (little-endian)
+    ///
+    /// Float16 elements are narrowed with `half::f16::from_f32` (IEEE 754
+    /// round-to-nearest, ties-to-even), matching the msodbcsql
+    /// `Float32ToFloat16Bits` reference. The conversion is lossy and never fails:
+    /// - Magnitudes that round above `65504.0` (i.e. `>= 65520.0`, including
+    ///   `f32::MAX`) become signed infinity with no error or diagnostic. Values in
+    ///   `(65504.0, 65520.0)`, such as `65505.0`, round to the finite `±65504.0`.
+    /// - Magnitudes `<= 2^-25` round to signed zero (exactly `2^-25` is a tie and
+    ///   rounds to even, i.e. zero). Magnitudes in `(2^-25, 2^-24)` round up to the
+    ///   smallest binary16 subnormal `±2^-24`, so they are not zero. Binary16
+    ///   subnormals themselves are preserved, not flushed to zero.
+    /// - `±inf` is preserved and NaN stays NaN (payload may change).
+    ///
+    /// Callers that need to reject out-of-range input must validate before building
+    /// the vector.
+    #[inline(always)]
+    async fn serialize_vector<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &SqlVector,
+        _ctx: &TdsTypeContext,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // `base_type` and `data` are both public; reject mismatches before writing so the
+        // declared length can never disagree with the emitted element width.
+        let consistent = matches!(
+            (value.base_type, &value.data),
+            (
+                crate::datatypes::sqldatatypes::VectorBaseType::Float32,
+                VectorData::Float32(_)
+            ) | (
+                crate::datatypes::sqldatatypes::VectorBaseType::Float16,
+                VectorData::Float16(_)
+            )
+        );
+        if !consistent {
+            return Err(Error::UsageError(format!(
+                "Vector base type {:?} does not match its element data",
+                value.base_type
+            )));
+        }
+
+        // `data` is public, so a caller can bypass `try_from_*`; the USHORT dimension count and
+        // length prefix below would silently wrap for an oversized vector.
+        let total_size = value.total_size();
+        if total_size > crate::datatypes::sqldatatypes::VECTOR_MAX_SIZE {
+            return Err(Error::UsageError(format!(
+                "Vector with base type {:?} and {} elements is not a valid vector value",
+                value.base_type,
+                value.element_count()
+            )));
+        }
+        let dims = value.dimension_count();
+
+        // Length prefix (USHORT)
+        writer.write_u16_async(total_size as u16).await?;
+
+        // Header
+        crate::datatypes::sqltypes::SqlType::encode_vector_header(writer, dims, value.base_type())
+            .await?;
+
+        // Values
+        match &value.data {
+            VectorData::Float32(vs) => {
+                for f in vs {
+                    // Write f32 as i32 little-endian (bit-compatible)
+                    writer.write_i32_async((*f).to_bits() as i32).await?;
+                }
+            }
+            VectorData::Float16(vs) => {
+                // Narrow to IEEE 754 half-precision (round-to-nearest-even)
+                for f in vs {
+                    writer
+                        .write_u16_async(half::f16::from_f32(*f).to_bits())
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn fit_narrow_bytes(bytes: &[u8], maximum: usize) -> TdsResult<&[u8]> {
+        crate::datatypes::sql_string::fit_narrow_byte_limit(bytes, maximum)
+    }
+
+    async fn serialize_char_varchar_direct<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        single_byte_data: &[u8],
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+        fit_narrow_overflow: bool,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        let maximum = Self::narrow_string_maximum(ctx, narrow_string_byte_limit);
+        let single_byte_data = match maximum {
+            Some(maximum) if fit_narrow_overflow => {
+                Self::fit_narrow_bytes(single_byte_data, maximum)?
+            }
+            Some(maximum) if single_byte_data.len() > maximum => {
+                return Err(Error::EncodedValueTooLong {
+                    actual: single_byte_data.len(),
+                    maximum,
+                });
+            }
+            None => single_byte_data,
+            Some(_) => single_byte_data,
+        };
+        let char_count = single_byte_data.len();
+        let schema_char_count = ctx.max_size;
+
+        // Serialize based on type classification
+        if ctx.tds_type == TEXT {
+            // Legacy TEXT type: Use special format
+            // Write textptr length as 16 (0x10)
+            writer.write_byte_async(0x10).await?;
+
+            // Write 16-byte textptr (all 0xFF)
+            for _ in 0..16 {
+                writer.write_byte_async(0xFF).await?;
+            }
+
+            // Write 8-byte timestamp (all 0xFF)
+            for _ in 0..8 {
+                writer.write_byte_async(0xFF).await?;
+            }
+
+            // Write 4-byte length
+            writer.write_u32_async(char_count as u32).await?;
+
+            // Write actual data
+            writer.write_async(single_byte_data).await?;
+        } else if ctx.is_plp {
+            // PLP types (VARCHAR(MAX)): Use PLP encoding
+            writer.write_u64_async(PLP_UNKNOWN_LEN).await?;
+
+            // Skip empty chunk: chunk_len=0 IS the PLP terminator (see MS-TDS).
+            if char_count > 0 {
+                writer.write_u32_async(char_count as u32).await?;
+                writer.write_async(single_byte_data).await?;
+            }
+
+            writer.write_u32_async(PLP_TERMINATOR).await?;
+        } else if ctx.is_fixed_length {
+            // Fixed-length CHAR(n): Write exactly n bytes with padding
+            // Write actual data
+            writer.write_async(single_byte_data).await?;
+
+            // Pad with ASCII space (0x20) to reach fixed size
+            let padding_count = schema_char_count.saturating_sub(char_count);
+            for _ in 0..padding_count {
+                writer.write_byte_async(0x20).await?;
+            }
+        } else {
+            // Variable-length VARCHAR(n): Write length prefix + data
+            // Length prefix is byte count (2 bytes)
+            writer.write_u16_async(char_count as u16).await?;
+            writer.write_async(single_byte_data).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Serialize a value as SQL_VARIANT type (TdsDataType::SsVariant).
+    ///
+    /// This wraps any inner value with the variant wire format:
+    /// ```text
+    /// [4-byte total_length][1-byte base_type][1-byte prop_len][N-byte props][M-byte data]
+    /// ```
+    ///
+    /// For NULL values, total_length is 0 and no other bytes are written.
+    ///
+    /// # Arguments
+    ///
+    /// * `writer` - Packet writer for TDS stream
+    /// * `value` - The value to wrap as variant (can be any ColumnValues type)
+    /// * `ctx` - Type context (should have tds_type == SQL_VARIANT)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Value type is not supported in sql_variant (text, ntext, image, timestamp)
+    /// - Value serialization fails
+    async fn serialize_as_variant<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &ColumnValues,
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+        fit_narrow_overflow: bool,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Handle NULL variant: just write 4-byte length = 0
+        if matches!(value, ColumnValues::Null) {
+            writer.write_u32_async(0).await?;
+            return Ok(());
+        }
+
+        // A narrow (Utf8 or LcidBased) string may still need collation-codepage
+        // transcoding, which can change its byte length. Resolve that once, up
+        // front, and thread the result through every length calculation below
+        // *and* the data write, so they cannot disagree the way they did under
+        // AB#47800 (declared length computed from the pre-transcoding source,
+        // actual bytes written from a separate, later re-encode).
+        //
+        // Matched by encoding, not by negating Utf16: DelayedSet means
+        // "encoding not yet known", not "narrow" -- mssql-js uses it for both
+        // widths (ffidatatypes.rs:435-443 for NVarchar, :449 for Varchar), so
+        // no encoding-tag heuristic can be right for it in general. Landing it
+        // in the wide arm here is the defensible default regardless: mssql-js
+        // rejects SsVariant outright today, so neither pairing is reachable
+        // through this function, and NVARCHAR's arm already honours
+        // as_raw_wire_bytes unchanged, so treating it as wide risks nothing a
+        // real caller could hit. `!matches!(.., Utf16)` would instead
+        // misclassify it as narrow every time and retag it BigVarChar without
+        // transcoding it, corrupting the value on the wire without changing a
+        // single data byte, which is strictly worse. get_variant_base_type
+        // below must stay in lockstep with this.
+        //
+        // The substitution verdict is held here and applied only after the
+        // variant has fully serialized: the base-type, property-length and
+        // 8000/8016-byte checks below all reject before a wrapper byte is
+        // written, so marking at resolve time would report loss for a value
+        // that never reached the wire (AB#47598).
+        let mut narrow_had_loss = false;
+        let resolved_narrow: Option<Cow<'_, [u8]>> = match value {
+            ColumnValues::String(s)
+                if matches!(
+                    s.encoding_type(),
+                    EncodingType::Utf8 | EncodingType::LcidBased(_)
+                ) =>
+            {
+                let (bytes, had_loss) = Self::resolve_narrow_wire_bytes(s, ctx.collation);
+                narrow_had_loss = had_loss;
+                let narrow_string_byte_limit =
+                    Self::effective_narrow_string_byte_limit(s, narrow_string_byte_limit);
+                let maximum = Self::narrow_string_maximum(ctx, narrow_string_byte_limit)
+                    .unwrap_or(ctx.max_size);
+                if fit_narrow_overflow {
+                    let fitted_len = Self::fit_narrow_bytes(&bytes, maximum)?.len();
+                    Some(match bytes {
+                        Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[..fitted_len]),
+                        Cow::Owned(mut bytes) => {
+                            bytes.truncate(fitted_len);
+                            Cow::Owned(bytes)
+                        }
+                    })
+                } else {
+                    if bytes.len() > maximum {
+                        return Err(Error::EncodedValueTooLong {
+                            actual: bytes.len(),
+                            maximum,
+                        });
+                    }
+                    Some(bytes)
+                }
+            }
+            _ => None,
+        };
+
+        // Get the base TDS type for this value
+        let base_type = Self::get_variant_base_type(value)?;
+
+        // Calculate property byte length using shared function
+        let prop_len = Self::calculate_type_info_length(base_type, value)?;
+
+        // Calculate the data size without actually serializing (to avoid creating temp writer).
+        // A resolved narrow string already knows its final size; everything
+        // else (including a wide string, always sent as-is) uses the generic path.
+        let data_size = match &resolved_narrow {
+            Some(bytes) => bytes.len() as u32,
+            None => Self::calculate_value_size(value)?,
+        };
+
+        // SQL_VARIANT has a maximum data size of 8000 bytes (excluding metadata)
+        const MAX_VARIANT_DATA_SIZE: u32 = 8000;
+        if data_size > MAX_VARIANT_DATA_SIZE {
+            return Err(Error::UsageError(format!(
+                "SQL_VARIANT data size ({} bytes) exceeds maximum ({} bytes). \
+                 The base data type cannot store more than {} bytes in SQL_VARIANT.",
+                data_size, MAX_VARIANT_DATA_SIZE, MAX_VARIANT_DATA_SIZE
+            )));
+        }
+
+        // Calculate total length: type_byte(1) + prop_len_byte(1) + prop_bytes + data_bytes
+        let total_length = 2u32 + (prop_len as u32) + data_size;
+
+        // SQL_VARIANT total size (including metadata) cannot exceed 8016 bytes
+        const MAX_VARIANT_SIZE: u32 = 8016;
+        if total_length > MAX_VARIANT_SIZE {
+            return Err(Error::UsageError(format!(
+                "SQL_VARIANT total size ({} bytes) exceeds maximum size ({} bytes). \
+                 The variant contains {} bytes of data plus {} bytes of metadata.",
+                total_length,
+                MAX_VARIANT_SIZE,
+                data_size,
+                2 + prop_len as u32
+            )));
+        }
+
+        // Write variant wrapper
+        writer.write_u32_async(total_length).await?; // 4-byte total length
+        writer.write_byte_async(base_type).await?; // 1-byte base type
+        writer.write_byte_async(prop_len).await?; // 1-byte property length
+
+        // Write property bytes using shared function
+        if prop_len > 0 {
+            Self::write_type_info_bytes(writer, base_type, value, ctx, resolved_narrow.as_deref())
+                .await?;
+        }
+
+        // Create a temporary context with the correct base type for serializing the inner value
+        let temp_ctx =
+            Self::create_variant_inner_context(value, base_type, ctx, resolved_narrow.as_deref())?;
+
+        // Write the actual value data. A resolved narrow string writes its
+        // already-transcoded bytes directly, so this can't re-encode (and
+        // potentially disagree with the length already declared above); every
+        // other value, including a wide string sent as-is, uses the normal
+        // inner serializer.
+        match &resolved_narrow {
+            Some(bytes) => {
+                Self::serialize_char_varchar_direct(writer, bytes, &temp_ctx, None, false).await?
+            }
+            None => Self::serialize_value_inner(writer, value, &temp_ctx, None, false).await?,
+        }
+
+        if narrow_had_loss {
+            writer.note_code_page_conversion_loss();
+        }
+
+        Ok(())
+    }
+
+    /// Calculate the serialized size of a value in bytes.
+    ///
+    /// This estimates the size without actually serializing, used for variant
+    /// length calculation. Doesn't include the length prefix bytes coz it is
+    /// not encoded in case of sql_variant.
+    fn calculate_value_size(value: &ColumnValues) -> TdsResult<u32> {
+        let size = match value {
+            ColumnValues::TinyInt(_) => 1,
+            ColumnValues::SmallInt(_) => 2,
+            ColumnValues::Int(_) => 4,
+            ColumnValues::BigInt(_) => 8,
+
+            ColumnValues::Real(_) => 4,
+            ColumnValues::Float(_) => 8,
+
+            ColumnValues::Bit(_) => 1,
+
+            ColumnValues::Decimal(v) | ColumnValues::Numeric(v) => {
+                // Decimal/Numeric size based on precision (matching serialize_decimal logic)
+                // Precision 1-9:   5 bytes (1 sign + 4 value bytes)
+                // Precision 10-19: 9 bytes (1 sign + 8 value bytes)
+                // Precision 20-28: 13 bytes (1 sign + 12 value bytes)
+                // Precision 29-38: 17 bytes (1 sign + 16 value bytes)
+                let precision = v.precision;
+                let value_bytes = match precision {
+                    1..=9 => 4,
+                    10..=19 => 8,
+                    20..=28 => 12,
+                    29..=38 => 16,
+                    _ => 16, // Default to max
+                };
+                1 + value_bytes // sign(1) + value_bytes
+            }
+
+            ColumnValues::Money(_) => 8,
+            ColumnValues::SmallMoney(_) => 4,
+
+            ColumnValues::Date(_) => 3,
+            ColumnValues::Time(v) => get_time_length_from_scale(v.scale)? as u32,
+            ColumnValues::DateTime(_) => 8, // days(4) + time(4)
+            ColumnValues::DateTime2(v) => {
+                let time_len = get_time_length_from_scale(v.time.scale)? as u32;
+                time_len + 3 // time + days(3)
+            }
+            ColumnValues::DateTimeOffset(v) => {
+                let time_len = get_time_length_from_scale(v.datetime2.time.scale)? as u32;
+                time_len + 3 + 2 // time + days(3) + offset(2)
+            }
+            ColumnValues::SmallDateTime(_) => 4, // days(2) + time(2)
+
+            ColumnValues::Bytes(v) => v.len() as u32,
+
+            ColumnValues::String(s) => s.bytes.len() as u32,
+
+            ColumnValues::Uuid(_) => 16,
+
+            // Unsupported types in variant
+            ColumnValues::Vector(_) | ColumnValues::Xml(_) | ColumnValues::Json(_) => {
+                return Err(Error::UsageError(
+                    "Unsupported data type in sql_variant".to_string(),
+                ));
+            }
+
+            ColumnValues::Null => 0, // Should have been handled earlier
+        };
+
+        Ok(size)
+    }
+
+    /// Calculate the length of TYPE_INFO property bytes for a given type.
+    ///
+    /// This determines how many bytes of type-specific metadata are needed:
+    /// - 0 bytes: Fixed-length types (INT, FLOAT, BIT, DATETIME, MONEY, GUID, DATE)
+    /// - 1 byte: TIME, DATETIME2, DATETIMEOFFSET (scale)
+    /// - 2 bytes: DECIMAL/NUMERIC (precision + scale), BINARY/VARBINARY (max_length)
+    /// - 7 bytes: String types (collation[5] + max_length[2])
+    ///
+    /// This function is shared between sql_variant serialization and COLMETADATA encoding.
+    fn calculate_type_info_length(tds_type: u8, _value: &ColumnValues) -> TdsResult<u8> {
+        Ok(match tds_type {
+            // Fixed-length types: 0 property bytes (type code defines everything)
+            x if x == TdsDataType::Int1 as u8
+                || x == TdsDataType::Int2 as u8
+                || x == TdsDataType::Int4 as u8
+                || x == TdsDataType::Int8 as u8
+                || x == TdsDataType::Flt4 as u8
+                || x == TdsDataType::Flt8 as u8
+                || x == TdsDataType::Bit as u8
+                || x == TdsDataType::Money as u8
+                || x == TdsDataType::Money4 as u8
+                || x == TdsDataType::DateTime as u8
+                || x == TdsDataType::DateTim4 as u8 =>
+            {
+                0
+            }
+
+            // DateN and Guid: 0 property bytes
+            x if x == TdsDataType::DateN as u8 || x == TdsDataType::Guid as u8 => 0,
+
+            // Time types: 1 byte (scale)
+            x if x == TdsDataType::TimeN as u8
+                || x == TdsDataType::DateTime2N as u8
+                || x == TdsDataType::DateTimeOffsetN as u8 =>
+            {
+                1
+            }
+
+            // Decimal/Numeric: 2 bytes (precision + scale)
+            x if x == TdsDataType::DecimalN as u8 || x == TdsDataType::NumericN as u8 => 2,
+
+            // Binary types: 2 bytes (max_length as u16)
+            x if x == TdsDataType::BigVarBinary as u8 || x == TdsDataType::BigBinary as u8 => 2,
+
+            // String types: 7 bytes (collation[5] + max_length[2])
+            x if x == TdsDataType::NVarChar as u8
+                || x == TdsDataType::NChar as u8
+                || x == TdsDataType::BigChar as u8
+                || x == TdsDataType::BigVarChar as u8 =>
+            {
+                7
+            }
+
+            // Every type `get_variant_base_type` can return is handled above. A
+            // new one reaching here would otherwise desynchronise the declared
+            // prop-byte count from what `write_type_info_bytes` emits.
+            _ => {
+                return Err(Error::ProtocolError(format!(
+                    "no sql_variant TYPE_INFO length for TDS type 0x{tds_type:02X}"
+                )));
+            }
+        })
+    }
+
+    /// Write TYPE_INFO bytes for a sql_variant value to the packet writer.
+    /// We don't use metadata info from the context here, as it contains sql_variant
+    /// metadata, & not metadata for the inner value. Instead, we extract the necessary
+    /// metadata bytes directly from the value itself.
+    async fn write_type_info_bytes<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        tds_type: u8,
+        value: &ColumnValues,
+        ctx: &TdsTypeContext,
+        resolved_narrow: Option<&[u8]>,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        match tds_type {
+            // Fixed-length types: No property bytes to write
+            x if x == TdsDataType::Int1 as u8
+                || x == TdsDataType::Int2 as u8
+                || x == TdsDataType::Int4 as u8
+                || x == TdsDataType::Int8 as u8
+                || x == TdsDataType::Flt4 as u8
+                || x == TdsDataType::Flt8 as u8
+                || x == TdsDataType::Bit as u8
+                || x == TdsDataType::Money as u8
+                || x == TdsDataType::Money4 as u8
+                || x == TdsDataType::DateTime as u8
+                || x == TdsDataType::DateTim4 as u8 =>
+            {
+                // No property bytes - type code fully defines the format
+            }
+
+            // DateN and Guid: 0 property bytes (no need to write anything)
+            x if x == TdsDataType::DateN as u8 || x == TdsDataType::Guid as u8 => {
+                // No property bytes
+            }
+
+            // Time types: 1 byte (scale)
+            x if x == TdsDataType::TimeN as u8 => {
+                if let ColumnValues::Time(v) = value {
+                    writer.write_byte_async(v.scale).await?;
+                }
+            }
+            x if x == TdsDataType::DateTime2N as u8 => {
+                if let ColumnValues::DateTime2(v) = value {
+                    writer.write_byte_async(v.time.scale).await?;
+                }
+            }
+            x if x == TdsDataType::DateTimeOffsetN as u8 => {
+                if let ColumnValues::DateTimeOffset(v) = value {
+                    writer.write_byte_async(v.datetime2.time.scale).await?;
+                }
+            }
+
+            // Decimal/Numeric: 2 bytes (precision + scale)
+            x if x == TdsDataType::DecimalN as u8 || x == TdsDataType::NumericN as u8 => {
+                if let ColumnValues::Decimal(v) | ColumnValues::Numeric(v) = value {
+                    writer.write_byte_async(v.precision).await?;
+                    writer.write_byte_async(v.scale).await?;
+                }
+            }
+
+            // Binary types: 2 bytes (max_length as u16)
+            x if x == TdsDataType::BigVarBinary as u8 => {
+                if let ColumnValues::Bytes(v) = value {
+                    let max_length = v.len() as u16;
+                    writer.write_u16_async(max_length).await?;
+                }
+            }
+
+            // String types: 7 bytes (collation[5] + max_length[2]). Shared by
+            // narrow (BigVarChar) and wide (NVarChar): both declare the same
+            // shape, only the byte contents -- and thus max_length -- differ.
+            x if x == TdsDataType::NVarChar as u8 || x == TdsDataType::BigVarChar as u8 => {
+                // Falls back to DEFAULT_VARIANT_COLLATION when the context
+                // carries none, shared with resolve_narrow_wire_bytes's own
+                // no-collation case so the declared collation and the one the
+                // narrow payload is actually encoded under cannot disagree.
+                let collation = ctx.collation.unwrap_or(DEFAULT_VARIANT_COLLATION);
+
+                // Write collation (5 bytes): info (4 bytes) + sort_id (1 byte)
+                writer.write_u32_async(collation.info).await?;
+                writer.write_byte_async(collation.sort_id).await?;
+
+                // A narrow value may have been transcoded (resolved_narrow); a
+                // wide one is always sent as-is. Either way this must be the
+                // length of the bytes serialize_char_varchar_direct /
+                // serialize_value_inner actually write below, not a recomputed
+                // guess -- that mismatch was AB#47800.
+                let max_length = match resolved_narrow {
+                    Some(bytes) => bytes.len() as u16,
+                    None => match value {
+                        ColumnValues::String(s) => s.bytes.len() as u16,
+                        // Unreachable: this whole arm is only entered for a
+                        // base type get_variant_base_type returns solely for
+                        // ColumnValues::String, so value is always a String
+                        // here. Kept as a safe fallback rather than a panic,
+                        // consistent with this file's FFI-boundary rule.
+                        _ => 0,
+                    },
+                };
+
+                // Write max_length (2 bytes)
+                writer.write_u16_async(max_length).await?;
+            }
+
+            // Every type `get_variant_base_type` can return is handled above.
+            _ => {
+                return Err(Error::ProtocolError(format!(
+                    "no sql_variant TYPE_INFO writer for TDS type 0x{tds_type:02X}"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the TDS base type byte for a ColumnValues variant.
+    ///
+    /// Maps ColumnValues enum variants to their TDS type codes.
+    ///
+    /// IMPORTANT: SQL_VARIANT uses fixed-length type codes (INT4, FLT8, etc.)
+    /// not nullable variants (INTN, FLTN).
+    fn get_variant_base_type(value: &ColumnValues) -> TdsResult<u8> {
+        let tds_type = match value {
+            // Integer types
+            ColumnValues::TinyInt(_) => TdsDataType::Int1 as u8,
+            ColumnValues::SmallInt(_) => TdsDataType::Int2 as u8,
+            ColumnValues::Int(_) => TdsDataType::Int4 as u8,
+            ColumnValues::BigInt(_) => TdsDataType::Int8 as u8,
+
+            // Floating point types
+            ColumnValues::Real(_) => TdsDataType::Flt4 as u8,
+            ColumnValues::Float(_) => TdsDataType::Flt8 as u8,
+
+            // Bit type
+            ColumnValues::Bit(_) => TdsDataType::Bit as u8,
+
+            // Decimal and numeric types
+            ColumnValues::Decimal(_) => TdsDataType::DecimalN as u8,
+            ColumnValues::Numeric(_) => TdsDataType::NumericN as u8,
+
+            // Money types
+            ColumnValues::Money(_) => TdsDataType::Money as u8,
+            ColumnValues::SmallMoney(_) => TdsDataType::Money4 as u8,
+
+            // Date/time types
+            ColumnValues::Date(_) => TdsDataType::DateN as u8,
+            ColumnValues::Time(_) => TdsDataType::TimeN as u8,
+            ColumnValues::DateTime(_) => TdsDataType::DateTime as u8,
+            ColumnValues::DateTime2(_) => TdsDataType::DateTime2N as u8,
+            ColumnValues::DateTimeOffset(_) => TdsDataType::DateTimeOffsetN as u8,
+            ColumnValues::SmallDateTime(_) => TdsDataType::DateTim4 as u8,
+
+            // Binary types - use BigVarBinary for variable-length binary data
+            ColumnValues::Bytes(_) => TdsDataType::BigVarBinary as u8,
+
+            // String types: narrow (VARCHAR) and wide (NVARCHAR) both arrive as
+            // ColumnValues::String; only SqlString's encoding says which one
+            // this is. Matched by encoding, not by negating Utf16: DelayedSet
+            // means "encoding not yet known" (mssql-js uses it for both
+            // widths), so it lands in the wide arm alongside Utf16 as the
+            // defensible default rather than being swept into narrow by a
+            // catch-all `else` -- see the matching guard in
+            // serialize_as_variant's resolved_narrow for why. Keep this in
+            // lockstep with that guard.
+            ColumnValues::String(s) => {
+                if matches!(
+                    s.encoding_type(),
+                    EncodingType::Utf8 | EncodingType::LcidBased(_)
+                ) {
+                    TdsDataType::BigVarChar as u8
+                } else {
+                    TdsDataType::NVarChar as u8
+                }
+            }
+
+            // GUID - use nullable GUID type
+            ColumnValues::Uuid(_) => TdsDataType::Guid as u8,
+
+            ColumnValues::Null => {
+                // Should have been handled earlier
+                return Err(Error::ProtocolError(
+                    "NULL should be handled before get_variant_base_type".to_string(),
+                ));
+            }
+
+            // Catch-all for unsupported types in sql_variant (XML, JSON, Vector, etc.)
+            _ => {
+                return Err(Error::UsageError(
+                    "Unsupported data type in sql_variant columns".to_string(),
+                ));
+            }
+        };
+
+        Ok(tds_type)
+    }
+
+    /// Create a TdsTypeContext for serializing the inner value of a variant.
+    ///
+    /// This creates a context with the correct base type (not SQL_VARIANT) so that
+    /// the inner value serialization works correctly.
+    fn create_variant_inner_context(
+        value: &ColumnValues,
+        base_type: u8,
+        _original_ctx: &TdsTypeContext,
+        resolved_narrow: Option<&[u8]>,
+    ) -> TdsResult<TdsTypeContext> {
+        let ctx = match value {
+            // Integer types: use fixed-length types (INT1, INT2, INT4, INT8)
+            // is_fixed_length=true means skip the length byte prefix in serialization
+            ColumnValues::TinyInt(_) => TdsTypeContext {
+                tds_type: TdsDataType::Int1 as u8,
+                max_size: 1,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::SmallInt(_) => TdsTypeContext {
+                tds_type: TdsDataType::Int2 as u8,
+                max_size: 2,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::Int(_) => TdsTypeContext {
+                tds_type: TdsDataType::Int4 as u8,
+                max_size: 4,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::BigInt(_) => TdsTypeContext {
+                tds_type: TdsDataType::Int8 as u8,
+                max_size: 8,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            ColumnValues::Real(_) => TdsTypeContext {
+                tds_type: TdsDataType::Flt4 as u8,
+                max_size: 4,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::Float(_) => TdsTypeContext {
+                tds_type: TdsDataType::Flt8 as u8,
+                max_size: 8,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            ColumnValues::Bit(_) => TdsTypeContext {
+                tds_type: TdsDataType::Bit as u8,
+                max_size: 1,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            ColumnValues::Decimal(v) | ColumnValues::Numeric(v) => TdsTypeContext {
+                tds_type: base_type, // 0x6A or 0x6C
+                max_size: 17,        // Max size for decimal
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: Some(v.precision),
+                scale: Some(v.scale),
+                collation: None,
+            },
+
+            ColumnValues::Money(_) => TdsTypeContext {
+                tds_type: TdsDataType::Money as u8,
+                max_size: 8,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::SmallMoney(_) => TdsTypeContext {
+                tds_type: TdsDataType::Money4 as u8,
+                max_size: 4,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            // Date/Time types
+            ColumnValues::Date(_) => TdsTypeContext {
+                tds_type: TdsDataType::DateN as u8,
+                max_size: 3,
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::Time(v) => TdsTypeContext {
+                tds_type: TdsDataType::TimeN as u8,
+                max_size: 5,
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: None,
+                scale: Some(v.scale),
+                collation: None,
+            },
+            ColumnValues::DateTime(_) => TdsTypeContext {
+                tds_type: TdsDataType::DateTime as u8,
+                max_size: 8,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+            ColumnValues::DateTime2(v) => TdsTypeContext {
+                tds_type: TdsDataType::DateTime2N as u8,
+                max_size: 8,
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: None,
+                scale: Some(v.time.scale),
+                collation: None,
+            },
+            ColumnValues::DateTimeOffset(v) => TdsTypeContext {
+                tds_type: TdsDataType::DateTimeOffsetN as u8,
+                max_size: 10,
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: None,
+                scale: Some(v.datetime2.time.scale),
+                collation: None,
+            },
+            ColumnValues::SmallDateTime(_) => TdsTypeContext {
+                tds_type: TdsDataType::DateTim4 as u8,
+                max_size: 4,
+                is_nullable: false,
+                is_plp: false,
+                is_fixed_length: true, // Already fixed type, but keep flag for consistency
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            // Binary types
+            ColumnValues::Bytes(v) => TdsTypeContext {
+                tds_type: TdsDataType::BigVarBinary as u8,
+                max_size: v.len(),
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            // String types: narrow (BigVarChar) and wide (NVarChar) share the
+            // same shape here -- only max_size's unit differs. `base_type` was
+            // already decided by `get_variant_base_type` from the same
+            // encoding, so it, not a re-derivation, is the source of truth.
+            // For narrow, max_size must be the length of the bytes actually
+            // written (resolved_narrow, which may have been transcoded); for
+            // wide the value is always sent as-is, so its own byte length
+            // (halved for UTF-16) is already correct. Keeping this in lockstep
+            // with the declared VARIANT_PROPERTIES length is what AB#47800 fixed.
+            ColumnValues::String(s) => TdsTypeContext {
+                tds_type: base_type,
+                max_size: match resolved_narrow {
+                    Some(bytes) => bytes.len(),
+                    None => s.bytes.len() / 2,
+                },
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // Skip length prefix in sql_variant
+                precision: None,
+                scale: None,
+                // Use column collation if known (from original context), else fall back to default
+                // This matches ODBC behavior: use column collation if available, else connection default
+                collation: _original_ctx.collation,
+            },
+
+            // GUID
+            ColumnValues::Uuid(_) => TdsTypeContext {
+                tds_type: TdsDataType::Guid as u8,
+                max_size: 16,
+                is_nullable: true,
+                is_plp: false,
+                is_fixed_length: true, // In sql_variant, GUID is serialized as fixed 16 bytes without length prefix
+                precision: None,
+                scale: None,
+                collation: None,
+            },
+
+            ColumnValues::Vector(_) | ColumnValues::Xml(_) | ColumnValues::Json(_) => {
+                return Err(Error::UsageError(
+                    "Unsupported data type in sql_variant".to_string(),
+                ));
+            }
+
+            ColumnValues::Null => {
+                return Err(Error::ProtocolError(
+                    "NULL should be handled before create_variant_inner_context".to_string(),
+                ));
+            }
+        };
+
+        Ok(ctx)
+    }
+
+    /// Serialize the inner value without the variant wrapper check.
+    ///
+    /// This is used internally by serialize_as_variant to avoid infinite recursion.
+    /// It performs the same serialization as serialize_value but skips the variant check.
+    #[inline]
+    async fn serialize_value_inner<'a, 'b>(
+        writer: &'a mut PacketWriter<'b>,
+        value: &ColumnValues,
+        ctx: &TdsTypeContext,
+        narrow_string_byte_limit: Option<usize>,
+        fit_narrow_overflow: bool,
+    ) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // Direct dispatch without variant check
+        match value {
+            ColumnValues::Null => Self::serialize_null(writer, ctx).await,
+            ColumnValues::Bit(v) => Self::serialize_bit(writer, *v, ctx).await,
+            ColumnValues::TinyInt(v) => Self::serialize_tinyint(writer, *v, ctx).await,
+            ColumnValues::SmallInt(v) => Self::serialize_smallint(writer, *v, ctx).await,
+            ColumnValues::Int(v) => Self::serialize_int(writer, *v, ctx).await,
+            ColumnValues::BigInt(v) => Self::serialize_bigint(writer, *v, ctx).await,
+            ColumnValues::Real(v) => Self::serialize_real(writer, *v, ctx).await,
+            ColumnValues::Float(v) => Self::serialize_float(writer, *v, ctx).await,
+            ColumnValues::Decimal(v) | ColumnValues::Numeric(v) => {
+                Self::serialize_decimal(writer, v, ctx).await
+            }
+            ColumnValues::SmallMoney(v) => Self::serialize_smallmoney(writer, v, ctx).await,
+            ColumnValues::Money(v) => Self::serialize_money(writer, v, ctx).await,
+            ColumnValues::Date(v) => Self::serialize_date(writer, v, ctx).await,
+            ColumnValues::Time(v) => Self::serialize_time(writer, v, ctx).await,
+            ColumnValues::DateTime(v) => Self::serialize_datetime(writer, v, ctx).await,
+            ColumnValues::DateTime2(v) => Self::serialize_datetime2(writer, v, ctx).await,
+            ColumnValues::DateTimeOffset(v) => Self::serialize_datetimeoffset(writer, v, ctx).await,
+            ColumnValues::SmallDateTime(v) => Self::serialize_smalldatetime(writer, v, ctx).await,
+            ColumnValues::Bytes(v) => Self::serialize_bytes(writer, v, ctx).await,
+            ColumnValues::Json(v) => Self::serialize_json(writer, v, ctx).await,
+            ColumnValues::String(v) => {
+                Self::serialize_string(
+                    writer,
+                    v,
+                    ctx,
+                    narrow_string_byte_limit,
+                    fit_narrow_overflow,
+                )
+                .await
+            }
+            ColumnValues::Vector(v) => Self::serialize_vector(writer, v, ctx).await,
+            ColumnValues::Xml(v) => Self::serialize_xml(writer, v, ctx).await,
+            ColumnValues::Uuid(v) => Self::serialize_uuid(writer, v, ctx).await,
+        }
+    }
+}
+
+#[cfg(test)]
+mod serializer_tests {
+    use crate::datatypes::column_values::{
+        ColumnValues, SqlDate, SqlDateTime, SqlDateTime2, SqlDateTimeOffset, SqlMoney,
+        SqlSmallDateTime, SqlSmallMoney, SqlTime,
+    };
+    use crate::datatypes::decoder::DecimalParts;
+    use crate::datatypes::tds_value_serializer::{
+        PLP_NULL, PLP_TERMINATOR, PLP_UNKNOWN_LEN, TdsTypeContext, TdsValueSerializer, VARNULL,
+    };
+    use crate::io::packet_writer::tests::MockNetworkWriter;
+    use crate::io::packet_writer::{PacketWriter, TdsPacketWriter};
+    use crate::message::messages::PacketType;
+    use futures::executor::block_on;
+
+    fn nullable_ctx(tds_type: u8) -> TdsTypeContext {
+        TdsTypeContext {
+            tds_type,
+            max_size: 0,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: None,
+            is_nullable: true,
+        }
+    }
+
+    fn payload(writer: &PacketWriter) -> Vec<u8> {
+        writer.get_payload().into_inner()[8..].to_vec()
+    }
+
+    // ── serialize_null ──
+
+    #[test]
+    fn null_intn() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26); // INTN
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_fltn() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6D); // FLTN
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_bitn() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x68); // BITN
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_guid() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x24); // GUID
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_daten() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x28); // DateN
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_timen() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x29); // TimeN
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_datetime2n() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x2A); // DateTime2N
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_datetimeoffsetn() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x2B); // DateTimeOffsetN
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_text_legacy() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x23); // TEXT
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn null_plp() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xE7); // NVARCHAR
+        ctx.is_plp = true;
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), PLP_NULL.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn null_varlength() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0xE7); // NVARCHAR non-PLP
+        block_on(TdsValueSerializer::serialize_null(&mut w, &ctx)).unwrap();
+        assert_eq!(payload(&w), VARNULL.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn null_fixed_bit_returns_error() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x32); // Fixed BIT
+        let res = block_on(TdsValueSerializer::serialize_null(&mut w, &ctx));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn null_fixed_int4_returns_error() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x38); // INT4 fixed
+        ctx.is_plp = false;
+        let res = block_on(TdsValueSerializer::serialize_null(&mut w, &ctx));
+        assert!(res.is_err());
+    }
+
+    // ── serialize_bit ──
+
+    #[test]
+    fn bit_true_nullable() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x68); // BITN
+        let val = ColumnValues::Bit(true);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x01, 0x01]); // length=1, value=1
+    }
+
+    #[test]
+    fn bit_false_nullable() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x68); // BITN
+        let val = ColumnValues::Bit(false);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x01, 0x00]); // length=1, value=0
+    }
+
+    #[test]
+    fn bit_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x68); // BITN
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]); // NULL
+    }
+
+    // ── serialize_tinyint ──
+
+    #[test]
+    fn tinyint_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26); // INTN
+        let val = ColumnValues::TinyInt(42);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x01, 42]); // length=1, value=42
+    }
+
+    #[test]
+    fn tinyint_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_smallint ──
+
+    #[test]
+    fn smallint_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26); // INTN
+        let val = ColumnValues::SmallInt(256);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // length=2, value=256 LE = [0x00, 0x01]
+        assert_eq!(payload(&w), vec![0x02, 0x00, 0x01]);
+    }
+
+    #[test]
+    fn smallint_negative() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26);
+        let val = ColumnValues::SmallInt(-1);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x02, 0xFF, 0xFF]);
+    }
+
+    // ── serialize_int ──
+
+    #[test]
+    fn int_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26);
+        let val = ColumnValues::Int(0x01020304);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x04, 0x04, 0x03, 0x02, 0x01]);
+    }
+
+    #[test]
+    fn int_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_bigint ──
+
+    #[test]
+    fn bigint_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26);
+        let val = ColumnValues::BigInt(1);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x08]; // length=8
+        expected.extend_from_slice(&1i64.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn bigint_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x26);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_real ──
+
+    #[test]
+    fn real_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6D); // FLTN
+        let val = ColumnValues::Real(1.5f32);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x04]; // length=4
+        expected.extend_from_slice(&(1.5f32.to_bits() as i32).to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn real_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6D);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_float ──
+
+    #[test]
+    fn float_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6D); // FLTN
+        let val = ColumnValues::Float(1.25f64);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x08]; // length=8
+        expected.extend_from_slice(&1.25f64.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn float_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6D);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_smallmoney ──
+
+    #[test]
+    fn smallmoney_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6E); // MONEYN
+        let val = ColumnValues::SmallMoney(SqlSmallMoney { int_val: 1234567 });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x04]; // length=4
+        expected.extend_from_slice(&1234567i32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn smallmoney_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6E);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_money ──
+
+    #[test]
+    fn money_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6E); // MONEYN
+        let val = ColumnValues::Money(SqlMoney {
+            msb_part: 0x01,
+            lsb_part: 0x02,
+        });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x08]; // length=8
+        expected.extend_from_slice(&0x01i32.to_le_bytes()); // MSB first
+        expected.extend_from_slice(&0x02i32.to_le_bytes()); // LSB second
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn money_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6E);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_date ──
+
+    #[test]
+    fn date_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x28); // DateN
+        let date = SqlDate::create(100).unwrap();
+        let val = ColumnValues::Date(date);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // length=3, days=100 LE 3 bytes: [100, 0, 0]
+        assert_eq!(payload(&w), vec![0x03, 100, 0, 0]);
+    }
+
+    #[test]
+    fn date_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x28);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_time ──
+
+    #[test]
+    fn time_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x29); // TimeN
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn time_value_scale0() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x29);
+        // 1 second = 10_000_000 in 100ns units; scale 0 → divide by 10^7 → 1
+        let val = ColumnValues::Time(SqlTime {
+            time_nanoseconds: 10_000_000,
+            scale: 0,
+        });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // scale 0 → time_length=3, length byte=3, time_value=1 LE 3 bytes
+        assert_eq!(payload(&w), vec![0x03, 0x01, 0x00, 0x00]);
+    }
+
+    // ── serialize_datetime ──
+
+    #[test]
+    fn datetime_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6F); // DateTimeN
+        let val = ColumnValues::DateTime(SqlDateTime {
+            days: 10,
+            time: 300,
+        });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x08]; // length=8
+        expected.extend_from_slice(&10i32.to_le_bytes());
+        expected.extend_from_slice(&300u32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn datetime_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6F);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_smalldatetime ──
+
+    #[test]
+    fn smalldatetime_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6F); // DateTimeN
+        let val = ColumnValues::SmallDateTime(SqlSmallDateTime { days: 5, time: 60 });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x04]; // length=4
+        expected.extend_from_slice(&5u16.to_le_bytes());
+        expected.extend_from_slice(&60u16.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn smalldatetime_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6F);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    // ── serialize_datetime2 ──
+
+    #[test]
+    fn datetime2_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x2A); // DateTime2N
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn datetime2_value_scale0() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x2A);
+        let val = ColumnValues::DateTime2(SqlDateTime2 {
+            days: 1,
+            time: SqlTime {
+                time_nanoseconds: 0,
+                scale: 0,
+            },
+        });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // scale 0 → time_length=3, total_value_length=6, length byte=6
+        // time=0 as 3 bytes [0,0,0], days=1 as 3 bytes LE [1,0,0]
+        assert_eq!(payload(&w), vec![0x06, 0, 0, 0, 1, 0, 0]);
+    }
+
+    // ── serialize_datetimeoffset ──
+
+    #[test]
+    fn datetimeoffset_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x2B); // DateTimeOffsetN
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn datetimeoffset_value_scale0() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x2B);
+        let val = ColumnValues::DateTimeOffset(SqlDateTimeOffset {
+            datetime2: SqlDateTime2 {
+                days: 1,
+                time: SqlTime {
+                    time_nanoseconds: 0,
+                    scale: 0,
+                },
+            },
+            offset: 60, // +1 hour
+        });
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // scale 0 → time_length=3, total=3+3+2=8, length byte=8
+        // time=0 [0,0,0], days=1 [1,0,0], offset=60 LE [60,0]
+        assert_eq!(payload(&w), vec![0x08, 0, 0, 0, 1, 0, 0, 60, 0]);
+    }
+
+    // ── serialize_uuid ──
+
+    #[test]
+    fn uuid_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x24); // GUID
+        let uuid = uuid::Uuid::nil();
+        let val = ColumnValues::Uuid(uuid);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(p[0], 16); // length=16
+        assert_eq!(&p[1..], &[0u8; 16]); // nil UUID → all zeros
+    }
+
+    #[test]
+    fn uuid_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x24);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn uuid_specific_value() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x24);
+        let uuid = uuid::Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap();
+        let val = ColumnValues::Uuid(uuid);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(p[0], 16);
+        assert_eq!(&p[1..], uuid.to_bytes_le().as_slice());
+    }
+
+    // ── serialize_decimal ──
+
+    #[test]
+    fn decimal_value_precision5() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x6A); // DecimalN
+        ctx.precision = Some(5);
+        ctx.scale = Some(2);
+        let val = ColumnValues::Decimal(DecimalParts::new(true, 5, 2, 12345));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // precision 5 → value_bytes=4, total_length=5
+        // [5, 1(positive), 12345 as i32 LE]
+        let mut expected = vec![0x05, 0x01];
+        expected.extend_from_slice(&12345i32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn decimal_negative() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x6A);
+        ctx.precision = Some(9);
+        let val = ColumnValues::Decimal(DecimalParts::new(false, 9, 0, 100));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x05, 0x00]; // length=5, sign=0 (negative)
+        expected.extend_from_slice(&100i32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn decimal_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x6A);
+        let val = ColumnValues::Null;
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        assert_eq!(payload(&w), vec![0x00]);
+    }
+
+    #[test]
+    fn decimal_precision18() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x6A);
+        ctx.precision = Some(18);
+        let val = ColumnValues::Decimal(DecimalParts::new(true, 18, 0, 8589934593));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        // precision 18 → value_bytes=8, total=9
+        let mut expected = vec![0x09, 0x01]; // length=9, sign=positive
+        expected.extend_from_slice(&1i32.to_le_bytes());
+        expected.extend_from_slice(&2i32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    // ── Helper for small-buffer tests ──
+
+    fn collect_finalized(mock: &MockNetworkWriter) -> Vec<u8> {
+        let mut result = Vec::new();
+        let data = &mock.data;
+        let mut offset = 0;
+        while offset + 8 <= data.len() {
+            let pkt_len = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
+            if pkt_len < 8 || offset + pkt_len > data.len() {
+                break;
+            }
+            result.extend_from_slice(&data[offset + 8..offset + pkt_len]);
+            offset += pkt_len;
+        }
+        result
+    }
+
+    // ── Small-buffer variants (exercises has_space() == false async paths) ──
+    //
+    // Packet sizes chosen so has_space() returns false at position 0,
+    // but individual write_*_async calls don't overflow by more than payload:
+    //   bit/tinyint: 9 (payload=1)
+    //   smallint: 10 (payload=2)
+    //   int/real/smalldatetime/smallmoney/date/time: 12 (payload=4)
+    //   bigint/float/datetime/money/datetime2/datetimeoffset: 16 (payload=8)
+    //   uuid: 24 (payload=16)
+
+    #[test]
+    fn bit_true_small_buffer() {
+        let mut mock = MockNetworkWriter::new(9);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let val = ColumnValues::Bit(true);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &val,
+            &nullable_ctx(0x68),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x01, 0x01]);
+    }
+
+    #[test]
+    fn tinyint_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(9);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::TinyInt(42),
+            &nullable_ctx(0x26),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x01, 42]);
+    }
+
+    #[test]
+    fn smallint_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(10);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::SmallInt(256),
+            &nullable_ctx(0x26),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x02, 0x00, 0x01]);
+    }
+
+    #[test]
+    fn int_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(12);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Int(0x01020304),
+            &nullable_ctx(0x26),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x04, 0x04, 0x03, 0x02, 0x01]);
+    }
+
+    #[test]
+    fn bigint_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(16);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::BigInt(1),
+            &nullable_ctx(0x26),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let mut expected = vec![0x08];
+        expected.extend_from_slice(&1i64.to_le_bytes());
+        assert_eq!(collect_finalized(&mock), expected);
+    }
+
+    #[test]
+    fn real_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(12);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Real(1.5f32),
+            &nullable_ctx(0x6D),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let mut expected = vec![0x04];
+        expected.extend_from_slice(&(1.5f32.to_bits() as i32).to_le_bytes());
+        assert_eq!(collect_finalized(&mock), expected);
+    }
+
+    #[test]
+    fn date_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(12);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let date = SqlDate::create(100).unwrap();
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Date(date),
+            &nullable_ctx(0x28),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x03, 100, 0, 0]);
+    }
+
+    #[test]
+    fn time_value_scale0_small_buffer() {
+        let mut mock = MockNetworkWriter::new(12);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Time(SqlTime {
+                time_nanoseconds: 10_000_000,
+                scale: 0,
+            }),
+            &nullable_ctx(0x29),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x03, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn datetime2_value_scale0_small_buffer() {
+        let mut mock = MockNetworkWriter::new(16);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::DateTime2(SqlDateTime2 {
+                days: 1,
+                time: SqlTime {
+                    time_nanoseconds: 0,
+                    scale: 0,
+                },
+            }),
+            &nullable_ctx(0x2A),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(collect_finalized(&mock), vec![0x06, 0, 0, 0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn datetimeoffset_value_scale0_small_buffer() {
+        let mut mock = MockNetworkWriter::new(16);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::DateTimeOffset(SqlDateTimeOffset {
+                datetime2: SqlDateTime2 {
+                    days: 1,
+                    time: SqlTime {
+                        time_nanoseconds: 0,
+                        scale: 0,
+                    },
+                },
+                offset: 60,
+            }),
+            &nullable_ctx(0x2B),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        assert_eq!(
+            collect_finalized(&mock),
+            vec![0x08, 0, 0, 0, 1, 0, 0, 60, 0]
+        );
+    }
+
+    #[test]
+    fn smalldatetime_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(12);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::SmallDateTime(SqlSmallDateTime { days: 5, time: 60 }),
+            &nullable_ctx(0x6F),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let mut expected = vec![0x04];
+        expected.extend_from_slice(&5u16.to_le_bytes());
+        expected.extend_from_slice(&60u16.to_le_bytes());
+        assert_eq!(collect_finalized(&mock), expected);
+    }
+
+    #[test]
+    fn datetime_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(16);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::DateTime(SqlDateTime {
+                days: 10,
+                time: 300,
+            }),
+            &nullable_ctx(0x6F),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let mut expected = vec![0x08];
+        expected.extend_from_slice(&10i32.to_le_bytes());
+        expected.extend_from_slice(&300u32.to_le_bytes());
+        assert_eq!(collect_finalized(&mock), expected);
+    }
+
+    #[test]
+    fn smallmoney_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(12);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::SmallMoney(SqlSmallMoney { int_val: 1234567 }),
+            &nullable_ctx(0x6E),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let mut expected = vec![0x04];
+        expected.extend_from_slice(&1234567i32.to_le_bytes());
+        assert_eq!(collect_finalized(&mock), expected);
+    }
+
+    #[test]
+    fn money_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(16);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Money(SqlMoney {
+                msb_part: 0x01,
+                lsb_part: 0x02,
+            }),
+            &nullable_ctx(0x6E),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let mut expected = vec![0x08];
+        expected.extend_from_slice(&0x01i32.to_le_bytes());
+        expected.extend_from_slice(&0x02i32.to_le_bytes());
+        assert_eq!(collect_finalized(&mock), expected);
+    }
+
+    #[test]
+    fn uuid_value_small_buffer() {
+        let mut mock = MockNetworkWriter::new(24);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let uuid = uuid::Uuid::nil();
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Uuid(uuid),
+            &nullable_ctx(0x24),
+        ))
+        .unwrap();
+        block_on(w.finalize()).unwrap();
+        drop(w);
+        let p = collect_finalized(&mock);
+        assert_eq!(p[0], 16);
+        assert_eq!(&p[1..], &[0u8; 16]);
+    }
+
+    // ── String/binary serialization ──
+
+    #[test]
+    fn string_nvarchar_short() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xE7);
+        ctx.max_size = 100;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::from_utf8_string(
+            "Hi".to_string(),
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..2], &4u16.to_le_bytes());
+        let utf16: Vec<u8> = "Hi".encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+        assert_eq!(&p[2..], &utf16[..]);
+    }
+
+    #[test]
+    fn string_nvarchar_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0xE7);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Null,
+            &ctx,
+        ))
+        .unwrap();
+        assert_eq!(payload(&w), VARNULL.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn string_nvarchar_plp() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xE7);
+        ctx.is_plp = true;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::from_utf8_string(
+            "AB".to_string(),
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let utf16: Vec<u8> = "AB".encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&(utf16.len() as u32).to_le_bytes());
+        expected.extend_from_slice(&utf16);
+        expected.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(p, expected);
+    }
+
+    /// Regression test for microsoft/mssql-python#547.
+    ///
+    /// An empty NVARCHAR(MAX) value must be serialized as PLP_UNKNOWN_LEN
+    /// followed only by the PLP_TERMINATOR. Writing an extra zero-length
+    /// chunk header (chunk_len=0) before the terminator desyncs the TDS
+    /// stream because a zero-length chunk IS the terminator per MS-TDS,
+    /// causing SQL error 4804 ("premature end of message").
+    #[test]
+    fn string_nvarchar_plp_empty_omits_chunk_header() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xE7);
+        ctx.is_plp = true;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::from_utf8_string(
+            String::new(),
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&PLP_TERMINATOR.to_le_bytes()); // PLP terminator only
+        assert_eq!(p, expected);
+    }
+
+    /// Regression test for microsoft/mssql-python#547 (VARCHAR(MAX) variant).
+    #[test]
+    fn string_varchar_plp_empty_omits_chunk_header() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xA7);
+        ctx.is_plp = true;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            Vec::new(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&PLP_TERMINATOR.to_le_bytes());
+        assert_eq!(p, expected);
+    }
+
+    /// Regression test for microsoft/mssql-python#547 (VARBINARY(MAX) variant).
+    #[test]
+    fn bytes_varbinary_plp_empty_omits_chunk_header() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xA5);
+        ctx.is_plp = true;
+        let val = ColumnValues::Bytes(Vec::new());
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&PLP_TERMINATOR.to_le_bytes());
+        assert_eq!(p, expected);
+    }
+
+    #[test]
+    fn string_varchar_short() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xA7);
+        ctx.max_size = 100;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            b"Hi".to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..2], &2u16.to_le_bytes());
+        assert_eq!(&p[2..], b"Hi");
+    }
+
+    #[test]
+    fn bytes_varbinary_short() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xAD);
+        ctx.max_size = 100;
+        let val = ColumnValues::Bytes(vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..2], &4u16.to_le_bytes());
+        assert_eq!(&p[2..], &[0xDE, 0xAD, 0xBE, 0xEF]);
+    }
+
+    #[test]
+    fn bytes_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0xAD);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Null,
+            &ctx,
+        ))
+        .unwrap();
+        assert_eq!(payload(&w), VARNULL.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn bytes_plp() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xA5);
+        ctx.is_plp = true;
+        let data = vec![0x01, 0x02, 0x03];
+        let val = ColumnValues::Bytes(data.clone());
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&3u32.to_le_bytes());
+        expected.extend_from_slice(&data);
+        expected.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(p, expected);
+    }
+
+    #[test]
+    fn bytes_image() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x22);
+        ctx.max_size = 2_147_483_647;
+        let data = vec![0xCA, 0xFE];
+        let val = ColumnValues::Bytes(data.clone());
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(p[0], 0x10);
+        assert_eq!(&p[1..17], &[0xFF; 16]);
+        assert_eq!(&p[17..25], &[0xFF; 8]);
+        assert_eq!(&p[25..29], &2u32.to_le_bytes());
+        assert_eq!(&p[29..31], &data[..]);
+    }
+
+    // ── JSON and XML ──
+
+    #[test]
+    fn json_value() {
+        use crate::datatypes::sql_json::SqlJson;
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xF4);
+        ctx.is_plp = true;
+        let json = SqlJson::new(b"{\"a\":1}".to_vec());
+        let val = ColumnValues::Json(json);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let utf16: Vec<u8> = "{\"a\":1}"
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&(utf16.len() as u32).to_le_bytes());
+        expected.extend_from_slice(&utf16);
+        expected.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(p, expected);
+    }
+
+    #[test]
+    fn xml_value() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xF1);
+        ctx.is_plp = true;
+        let xml = crate::datatypes::column_values::SqlXml::from("<r/>".to_string());
+        let xml_bytes = xml.bytes.clone();
+        let val = ColumnValues::Xml(xml);
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        let data_len = xml_bytes.len() + 2; // +2 for BOM
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&PLP_UNKNOWN_LEN.to_le_bytes());
+        expected.extend_from_slice(&(data_len as u32).to_le_bytes());
+        expected.push(0xFF);
+        expected.push(0xFE);
+        expected.extend_from_slice(&xml_bytes);
+        expected.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(p, expected);
+    }
+
+    #[test]
+    fn xml_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0xF1);
+        ctx.is_plp = true;
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Null,
+            &ctx,
+        ))
+        .unwrap();
+        assert_eq!(payload(&w), PLP_NULL.to_le_bytes().to_vec());
+    }
+
+    // ── Decimal precision ranges ──
+
+    #[test]
+    fn decimal_precision15() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x6A);
+        ctx.precision = Some(15);
+        ctx.scale = Some(0);
+        let val = ColumnValues::Decimal(DecimalParts::new(true, 15, 0, 8589934593));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x09, 0x01]; // length=9, sign=positive
+        expected.extend_from_slice(&1i32.to_le_bytes());
+        expected.extend_from_slice(&2i32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn decimal_precision25() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x6A);
+        ctx.precision = Some(25);
+        ctx.scale = Some(0);
+        let val = ColumnValues::Decimal(DecimalParts::new(false, 25, 0, 55340232229718589441));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let mut expected = vec![0x0D, 0x00]; // length=13, sign=negative
+        expected.extend_from_slice(&1i32.to_le_bytes());
+        expected.extend_from_slice(&2i32.to_le_bytes());
+        expected.extend_from_slice(&3i32.to_le_bytes());
+        assert_eq!(payload(&w), expected);
+    }
+
+    #[test]
+    fn decimal_precision_invalid() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x6A);
+        ctx.precision = Some(39);
+        let val = ColumnValues::Decimal(DecimalParts::new(true, 39, 0, 1));
+        assert!(block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).is_err());
+    }
+
+    // ── serialize_as_variant ──
+
+    #[test]
+    fn variant_null() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 8016;
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Null,
+            &ctx,
+        ))
+        .unwrap();
+        assert_eq!(payload(&w), 0u32.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn variant_int() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 8016;
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Int(42),
+            &ctx,
+        ))
+        .unwrap();
+        let p = payload(&w);
+        // total_length = 2 + 0(prop) + 4(data) = 6
+        assert_eq!(&p[0..4], &6u32.to_le_bytes());
+        assert_eq!(p[4], 0x38); // INT4
+        assert_eq!(p[5], 0x00); // prop_len = 0
+        assert_eq!(&p[6..10], &42i32.to_le_bytes());
+    }
+
+    #[test]
+    fn variant_string_nvarchar() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 8016;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::from_utf8_string(
+            "Hi".to_string(),
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        // "Hi" UTF-16LE = 4 bytes. total_length = 2 + 7(prop) + 4(data) = 13
+        assert_eq!(&p[0..4], &13u32.to_le_bytes());
+        assert_eq!(p[4], 0xE7); // NVARCHAR
+        assert_eq!(p[5], 0x07); // prop_len = 7
+    }
+
+    // ── serialize_vector ──
+
+    fn vector_ctx() -> TdsTypeContext {
+        nullable_ctx(crate::datatypes::sqldatatypes::TdsDataType::Vector as u8)
+    }
+
+    #[test]
+    fn vector_float32_elements() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let vector =
+            crate::datatypes::sql_vector::SqlVector::try_from_f32(vec![1.0, 2.0, 3.0]).unwrap();
+        let ctx = vector_ctx();
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Vector(vector),
+            &ctx,
+        ))
+        .unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..2], &20u16.to_le_bytes()); // 8 header + 3 * 4
+        assert_eq!(&p[2..10], &[0xA9, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(&p[10..14], &1.0f32.to_le_bytes());
+        assert_eq!(&p[14..18], &2.0f32.to_le_bytes());
+        assert_eq!(&p[18..22], &3.0f32.to_le_bytes());
+    }
+
+    #[test]
+    fn vector_mismatched_base_type_and_data_is_rejected() {
+        use crate::datatypes::sql_vector::{SqlVector, VectorData};
+        use crate::datatypes::sqldatatypes::VectorBaseType;
+        let cases = [
+            (VectorBaseType::Float32, VectorData::Float16(vec![1.0, 2.0])),
+            (VectorBaseType::Float16, VectorData::Float32(vec![1.0, 2.0])),
+        ];
+        for (base_type, data) in cases {
+            let mut mock = MockNetworkWriter::new(64);
+            let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+            let vector = SqlVector { base_type, data };
+            let result = block_on(TdsValueSerializer::serialize_value(
+                &mut w,
+                &ColumnValues::Vector(vector),
+                &vector_ctx(),
+            ));
+            assert!(
+                matches!(result, Err(crate::error::Error::UsageError(_))),
+                "{base_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn vector_oversized_is_rejected_without_wrapping() {
+        use crate::datatypes::sql_vector::{SqlVector, VectorData};
+        use crate::datatypes::sqldatatypes::VectorBaseType;
+        // 65,538 elements wrap to 2 dimensions and a 12-byte size as u16.
+        let cases = [
+            (
+                VectorBaseType::Float16,
+                VectorData::Float16(vec![0.0; 65_538]),
+            ),
+            (
+                VectorBaseType::Float32,
+                VectorData::Float32(vec![0.0; 65_538]),
+            ),
+        ];
+        for (base_type, data) in cases {
+            let mut mock = MockNetworkWriter::new(64);
+            let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+            let vector = SqlVector { base_type, data };
+            assert_eq!(vector.dimension_count(), 2);
+            let result = block_on(TdsValueSerializer::serialize_value(
+                &mut w,
+                &ColumnValues::Vector(vector),
+                &vector_ctx(),
+            ));
+            assert!(
+                matches!(result, Err(crate::error::Error::UsageError(_))),
+                "{base_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn vector_float16_elements() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let vector =
+            crate::datatypes::sql_vector::SqlVector::try_from_f16(vec![1.0, 2.0, 3.0]).unwrap();
+        let ctx = vector_ctx();
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Vector(vector),
+            &ctx,
+        ))
+        .unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..2], &14u16.to_le_bytes()); // 8 header + 3 * 2
+        // base type byte is 0x01 (float16)
+        assert_eq!(&p[2..10], &[0xA9, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00]);
+        assert_eq!(&p[10..16], &[0x00, 0x3C, 0x00, 0x40, 0x00, 0x42]);
+    }
+
+    #[test]
+    fn vector_float16_rounds_to_nearest_even() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        // Exact midpoints: 0x3C00/0x3C01 and 0x3C01/0x3C02, plus negative ties.
+        let vector = crate::datatypes::sql_vector::SqlVector::try_from_f16(vec![
+            0.1,
+            1.0 + 1.0 / 2048.0,
+            1.0 + 3.0 / 2048.0,
+            -(1.0 + 1.0 / 2048.0),
+            -(1.0 + 3.0 / 2048.0),
+        ])
+        .unwrap();
+        let ctx = vector_ctx();
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &ColumnValues::Vector(vector),
+            &ctx,
+        ))
+        .unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..2], &18u16.to_le_bytes());
+        let expected: Vec<u8> = [0x2E66u16, 0x3C00, 0x3C02, 0xBC00, 0xBC02]
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert_eq!(&p[10..], expected.as_slice());
+    }
+
+    #[test]
+    fn vector_float16_wire_boundaries() {
+        let cases = [
+            (0.0, 0x0000u16),
+            (-0.0, 0x8000),
+            (2.0f32.powi(-24), 0x0001),
+            (-2.0f32.powi(-24), 0x8001),
+            (2.0f32.powi(-14), 0x0400),
+            (-2.0f32.powi(-14), 0x8400),
+            (65504.0, 0x7BFF),
+            (-65504.0, 0xFBFF),
+            (65505.0, 0x7BFF),
+            (-65505.0, 0xFBFF),
+            (65519.0, 0x7BFF),
+            (65520.0, 0x7C00),
+            (-65520.0, 0xFC00),
+            (f32::MAX, 0x7C00),
+            (-f32::MAX, 0xFC00),
+            (f32::INFINITY, 0x7C00),
+            (f32::NEG_INFINITY, 0xFC00),
+            (2.0f32.powi(-25), 0x0000),
+            (-2.0f32.powi(-25), 0x8000),
+            (2.0f32.powi(-26), 0x0000),
+            (-2.0f32.powi(-26), 0x8000),
+            // Strictly between 2^-25 and 2^-24 rounds up to the smallest subnormal.
+            (3.0 * 2.0f32.powi(-26), 0x0001),
+            (-3.0 * 2.0f32.powi(-26), 0x8001),
+        ];
+        for (value, expected_bits) in cases {
+            let mut mock = MockNetworkWriter::new(64);
+            let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+            let vector =
+                crate::datatypes::sql_vector::SqlVector::try_from_f16(vec![value]).unwrap();
+            block_on(TdsValueSerializer::serialize_value(
+                &mut w,
+                &ColumnValues::Vector(vector),
+                &vector_ctx(),
+            ))
+            .unwrap();
+            let mut expected = vec![10, 0, 0xA9, 1, 1, 0, 1, 0, 0, 0];
+            expected.extend_from_slice(&expected_bits.to_le_bytes());
+            assert_eq!(payload(&w), expected, "input {value:?}");
+        }
+    }
+
+    #[test]
+    fn vector_float16_wire_nan() {
+        for value in [f32::NAN, -f32::NAN] {
+            let mut mock = MockNetworkWriter::new(64);
+            let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+            let vector =
+                crate::datatypes::sql_vector::SqlVector::try_from_f16(vec![value]).unwrap();
+            block_on(TdsValueSerializer::serialize_value(
+                &mut w,
+                &ColumnValues::Vector(vector),
+                &vector_ctx(),
+            ))
+            .unwrap();
+            let p = payload(&w);
+            assert_eq!(&p[..10], &[10, 0, 0xA9, 1, 1, 0, 1, 0, 0, 0]);
+            assert_eq!(p.len(), 12);
+            let bits = u16::from_le_bytes([p[10], p[11]]);
+            assert_eq!(bits & 0x7C00, 0x7C00);
+            assert_ne!(bits & 0x03FF, 0);
+            assert!(half::f16::from_bits(bits).is_nan());
+        }
+    }
+
+    /// A UTF-8-aware collation (`fUTF8`, `col_flags` bit `0x40`) must produce
+    /// UTF-8 wire bytes for a narrow variant payload rather than
+    /// codepage-mangled ones: `resolve_narrow_wire_bytes` calls the public,
+    /// collation-aware `encode_narrow`, which special-cases `collation.utf8()`.
+    ///
+    /// Since AB#48437 `serialize_string`'s `VARCHAR | CHAR | TEXT` arm resolves
+    /// the UTF-8 flag too, so this is no longer a distinction between the two
+    /// helpers -- the only difference left is the unmapped-collation fallback,
+    /// recorded as entry 24 in `mssql-odbc/docs/parity-deviations.md`. The
+    /// variant path is pinned against being merged into that arm by
+    /// `the_sql_variant_narrow_path_still_encodes_through_the_shared_encoder`,
+    /// whose probe has to use an unmapped collation for exactly that reason.
+    #[test]
+    fn variant_varchar_utf8_collation_keeps_utf8_bytes() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 8016;
+        ctx.collation = Some(crate::token::tokens::SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0x40, // fUTF8
+            sort_id: 0,
+        });
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            "café".as_bytes().to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        // "café" is 5 UTF-8 bytes; a UTF-8 collation must pass them through
+        // unchanged rather than transcoding to a single-byte codepage.
+        assert_eq!(&p[0..4], &14u32.to_le_bytes()); // total_length = 2 + 7(prop) + 5(data)
+        assert_eq!(p[4], 0xA7); // BIGVARCHAR
+        assert_eq!(p[5], 0x07); // prop_len = 7
+        assert_eq!(u16::from_le_bytes([p[11], p[12]]), 5); // max_length = 5 UTF-8 bytes
+        assert_eq!(&p[13..18], "café".as_bytes());
+    }
+
+    #[test]
+    fn variant_varchar_serialization_applies_trailing_space_fitting() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut writer = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 1;
+        ctx.collation = Some(crate::token::tokens::SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0x40,
+            sort_id: 0,
+        });
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            b"a ".to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+
+        block_on(
+            TdsValueSerializer::serialize_value_with_narrow_string_byte_limit(
+                &mut writer,
+                &value,
+                &ctx,
+                None,
+            ),
+        )
+        .unwrap();
+
+        let bytes = payload(&writer);
+        assert_eq!(&bytes[0..4], &10u32.to_le_bytes());
+        assert_eq!(bytes[4], 0xA7);
+        assert_eq!(u16::from_le_bytes([bytes[11], bytes[12]]), 1);
+        assert_eq!(&bytes[13..], b"a");
+    }
+
+    #[test]
+    fn variant_varchar_applies_value_level_narrow_byte_limit() {
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 10;
+        ctx.collation = Some(crate::token::tokens::SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0x40,
+            sort_id: 0,
+        });
+        for (text, value_limit, parameter_limit) in
+            [(b"a ".as_slice(), 1, None), (b"a  ".as_slice(), 2, Some(1))]
+        {
+            let mut mock = MockNetworkWriter::new(128);
+            let mut writer = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+            let mut value = crate::datatypes::sql_string::SqlString::new(
+                text.to_vec(),
+                crate::datatypes::sql_string::EncodingType::Utf8,
+            );
+            value.set_narrow_string_byte_limit(value_limit);
+            block_on(
+                TdsValueSerializer::serialize_value_with_narrow_string_byte_limit(
+                    &mut writer,
+                    &ColumnValues::String(value),
+                    &ctx,
+                    parameter_limit,
+                ),
+            )
+            .unwrap();
+
+            let bytes = payload(&writer);
+            assert_eq!(&bytes[0..4], &10u32.to_le_bytes());
+            assert_eq!(u16::from_le_bytes([bytes[11], bytes[12]]), 1);
+            assert_eq!(&bytes[13..], b"a");
+        }
+    }
+
+    /// The collation defaulted when none is known must be the same one used
+    /// to declare `VARIANT_PROPERTIES` and the one the narrow payload is
+    /// actually encoded under -- these were two independently-chosen
+    /// "no collation" defaults before (`write_type_info_bytes`'s CP1252
+    /// literal vs. `encode_narrow_for_wire`'s plain Latin-1-like mapping),
+    /// unreachable in practice (every `ColumnValues::String` inside a
+    /// `sql_variant` already carries a collation by the time it gets here,
+    /// see `sqltypes.rs`), but not guaranteed to agree by anything in this
+    /// file alone.
+    ///
+    /// '€' (U+20AC), not 'é': CP1252 and the Latin-1-pass-through fallback
+    /// (`encode_narrow_for_wire`'s `None` arm: any scalar value `<= 0xFF`
+    /// passes through) agree on every codepoint `<= 0xFF`, including 'é'
+    /// (U+00E9) -- so a test built on 'é' passes identically whether or not
+    /// the two defaults actually share one constant, proving nothing. '€' is
+    /// `> 0xFF`, which that fallback cannot represent at all, but CP1252 still
+    /// represents it, at byte `0x80`, so only this codepoint actually
+    /// discriminates the fix from the bug it pins.
+    #[test]
+    fn variant_varchar_no_collation_uses_the_same_default_for_declaration_and_encoding() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let mut ctx = nullable_ctx(0x62);
+        ctx.max_size = 8016;
+        ctx.collation = None;
+        let val = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            "€".as_bytes().to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &val, &ctx)).unwrap();
+        let p = payload(&w);
+        assert_eq!(&p[0..4], &10u32.to_le_bytes()); // total_length = 2 + 7(prop) + 1(data)
+        assert_eq!(p[4], 0xA7); // BIGVARCHAR
+        assert_eq!(p[5], 0x07);
+        assert_eq!(u32::from_le_bytes([p[6], p[7], p[8], p[9]]), 0x00000409); // collation.info
+        assert_eq!(p[10], 52); // collation.sort_id
+        assert_eq!(u16::from_le_bytes([p[11], p[12]]), 1); // max_length = 1 encoded byte
+        assert_eq!(p[13], 0x80); // CP1252 '€', not a Latin-1-fallback rejection
+    }
+
+    /// A TDS type the variant writers do not handle must be an error, never a
+    /// panic: these run behind an `extern "C"` ODBC boundary, where unwinding is
+    /// undefined and an abort takes the host process with it. 0xFF is not a
+    /// value `get_variant_base_type` can return, so this is only reachable if
+    /// the two ever drift apart - which is exactly when it must not abort.
+    #[test]
+    fn an_unhandled_variant_base_type_errors_rather_than_panicking() {
+        let value = ColumnValues::Int(42);
+        assert!(TdsValueSerializer::calculate_type_info_length(0xFF, &value).is_err());
+
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = nullable_ctx(0x62);
+        assert!(
+            block_on(TdsValueSerializer::write_type_info_bytes(
+                &mut w, 0xFF, &value, &ctx, None
+            ))
+            .is_err()
+        );
+    }
+
+    /// Every base type `get_variant_base_type` produces must be accepted by both
+    /// writers, which is the invariant the removed `unreachable!` was asserting.
+    #[test]
+    fn every_variant_base_type_has_a_type_info_length() {
+        use crate::datatypes::decoder::DecimalParts;
+        let values = [
+            ColumnValues::TinyInt(1),
+            ColumnValues::SmallInt(1),
+            ColumnValues::Int(1),
+            ColumnValues::BigInt(1),
+            ColumnValues::Real(1.0),
+            ColumnValues::Float(1.0),
+            ColumnValues::Bit(true),
+            ColumnValues::Decimal(DecimalParts::new(true, 10, 2, 1)),
+            ColumnValues::Uuid(uuid::Uuid::nil()),
+            ColumnValues::Bytes(vec![1]),
+            ColumnValues::String(crate::datatypes::sql_string::SqlString::from_utf8_string(
+                "a".to_string(),
+            )),
+        ];
+        for value in &values {
+            let base = TdsValueSerializer::get_variant_base_type(value)
+                .unwrap_or_else(|e| panic!("no base type for {value:?}: {e:?}"));
+            assert!(
+                TdsValueSerializer::calculate_type_info_length(base, value).is_ok(),
+                "no TYPE_INFO length for {value:?} (base 0x{base:02X})"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PLP_TERMINATOR, PLP_UNKNOWN_LEN, TdsTypeContext, TdsValueSerializer, VARCHAR};
+    use crate::datatypes::column_values::ColumnValues;
+    use crate::datatypes::lcid_encoding::lcid_to_encoding;
+    use crate::datatypes::sql_string::encode_narrow;
+    use crate::error::Error;
+    use crate::io::packet_writer::PacketWriter;
+    use crate::io::packet_writer::tests::MockNetworkWriter;
+    use crate::message::messages::PacketType;
+    use crate::token::tokens::SqlCollation;
+    use futures::executor::block_on;
+
+    fn payload(writer: &PacketWriter) -> Vec<u8> {
+        writer.get_payload().into_inner()[8..].to_vec()
+    }
+
+    /// Test that different collations use different encodings for non-ASCII characters
+    #[test]
+    fn test_collation_based_encoding_chinese() {
+        // Chinese Simplified (CP936/GBK)
+        // LCID 2052 (0x0804) = Chinese (PRC)
+        let lcid: u32 = 0x0804;
+        let encoding = lcid_to_encoding(lcid).expect("Should find Chinese encoding");
+
+        // Test with Chinese characters: "你好" (Hello in Chinese)
+        let chinese_text = "你好";
+        let (encoded, _enc, had_errors) = encoding.encode(chinese_text);
+
+        assert!(
+            !had_errors,
+            "Should encode Chinese characters without errors"
+        );
+        assert!(
+            encoded.len() == 4,
+            "Chinese characters should be 2 bytes each in GBK: got {} bytes",
+            encoded.len()
+        );
+
+        // Verify it's not Latin-1 encoding (which would replace with '?')
+        assert!(
+            !encoded.contains(&b'?'),
+            "Should not contain replacement character"
+        );
+
+        // GBK encoding for "你好"
+        // '你' = 0xC4 0xE3
+        // '好' = 0xBA 0xC3
+        assert_eq!(encoded[0], 0xC4, "First byte of '你' should be 0xC4");
+        assert_eq!(encoded[1], 0xE3, "Second byte of '你' should be 0xE3");
+        assert_eq!(encoded[2], 0xBA, "First byte of '好' should be 0xBA");
+        assert_eq!(encoded[3], 0xC3, "Second byte of '好' should be 0xC3");
+    }
+
+    #[test]
+    fn test_collation_based_encoding_japanese() {
+        // Japanese (CP932/Shift-JIS)
+        // LCID 1041 (0x0411) = Japanese (Japan)
+        let lcid: u32 = 0x0411;
+        let encoding = lcid_to_encoding(lcid).expect("Should find Japanese encoding");
+
+        // Test with Japanese Hiragana: "こんにちは" (Hello in Japanese)
+        let japanese_text = "こんにちは";
+        let (encoded, _enc, had_errors) = encoding.encode(japanese_text);
+
+        assert!(
+            !had_errors,
+            "Should encode Japanese characters without errors"
+        );
+        assert!(
+            encoded.len() == 10,
+            "5 Japanese characters should be 2 bytes each in Shift-JIS: got {} bytes",
+            encoded.len()
+        );
+
+        // Verify it's not Latin-1 encoding (which would replace with '?')
+        assert!(
+            !encoded.contains(&b'?'),
+            "Should not contain replacement character"
+        );
+    }
+
+    #[test]
+    fn test_collation_based_encoding_western_european() {
+        // Western European (Windows-1252)
+        // LCID 1033 (0x0409) = English (United States)
+        let lcid: u32 = 0x0409;
+        let encoding = lcid_to_encoding(lcid).expect("Should find Western European encoding");
+
+        // Test with extended Latin characters: "café"
+        let text = "café";
+        let (encoded, _enc, had_errors) = encoding.encode(text);
+
+        assert!(
+            !had_errors,
+            "Should encode Latin-1 characters without errors"
+        );
+        assert_eq!(encoded.len(), 4, "Should be 4 bytes");
+
+        // Windows-1252 encoding for "café"
+        // 'c' = 0x63, 'a' = 0x61, 'f' = 0x66, 'é' = 0xE9
+        assert_eq!(encoded[0], 0x63);
+        assert_eq!(encoded[1], 0x61);
+        assert_eq!(encoded[2], 0x66);
+        assert_eq!(
+            encoded[3], 0xE9,
+            "Extended character 'é' should be 0xE9 in Windows-1252"
+        );
+    }
+
+    #[test]
+    fn test_collation_based_encoding_turkish() {
+        // Turkish (Windows-1254)
+        // LCID 1055 (0x041F) = Turkish (Turkey)
+        let lcid: u32 = 0x041F;
+        let encoding = lcid_to_encoding(lcid).expect("Should find Turkish encoding");
+
+        // Test with Turkish-specific characters: "şğıİ"
+        let text = "şğıİ";
+        let (encoded, _enc, had_errors) = encoding.encode(text);
+
+        assert!(
+            !had_errors,
+            "Should encode Turkish characters without errors"
+        );
+        assert_eq!(
+            encoded.len(),
+            4,
+            "Should be 4 bytes for 4 Turkish characters"
+        );
+
+        // Verify it's properly encoded in Windows-1254
+        // 'ş' = 0xFE in Windows-1254
+        assert_eq!(
+            encoded[0], 0xFE,
+            "Turkish 'ş' should be 0xFE in Windows-1254"
+        );
+    }
+
+    #[test]
+    fn test_collation_based_encoding_cyrillic() {
+        // Cyrillic (Windows-1251)
+        // LCID 1049 (0x0419) = Russian (Russia)
+        let lcid: u32 = 0x0419;
+        let encoding = lcid_to_encoding(lcid).expect("Should find Cyrillic encoding");
+
+        // Test with Russian text: "Привет" (Hello in Russian)
+        let text = "Привет";
+        let (encoded, _enc, had_errors) = encoding.encode(text);
+
+        assert!(
+            !had_errors,
+            "Should encode Cyrillic characters without errors"
+        );
+        assert_eq!(
+            encoded.len(),
+            6,
+            "Should be 6 bytes for 6 Cyrillic characters"
+        );
+
+        // Verify it's not Latin-1 encoding (which would replace with '?')
+        assert!(
+            !encoded.contains(&b'?'),
+            "Should not contain replacement character"
+        );
+    }
+
+    #[test]
+    fn test_different_collations_produce_different_encodings() {
+        // Demonstrate that the same Unicode character produces different byte sequences
+        // depending on the collation
+
+        let test_char = "ñ"; // Spanish n with tilde
+
+        // Western European (Windows-1252): LCID 1033
+        let encoding_1252 = lcid_to_encoding(0x0409).unwrap();
+        let (encoded_1252, _, _) = encoding_1252.encode(test_char);
+
+        // Spanish (Windows-1252): LCID 1034 - should be same as above
+        let encoding_spanish = lcid_to_encoding(0x040A).unwrap();
+        let (encoded_spanish, _, _) = encoding_spanish.encode(test_char);
+
+        // Both Western European languages should produce same encoding
+        assert_eq!(
+            encoded_1252[0], encoded_spanish[0],
+            "Same code page should produce same encoding"
+        );
+        assert_eq!(
+            encoded_1252[0], 0xF1,
+            "Character 'ñ' should be 0xF1 in Windows-1252"
+        );
+
+        // But if we try to encode it in a different code page that doesn't support it,
+        // we'd get a replacement character
+        // Example: Chinese (CP936) doesn't have 'ñ'
+        let encoding_chinese = lcid_to_encoding(0x0804).unwrap();
+        let (_encoded_chinese, _, had_errors) = encoding_chinese.encode(test_char);
+
+        // Chinese encoding would either map it differently or use replacement
+        if had_errors {
+            // It's okay if it had errors - that's expected for unsupported characters
+            assert!(
+                had_errors,
+                "Chinese encoding should not support Spanish 'ñ' character"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ascii_characters_encoded_same_across_collations() {
+        // ASCII characters (0x00-0x7F) should be encoded identically across all collations
+        let ascii_text = "Hello123";
+
+        let collations = vec![
+            0x0409, // English (US)
+            0x0804, // Chinese (PRC)
+            0x0411, // Japanese
+            0x0419, // Russian
+            0x041F, // Turkish
+        ];
+
+        let mut all_encodings = Vec::new();
+
+        for lcid in collations {
+            let encoding = lcid_to_encoding(lcid)
+                .unwrap_or_else(|_| panic!("Should find encoding for LCID 0x{:04X}", lcid));
+            let (encoded, _enc, had_errors) = encoding.encode(ascii_text);
+
+            assert!(!had_errors, "ASCII characters should encode without errors");
+            all_encodings.push(encoded.to_vec());
+        }
+
+        // All encodings should be identical for ASCII text
+        let first_encoding = &all_encodings[0];
+        for (i, encoding) in all_encodings.iter().enumerate().skip(1) {
+            assert_eq!(
+                first_encoding, encoding,
+                "ASCII text should encode identically across all collations (difference at index {})",
+                i
+            );
+        }
+
+        // Verify the actual ASCII values
+        assert_eq!(first_encoding, b"Hello123", "ASCII should be encoded as-is");
+    }
+
+    /// A character the target code page cannot represent is neither dropped nor
+    /// left to `encoding_rs`, whose `encode` substitutes a decimal numeric
+    /// character reference -- one character became eight ASCII bytes, so the
+    /// server stored markup rather than text, behind nothing but a
+    /// `tracing::warn!` (AB#47598). `serialize_string` now writes a single `?`,
+    /// matching msodbcsql and SQL Server's own `CAST`, and marks the message so
+    /// `mssql-odbc` can report SQLSTATE `01000` under
+    /// `SQL_COPT_SS_WARN_ON_CP_ERROR`.
+    ///
+    /// The numeric character reference is still asserted, because it is the
+    /// reason the substitution has to be written by hand rather than taken from
+    /// the encoder.
+    #[test]
+    fn unmappable_character_is_substituted_rather_than_escaped() {
+        let encoding = lcid_to_encoding(0x0409).unwrap();
+        let (encoded, _enc, had_errors) = encoding.encode("\u{65E5}");
+        assert!(had_errors);
+        assert_eq!(
+            &encoded[..],
+            b"&#26085;",
+            "the escape this substitution exists to prevent"
+        );
+
+        let (payload, had_loss) = serialize_varchar("\u{65E5}", Some(windows_1252_collation()));
+        // 2-byte length prefix, then the value.
+        assert_eq!(payload, b"\x01\x00?");
+        assert!(had_loss, "the message must carry the loss for the caller");
+    }
+
+    /// Both of `encode_narrow_for_wire`'s Latin-1 arms -- the no-collation
+    /// default and the fallback for an LCID this crate cannot map -- used to
+    /// substitute a `?` silently. They keep the byte and now report the loss
+    /// with it.
+    #[test]
+    fn unmappable_character_is_reported_by_both_latin1_fallbacks() {
+        for collation in [
+            None,
+            Some(SqlCollation {
+                info: 0x000F_FFFF, // no mapped encoding
+                lcid_language_id: 0,
+                col_flags: 0,
+                sort_id: 0,
+            }),
+        ] {
+            let (payload, had_loss) = serialize_varchar("\u{65E5}", collation);
+            assert_eq!(payload, b"\x01\x00?", "collation {collation:?}");
+            assert!(had_loss, "collation {collation:?}");
+        }
+    }
+
+    /// The loss flag is confined to characters the encoding genuinely cannot
+    /// hold: the Latin-1 fallbacks still pass every scalar value at or below
+    /// U+00FF straight through, and report nothing.
+    #[test]
+    fn latin1_fallback_encodes_a_representable_character_without_loss() {
+        let encoded = TdsValueSerializer::encode_narrow_for_wire("Caf\u{e9}", None);
+        assert_eq!(encoded.bytes, b"Caf\xe9");
+        assert!(!encoded.had_loss);
+    }
+
+    /// The Latin-1 fallback is a second, independent `len_utf16()` site, so it
+    /// needs its own astral case: substituting once per scalar here would make
+    /// a no-collation value a byte shorter than the same value under a real
+    /// code page, and shorter than Windows msodbcsql and the engine produce
+    /// (the glibc leg emits one byte — parity-deviations entry 21).
+    /// Verified by mutation - replacing the `repeat_n` with a single `push`
+    /// leaves every other test green.
+    #[test]
+    fn latin1_fallback_substitutes_one_byte_per_utf16_unit() {
+        // No collation, and an LCID this crate cannot map: both reach the same
+        // fallback and must agree.
+        let unmapped = SqlCollation {
+            info: 0x000F_FFFF,
+            lcid_language_id: 0,
+            col_flags: 0,
+            sort_id: 0,
+        };
+        for collation in [None, Some(unmapped)] {
+            let encoded = TdsValueSerializer::encode_narrow_for_wire("\u{1F600}", collation);
+            assert_eq!(encoded.bytes, b"??", "collation {collation:?}");
+            assert!(encoded.had_loss, "collation {collation:?}");
+
+            // A representable neighbour keeps its own single byte, so the width
+            // is per-character rather than a blanket doubling.
+            let mixed = TdsValueSerializer::encode_narrow_for_wire("\u{e9}\u{1F600}", collation);
+            assert_eq!(mixed.bytes, b"\xe9??", "collation {collation:?}");
+        }
+    }
+
+    /// A value that encodes cleanly must not mark the message, or every
+    /// statement would warn once the attribute is on.
+    #[test]
+    fn a_mappable_value_leaves_the_message_unmarked() {
+        let (payload, had_loss) = serialize_varchar("Caf\u{e9}", Some(windows_1252_collation()));
+        assert_eq!(payload, b"\x04\x00Caf\xe9");
+        assert!(!had_loss);
+    }
+
+    /// Honouring the collation grows the value, and
+    /// `serialize_char_varchar_direct` measures encoded bytes against the
+    /// declared length, so a value that fit before can now be rejected. On the
+    /// bulk-copy and TVP routes this surfaces mid-stream, after earlier rows
+    /// are already buffered, rather than before anything is written (AB#47584).
+    ///
+    /// The encoding itself is pinned for a real per-column collation by
+    /// `bulk_row_encodes_for_the_column_collation` in `message/bulk_load.rs`,
+    /// which drives `begin()` and so also covers `column_contexts` carrying
+    /// that collation into this arm.
+    #[test]
+    fn a_grown_value_can_exceed_a_column_length_it_previously_fit() {
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            utf16le("\u{e9}"),
+            crate::datatypes::sql_string::EncodingType::Utf16,
+        ));
+        let ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: 1,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: Some(utf8_collation()),
+            is_nullable: true,
+        };
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let err = block_on(TdsValueSerializer::serialize_value(&mut w, &value, &ctx))
+            .expect_err("two encoded bytes do not fit varchar(1)");
+        assert!(matches!(
+            err,
+            Error::EncodedValueTooLong {
+                actual: 2,
+                maximum: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn encoded_length_validation_trims_only_trailing_blanks() {
+        assert_eq!(
+            TdsValueSerializer::fit_narrow_bytes("é ".as_bytes(), 2).unwrap(),
+            "é".as_bytes()
+        );
+        assert!(matches!(
+            TdsValueSerializer::fit_narrow_bytes(" é".as_bytes(), 2),
+            Err(Error::EncodedValueTooLong {
+                actual: 3,
+                maximum: 2
+            })
+        ));
+    }
+
+    #[test]
+    fn row_serialization_rejects_trailing_space_overflow() {
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            b"a ".to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        let ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: 1,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: Some(utf8_collation()),
+            is_nullable: true,
+        };
+
+        let mut row_mock = MockNetworkWriter::new(64);
+        let mut row_writer =
+            PacketWriter::new(PacketType::TabularResult, &mut row_mock, None, None);
+        let err = block_on(TdsValueSerializer::serialize_value(
+            &mut row_writer,
+            &value,
+            &ctx,
+        ))
+        .expect_err("bulk and TVP values must not use RPC trailing-space fitting");
+        assert!(matches!(
+            err,
+            Error::EncodedValueTooLong {
+                actual: 2,
+                maximum: 1
+            }
+        ));
+
+        let mut rpc_mock = MockNetworkWriter::new(64);
+        let mut rpc_writer =
+            PacketWriter::new(PacketType::TabularResult, &mut rpc_mock, None, None);
+        block_on(
+            TdsValueSerializer::serialize_value_with_narrow_string_byte_limit(
+                &mut rpc_writer,
+                &value,
+                &ctx,
+                None,
+            ),
+        )
+        .unwrap();
+        assert_eq!(payload(&rpc_writer), [1, 0, b'a']);
+    }
+
+    #[test]
+    fn explicit_limit_cannot_relax_non_plp_declaration() {
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            utf16le("ab"),
+            crate::datatypes::sql_string::EncodingType::Utf16,
+        ));
+        let ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: 1,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: Some(utf8_collation()),
+            is_nullable: true,
+        };
+        assert!(matches!(
+            TdsValueSerializer::validate_narrow_string_length(&value, &ctx, Some(2)),
+            Err(Error::EncodedValueTooLong {
+                actual: 2,
+                maximum: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn explicit_limit_applies_to_plp_narrow_strings() {
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            utf16le("é "),
+            crate::datatypes::sql_string::EncodingType::Utf16,
+        ));
+        let ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: usize::MAX,
+            is_plp: true,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: Some(utf8_collation()),
+            is_nullable: true,
+        };
+
+        let mut bounded_mock = MockNetworkWriter::new(64);
+        let mut bounded =
+            PacketWriter::new(PacketType::TabularResult, &mut bounded_mock, None, None);
+        block_on(
+            TdsValueSerializer::serialize_value_with_narrow_string_byte_limit(
+                &mut bounded,
+                &value,
+                &ctx,
+                Some(2),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            payload(&bounded),
+            [
+                PLP_UNKNOWN_LEN.to_le_bytes().as_slice(),
+                2u32.to_le_bytes().as_slice(),
+                "é".as_bytes(),
+                PLP_TERMINATOR.to_le_bytes().as_slice(),
+            ]
+            .concat()
+        );
+
+        let mut unbounded_mock = MockNetworkWriter::new(64);
+        let mut unbounded =
+            PacketWriter::new(PacketType::TabularResult, &mut unbounded_mock, None, None);
+        block_on(TdsValueSerializer::serialize_value(
+            &mut unbounded,
+            &value,
+            &ctx,
+        ))
+        .unwrap();
+        assert_eq!(
+            payload(&unbounded),
+            [
+                PLP_UNKNOWN_LEN.to_le_bytes().as_slice(),
+                3u32.to_le_bytes().as_slice(),
+                "é ".as_bytes(),
+                PLP_TERMINATOR.to_le_bytes().as_slice(),
+            ]
+            .concat()
+        );
+
+        let spaces = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            utf16le("  "),
+            crate::datatypes::sql_string::EncodingType::Utf16,
+        ));
+        let mut spaces_mock = MockNetworkWriter::new(64);
+        let mut spaces_writer =
+            PacketWriter::new(PacketType::TabularResult, &mut spaces_mock, None, None);
+        block_on(
+            TdsValueSerializer::serialize_value_with_narrow_string_byte_limit(
+                &mut spaces_writer,
+                &spaces,
+                &ctx,
+                Some(0),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            payload(&spaces_writer),
+            [
+                PLP_UNKNOWN_LEN.to_le_bytes().as_slice(),
+                PLP_TERMINATOR.to_le_bytes().as_slice(),
+            ]
+            .concat()
+        );
+
+        let too_long = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            utf16le("éé"),
+            crate::datatypes::sql_string::EncodingType::Utf16,
+        ));
+        assert!(matches!(
+            TdsValueSerializer::validate_narrow_string_length(&too_long, &ctx, Some(3)),
+            Err(Error::EncodedValueTooLong {
+                actual: 4,
+                maximum: 3
+            })
+        ));
+    }
+
+    /// The UTF-8 passthrough must not forward bytes that are not actually
+    /// UTF-8. `EncodingType::Utf8` is a declaration -- `SqlString::new` stores
+    /// whatever it is handed -- so a caller can label malformed bytes as UTF-8,
+    /// and sending those to a `_UTF8` collation would put invalid data on the
+    /// wire under a declaration that it is valid.
+    ///
+    /// The fast path therefore validates before taking itself, and malformed
+    /// input falls through to the established decode path, which is what it did
+    /// before the fast path existed.
+    ///
+    /// **The panic is tolerated, not a contract.** It comes from
+    /// `SqlString::decode`'s `String::from_utf8(..).unwrap()`
+    /// (`sql_string.rs`), which AB#47576 tracks removing; `param_convert.rs`'s
+    /// `AppText::transcode` cites the same work item and pre-sanitises with
+    /// `from_utf8_lossy`, which is why ODBC never reaches it. When that unwrap
+    /// goes, this assertion has to be rewritten -- what must survive is that
+    /// the fast path declines the bytes, not that the fallthrough panics.
+    #[test]
+    #[should_panic(expected = "Utf8Error")]
+    fn the_utf8_passthrough_rejects_bytes_that_are_not_utf8() {
+        // A lone continuation byte: never valid UTF-8.
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            vec![0x80],
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        // Falls through to `to_utf8_string`, which panics on this input today
+        // (AB#47576). What matters is that the fast path does not silently
+        // forward the bytes instead.
+        let _ = serialize_narrow(&value, Some(utf8_collation()));
+    }
+
+    // ---- AB#48437: the inline serializer resolves the full collation --------
+    //
+    // These run through `serialize_varchar`, i.e. the real `serialize_string`
+    // arm, not `encode_narrow_for_wire` in isolation: the defect was that the
+    // arm reached an LCID-only helper, so asserting the helper alone would have
+    // passed both before and after the fix.
+    //
+    // Reaching the arm is not the same as reaching the resolver. A UTF-8 source
+    // under a `_UTF8` collation returns at the arm's passthrough and never
+    // consults `try_resolve_collation`, so the `_UTF8` cases below assert from a
+    // UTF-16 source as well, which is what pins the resolver's UTF-8 branch.
+    //
+    // Every case below holds LCID 0x0409 (US English -> Windows-1252) fixed and
+    // varies only the UTF-8 flag or the sort ID, so a byte that differs from the
+    // Windows-1252 control is attributable to the resolver and nothing else.
+
+    /// The UTF-8 flag wins over the LCID. U+00E9 is `C3 A9` under a `_UTF8`
+    /// collation, not the `E9` that LCID 0x0409 alone would give.
+    ///
+    /// The length prefix is asserted with it: the encoded form is two bytes for
+    /// one character, so a prefix of 1 would frame the value short and desync
+    /// the parameter stream rather than merely mis-encoding it.
+    ///
+    /// Asserted from both sources. A UTF-8 source takes the arm's passthrough,
+    /// which forwards the bytes without consulting the resolver, so it alone
+    /// would pass even with the resolver's UTF-8 branch removed; the UTF-16 one
+    /// is decoded and re-encoded, so it is what pins the branch.
+    #[test]
+    fn a_utf8_collation_encodes_utf8_rather_than_the_lcid_codepage() {
+        let (payload, had_loss) = serialize_varchar("\u{e9}", Some(utf8_collation()));
+        assert_eq!(payload, b"\x02\x00\xc3\xa9");
+        assert!(!had_loss, "UTF-8 represents every character");
+
+        let (payload, had_loss) = serialize_varchar_utf16(&utf16le("\u{e9}"), utf8_collation());
+        assert_eq!(
+            payload, b"\x02\x00\xc3\xa9",
+            "the resolver must honour the UTF-8 flag"
+        );
+        assert!(!had_loss);
+    }
+
+    /// A SQL sort ID wins over the LCID. CP437 and CP850 both put U+00E9 at
+    /// `82`, where Windows-1252 puts it at `E9`.
+    #[test]
+    fn a_sql_sort_id_selects_its_code_page_over_the_lcid() {
+        for (sort_id, what) in [(32u8, "CP437"), (42u8, "CP850")] {
+            let (payload, had_loss) = serialize_varchar("\u{e9}", Some(sort_id_collation(sort_id)));
+            assert_eq!(payload, b"\x01\x00\x82", "{what} (sort id {sort_id})");
+            assert!(!had_loss, "{what} represents U+00E9");
+        }
+    }
+
+    /// CP437 and CP850 are not interchangeable, so the sort ID has to select
+    /// between them rather than standing for "some OEM page".
+    ///
+    /// Both code pages put a character at `E0`, but a different one: U+03B1
+    /// GREEK SMALL ALPHA in CP437, U+00D3 LATIN CAPITAL O WITH ACUTE in CP850.
+    /// Each is unmappable in the other page, so the pair pins both directions -
+    /// swapping the two arms of the resolver makes all four assertions fail.
+    #[test]
+    fn cp437_and_cp850_are_told_apart() {
+        let cp437 = sort_id_collation(32);
+        let cp850 = sort_id_collation(42);
+
+        // U+03B1 is CP437's E0 and has no CP850 encoding.
+        let (payload, had_loss) = serialize_varchar("\u{3b1}", Some(cp437));
+        assert_eq!(payload, b"\x01\x00\xe0", "U+03B1 under CP437");
+        assert!(!had_loss);
+        let (payload, had_loss) = serialize_varchar("\u{3b1}", Some(cp850));
+        assert_eq!(payload, b"\x01\x00?", "U+03B1 has no CP850 encoding");
+        assert!(had_loss, "an unmappable character is a reportable loss");
+
+        // U+00D3 is CP850's E0 and has no CP437 encoding.
+        let (payload, had_loss) = serialize_varchar("\u{d3}", Some(cp850));
+        assert_eq!(payload, b"\x01\x00\xe0", "U+00D3 under CP850");
+        assert!(!had_loss);
+        let (payload, had_loss) = serialize_varchar("\u{d3}", Some(cp437));
+        assert_eq!(payload, b"\x01\x00?", "U+00D3 has no CP437 encoding");
+        assert!(had_loss);
+    }
+
+    /// The control: an ordinary Windows collation - no UTF-8 flag, sort ID 0 -
+    /// still resolves through the LCID exactly as before, so the fix adds
+    /// branches ahead of that path rather than replacing it.
+    #[test]
+    fn a_windows_collation_still_encodes_through_the_lcid_codepage() {
+        let (payload, had_loss) = serialize_varchar("\u{e9}", Some(windows_1252_collation()));
+        assert_eq!(payload, b"\x01\x00\xe9");
+        assert!(!had_loss);
+    }
+
+    /// Buffered and streamed writes must agree. `encode_narrow` is what the
+    /// data-at-execution path streams through; the inline arm now resolves the
+    /// same way, so the same value under the same collation reaches the wire as
+    /// the same bytes whichever route it took. Before the fix the two disagreed
+    /// under exactly the collations above.
+    ///
+    /// Driven through `serialize_varchar` rather than calling
+    /// `encode_narrow_for_wire` directly, so it also fails if `serialize_string`
+    /// is ever rerouted away from that helper — comparing the two helpers to
+    /// each other could not see that.
+    #[test]
+    fn the_inline_arm_agrees_with_the_streamed_encoder() {
+        let probes = ["\u{e9}", "\u{3b1}", "\u{d3}", "Caf\u{e9} \u{65e5}", "plain"];
+        let collations = [
+            ("utf8", utf8_collation()),
+            ("cp437", sort_id_collation(32)),
+            ("cp850", sort_id_collation(42)),
+            ("windows-1252", windows_1252_collation()),
+        ];
+        for (what, collation) in collations {
+            for probe in probes {
+                let (payload, had_loss) = serialize_varchar(probe, Some(collation));
+                let streamed = encode_narrow(probe, collation);
+                // `varchar(n)` frames with a two-byte little-endian prefix; the
+                // streamed encoder returns the bare body.
+                let prefix = u16::from_le_bytes([payload[0], payload[1]]) as usize;
+                assert_eq!(
+                    &payload[2..],
+                    streamed.bytes.as_slice(),
+                    "{what}: inline and streamed bytes differ for {probe:?}"
+                );
+                assert_eq!(
+                    prefix,
+                    streamed.bytes.len(),
+                    "{what}: length prefix does not count the encoded bytes for {probe:?}"
+                );
+                assert_eq!(
+                    had_loss, streamed.had_loss,
+                    "{what}: inline and streamed loss flags differ for {probe:?}"
+                );
+            }
+        }
+    }
+
+    /// The unmapped case keeps this arm's own Latin-1 fallback rather than
+    /// inheriting `encode_narrow`'s Windows-1252 one, so a collation naming no
+    /// encoding this crate knows still sends what it always sent. Deliberately
+    /// *not* unified: that is a behaviour change on a path the resolver fix does
+    /// not otherwise touch.
+    ///
+    /// U+0080 separates the two - it is its own byte under the Latin-1 mapping
+    /// and unmappable in Windows-1252, whose `80` is the Euro sign.
+    #[test]
+    fn an_unmapped_collation_keeps_the_latin1_fallback() {
+        let unmapped = SqlCollation {
+            info: 0x000F_FFFF,
+            lcid_language_id: 0,
+            col_flags: 0,
+            sort_id: 0,
+        };
+        let (payload, had_loss) = serialize_varchar("\u{80}", Some(unmapped));
+        assert_eq!(payload, b"\x01\x00\x80", "Latin-1 passes U+0080 through");
+        assert!(!had_loss);
+
+        // Windows-1252 would have substituted instead, which is what makes this
+        // an assertion about the fallback rather than about U+0080.
+        assert_eq!(encode_narrow("\u{80}", unmapped).bytes, b"?");
+    }
+
+    /// A UTF-8 collation must not be mistaken for "no re-encoding needed" in
+    /// general: a character outside ASCII still expands, and the length prefix
+    /// has to count the encoded bytes.
+    ///
+    /// The UTF-16 source is what reaches the resolver; see
+    /// [`Self::a_utf8_collation_encodes_utf8_rather_than_the_lcid_codepage`].
+    #[test]
+    fn a_utf8_collation_frames_multibyte_output_by_byte_count() {
+        // U+65E5 is three UTF-8 bytes and is unmappable in every single-byte
+        // page, so this also shows the UTF-8 arm avoids the substitution the
+        // Windows-1252 control would make.
+        let (payload, had_loss) = serialize_varchar("\u{65e5}", Some(utf8_collation()));
+        assert_eq!(payload, b"\x03\x00\xe6\x97\xa5");
+        assert!(!had_loss);
+
+        let (payload, had_loss) = serialize_varchar_utf16(&utf16le("\u{65e5}"), utf8_collation());
+        assert_eq!(
+            payload, b"\x03\x00\xe6\x97\xa5",
+            "the resolver must frame the re-encoded form by byte count"
+        );
+        assert!(!had_loss);
+
+        let (payload, had_loss) = serialize_varchar("\u{65e5}", Some(windows_1252_collation()));
+        assert_eq!(payload, b"\x01\x00?");
+        assert!(had_loss);
+    }
+
+    /// A `_UTF8` collation, i.e. the UTF-8 flag set in `col_flags`. Same LCID as
+    /// [`windows_1252_collation`] so the two differ only in the flag.
+    fn utf8_collation() -> SqlCollation {
+        SqlCollation {
+            info: 0x0409,
+            lcid_language_id: 0,
+            // fUTF8 lives at 0x40 of the collation's flag nibble-pair; `utf8()`
+            // is the accessor the resolver reads.
+            col_flags: 0x40,
+            sort_id: 0,
+        }
+    }
+
+    /// A SQL (sort-ID-bearing) collation over the same LCID, so a byte that
+    /// differs from [`windows_1252_collation`] is attributable to `sort_id`.
+    fn sort_id_collation(sort_id: u8) -> SqlCollation {
+        SqlCollation {
+            info: 0x0409,
+            lcid_language_id: 0,
+            col_flags: 0,
+            sort_id,
+        }
+    }
+
+    fn windows_1252_collation() -> SqlCollation {
+        SqlCollation {
+            info: 0x0409, // US English LCID -> Windows-1252
+            lcid_language_id: 0,
+            col_flags: 0,
+            sort_id: 0,
+        }
+    }
+
+    /// Serializes `text` as a `varchar` parameter, returning the wire payload
+    /// and whether the message was marked as having substituted a character, so
+    /// the assertions above run through `serialize_string` rather than against
+    /// the helper in isolation.
+    fn serialize_varchar(text: &str, collation: Option<SqlCollation>) -> (Vec<u8>, bool) {
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            text.as_bytes().to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        serialize_narrow(&value, collation)
+    }
+
+    /// [`serialize_varchar`] for a UTF-16LE source, so a genuinely malformed
+    /// one -- an unpaired surrogate, which cannot be expressed as a `&str` --
+    /// can be driven through the same path.
+    fn serialize_varchar_utf16(utf16le: &[u8], collation: SqlCollation) -> (Vec<u8>, bool) {
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            utf16le.to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf16,
+        ));
+        serialize_narrow(&value, Some(collation))
+    }
+
+    /// Serializes an already-built `value` as a `varchar` parameter under
+    /// `collation`, returning the payload and the message's code-page loss
+    /// verdict.
+    ///
+    /// Shared by [`serialize_varchar`] and [`serialize_varchar_utf16`], which
+    /// differ only in how they build the `SqlString`.
+    ///
+    /// **Single-packet only.** This reads the writer's current buffer, and
+    /// `PacketWriter` flushes a completed packet through `NetworkWriter::send`
+    /// and reuses that buffer for the remainder, so a value crossing
+    /// `max_payload_size` would come back as its tail alone -- plausible bytes
+    /// rather than a panic, against assertions that compare bytes exactly. The
+    /// assertion below turns that into a failure naming its own cause. A
+    /// multi-packet value belongs in `tests/test_narrow_param_encoding.rs`,
+    /// whose helper captures the flushed packets.
+    fn serialize_narrow(value: &ColumnValues, collation: Option<SqlCollation>) -> (Vec<u8>, bool) {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: 8000,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation,
+            is_nullable: true,
+        };
+        block_on(TdsValueSerializer::serialize_value(&mut w, value, &ctx)).expect("serializes");
+        let payload = w.get_payload().into_inner()[PacketWriter::PACKET_HEADER_SIZE..].to_vec();
+        let had_loss = w.code_page_conversion_loss();
+        // Ends the writer's borrow of `mock`, so the flush check below can read
+        // what was sent.
+        drop(w);
+        assert!(
+            mock.data.is_empty(),
+            "value crossed a packet boundary; this helper only reads the current buffer, \
+             so the payload it returned is a tail rather than the whole value"
+        );
+        (payload, had_loss)
+    }
+
+    /// `'a'`, an unpaired high surrogate, `'b'` as raw UTF-16LE.
+    fn lone_surrogate_utf16le() -> Vec<u8> {
+        [0x0061u16, 0xD800, 0x0062]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect()
+    }
+
+    /// `text` as raw UTF-16LE, for driving a value through the decode and
+    /// re-encode rather than the arm's UTF-8 passthrough.
+    fn utf16le(text: &str) -> Vec<u8> {
+        text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    /// A lone surrogate is repaired to U+FFFD, which a single-byte collation
+    /// cannot represent, so it is substituted *and the message is marked*.
+    ///
+    /// The mark is the point. `SQL_COPT_SS_WARN_ON_CP_ERROR` reports `01000`
+    /// off `code_page_conversion_loss`, and only this layer can observe it:
+    /// the integration tests in `tests/test_narrow_param_encoding.rs` see the
+    /// payload alone, so the flag has to be pinned here or not at all.
+    #[test]
+    fn a_lone_surrogate_substitutes_and_marks_the_message() {
+        let (payload, had_loss) =
+            serialize_varchar_utf16(&lone_surrogate_utf16le(), windows_1252_collation());
+        assert_eq!(payload, b"\x03\x00a?b");
+        assert!(
+            had_loss,
+            "the substitution must mark the message so SQL_COPT_SS_WARN_ON_CP_ERROR reports 01000"
+        );
+    }
+
+    /// The same input under a `_UTF8` collation is *not* substituted: U+FFFD is
+    /// representable, so the repaired character survives and nothing is lost.
+    ///
+    /// The message must therefore stay unmarked -- the warning channel is quiet
+    /// for the same bound value under this collation, which is the half a
+    /// payload-only assertion cannot show.
+    #[test]
+    fn a_lone_surrogate_under_a_utf8_collation_leaves_the_message_unmarked() {
+        let (payload, had_loss) =
+            serialize_varchar_utf16(&lone_surrogate_utf16le(), utf8_collation());
+        assert_eq!(payload, b"\x05\x00a\xef\xbf\xbdb");
+        assert!(
+            !had_loss,
+            "nothing was lost, so the message must stay unmarked"
+        );
+    }
+
+    /// A value that substitutes and is then *rejected* must not mark the
+    /// message: the bytes never reached the wire, and the bulk-load error path
+    /// publishes this verdict, so a false positive there is observable.
+    ///
+    /// `U+1F600` is two substitute bytes against `varchar(1)`, so substitution
+    /// does not shrink it into range and
+    /// `serialize_char_varchar_direct` rejects it — before writing a byte,
+    /// which is why suppressing the mark cannot leave a partial write
+    /// unaccounted for (AB#47598).
+    ///
+    /// Mutation-sensitive: moving the `note_code_page_conversion_loss()` call
+    /// back above the serialize call makes this fail, where the pre-existing
+    /// substitution tests all still pass.
+    #[test]
+    fn a_rejected_lossy_varchar_does_not_mark_the_message() {
+        let mut mock = MockNetworkWriter::new(64);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: 1,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: Some(windows_1252_collation()),
+            is_nullable: true,
+        };
+        let value = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            "\u{1F600}".as_bytes().to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(&mut w, &value, &ctx))
+            .expect_err("two substitute bytes overflow varchar(1)");
+        assert!(
+            !w.code_page_conversion_loss(),
+            "a value that never reached the wire must not be reported as lost"
+        );
+    }
+
+    /// The flag is sticky across values, so the suppression above must be
+    /// confined to the rejected value: an earlier value that substituted *and*
+    /// serialized keeps its verdict even when a later one is refused.
+    ///
+    /// Without this, "do not mark on rejection" could be implemented as a
+    /// clear-on-rejection and still pass the test above.
+    #[test]
+    fn a_rejected_lossy_varchar_leaves_an_earlier_verdict_standing() {
+        let mut mock = MockNetworkWriter::new(128);
+        let mut w = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        let collation = Some(windows_1252_collation());
+
+        let accepted_ctx = TdsTypeContext {
+            tds_type: VARCHAR,
+            max_size: 8000,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation,
+            is_nullable: true,
+        };
+        let accepted = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            "caf\u{65e5}".as_bytes().to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &accepted,
+            &accepted_ctx,
+        ))
+        .expect("serializes");
+        assert!(w.code_page_conversion_loss());
+
+        let rejected_ctx = TdsTypeContext {
+            max_size: 1,
+            ..accepted_ctx
+        };
+        let rejected = ColumnValues::String(crate::datatypes::sql_string::SqlString::new(
+            "\u{1F600}".as_bytes().to_vec(),
+            crate::datatypes::sql_string::EncodingType::Utf8,
+        ));
+        block_on(TdsValueSerializer::serialize_value(
+            &mut w,
+            &rejected,
+            &rejected_ctx,
+        ))
+        .expect_err("two substitute bytes overflow varchar(1)");
+        assert!(
+            w.code_page_conversion_loss(),
+            "the earlier value did reach the wire; its verdict must survive"
+        );
+    }
+
+    #[test]
+    fn test_latin1_fallback_for_unsupported_lcid() {
+        // Test that unsupported LCID returns error (fallback handled in serialize_string)
+        let unsupported_lcid: u32 = 0xFFFFFF; // Invalid LCID
+
+        let result = lcid_to_encoding(unsupported_lcid);
+        assert!(result.is_err(), "Should return error for unsupported LCID");
+
+        // The actual fallback to Latin-1 is tested in the serialize_string logic
+        // which logs a warning and uses the Latin-1 fallback path
+    }
+
+    #[test]
+    fn test_encoding_preserves_data_integrity() {
+        // Test round-trip for data that should work: encode UTF-16 -> decode to string
+        // -> encode with collation -> verify no data loss for compatible characters
+
+        let test_cases = vec![
+            (0x0409, "Hello World", b"Hello World" as &[u8]), // ASCII
+            (0x0409, "café", &[0x63, 0x61, 0x66, 0xE9]),      // Windows-1252 with accent
+        ];
+
+        for (lcid, input_text, expected_bytes) in test_cases {
+            let encoding = lcid_to_encoding(lcid)
+                .unwrap_or_else(|_| panic!("Should find encoding for LCID 0x{:04X}", lcid));
+            let (encoded, _enc, had_errors) = encoding.encode(input_text);
+
+            assert!(
+                !had_errors,
+                "Should encode '{}' without errors for LCID 0x{:04X}",
+                input_text, lcid
+            );
+            assert_eq!(
+                &encoded[..],
+                expected_bytes,
+                "Encoded bytes should match expected for '{}' with LCID 0x{:04X}",
+                input_text,
+                lcid
+            );
+        }
+    }
+}

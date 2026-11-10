@@ -7,6 +7,7 @@ import datetime
 import json
 import os
 import platform
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -43,7 +44,7 @@ def certificates(directory):
     (directory/'server.key').chmod(0o644)
 
 
-def fixture(version, image, work, record, native_adapter=False):
+def fixture(version, image, work, record, native_adapter=False, native_only=False):
     name = f'collab-db-phase0-{version}-{uuid.uuid4().hex[:10]}'
     tls = work/'tls'
     certificates(tls)
@@ -102,7 +103,7 @@ def fixture(version, image, work, record, native_adapter=False):
         base = dict(os.environ, COLLAB_DATABASE_DISPOSABLE_FIXTURE='yes', COLLAB_DB_SPIKE_PORT=port,
                     COLLAB_DB_SPIKE_PASSWORD_FILE=str(password_file), COLLAB_DB_SPIKE_CA=str(tls/'ca.pem'), SSL_CERT_FILE=str(tls/'ca.pem'))
         reports = []
-        for driver in ['tiberius', 'microsoft']:
+        for driver in ([] if native_only else ['tiberius', 'microsoft']):
             for mode in ['verified', 'wrong_hostname', 'unknown_ca']:
                 env = dict(base, COLLAB_DB_SPIKE_TLS_MODE=mode)
                 if mode == 'unknown_ca':
@@ -121,12 +122,33 @@ def fixture(version, image, work, record, native_adapter=False):
         if native_adapter:
             # Compilation should be completed before this isolated TLS environment;
             # offline mode prevents the fixture CA from affecting registry downloads.
-            native_output = run(['cargo', 'test', '--offline', '-p', 'collab',
-                 'database::tests::real_disposable_registry_connections_and_metadata',
-                 '--', '--ignored', '--test-threads=1'], env=base, timeout=180)
+            try:
+                native_output = run(['cargo', 'test', '--offline', '-p', 'collab',
+                     'database::tests::real_disposable_registry_connections_and_metadata',
+                     '--', '--ignored', '--test-threads=1', '--nocapture'], env=base, timeout=180)
+            except subprocess.CalledProcessError as error:
+                # Report only source locations and fixed lifecycle labels. Never
+                # copy raw native/driver diagnostics, SQL values or credentials.
+                for location in re.findall(r'database/(?:tests|query)\.rs:\d+:\d+', error.stdout+'\n'+error.stderr):
+                    print('Native fixture assertion: ' + location, flush=True)
+                diagnostics=error.stdout+'\n'+error.stderr
+                for code in re.findall(r'error\[E[0-9]+\]',diagnostics):
+                    print('Native fixture compiler: '+code,flush=True)
+                for probe in re.findall(r'fixture scalar (session-id|server-request|side-effect)', diagnostics):
+                    print('Native fixture scalar: '+probe,flush=True)
+                if 'overflowed its stack' in diagnostics:
+                    print('Native fixture failed: stack overflow',flush=True)
+                for signal in re.findall(r'signal: [0-9]+',diagnostics):
+                    print('Native fixture '+signal,flush=True)
+                for state in re.findall(r'(?:left|right): "?(idle|running|finishing|retired|outcome_unknown|None|Open|Failed|Unknown)"?', error.stdout):
+                    print('Native fixture state: ' + state, flush=True)
+                raise
             if '1 passed; 0 failed' not in native_output:
                 raise RuntimeError('native registry fixture did not execute its required test')
-            record({'kind': 'native_registry', 'fixture_version': version, 'image': digest,
+            metrics_match=re.search(r'COLLAB_DATABASE_PHASE2 (\{[^\n]+\})',native_output)
+            metrics=json.loads(metrics_match.group(1)) if metrics_match else {}
+            metrics={key:value for key,value in metrics.items() if re.fullmatch(r'[a-z0-9_]+',key) and (value is None or isinstance(value,(int,bool)))}
+            record({'query_metrics':metrics,'kind': 'native_registry', 'fixture_version': version, 'image': digest,
                     'passed': True, 'checks': ['test-connect-closes-socket', 'independent-connections',
                     'pinned-tabs', 'forged-binding-rejected', 'paged-metadata', 'typed-cursor',
                     'columns-and-indexes', 'disconnect-isolation', 'connection-budget', 'profile-cleanup']})
@@ -143,14 +165,17 @@ def main():
     parser.add_argument('--versions', nargs='+', choices=['2019', '2022', '2025'], default=['2022'])
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--skip-build', action='store_true')
+    parser.add_argument('--native-only', action='store_true', help='Run only the native registry fixture; requires --native-adapter')
     parser.add_argument('--native-adapter', action='store_true', help='Also run the desktop native registry integration fixture (prebuild its tests first)')
     parser.add_argument('--image', help='Override image reference for a single explicitly selected version')
     args = parser.parse_args()
     if os.environ.get('COLLAB_DB_SPIKE_ACCEPT_EULA') != 'yes':
         parser.error('Set COLLAB_DB_SPIKE_ACCEPT_EULA=yes only after accepting the Microsoft SQL Server Developer license.')
+    if args.native_only and not args.native_adapter:
+        parser.error('--native-only requires --native-adapter')
     if args.image and len(args.versions) != 1:
         parser.error('--image requires exactly one version')
-    if not args.skip_build:
+    if not args.skip_build and not args.native_only:
         subprocess.run(['cargo', 'build', '--locked', '--manifest-path', str(MANIFEST)], check=True)
     reports = []
     def save(complete):
@@ -163,7 +188,7 @@ def main():
         save(False)
     for version in args.versions:
         with tempfile.TemporaryDirectory(prefix='collab-db-phase0-') as work:
-            fixture(version, args.image or f'mcr.microsoft.com/mssql/server:{version}-latest', Path(work), record, args.native_adapter)
+            fixture(version, args.image or f'mcr.microsoft.com/mssql/server:{version}-latest', Path(work), record, args.native_adapter, args.native_only)
     save(True)
     print(f'Wrote {len(reports)} real-driver fixture reports to {args.output}')
 

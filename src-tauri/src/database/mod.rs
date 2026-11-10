@@ -1,6 +1,7 @@
 //! Desktop native authority. No automatic connection or keystore access at startup.
 mod credentials;
 pub(crate) mod driver;
+pub(crate) mod query;
 use collab_database::{ContractError as E, SessionBinding};
 use driver::Live;
 use serde::{Deserialize, Serialize};
@@ -121,26 +122,29 @@ static SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
 fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
 }
-pub async fn profile_changed(previous_owner: &str, next_owner: &str) {
+pub async fn profile_changed(previous_owner: &str, next_owner: &str) -> Result<(), E> {
+    let mut r = registry().lock().await;
+    if r.owner == previous_owner && r.tabs.values().any(|t| !t.live.query.clean()) {
+        return Err(E::UnresolvedSession);
+    }
     {
-        let mut owner = CURRENT_PROFILE
+        let mut current = CURRENT_PROFILE
             .get_or_init(|| parking_lot::Mutex::new(None))
             .lock();
-        if owner
+        if current
             .as_deref()
-            .is_none_or(|current| current == previous_owner)
+            .is_none_or(|owner| owner == previous_owner)
         {
-            *owner = Some(next_owner.to_string());
+            *current = Some(next_owner.into());
         }
     }
-    if let Some(registry) = REGISTRY.get() {
-        let mut r = registry.lock().await;
-        if r.owner == previous_owner {
-            r.cancel.cancel();
-            *r = Registry::default();
-        }
+    if r.owner == previous_owner {
+        r.cancel.cancel();
+        *r = Registry::default();
     }
+    Ok(())
 }
+
 fn slots() -> Arc<Semaphore> {
     SLOTS.get_or_init(|| Arc::new(Semaphore::new(8))).clone()
 }
@@ -225,6 +229,9 @@ pub async fn activate(root: &Path, owner: String) -> Result<Workspace, E> {
 pub async fn deactivate(token: &str) -> Result<(), E> {
     let mut r = registry().lock().await;
     check(&r, token)?;
+    if r.tabs.values().any(|t| !t.live.query.clean()) {
+        return Err(E::UnresolvedSession);
+    }
     r.cancel.cancel();
     *r = Registry::default();
     Ok(())
@@ -244,6 +251,14 @@ pub async fn save(
             return Err(E::WrongBinding);
         }
         config.validate()?;
+        if r.connections.values().any(|c| {
+            c.config.id == config.id
+                && r.tabs
+                    .values()
+                    .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+        }) {
+            return Err(E::UnresolvedSession);
+        }
         if !r.profiles.iter().any(|p| p.id == config.id) && r.profiles.len() >= 32 {
             return Err(E::LimitReached);
         }
@@ -326,6 +341,13 @@ pub async fn save(
             Err(E::WrongBinding)
         } else if r.revision != revision {
             Err(E::SchemaConflict)
+        } else if r.connections.values().any(|c| {
+            c.config.id == config.id
+                && r.tabs
+                    .values()
+                    .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+        }) {
+            Err(E::UnresolvedSession)
         } else {
             let mut profiles = r.profiles.clone();
             profiles.retain(|p| p.id != config.id);
@@ -401,6 +423,14 @@ pub async fn remove(root: &Path, token: &str, id: &str) -> Result<(), E> {
             .iter()
             .find(|p| p.id == id)
             .ok_or(E::WrongBinding)?;
+        if r.connections.values().any(|c| {
+            c.config.id == id
+                && r.tabs
+                    .values()
+                    .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+        }) {
+            return Err(E::UnresolvedSession);
+        }
         (
             r.owner.clone(),
             r.revision,
@@ -426,6 +456,14 @@ pub async fn remove(root: &Path, token: &str, id: &str) -> Result<(), E> {
     check(&r, token)?;
     if r.revision != revision {
         return Err(E::SchemaConflict);
+    }
+    if r.connections.values().any(|c| {
+        c.config.id == id
+            && r.tabs
+                .values()
+                .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+    }) {
+        return Err(E::UnresolvedSession);
     }
     let profiles: Vec<_> = r.profiles.iter().filter(|p| p.id != id).cloned().collect();
     persist(root, &r.owner, &profiles)?;
@@ -523,6 +561,12 @@ pub async fn disconnect(token: &str, id: &str) -> Result<(), E> {
     if !r.connections.contains_key(id) {
         return Err(E::WrongBinding);
     }
+    if r.tabs
+        .values()
+        .any(|t| t.binding.connection_id == id && !t.live.query.clean())
+    {
+        return Err(E::UnresolvedSession);
+    }
     disconnect_inner(&mut r, id);
     Ok(())
 }
@@ -565,12 +609,15 @@ pub async fn open_tab(token: &str, id: &str, database: String) -> Result<Session
     );
     Ok(binding)
 }
-pub async fn close_tab(token: &str, binding: &SessionBinding) -> Result<(), E> {
+pub async fn close_tab(token: &str, binding: &SessionBinding, discard: bool) -> Result<(), E> {
     let mut r = registry().lock().await;
     check(&r, token)?;
     let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
     if tab.binding != *binding {
         return Err(E::WrongBinding);
+    }
+    if !discard && !tab.live.query.clean() {
+        return Err(E::UnresolvedSession);
     }
     if let Some(tab) = r.tabs.remove(&binding.tab_id) {
         tab.live.cancel.cancel();
@@ -624,3 +671,54 @@ pub async fn metadata(
 
 #[cfg(test)]
 mod tests;
+
+pub async fn query_live(token: &str, binding: &SessionBinding) -> Result<Arc<Live>, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
+    if tab.binding != *binding {
+        return Err(E::WrongBinding);
+    }
+    Ok(tab.live.clone())
+}
+pub async fn can_quit() -> bool {
+    let Some(registry) = REGISTRY.get() else {
+        return true;
+    };
+    registry
+        .lock()
+        .await
+        .tabs
+        .values()
+        .all(|tab| tab.live.query.clean())
+}
+
+pub async fn start_query(
+    token: &str,
+    binding: SessionBinding,
+    sql: String,
+    selection: Option<collab_database::SourceRange>,
+    recovery: bool,
+) -> Result<String, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
+    if tab.binding != binding {
+        return Err(E::WrongBinding);
+    }
+    query::start(tab.live.clone(), binding, sql, selection, recovery)
+}
+
+pub async fn browse_query(
+    token: &str,
+    binding: SessionBinding,
+    request: query::BrowseRequest,
+) -> Result<String, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
+    if tab.binding != binding {
+        return Err(E::WrongBinding);
+    }
+    query::browse(tab.live.clone(), binding, request)
+}

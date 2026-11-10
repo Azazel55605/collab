@@ -161,6 +161,14 @@ export default function AppShell() {
 
     const handler = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey;
+      if (
+        ctrl &&
+        useUiStore.getState().activeView === 'databases' &&
+        (e.key === 'Tab' ||
+          e.key.toLowerCase() === 'w' ||
+          (e.key.toLowerCase() === 's' && !e.shiftKey))
+      )
+        return;
       const inInput = !!document.activeElement?.matches('input,textarea,[contenteditable]');
 
       if (ctrl && e.key === 'Tab') {

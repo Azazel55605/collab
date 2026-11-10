@@ -4,12 +4,26 @@ import { Database, Plug, Plus, X } from 'lucide-react';
 
 import ConnectionForm from '../components/database/ConnectionForm';
 import MetadataExplorer from '../components/database/MetadataExplorer';
+import QueryPanel from '../components/database/QueryPanel';
 import { DocumentTopBar, DocumentTopBarButton } from '../components/layout/DocumentTopBar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import { Field, FieldLabel } from '../components/ui/field';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
+import {
+  executeQuery,
+  forgetQuery,
+  syncQueryTabs,
+  useDatabaseQueries,
+} from '../lib/database/queryStore';
 import { databaseError } from '../lib/databaseErrors';
 import { tauriCommands } from '../lib/tauri';
 import { useCollabStore } from '../store/collabStore';
@@ -27,6 +41,9 @@ function Workspace({ owner }: { owner: string }) {
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState('');
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const queryStatus = useDatabaseQueries((state) => state.tabs[activeTab ?? '']?.status);
   const [connectionId, setConnectionId] = useState('');
   const [search, setSearch] = useState('');
   const [password, setPassword] = useState('');
@@ -46,6 +63,30 @@ function Workspace({ owner }: { owner: string }) {
       generation.current = version + 1;
     };
   }, [owner]);
+  useEffect(() => {
+    if (workspace) syncQueryTabs(owner, workspace);
+  }, [owner, workspace]);
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.defaultPrevented) return;
+      if (event.key.toLowerCase() === 'w') {
+        event.preventDefault();
+        if (workspace?.tabs.some((tab) => tab.tab_id === activeTab)) setClosing(true);
+      }
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        const tabs = workspace?.tabs ?? [];
+        if (tabs.length) {
+          const current = tabs.findIndex((tab) => tab.tab_id === activeTab);
+          const next = (current + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length;
+          setActiveTab(tabs[next].tab_id);
+          setMetadata(false);
+        }
+      }
+    };
+    document.addEventListener('keydown', keys, { capture: true });
+    return () => document.removeEventListener('keydown', keys, { capture: true });
+  }, [workspace, activeTab]);
   const perform = async <T,>(job: () => Promise<T>, apply?: (value: T) => void) => {
     const version = generation.current;
     setBusy(true);
@@ -112,6 +153,7 @@ function Workspace({ owner }: { owner: string }) {
       ({ binding, state }) => {
         setWorkspace(state);
         setActiveTab(binding.tab_id);
+        setMetadata(false);
       },
     );
   };
@@ -141,13 +183,21 @@ function Workspace({ owner }: { owner: string }) {
             <>
               <Badge variant="outline">TLS verified</Badge>
               <Badge variant="secondary">
-                {tab ? 'Session pinned · No transaction' : 'Metadata session'}
+                {tab
+                  ? `Session pinned · Transaction ${queryStatus?.transaction ?? 'none'}`
+                  : 'Metadata session'}
               </Badge>
               <DocumentTopBarButton
                 disabled={busy}
                 onClick={() => {
                   if (workspace)
                     void perform(async () => {
+                      if (
+                        Object.values(useDatabaseQueries.getState().tabs).some(
+                          (t) => t.binding.connection_id === connection.id && t.dirty,
+                        )
+                      )
+                        throw 'unresolved_session';
                       await tauriCommands.databaseDisconnect(workspace.token, connection.id);
                       return reload();
                     }, setWorkspace);
@@ -233,6 +283,16 @@ function Workspace({ owner }: { owner: string }) {
                     if (workspace)
                       void perform(
                         async () => {
+                          if (
+                            Object.values(useDatabaseQueries.getState().tabs).some(
+                              (t) =>
+                                workspace.connections.some(
+                                  (c) =>
+                                    c.saved_id === profile.id && c.id === t.binding.connection_id,
+                                ) && t.dirty,
+                            )
+                          )
+                            throw 'unresolved_session';
                           await tauriCommands.databaseRemove(workspace.token, profile.id);
                           return reload();
                         },
@@ -301,38 +361,44 @@ function Workspace({ owner }: { owner: string }) {
           {tab && workspace && (
             <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-2">
               <p className="text-xs text-muted-foreground">
-                This session stays on its connection and database. Query editing and execution are
-                not available yet.
+                This session stays pinned to its connection and database.
               </p>
+              <Button size="sm" variant="ghost" onClick={() => setMetadata((value) => !value)}>
+                {metadata ? 'SQL editor' : 'Browse metadata'}
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
                 aria-label="Close database session"
                 disabled={busy}
-                onClick={() =>
-                  void perform(
-                    async () => {
-                      await tauriCommands.databaseCloseTab(workspace.token, tab);
-                      return reload();
-                    },
-                    (state) => {
-                      setWorkspace(state);
-                      setActiveTab(null);
-                    },
-                  )
-                }
+                onClick={() => setClosing(true)}
               >
                 <X />
               </Button>
             </div>
           )}
-          {workspace && connection ? (
+          {workspace && tab && !metadata ? (
+            <QueryPanel key={tab.tab_id} token={workspace.token} binding={tab} />
+          ) : workspace && connection ? (
             <MetadataExplorer
               key={`${connection.id}:${tab?.tab_id ?? 'databases'}`}
               token={workspace.token}
               connectionId={connection.id}
               binding={tab}
               onOpen={open}
+              onBrowse={
+                tab
+                  ? (schema, table) => {
+                      setMetadata(false);
+                      void executeQuery(workspace.token, tab, undefined, false, {
+                        schema,
+                        table,
+                        filter_column: null,
+                        filter_text: '',
+                      });
+                    }
+                  : undefined
+              }
             />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
@@ -351,6 +417,44 @@ function Workspace({ owner }: { owner: string }) {
           )}
         </div>
       </div>
+      {closing && workspace && tab && (
+        <Dialog open onOpenChange={setClosing}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Close database session?</DialogTitle>
+              <DialogDescription>
+                Discard this tab’s SQL draft, results and history. Running work is stopped by
+                closing the connection; uncommitted transactions are not committed. Already
+                committed changes are not undone. If an outcome is unknown, verify the database
+                before rerunning SQL.
+              </DialogDescription>
+            </DialogHeader>
+            <Button variant="outline" onClick={() => setClosing(false)}>
+              Keep session
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() =>
+                void perform(
+                  async () => {
+                    await tauriCommands.databaseCloseTab(workspace.token, tab, true);
+                    return reload();
+                  },
+                  (state) => {
+                    forgetQuery(tab.tab_id);
+                    setWorkspace(state);
+                    setActiveTab(null);
+                    setClosing(false);
+                  },
+                )
+              }
+            >
+              Close session and discard
+            </Button>
+          </DialogContent>
+        </Dialog>
+      )}
       {form !== undefined && workspace && (
         <ConnectionForm
           key={form?.id ?? 'new'}
@@ -361,6 +465,15 @@ function Workspace({ owner }: { owner: string }) {
           onSave={(config, password) =>
             void perform(
               async () => {
+                if (
+                  Object.values(useDatabaseQueries.getState().tabs).some(
+                    (t) =>
+                      workspace.connections.some(
+                        (c) => c.saved_id === config.id && c.id === t.binding.connection_id,
+                      ) && t.dirty,
+                  )
+                )
+                  throw 'unresolved_session';
                 const saved = await tauriCommands.databaseSave(workspace.token, config, password);
                 return { saved, state: await reload() };
               },

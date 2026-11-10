@@ -1,0 +1,3055 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+use crate::connection::client_context::{
+    ClientContext, ColumnEncryptionSetting, MAX_LOGIN7_NAME_UNITS, TdsAuthenticationMethod,
+    TransportContext, VectorVersion,
+};
+use crate::connection::dns_cache::{DnsCache, Resolution};
+use crate::message::features::jsonfeature::JsonFeature;
+use crate::message::login_options::{
+    OptionFlags1, OptionFlags2, OptionFlags3, OptionsValue, TdsVersion, TypeFlags,
+};
+use crate::message::messages::{PacketType, Request};
+
+use crate::error::{SqlErrorInfo, SqlInfoMessage};
+use crate::io::packet_writer::{PacketWriter, TdsPacketWriter};
+use crate::token::fed_auth_info::{FedAuthInfoToken, SspiToken};
+use crate::token::login_ack::LoginAckToken;
+use crate::token::tokens::{
+    DoneStatus, EnvChangeContainer, EnvChangeToken, EnvChangeTokenSubType, SessionStateToken,
+    SqlCollation, Token, Tokens,
+};
+use async_trait::async_trait;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::fmt::Debug;
+
+use super::features::always_encrypted::AlwaysEncryptedFeature;
+use super::features::data_classification::DataClassificationFeature;
+use super::features::dns_caching::DnsCachingFeature;
+use super::features::enhanced_routing::EnhancedRoutingFeature;
+use super::features::fedauth::FedAuthFeature;
+use super::features::session_recovery::SessionRecoveryFeature;
+use super::features::useragent::UserAgentFeature;
+use super::features::utf8::Utf8Feature;
+use super::features::vectorfeature::VectorFeature;
+use crate::core::TdsResult;
+use crate::io::token_stream::{ParserContext, TdsTokenStreamReader};
+use crate::token::data_classification::DataClassificationVersion;
+use tracing::{Level, debug, event, trace};
+
+pub(crate) const FIXED_LOGIN_RECORD_LENGTH: i32 = 94;
+const MAX_LOGIN_RECORD_LENGTH: usize = 128 * 1024 - 1;
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoutingInfo {
+    pub protocol: u8,
+    pub port: u16,
+    pub server: String,
+    /// Database named by an Enhanced Routing ENVCHANGE (type 21); `None` for
+    /// plain routing (type 20), which keeps the login's own database.
+    pub database: Option<String>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub(crate) struct EnvChangeProperties {
+    pub database_collation: Option<SqlCollation>,
+    pub packet_size: i32,
+    pub language: Option<String>,
+    pub database: Option<String>,
+    pub char_set: Option<String>,
+    pub routing_information: Option<RoutingInfo>,
+}
+
+#[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
+pub(crate) enum FeatureExtension {
+    SRecovery,
+    FedAuth,
+    AlwaysEncrypted,
+    GlobalTransactions,
+    AzureSqlSupport,
+    DataClassification,
+    Utf8Support,
+    SqlDnsCaching,
+    Json,
+    Vector,
+    EnhancedRouting,
+    UserAgent,
+    Terminator,
+    Unknown(u8),
+}
+
+impl FeatureExtension {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            FeatureExtension::SRecovery => 0x01,
+            FeatureExtension::FedAuth => 0x02,
+            FeatureExtension::AlwaysEncrypted => 0x04,
+            FeatureExtension::GlobalTransactions => 0x05,
+            FeatureExtension::AzureSqlSupport => 0x08,
+            FeatureExtension::DataClassification => 0x09,
+            FeatureExtension::Utf8Support => 0x0A,
+            FeatureExtension::SqlDnsCaching => 0x0B,
+            FeatureExtension::Json => 0x0D,
+            FeatureExtension::Vector => 0x0E,
+            FeatureExtension::EnhancedRouting => 0x0F,
+            FeatureExtension::UserAgent => 0x10,
+            FeatureExtension::Terminator => 0xFF,
+            FeatureExtension::Unknown(value) => value,
+        }
+    }
+}
+
+impl From<u8> for FeatureExtension {
+    fn from(value: u8) -> Self {
+        match value {
+            0x01 => FeatureExtension::SRecovery,
+            0x02 => FeatureExtension::FedAuth,
+            0x04 => FeatureExtension::AlwaysEncrypted,
+            0x05 => FeatureExtension::GlobalTransactions,
+            0x08 => FeatureExtension::AzureSqlSupport,
+            0x09 => FeatureExtension::DataClassification,
+            0x0A => FeatureExtension::Utf8Support,
+            0x0B => FeatureExtension::SqlDnsCaching,
+            0x0D => FeatureExtension::Json,
+            0x0E => FeatureExtension::Vector,
+            0x0F => FeatureExtension::EnhancedRouting,
+            0x10 => FeatureExtension::UserAgent,
+            0xFF => FeatureExtension::Terminator,
+            _ => FeatureExtension::Unknown(value),
+        }
+    }
+}
+
+#[async_trait]
+pub(crate) trait Feature: Send + Sync + Debug {
+    fn feature_identifier(&self) -> FeatureExtension;
+    fn is_requested(&self) -> bool;
+    fn data_length(&self) -> i32;
+    async fn serialize(&self, packet_writer: &mut PacketWriter) -> TdsResult<()>;
+    fn deserialize(&mut self, data: &[u8]) -> TdsResult<()>;
+
+    fn negotiated_version(&self) -> u8 {
+        0
+    }
+
+    /// Raw FEATUREEXTACK initial session-state payload, if this feature carries
+    /// one. Only SessionRecovery does; it must be echoed in the reconnect LOGIN7.
+    fn session_recovery_initial_state(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// What this login's connection resolved and whether the server let the
+    /// client cache it, once bound. Only SqlDnsCaching does.
+    fn dns_caching_verdict(&self) -> Option<(&Resolution, bool)> {
+        None
+    }
+
+    /// Data Classification version the server enabled in FEATUREEXTACK, if this
+    /// feature negotiated one. Only DataClassification does.
+    fn negotiated_data_classification_version(&self) -> Option<DataClassificationVersion> {
+        None
+    }
+
+    /// Whether the server acknowledged Enhanced Routing with `IsEnabled = 1`.
+    /// Only EnhancedRouting does.
+    fn enhanced_routing_enabled(&self) -> bool {
+        false
+    }
+
+    #[allow(dead_code)]
+    // This method is not used currently, and exists for completeness.
+    fn is_acknowledged(&self) -> bool;
+    fn set_acknowledged(&mut self, _acknowledged: bool);
+    fn clone_box(&self) -> Box<dyn Feature>;
+}
+
+// Implement Clone for Box<dyn Feature>
+impl Clone for Box<dyn Feature> {
+    fn clone(&self) -> Box<dyn Feature> {
+        self.clone_box()
+    }
+}
+
+// Implement Clone for FeaturesRequest
+impl Clone for FeaturesRequest {
+    fn clone(&self) -> Self {
+        FeaturesRequest {
+            features: self.features.iter().map(|(k, v)| (*k, v.clone())).collect(),
+        }
+    }
+}
+
+pub(crate) struct FeaturesRequest {
+    pub features: HashMap<FeatureExtension, Box<dyn Feature>>,
+}
+
+impl FeaturesRequest {
+    pub fn build(
+        authentication_options: TdsAuthenticationMethod,
+        access_token: Option<String>,
+        prelogin_fedauth_response: bool,
+        vector_version: VectorVersion,
+        column_encryption_setting: ColumnEncryptionSetting,
+        user_agent_feature: UserAgentFeature,
+        requested_data_classification_version: Option<DataClassificationVersion>,
+    ) -> Self {
+        let mut features: HashMap<FeatureExtension, Box<dyn Feature>> = HashMap::new();
+        features.insert(
+            FeatureExtension::Utf8Support,
+            Box::new(Utf8Feature::default()),
+        );
+        // msodbcsql always advertises DNS caching (`TdsSend.cpp`).
+        features.insert(
+            FeatureExtension::SqlDnsCaching,
+            Box::new(DnsCachingFeature::default()),
+        );
+
+        features.insert(FeatureExtension::Json, Box::new(JsonFeature::default()));
+
+        features.insert(FeatureExtension::UserAgent, Box::new(user_agent_feature));
+        // msodbcsql always advertises Enhanced Routing (`TdsSend.cpp`, "always sent").
+        features.insert(
+            FeatureExtension::EnhancedRouting,
+            Box::new(EnhancedRoutingFeature::default()),
+        );
+        if let Some(vector_feature) = Option::<VectorFeature>::from(vector_version) {
+            features.insert(FeatureExtension::Vector, Box::new(vector_feature));
+        }
+
+        if column_encryption_setting == ColumnEncryptionSetting::Enabled {
+            features.insert(
+                FeatureExtension::AlwaysEncrypted,
+                Box::new(AlwaysEncryptedFeature::default()),
+            );
+        }
+
+        if let Some(version) = requested_data_classification_version {
+            features.insert(
+                FeatureExtension::DataClassification,
+                Box::new(DataClassificationFeature::new(version)),
+            );
+        }
+
+        if authentication_options != TdsAuthenticationMethod::SSPI
+            && authentication_options != TdsAuthenticationMethod::Password
+        {
+            features.insert(
+                FeatureExtension::FedAuth,
+                Box::new(FedAuthFeature::new(
+                    authentication_options,
+                    access_token,
+                    prelogin_fedauth_response,
+                )),
+            );
+        }
+        FeaturesRequest { features }
+    }
+
+    #[allow(dead_code)]
+    // This method is not used currently, and exists for completeness.
+    pub fn features(&self) -> Vec<&dyn Feature> {
+        self.features
+            .values()
+            .map(|f| f.as_ref())
+            .collect::<Vec<&dyn Feature>>()
+    }
+
+    #[allow(dead_code)]
+    // This method is not used currently, and exists for completeness.
+    pub fn is_acknowledged(&self, _feature_extension: FeatureExtension) -> Option<&dyn Feature> {
+        let feature = self.features.get(&_feature_extension);
+        match feature {
+            Some(f) => {
+                if f.is_acknowledged() {
+                    Some(f.as_ref())
+                } else {
+                    None
+                }
+            }
+            None => {
+                event!(
+                    Level::WARN,
+                    "Feature {:?} not found in the features request",
+                    _feature_extension
+                );
+                None
+            }
+        }
+    }
+
+    pub fn set_acknowledged(
+        &mut self,
+        _feature_extension: FeatureExtension,
+        _data: &[u8],
+    ) -> TdsResult<()> {
+        let feature = self.features.get_mut(&_feature_extension);
+        match feature {
+            Some(f) => {
+                f.set_acknowledged(true);
+                f.deserialize(_data)?;
+                Ok(())
+            }
+            None => {
+                event!(
+                    Level::WARN,
+                    "Feature {:?} not found in the features request when setting acknowledged",
+                    _feature_extension
+                );
+                Ok(())
+            }
+        }
+    }
+
+    /// Ties the DNS caching acknowledgement to what this login's connection
+    /// resolved, so an allowing verdict publishes exactly those addresses.
+    pub(crate) fn bind_dns_caching(&mut self, resolution: Resolution) {
+        self.features.insert(
+            FeatureExtension::SqlDnsCaching,
+            Box::new(DnsCachingFeature::for_resolution(resolution)),
+        );
+    }
+
+    /// Forgets an earlier token's DNS caching acknowledgement, so each
+    /// FEATUREEXTACK is judged on its own. Other features keep theirs.
+    pub(crate) fn reset_dns_caching_acknowledgement(&mut self) {
+        if let Some(feature) = self.features.get_mut(&FeatureExtension::SqlDnsCaching) {
+            feature.set_acknowledged(false);
+        }
+    }
+
+    /// Settles whether the login's host may stay in the DNS cache, allowing it
+    /// only if the latest FEATUREEXTACK acknowledged DNS caching.
+    pub(crate) fn apply_dns_caching_verdict(&self) {
+        if let Some((resolution, allowed)) = self
+            .features
+            .get(&FeatureExtension::SqlDnsCaching)
+            .and_then(|feature| feature.dns_caching_verdict())
+        {
+            DnsCache::global().apply_verdict(resolution, allowed);
+        }
+    }
+
+    pub fn get_requested_features(&self) -> Vec<&dyn Feature> {
+        self.features
+            .values()
+            .filter(|f| f.is_requested())
+            .map(|f| f.as_ref())
+            .collect()
+    }
+
+    pub fn enhanced_routing_enabled(&self) -> bool {
+        self.features
+            .get(&FeatureExtension::EnhancedRouting)
+            .is_some_and(|f| f.enhanced_routing_enabled())
+    }
+
+    #[allow(dead_code)]
+    // This method is not used currently, and exists for completeness.
+    pub fn get_acknowledged_features(&self) -> Vec<&dyn Feature> {
+        self.features
+            .values()
+            .filter(|f| f.is_acknowledged())
+            .map(|f| f.as_ref())
+            .collect()
+    }
+}
+
+use crate::connection::session_recovery::SessionRecoveryData;
+
+/// Emits a warning when Always Encrypted is enabled on the connection but no
+/// column master key store providers are registered. Without a provider, every
+/// encrypt/decrypt later fails with a `ColumnEncryptionError`; warning here turns
+/// that confusing first-query failure into an actionable connection-setup hint.
+fn warn_if_always_encrypted_has_no_providers(context: &ClientContext) {
+    if context.column_encryption_setting == ColumnEncryptionSetting::Enabled
+        && context.column_encryption_key_store_providers.is_empty()
+    {
+        tracing::warn!(
+            "Always Encrypted is enabled on this connection but no column master key store \
+             providers are registered; encrypted columns and parameters cannot resolve their \
+             keys until a provider (e.g. MSSQL_CERTIFICATE_STORE) is registered"
+        );
+    }
+}
+
+impl From<(&ClientContext, bool)> for FeaturesRequest {
+    fn from(context_and_prelogin_fedauth_flag: (&ClientContext, bool)) -> Self {
+        let context = context_and_prelogin_fedauth_flag.0;
+        let mut request = FeaturesRequest::build(
+            context.tds_authentication_method.clone(),
+            context.access_token.clone(),
+            context_and_prelogin_fedauth_flag.1,
+            context.vector_version,
+            context.column_encryption_setting,
+            UserAgentFeature::new(context),
+            context.requested_data_classification_version,
+        );
+
+        warn_if_always_encrypted_has_no_providers(context);
+
+        if context.connect_retry_count > 0 {
+            request.features.insert(
+                FeatureExtension::SRecovery,
+                Box::new(SessionRecoveryFeature::new(context.connect_retry_count)),
+            );
+        }
+
+        request
+    }
+}
+
+impl FeaturesRequest {
+    /// Builds a FeaturesRequest with optional recovery data for session reconnection.
+    /// When `recovery_data` is provided, the session recovery feature will carry
+    /// the reconnection state in the LOGIN7 packet.
+    pub(crate) fn from_context_with_recovery(
+        context: &ClientContext,
+        prelogin_fedauth_response: bool,
+        recovery_data: Option<&SessionRecoveryData>,
+    ) -> Self {
+        let mut request = FeaturesRequest::build(
+            context.tds_authentication_method.clone(),
+            context.access_token.clone(),
+            prelogin_fedauth_response,
+            context.vector_version,
+            context.column_encryption_setting,
+            UserAgentFeature::new(context),
+            context.requested_data_classification_version,
+        );
+
+        warn_if_always_encrypted_has_no_providers(context);
+
+        if context.connect_retry_count > 0 {
+            let feature = if let Some(recovery_data) = recovery_data {
+                SessionRecoveryFeature::from(Box::new(recovery_data.clone()))
+            } else {
+                SessionRecoveryFeature::new(context.connect_retry_count)
+            };
+            request
+                .features
+                .insert(FeatureExtension::SRecovery, Box::new(feature));
+        }
+
+        request
+    }
+}
+
+#[derive(Default)]
+pub struct PhysicalAddress {
+    address_bytes: [u8; 6],
+}
+
+pub(crate) struct LoginRequestModel<'context> {
+    pub option_flags1: OptionFlags1,
+    pub option_flags2: OptionFlags2,
+    pub option_flags3: OptionFlags3,
+    pub type_flags: TypeFlags,
+    pub tds_version: TdsVersion,
+    // TODO: user_input needs to be login specific user_input. Need to understand how to replicate the C# concept here.
+    pub user_input: &'context ClientContext,
+    // This is a transport context, which will be used to get the authoritative server name.
+    pub transport_context: &'context TransportContext,
+    pub features_request: FeaturesRequest,
+    pub client_prog_ver: i32,
+    pub client_process_id: i32,
+    pub connection_id_deprecated: i32,
+    pub client_time_zone_deprecated: i32,
+    pub client_lcid_deprecated: i32,
+    pub client_id: PhysicalAddress,
+    /// SSPI token data for integrated authentication.
+    /// Contains the initial security token (e.g., NTLM Type 1 or Kerberos AP_REQ).
+    /// None for password authentication.
+    pub sspi_token: Option<Vec<u8>>,
+}
+
+impl LoginRequestModel<'_> {
+    pub(crate) fn from_context<'a, 'b>(
+        context: &'a ClientContext,
+        pre_login_fedauth_response: bool,
+        transport_context: &'b TransportContext,
+        recovery_data: Option<&SessionRecoveryData>,
+    ) -> LoginRequestModel<'b>
+    where
+        'a: 'b,
+    {
+        LoginRequestModel {
+            option_flags1: OptionFlags1::default(),
+            option_flags2: context.into(),
+            option_flags3: context.into(),
+            type_flags: context.into(),
+            tds_version: context.tds_version(),
+            features_request: FeaturesRequest::from_context_with_recovery(
+                context,
+                pre_login_fedauth_response,
+                recovery_data,
+            ),
+            user_input: context,
+            transport_context,
+            client_prog_ver: context.encode_driver_version(),
+            client_process_id: 0,
+            connection_id_deprecated: 0,
+            client_time_zone_deprecated: 0,
+            client_lcid_deprecated: 0,
+            client_id: PhysicalAddress::default(),
+            sspi_token: None, // Set by caller for SSPI authentication
+        }
+    }
+
+    /// Creates a LoginRequestModel with an SSPI token for integrated authentication.
+    pub(crate) fn from_context_with_sspi<'a, 'b>(
+        context: &'a ClientContext,
+        pre_login_fedauth_response: bool,
+        transport_context: &'b TransportContext,
+        sspi_token: Vec<u8>,
+        recovery_data: Option<&SessionRecoveryData>,
+    ) -> LoginRequestModel<'b>
+    where
+        'a: 'b,
+    {
+        let mut model = Self::from_context(
+            context,
+            pre_login_fedauth_response,
+            transport_context,
+            recovery_data,
+        );
+        model.sspi_token = Some(sspi_token);
+        model
+    }
+}
+
+pub(crate) struct LoginResponseModel {
+    pub change_properties: EnvChangeProperties,
+    pub features: FeaturesRequest,
+    pub errors: Vec<SqlErrorInfo>,
+    pub success_token: Option<LoginAckToken>,
+    pub fed_auth_info: Option<FedAuthInfoToken>,
+    /// SSPI challenge token from server for integrated authentication
+    pub sspi_token: Option<SspiToken>,
+    /// Session state tokens received during login, for transfer to RecoveryContext.
+    pub session_state_tokens: Vec<SessionStateToken>,
+    /// Informational messages received during login.
+    pub info_messages: Vec<SqlInfoMessage>,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum LoginResponseStatus {
+    #[allow(dead_code)]
+    // Not used, but kept for completeness.
+    NoResponse = 0x00,
+    Success = 0x01,
+    Error = 0x02,
+    WaitingForFedAuth = 0x03,
+    Rerouting = 0x04,
+    /// Server sent SSPI challenge token, waiting for client to respond
+    WaitingForSspi = 0x05,
+}
+
+impl LoginResponseModel {
+    fn new(features: FeaturesRequest) -> Self {
+        LoginResponseModel {
+            change_properties: EnvChangeProperties::default(),
+            features,
+            errors: Vec::new(),
+            success_token: None,
+            fed_auth_info: None,
+            sspi_token: None,
+            session_state_tokens: Vec::new(),
+            info_messages: Vec::new(),
+        }
+    }
+
+    fn capture_change_property(&mut self, change_token: EnvChangeToken) -> TdsResult<()> {
+        let sub_type = change_token.sub_type;
+        event!(
+            Level::DEBUG,
+            "Capturing change property: {:?} with sub type: {:?}",
+            change_token.change_type,
+            sub_type
+        );
+        match change_token.change_type {
+            EnvChangeContainer::String(string_change) => match sub_type {
+                EnvChangeTokenSubType::Database => {
+                    self.change_properties.database =
+                        Option::from(string_change.new_value().clone());
+                    Ok(())
+                }
+                EnvChangeTokenSubType::Language => {
+                    self.change_properties.language =
+                        Option::from(string_change.new_value().clone());
+                    Ok(())
+                }
+                EnvChangeTokenSubType::CharacterSet => {
+                    self.change_properties.char_set = Some(string_change.new_value().clone());
+                    Ok(())
+                }
+                EnvChangeTokenSubType::DatabaseMirroringPartner => {
+                    // The server advertises the mirroring/failover partner during
+                    // login for mirrored or AlwaysOn databases. We do not act on it
+                    // yet, but it must be consumed so login can proceed.
+                    event!(
+                        Level::DEBUG,
+                        "Ignoring database mirroring partner: {:?}",
+                        string_change.new_value()
+                    );
+                    Ok(())
+                }
+                _ => {
+                    event!(
+                        Level::ERROR,
+                        "Env change token of type string, but implementation doesn't account for this property type: {:?}",
+                        sub_type
+                    );
+                    Err(crate::error::Error::ProtocolError(
+                        "Env change token of type string, but implementation doesn't account for this property type".to_string(),
+                    ))
+                }
+            },
+            EnvChangeContainer::SqlCollation(collation_change) => {
+                self.change_properties.database_collation = *collation_change.new_value();
+                Ok(())
+            }
+            EnvChangeContainer::UInt32(numeric_change) => match sub_type {
+                EnvChangeTokenSubType::PacketSize => {
+                    self.change_properties.packet_size = *numeric_change.new_value() as i32;
+                    Ok(())
+                }
+                _ => {
+                    event!(
+                        Level::DEBUG,
+                        "Unaccounted numeric change property type: {:?}",
+                        sub_type
+                    );
+                    Err(crate::error::Error::ProtocolError(format!(
+                        "Unaccounted numeric change property type: {sub_type:?}"
+                    )))
+                }
+            },
+            EnvChangeContainer::RoutingType(routing_change) => {
+                let Some(routing_info) = routing_change.new_value().as_deref() else {
+                    return Err(crate::error::Error::ProtocolError(
+                        "Routing env change did not include a redirection target".to_string(),
+                    ));
+                };
+                // [MS-TDS] 2.2.7.9: a route follows LOGINACK, and a login response
+                // carries at most one. msodbcsql (`Parse.cpp`) rejects both
+                // violations instead of letting the last route pick the endpoint.
+                if self.success_token.is_none() {
+                    return Err(crate::error::Error::ProtocolError(
+                        "Received a routing ENVCHANGE before LOGINACK".to_string(),
+                    ));
+                }
+                if self.change_properties.routing_information.is_some() {
+                    return Err(crate::error::Error::ProtocolError(
+                        "Received more than one routing ENVCHANGE in a login response".to_string(),
+                    ));
+                }
+                // Acted on by `redirect_if_routed` once the whole response is read.
+                self.change_properties.routing_information = Some(routing_info.clone());
+                Ok(())
+            }
+            _ => {
+                event!(
+                    Level::ERROR,
+                    "Unknown change property type: {:?}",
+                    change_token.change_type
+                );
+                Err(crate::error::Error::ProtocolError(
+                    "Unknown change property type".to_string(),
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn get_status(&self) -> LoginResponseStatus {
+        if self.change_properties.routing_information.is_some() {
+            return LoginResponseStatus::Rerouting;
+        }
+
+        if self.success_token.is_some() {
+            return LoginResponseStatus::Success;
+        }
+
+        if !self.errors.is_empty() {
+            return LoginResponseStatus::Error;
+        }
+
+        if self.fed_auth_info.is_some() {
+            return LoginResponseStatus::WaitingForFedAuth;
+        }
+
+        if self.sspi_token.is_some() {
+            return LoginResponseStatus::WaitingForSspi;
+        }
+
+        LoginResponseStatus::Error
+    }
+
+    /// Turns a routing ENVCHANGE captured during login into `Error::Redirection`.
+    ///
+    /// Deferred to the end of the login response because an Enhanced Routing
+    /// ENVCHANGE can precede the FEATUREEXTACK that enables it (msodbcsql
+    /// `netconn.cpp`). Without an acknowledgement of 1 the login fails, as in
+    /// msodbcsql; [MS-TDS] 2.2.7.11 would have the client ignore the token.
+    fn redirect_if_routed(&self) -> TdsResult<()> {
+        let Some(routing) = &self.change_properties.routing_information else {
+            return Ok(());
+        };
+        if routing.database.is_some() && !self.features.enhanced_routing_enabled() {
+            return Err(crate::error::Error::ProtocolError(
+                "Received an Enhanced Routing ENVCHANGE without an Enhanced Routing \
+                 feature acknowledgement"
+                    .to_string(),
+            ));
+        }
+        Err(crate::error::Error::Redirection {
+            host: routing.server.clone(),
+            port: routing.port,
+            database: routing.database.clone(),
+        })
+    }
+}
+
+pub(crate) struct LoginRequest<'context> {
+    pub model: LoginRequestModel<'context>,
+}
+
+#[async_trait]
+impl Request for LoginRequest<'_> {
+    fn packet_type(&self) -> PacketType {
+        PacketType::Login7
+    }
+
+    async fn serialize<'a, 'b>(&'a self, writer: &'a mut PacketWriter<'b>) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        Serializer::new(&self.model, writer).serialize().await
+    }
+}
+
+pub(crate) struct FedAuthTokenRequest {
+    pub access_token_bytes: Vec<u8>,
+}
+
+#[async_trait]
+impl Request for FedAuthTokenRequest {
+    fn packet_type(&self) -> PacketType {
+        PacketType::FedAuthToken
+    }
+
+    async fn serialize<'a, 'b>(&'a self, writer: &'a mut PacketWriter<'b>) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // The token bytes as well as the length of the token bytes are written to the packet.
+        let len = self.access_token_bytes.len() + size_of::<u32>();
+        writer.write_u32_async(len as u32).await?;
+        writer
+            .write_u32_async(self.access_token_bytes.len() as u32)
+            .await?;
+        writer.write_async(&self.access_token_bytes).await?;
+        writer.finalize().await?;
+        Ok(())
+    }
+}
+
+/// SSPI continuation message for multi-round authentication.
+///
+/// This is sent as packet type 0x11 (SSPI) when responding to
+/// server SSPI challenges during integrated authentication.
+pub(crate) struct SspiRequest {
+    /// The SSPI token data to send to the server
+    pub token_data: Vec<u8>,
+}
+
+#[async_trait]
+impl Request for SspiRequest {
+    fn packet_type(&self) -> PacketType {
+        PacketType::SSPI
+    }
+
+    async fn serialize<'a, 'b>(&'a self, writer: &'a mut PacketWriter<'b>) -> TdsResult<()>
+    where
+        'b: 'a,
+    {
+        // SSPI message is just the raw token data
+        writer.write_async(&self.token_data).await?;
+        writer.finalize().await?;
+        Ok(())
+    }
+}
+
+pub(crate) struct LoginResponse {
+    // pub model: LoginResponseModel,
+    // pub requested_features: Pin<Box<FeaturesRequest>>,
+}
+
+impl LoginResponse {
+    pub fn new() -> Self {
+        LoginResponse {}
+    }
+
+    pub(crate) async fn deserialize<T: TdsTokenStreamReader>(
+        &self,
+        token_stream_reader: &mut T,
+        requested_features: FeaturesRequest,
+    ) -> TdsResult<LoginResponseModel> {
+        let mut response_model = LoginResponseModel::new(requested_features);
+        let parser_context = ParserContext::default();
+        let mut feature_ext_ack_received = false;
+        let mut feature_ext_ack_error = None;
+        let completed = loop {
+            match token_stream_reader
+                .receive_token(&parser_context, None, None)
+                .await
+            {
+                Ok(token) => {
+                    let token_type = token.token_type();
+                    event!(
+                        Level::DEBUG,
+                        "Received token: {:?} during login response parsing",
+                        token_type
+                    );
+
+                    match token {
+                        Tokens::EnvChange(env_change_token) => {
+                            event!(
+                                Level::INFO,
+                                "Received {:?} during login response parsing.",
+                                token_type
+                            );
+                            // A routing change is recorded here and surfaced as
+                            // `Error::Redirection` after the response is read.
+                            response_model.capture_change_property(env_change_token)?;
+                        }
+                        Tokens::LoginAck(login_ack_token) => {
+                            response_model.success_token = Some(login_ack_token);
+                        }
+                        Tokens::Done(done) => {
+                            break !done.status.intersects(
+                                DoneStatus::ERROR
+                                    | DoneStatus::SERVER_ERROR
+                                    | DoneStatus::MORE
+                                    | DoneStatus::ATTN,
+                            );
+                        }
+                        Tokens::DoneProc(_t) => {
+                            // ...
+                        }
+                        Tokens::DoneInProc(_t) => {
+                            // ...
+                        }
+                        Tokens::Error(error_token) => {
+                            event!(
+                                Level::ERROR,
+                                "Received Error token during login response parsing."
+                            );
+                            response_model.errors.push(SqlErrorInfo::from(&error_token));
+                            // Keep looping so every ERROR/INFO token in the login
+                            // response is captured, not just the first.
+                        }
+                        Tokens::FeatureExtAck(_t) => {
+                            feature_ext_ack_received = true;
+                            response_model.features.reset_dns_caching_acknowledgement();
+                            let acknowledged =
+                                _t.acknowledged_features().iter().try_for_each(|f| {
+                                    response_model
+                                        .features
+                                        .set_acknowledged(f.0, f.1.as_slice())
+                                });
+                            if let Err(error) = acknowledged {
+                                // Token framing is intact; retain the first error
+                                // while draining the response through DONE.
+                                feature_ext_ack_error.get_or_insert_with(|| Box::new(error));
+                            }
+                        }
+                        Tokens::FedAuthInfo(fed_auth_info_token) => {
+                            response_model.fed_auth_info = Some(fed_auth_info_token);
+                            break false;
+                        }
+                        Tokens::Info(t) => {
+                            event!(
+                                Level::INFO,
+                                "Received {:?} during login response parsing.",
+                                token_type
+                            );
+                            response_model.info_messages.push(SqlInfoMessage::from(&t));
+                        }
+                        Tokens::SessionState(session_state) => {
+                            event!(
+                                Level::INFO,
+                                "Received SessionState token during login response parsing."
+                            );
+                            response_model.session_state_tokens.push(session_state);
+                        }
+                        Tokens::Sspi(sspi_token) => {
+                            event!(
+                                Level::DEBUG,
+                                "SSPI authentication challenge received from server"
+                            );
+                            response_model.sspi_token = Some(sspi_token);
+                            // Break to allow caller to process the SSPI challenge
+                            break false;
+                        }
+                        _ => {
+                            event!(
+                                Level::ERROR,
+                                "Received unexpected token during login response parsing. \
+                        Check that all tokens from the registry are handled."
+                            );
+                        }
+                    };
+                }
+                Err(e) => {
+                    event!(
+                        Level::ERROR,
+                        "Failed to receive token during login response parsing. Error: {:?}",
+                        e
+                    );
+                    if let Some(error) = feature_ext_ack_error {
+                        return Err(*error);
+                    }
+                    // if Io error then create the Io error
+                    return Err(crate::error::Error::ProtocolError(
+                        "Failed to receive token during login response parsing.".to_string(),
+                    ));
+                }
+            }
+        };
+        // A rejected or incomplete login must not change the fallback a retry
+        // needs. With no FEATUREEXTACK, there is no new verdict, even on a redirect.
+        if completed
+            && response_model.success_token.is_some()
+            && response_model.errors.is_empty()
+            && feature_ext_ack_received
+        {
+            if feature_ext_ack_error.is_some() {
+                // Unlike SNI, a malformed token cannot retain a partial DNS allow.
+                response_model.features.reset_dns_caching_acknowledgement();
+            }
+            response_model.features.apply_dns_caching_verdict();
+        }
+        if let Some(error) = feature_ext_ack_error {
+            return Err(*error);
+        }
+        response_model.redirect_if_routed()?;
+        Ok(response_model)
+    }
+}
+
+struct Serializer<'a, 'n, 'context> {
+    model: &'a LoginRequestModel<'context>,
+    payload_writer: &'a mut PacketWriter<'n>,
+    features_request: &'a FeaturesRequest,
+    content_next_offset: i32,
+    deferred_actions_indicator: Vec<LoginDeferredPayload>,
+    /// The LOGIN7 ServerName, resolved once so the record length, the field's
+    /// offset/length and the payload all describe the same value.
+    server_name: Cow<'context, str>,
+}
+
+impl<'a, 'n, 'context> Serializer<'a, 'n, 'context> {
+    pub fn new(
+        model: &'a LoginRequestModel<'context>,
+        payload_writer: &'a mut PacketWriter<'n>,
+    ) -> Serializer<'a, 'n, 'context> {
+        Serializer {
+            model,
+            payload_writer,
+            features_request: &model.features_request,
+            content_next_offset: FIXED_LOGIN_RECORD_LENGTH,
+            deferred_actions_indicator: Vec::new(),
+            server_name: model.user_input.login_server_name(model.transport_context),
+        }
+    }
+
+    /// SQL Server drops a login whose ServerName is longer than MS-TDS allows,
+    /// which the caller would only see as a failure to read the response.
+    /// `ClientContext::validate` rejects a long override up front; this also
+    /// covers the dialled address used without one, before anything is written.
+    fn check_server_name_length(&self) -> TdsResult<()> {
+        let units = self.server_name.encode_utf16().count();
+        if units > MAX_LOGIN7_NAME_UNITS {
+            // The accessor borrows the override and builds the dialled address,
+            // so the variant says which one is too long and what to change.
+            let remedy = match self.server_name {
+                Cow::Borrowed(_) => "Use a shorter login_server_name.",
+                Cow::Owned(_) => {
+                    "Connect through a shorter address, or set login_server_name to a \
+                     shorter name."
+                }
+            };
+            return Err(crate::error::Error::UsageError(format!(
+                "the LOGIN7 server name {:?} is {units} UTF-16 code units; at most \
+                 {MAX_LOGIN7_NAME_UNITS} are allowed. {remedy}",
+                self.server_name
+            )));
+        }
+        Ok(())
+    }
+
+    /// Calculate the length of the login record.
+    /// This includes the fixed length of the login record, the length of the variable length fields,
+    /// and the length of the feature extension data.
+    fn calculate_login_record_length(&self) -> TdsResult<(i32, i32)> {
+        let mut login_record_length = FIXED_LOGIN_RECORD_LENGTH as usize;
+        login_record_length += self.model.user_input.len_bytes();
+        login_record_length += self.server_name.as_ref().len_bytes();
+        login_record_length += 4; // Feature extension offset size.
+
+        // Add SSPI token length if present
+        if let Some(sspi_token) = &self.model.sspi_token {
+            login_record_length += sspi_token.len();
+        }
+
+        // We write the feature extension at the end of the login record. This is not necessary, but makes reading
+        // packets easier. Hence we add the length of the feature extensions data at the end, and save the offset,
+        // for the feature extension.
+        let feature_extension_offset = login_record_length;
+        login_record_length += self.features_request.len_bytes();
+        if login_record_length > MAX_LOGIN_RECORD_LENGTH {
+            return Err(crate::error::Error::UsageError(format!(
+                "LOGIN7 record length {login_record_length} exceeds the maximum of {MAX_LOGIN_RECORD_LENGTH} bytes"
+            )));
+        }
+        Ok((login_record_length as i32, feature_extension_offset as i32))
+    }
+
+    pub(crate) async fn serialize(&mut self) -> TdsResult<()> {
+        self.check_server_name_length()?;
+        let (login_record_length, feature_extension_offset) =
+            self.calculate_login_record_length()?;
+        trace!(login_record_length);
+        self.payload_writer
+            .write_i32_async(login_record_length)
+            .await?;
+        self.payload_writer
+            .write_u32_async(self.model.tds_version.as_u32())
+            .await?;
+
+        self.payload_writer
+            .write_i32_async(self.model.user_input.packet_size as i32)
+            .await?;
+
+        self.payload_writer
+            .write_i32_async(self.model.client_prog_ver)
+            .await?;
+
+        self.payload_writer
+            .write_i32_async(self.model.client_process_id)
+            .await?;
+
+        self.payload_writer
+            .write_i32_async(self.model.connection_id_deprecated)
+            .await?;
+
+        self.payload_writer
+            .write_byte_async(self.model.option_flags1.value())
+            .await?;
+
+        self.payload_writer
+            .write_byte_async(self.model.option_flags2.value())
+            .await?;
+
+        self.payload_writer
+            .write_byte_async(self.model.type_flags.value())
+            .await?;
+
+        self.payload_writer
+            .write_byte_async(self.model.option_flags3.value())
+            .await?;
+
+        self.payload_writer
+            .write_i32_async(self.model.client_time_zone_deprecated)
+            .await?;
+
+        self.payload_writer
+            .write_i32_async(self.model.client_lcid_deprecated)
+            .await?;
+
+        self.write_variable_length_section(feature_extension_offset)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn write_variable_length_section(
+        &mut self,
+        feature_extension_offset: i32,
+    ) -> TdsResult<()> {
+        /* Writing variable-length meta data section
+            Fixed-Length Metadata (58 bytes)
+            HostNameOffset: 2 bytes
+            HostNameLength: 2 bytes
+            UserNameOffset: 2 bytes
+            UserNameLength: 2 bytes
+            PasswordOffset: 2 bytes
+            PasswordLength: 2 bytes
+            AppNameOffset: 2 bytes
+            AppNameLength: 2 bytes
+            ServerNameOffset: 2 bytes
+            ServerNameLength: 2 bytes
+            FeatureExtOffset: 2 bytes
+            FeatureExtLength: 2 bytes
+            LibraryOffset: 2 bytes
+            LibraryLength: 2 bytes
+            LanguageOffset: 2 bytes
+            LanguageLength: 2 bytes
+            DatabaseOffset: 2 bytes
+            DatabaseLength: 2 bytes
+            ClientID: 6 bytes (fixed length)
+            SSPIOffset: 2 bytes
+            SSPILength: 2 bytes
+            AttachDBFileOffset: 2 bytes
+            AttachDBFileLength: 2 bytes
+            ChangePasswordOffset: 2 bytes
+            ChangePasswordLength: 2 bytes
+            cbSSPILong: 4 bytes (DWORD)
+        */
+
+        self.write_hostname().await?;
+        self.write_username().await?; //
+        self.write_password().await?; //
+        self.write_app_name().await?;
+        self.write_server_name().await?;
+        self.write_feature_ext().await?;
+        self.write_library_name().await?;
+        self.write_language().await?;
+        self.write_database().await?;
+        self.write_client_id().await?;
+        self.write_sspi_short().await?;
+        self.write_attach_db_file().await?;
+        self.write_change_password().await?;
+        self.write_cb_sspi_long().await?;
+
+        // Write all the variable length data.
+        for indicator in &self.deferred_actions_indicator {
+            match indicator {
+                LoginDeferredPayload::HostName => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.workstation_id)
+                        .await?;
+                }
+                LoginDeferredPayload::UserName => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.user_name)
+                        .await?;
+                }
+                LoginDeferredPayload::Password => {
+                    let mut password_utf16_bytes = self
+                        .model
+                        .user_input
+                        .password
+                        .encode_utf16()
+                        .flat_map(|f| f.to_le_bytes())
+                        .collect::<Vec<u8>>();
+                    scramble_password(&mut password_utf16_bytes);
+                    self.payload_writer
+                        .write_async(&password_utf16_bytes)
+                        .await?;
+                }
+                LoginDeferredPayload::AppName => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.application_name)
+                        .await?;
+                }
+                LoginDeferredPayload::ServerName => {
+                    debug!("Login Server name: {}", self.server_name);
+                    self.payload_writer
+                        .write_string_unicode_async(self.server_name.as_ref())
+                        .await?;
+                }
+                LoginDeferredPayload::FeatureExtOffset => {
+                    self.payload_writer
+                        .write_i32_async(feature_extension_offset)
+                        .await?;
+                }
+                LoginDeferredPayload::Library => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.library_name)
+                        .await?;
+                }
+                LoginDeferredPayload::Language => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.language)
+                        .await?;
+                }
+                LoginDeferredPayload::Database => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.database)
+                        .await?;
+                }
+                LoginDeferredPayload::AttachDbFile => {
+                    self.payload_writer
+                        .write_string_unicode_async(&self.model.user_input.attach_db_file)
+                        .await?;
+                }
+                LoginDeferredPayload::ChangePassword => {
+                    let mut password_utf16_bytes = self
+                        .model
+                        .user_input
+                        .change_password
+                        .encode_utf16()
+                        .flat_map(|f| f.to_le_bytes())
+                        .collect::<Vec<u8>>();
+                    scramble_password(&mut password_utf16_bytes);
+                    self.payload_writer
+                        .write_async(&password_utf16_bytes)
+                        .await?;
+                }
+                LoginDeferredPayload::Sspi => {
+                    // Write raw SSPI token bytes
+                    if let Some(sspi_data) = &self.model.sspi_token {
+                        self.payload_writer.write_async(sspi_data).await?;
+                    }
+                }
+            }
+        }
+
+        self.write_feature_extension_data().await?;
+
+        debug!(?self.content_next_offset);
+
+        self.payload_writer.finalize().await?;
+        Ok(())
+    }
+
+    /// Serializes the Feature extension data for each of the requested features.
+    async fn write_feature_extension_data(&mut self) -> TdsResult<()> {
+        // According to useragent specifications, it should be sent first.
+        // By pulling it out of the HashMap explicitly, we guarantee order.
+        if let Some(user_agent) = self
+            .features_request
+            .features
+            .get(&FeatureExtension::UserAgent)
+            .filter(|f| f.is_requested())
+        {
+            user_agent.serialize(self.payload_writer).await?;
+        }
+
+        for feature in self.features_request.get_requested_features() {
+            if feature.feature_identifier() != FeatureExtension::UserAgent {
+                feature.serialize(self.payload_writer).await?;
+            }
+        }
+        // Write the terminator
+        self.payload_writer.write_byte_async(0xff).await?;
+        Ok(())
+    }
+
+    /// Writes the value of the hostname of the client to the login packet.
+    async fn write_hostname(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.workstation_id)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::HostName);
+        }
+        Ok(())
+    }
+
+    /// Writes the value of the username of the client to the login packet if the authentication method is Password.
+    async fn write_username(&mut self) -> TdsResult<()> {
+        if matches!(
+            self.model.user_input.tds_authentication_method,
+            TdsAuthenticationMethod::Password
+        ) {
+            if self
+                .write_metadata(utf16_code_units(&self.model.user_input.user_name)?)
+                .await?
+            {
+                self.deferred_actions_indicator
+                    .push(LoginDeferredPayload::UserName);
+            }
+        } else {
+            self.payload_writer.write_u16_async(0).await?;
+            self.payload_writer.write_u16_async(0).await?;
+        }
+        Ok(())
+    }
+
+    /// Writes the value of the password of the client to the login packet if the authentication method is Password.
+    async fn write_password(&mut self) -> TdsResult<()> {
+        if self.model.user_input.tds_authentication_method == TdsAuthenticationMethod::Password {
+            if self
+                .write_metadata(utf16_code_units(&self.model.user_input.password)?)
+                .await?
+            {
+                self.deferred_actions_indicator
+                    .push(LoginDeferredPayload::Password);
+            }
+        } else {
+            self.payload_writer.write_u16_async(0).await?;
+            self.payload_writer.write_u16_async(0).await?;
+        }
+        Ok(())
+    }
+
+    /// Writes the value of the application name provided in the client context to the login packet.
+    async fn write_app_name(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.application_name)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::AppName);
+        }
+        Ok(())
+    }
+
+    /// Writes the value of the target sql server to the login packet: the
+    /// `login_server_name` override, or else the dialled address in DataSource
+    /// format (host,port) for TCP connections.
+    async fn write_server_name(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(self.server_name.as_ref())?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::ServerName);
+        }
+        Ok(())
+    }
+
+    async fn write_feature_ext(&mut self) -> TdsResult<()> {
+        // The offset at which to read the feature extension length.
+        self.payload_writer
+            .write_u16_async(self.current_offset()?)
+            .await?;
+
+        // Length of the size of feature extension offset data, which is a DWORD.
+        self.payload_writer.write_u16_async(4).await?;
+
+        self.content_next_offset += size_of::<i32>() as i32;
+
+        self.deferred_actions_indicator
+            .push(LoginDeferredPayload::FeatureExtOffset);
+
+        Ok(())
+    }
+
+    /// Writes the value of the library name to the login packet.
+    /// This is also called the Client interface name.
+    async fn write_library_name(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.library_name)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::Library);
+        }
+        Ok(())
+    }
+
+    async fn write_language(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.language)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::Language);
+        }
+        Ok(())
+    }
+
+    /// Writes the value of the database name, which we are connecting to.
+    async fn write_database(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.database)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::Database);
+        }
+        Ok(())
+    }
+
+    /// Writes the network interface address of the client.
+    async fn write_client_id(&mut self) -> TdsResult<()> {
+        self.payload_writer
+            .write_async(&self.model.client_id.address_bytes)
+            .await?;
+        Ok(())
+    }
+
+    async fn write_sspi_short(&mut self) -> TdsResult<()> {
+        // SSPI uses byte length, not character length
+        // For tokens <= 65535 bytes, we use the 2-byte length field
+        // For tokens > 65535 bytes, we set this to 0xFFFF and use cbSSPILong
+        let sspi_len = self.model.sspi_token.as_ref().map_or(0, |t| t.len());
+
+        if sspi_len == 0 {
+            // ibSSPI is ignored when cbSSPI is zero, so avoid a running offset
+            // that may exceed u16 after a long token.
+            self.payload_writer.write_u16_async(0).await?;
+            self.payload_writer.write_u16_async(0).await?;
+            return Ok(());
+        }
+
+        // Write offset
+        self.payload_writer
+            .write_u16_async(self.current_offset()?)
+            .await?;
+
+        if sspi_len <= 0xFFFF {
+            // Short SSPI token - use 2-byte length
+            self.payload_writer.write_u16_async(sspi_len as u16).await?;
+        } else {
+            // Long SSPI token - use 0xFFFF marker and cbSSPILong
+            self.payload_writer.write_u16_async(0xFFFF).await?;
+        }
+
+        // Update offset for the SSPI data
+        self.content_next_offset += sspi_len as i32;
+        self.deferred_actions_indicator
+            .push(LoginDeferredPayload::Sspi);
+
+        Ok(())
+    }
+
+    async fn write_attach_db_file(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.attach_db_file)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::AttachDbFile);
+        }
+        Ok(())
+    }
+
+    async fn write_change_password(&mut self) -> TdsResult<()> {
+        if self
+            .write_metadata(utf16_code_units(&self.model.user_input.change_password)?)
+            .await?
+        {
+            self.deferred_actions_indicator
+                .push(LoginDeferredPayload::ChangePassword);
+        }
+        Ok(())
+    }
+
+    async fn write_cb_sspi_long(&mut self) -> TdsResult<()> {
+        // cbSSPILong is used for SSPI tokens > 65535 bytes
+        // When ibSSPI_length is 0xFFFF, this field contains the actual length
+        let sspi_len = self.model.sspi_token.as_ref().map_or(0, |t| t.len());
+
+        if sspi_len > 0xFFFF {
+            self.payload_writer.write_u32_async(sspi_len as u32).await?;
+        } else {
+            // Not using long format
+            self.payload_writer.write_i32_async(0).await?;
+        }
+        Ok(())
+    }
+
+    async fn write_metadata(&mut self, char_length: u16) -> TdsResult<bool> {
+        if char_length == 0 {
+            // Empty LOGIN7 fields ignore their offsets.
+            self.payload_writer.write_u16_async(0).await?;
+            self.payload_writer.write_u16_async(0).await?;
+            return Ok(false);
+        }
+
+        let offset = self.current_offset()?;
+        self.payload_writer.write_u16_async(offset).await?;
+        self.payload_writer.write_u16_async(char_length).await?;
+
+        self.content_next_offset += i32::from(char_length) * 2;
+        Ok(true)
+    }
+
+    fn current_offset(&self) -> TdsResult<u16> {
+        u16::try_from(self.content_next_offset).map_err(|_| {
+            crate::error::Error::UsageError(format!(
+                "LOGIN7 field offset {} exceeds the maximum of {} bytes",
+                self.content_next_offset,
+                u16::MAX
+            ))
+        })
+    }
+}
+
+#[allow(clippy::manual_rotate)]
+fn scramble_password(password_utf16_bytes: &mut [u8]) {
+    for b in password_utf16_bytes.iter_mut() {
+        *b = (*b >> 4) | (*b << 4); // Swap the nibbles
+        *b ^= 0xA5; // XOR with 0xA5
+    }
+}
+
+/// The deferred actions that are not yet serialized.
+/// These values are used to point out the actual payload, that needs to be serialized.
+#[derive(Clone, Copy)]
+enum LoginDeferredPayload {
+    HostName,
+    UserName,
+    Password,
+    AppName,
+    ServerName,
+    FeatureExtOffset,
+    Library,
+    Language,
+    Database,
+    AttachDbFile,
+    ChangePassword,
+    /// SSPI token data for integrated authentication
+    Sspi,
+}
+
+/// Trait to calculate the size of the fields for the login records in bytes.
+trait SizedLoginItem {
+    fn len_bytes(&self) -> usize;
+}
+
+fn utf16_code_units(value: &str) -> TdsResult<u16> {
+    u16::try_from(value.encode_utf16().count()).map_err(|_| {
+        crate::error::Error::UsageError(format!(
+            "LOGIN7 string exceeds the maximum of {} UTF-16 code units",
+            u16::MAX
+        ))
+    })
+}
+
+// Length in UTF-16 bytes, which is how LOGIN7 stores strings. Implemented for
+// `str` only: a `String` call resolves here through deref.
+impl SizedLoginItem for str {
+    fn len_bytes(&self) -> usize {
+        self.encode_utf16().count() * 2
+    }
+}
+
+impl SizedLoginItem for FeaturesRequest {
+    fn len_bytes(&self) -> usize {
+        let mut length = 0usize;
+        for feature in self.get_requested_features() {
+            length += feature.data_length() as usize;
+        }
+
+        length += 1; // Feature extension terminator.
+
+        length
+    }
+}
+
+impl SizedLoginItem for ClientContext {
+    fn len_bytes(&self) -> usize {
+        // Do not consider the length of the transport context. That
+        // may be overridden by the redirected endpoint.
+        let mut client_context_item_length = 0;
+        client_context_item_length += self.workstation_id.len_bytes();
+        client_context_item_length += self.application_name.len_bytes();
+        client_context_item_length += self.library_name.len_bytes();
+        client_context_item_length += self.language.len_bytes();
+        client_context_item_length += self.database.len_bytes();
+        client_context_item_length += self.attach_db_file.len_bytes();
+        client_context_item_length += self.change_password.len_bytes();
+
+        client_context_item_length += self.calculate_byte_length_for_authentication();
+        client_context_item_length
+    }
+}
+
+impl ClientContext {
+    /// Calculate the length of the fields to be persisted for the authentication data.
+    /// This would involve the length of the username and password for [TdsAuthenticationMethod::Password].
+    /// For TdsAuthenticationMethod::SSPI, the username and password are not sent (they're empty),
+    /// and the SSPI token length is calculated separately in LoginRequestModel.
+    /// FedAuth or AccessToken authentication is accounted for, in the Feature extension data.
+    fn calculate_byte_length_for_authentication(&self) -> usize {
+        let mut length = 0;
+        if matches!(
+            self.tds_authentication_method,
+            TdsAuthenticationMethod::Password
+        ) {
+            length += self.password.len_bytes();
+            length += self.user_name.len_bytes();
+        }
+        // For SSPI/GSSAPI authentication, username and password fields are empty.
+        // The SSPI token is handled separately in LoginRequestModel::calculate_login_record_length().
+        length
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connection::session_recovery::SessionStateTable;
+    use crate::core::Version;
+    use crate::error::Error;
+    use crate::io::packet_writer::tests::MockNetworkWriter;
+    use crate::message::features::jsonfeature::JsonFeature;
+    use crate::message::features::vectorfeature::VectorFeature;
+    use crate::token::fed_auth_info::{FedAuthInfoToken, SspiToken};
+    use crate::token::login_ack::{LoginAckToken, SqlInterfaceType};
+    use crate::token::tokens::{
+        EnvChangeContainer, EnvChangeToken, EnvChangeTokenSubType, ErrorToken, SqlCollation,
+    };
+    use byteorder::{LittleEndian, ReadBytesExt};
+    use futures::executor::block_on;
+    use std::collections::BTreeMap;
+
+    // ── FeatureExtension::as_u8 ──
+
+    #[test]
+    fn feature_extension_as_u8_all_variants() {
+        assert_eq!(FeatureExtension::SRecovery.as_u8(), 0x01);
+        assert_eq!(FeatureExtension::FedAuth.as_u8(), 0x02);
+        assert_eq!(FeatureExtension::AlwaysEncrypted.as_u8(), 0x04);
+        assert_eq!(FeatureExtension::GlobalTransactions.as_u8(), 0x05);
+        assert_eq!(FeatureExtension::AzureSqlSupport.as_u8(), 0x08);
+        assert_eq!(FeatureExtension::DataClassification.as_u8(), 0x09);
+        assert_eq!(FeatureExtension::Utf8Support.as_u8(), 0x0A);
+        assert_eq!(FeatureExtension::SqlDnsCaching.as_u8(), 0x0B);
+        assert_eq!(FeatureExtension::Json.as_u8(), 0x0D);
+        assert_eq!(FeatureExtension::Vector.as_u8(), 0x0E);
+        assert_eq!(FeatureExtension::EnhancedRouting.as_u8(), 0x0F);
+        assert_eq!(FeatureExtension::Terminator.as_u8(), 0xFF);
+        assert_eq!(FeatureExtension::Unknown(0xAB).as_u8(), 0xAB);
+    }
+
+    // ── FeatureExtension::from(u8) ──
+
+    #[test]
+    fn feature_extension_from_u8_known_values() {
+        assert_eq!(FeatureExtension::from(0x01), FeatureExtension::SRecovery);
+        assert_eq!(FeatureExtension::from(0x02), FeatureExtension::FedAuth);
+        assert_eq!(
+            FeatureExtension::from(0x04),
+            FeatureExtension::AlwaysEncrypted
+        );
+        assert_eq!(
+            FeatureExtension::from(0x05),
+            FeatureExtension::GlobalTransactions
+        );
+        assert_eq!(
+            FeatureExtension::from(0x08),
+            FeatureExtension::AzureSqlSupport
+        );
+        assert_eq!(
+            FeatureExtension::from(0x09),
+            FeatureExtension::DataClassification
+        );
+        assert_eq!(FeatureExtension::from(0x0A), FeatureExtension::Utf8Support);
+        assert_eq!(
+            FeatureExtension::from(0x0B),
+            FeatureExtension::SqlDnsCaching
+        );
+        assert_eq!(FeatureExtension::from(0x0D), FeatureExtension::Json);
+        assert_eq!(FeatureExtension::from(0x0E), FeatureExtension::Vector);
+        assert_eq!(
+            FeatureExtension::from(0x0F),
+            FeatureExtension::EnhancedRouting
+        );
+        assert_eq!(FeatureExtension::from(0xFF), FeatureExtension::Terminator);
+    }
+
+    #[test]
+    fn feature_extension_from_u8_unknown() {
+        assert_eq!(
+            FeatureExtension::from(0x42),
+            FeatureExtension::Unknown(0x42)
+        );
+    }
+
+    #[test]
+    fn feature_extension_roundtrip() {
+        for val in [
+            0x01u8, 0x02, 0x04, 0x05, 0x08, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0xFF, 0x42,
+        ] {
+            assert_eq!(FeatureExtension::from(val).as_u8(), val);
+        }
+    }
+
+    // ── Helper to build a FeaturesRequest with Json + Vector ──
+
+    fn make_features_request() -> FeaturesRequest {
+        let mut features: HashMap<FeatureExtension, Box<dyn Feature>> = HashMap::new();
+        features.insert(FeatureExtension::Json, Box::new(JsonFeature::default()));
+        features.insert(FeatureExtension::Vector, Box::new(VectorFeature::default()));
+        FeaturesRequest { features }
+    }
+
+    #[test]
+    fn application_name_metadata_uses_utf16_code_units() {
+        let context = ClientContext {
+            application_name: "MSSQL \u{1f980}".to_string(),
+            connect_retry_count: 0,
+            ..ClientContext::default()
+        };
+        let transport_context = context.transport_context.clone();
+        let model = LoginRequestModel::from_context(&context, false, &transport_context, None);
+        let mut mock = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let mut serializer = Serializer::new(&model, &mut packet_writer);
+
+        block_on(serializer.write_app_name()).unwrap();
+        assert_eq!(
+            serializer.content_next_offset,
+            FIXED_LOGIN_RECORD_LENGTH + 16
+        );
+
+        let mut payload = packet_writer.get_payload();
+        payload.set_position(PacketWriter::PACKET_HEADER_SIZE as u64);
+        let app_offset = payload.read_u16::<LittleEndian>().unwrap();
+        let app_length = payload.read_u16::<LittleEndian>().unwrap();
+
+        assert_eq!(app_offset, FIXED_LOGIN_RECORD_LENGTH as u16);
+        assert_eq!(app_length, 8);
+    }
+
+    #[test]
+    fn database_metadata_uses_utf16_code_units() {
+        let context = ClientContext {
+            database: "caf\u{e9}".to_string(),
+            connect_retry_count: 0,
+            ..ClientContext::default()
+        };
+        let transport_context = context.transport_context.clone();
+        let model = LoginRequestModel::from_context(&context, false, &transport_context, None);
+        let mut mock = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let mut serializer = Serializer::new(&model, &mut packet_writer);
+
+        block_on(serializer.write_database()).unwrap();
+        assert_eq!(
+            serializer.content_next_offset,
+            FIXED_LOGIN_RECORD_LENGTH + 8
+        );
+
+        let mut payload = packet_writer.get_payload();
+        payload.set_position(PacketWriter::PACKET_HEADER_SIZE as u64);
+        assert_eq!(
+            payload.read_u16::<LittleEndian>().unwrap(),
+            FIXED_LOGIN_RECORD_LENGTH as u16
+        );
+        assert_eq!(payload.read_u16::<LittleEndian>().unwrap(), 4);
+    }
+
+    #[test]
+    fn record_length_accounts_for_change_password() {
+        let base = ClientContext {
+            connect_retry_count: 0,
+            ..ClientContext::default()
+        };
+        let with_change_password = ClientContext {
+            change_password: "abcd".to_string(),
+            ..base.clone()
+        };
+
+        assert_eq!(with_change_password.len_bytes(), base.len_bytes() + 8);
+    }
+
+    #[test]
+    fn login_rejects_oversized_string_and_record() {
+        let context = ClientContext {
+            application_name: "a".repeat(usize::from(u16::MAX) + 1),
+            connect_retry_count: 0,
+            ..ClientContext::default()
+        };
+        let transport_context = context.transport_context.clone();
+        let model = LoginRequestModel::from_context(&context, false, &transport_context, None);
+        let mut mock = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let mut serializer = Serializer::new(&model, &mut packet_writer);
+
+        let field_error = block_on(serializer.write_app_name()).unwrap_err();
+        assert!(matches!(field_error, crate::error::Error::UsageError(_)));
+        assert!(field_error.to_string().contains("65535 UTF-16 code units"));
+
+        let context = ClientContext {
+            application_name: "a".repeat(65_000),
+            database: "b".repeat(1_000),
+            connect_retry_count: 0,
+            ..ClientContext::default()
+        };
+        let transport_context = context.transport_context.clone();
+        let model = LoginRequestModel::from_context(&context, false, &transport_context, None);
+        let mut mock = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let serializer = Serializer::new(&model, &mut packet_writer);
+
+        let record_error = serializer.calculate_login_record_length().unwrap_err();
+        assert!(matches!(record_error, crate::error::Error::UsageError(_)));
+        assert!(record_error.to_string().contains("131071 bytes"));
+    }
+
+    #[test]
+    fn empty_fields_do_not_reject_long_sspi_offset() {
+        let context = ClientContext {
+            connect_retry_count: 0,
+            tds_authentication_method: TdsAuthenticationMethod::SSPI,
+            ..ClientContext::default()
+        };
+        let transport_context = context.transport_context.clone();
+        let mut model = LoginRequestModel::from_context(&context, false, &transport_context, None);
+        model.sspi_token = Some(vec![0; 70_000]);
+        let mut mock = MockNetworkWriter::new(131_072);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let mut serializer = Serializer::new(&model, &mut packet_writer);
+
+        block_on(serializer.write_sspi_short()).unwrap();
+        block_on(serializer.write_attach_db_file()).unwrap();
+        block_on(serializer.write_change_password()).unwrap();
+        block_on(serializer.write_cb_sspi_long()).unwrap();
+
+        assert_eq!(serializer.content_next_offset, 70_094);
+        let mut payload = packet_writer.get_payload();
+        payload.set_position(PacketWriter::PACKET_HEADER_SIZE as u64);
+        assert_eq!(
+            payload.read_u16::<LittleEndian>().unwrap(),
+            FIXED_LOGIN_RECORD_LENGTH as u16
+        );
+        assert_eq!(payload.read_u16::<LittleEndian>().unwrap(), u16::MAX);
+        assert_eq!(payload.read_u16::<LittleEndian>().unwrap(), 0);
+        assert_eq!(payload.read_u16::<LittleEndian>().unwrap(), 0);
+        assert_eq!(payload.read_u16::<LittleEndian>().unwrap(), 0);
+        assert_eq!(payload.read_u16::<LittleEndian>().unwrap(), 0);
+        assert_eq!(payload.read_u32::<LittleEndian>().unwrap(), 70_000);
+    }
+
+    // ── Serializer::calculate_login_record_length ──
+
+    /// The record Length and feature-extension offset must describe the bytes
+    /// actually serialized. A ServerName override of a different length than
+    /// the dialled address is where the two can diverge, and the wire tests do
+    /// not catch it: they read the name back but never validate LOGIN7's own
+    /// embedded Length.
+    #[test]
+    fn the_record_length_follows_the_server_name_actually_written() {
+        fn lengths(override_name: Option<&str>) -> (i32, i32) {
+            let context = ClientContext {
+                connect_retry_count: 0,
+                login_server_name: override_name.map(str::to_string),
+                ..ClientContext::default()
+            };
+            let transport_context = context.transport_context.clone();
+            let model = LoginRequestModel::from_context(&context, false, &transport_context, None);
+            let mut mock = MockNetworkWriter::new(131_072);
+            let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+            Serializer::new(&model, &mut packet_writer)
+                .calculate_login_record_length()
+                .unwrap()
+        }
+
+        let dialled = ClientContext::default()
+            .transport_context
+            .get_login_server_name();
+        let (base_len, base_offset) = lengths(None);
+
+        for name in ["db", "a-much-longer-name.database.windows.net", "n\u{e9}"] {
+            let (len, offset) = lengths(Some(name));
+            let delta = name.len_bytes() as i32 - dialled.len_bytes() as i32;
+            assert_eq!(
+                len - base_len,
+                delta,
+                "record length should move with the written name for {name:?}"
+            );
+            assert_eq!(
+                offset - base_offset,
+                delta,
+                "feature offset should move with the written name for {name:?}"
+            );
+        }
+    }
+
+    /// Without an override, the ServerName is the dialled address, which can
+    /// also exceed LOGIN7's limit. SQL Server drops such a login without saying
+    /// why, so it is refused with a clear `UsageError` before anything is
+    /// written, while a name of exactly the limit still goes through.
+    #[tokio::test]
+    async fn a_dialled_address_too_long_for_login7_is_refused_before_writing() {
+        fn context_for_host(host: String) -> ClientContext {
+            let mut context = ClientContext {
+                connect_retry_count: 0,
+                ..ClientContext::default()
+            };
+            context.transport_context = TransportContext::Tcp {
+                host,
+                port: 1433,
+                instance_name: None,
+            };
+            context
+        }
+        let at_limit = MAX_LOGIN7_NAME_UNITS - ",1433".len();
+
+        let context = context_for_host("h".repeat(at_limit));
+        let model =
+            LoginRequestModel::from_context(&context, false, &context.transport_context, None);
+        let mut mock = MockNetworkWriter::new(131_072);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        assert!(
+            Serializer::new(&model, &mut packet_writer)
+                .check_server_name_length()
+                .is_ok(),
+            "a name of exactly the limit is allowed"
+        );
+
+        let context = context_for_host("h".repeat(at_limit + 1));
+        let model =
+            LoginRequestModel::from_context(&context, false, &context.transport_context, None);
+        let mut mock = MockNetworkWriter::new(131_072);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let result = Serializer::new(&model, &mut packet_writer)
+            .serialize()
+            .await;
+        assert!(
+            matches!(&result, Err(crate::error::Error::UsageError(message))
+                if message.contains("129 UTF-16 code units")
+                    && message.contains("Connect through a shorter address")),
+            "{result:?}"
+        );
+        assert_eq!(
+            packet_writer.position(),
+            0,
+            "nothing is written for a refused login"
+        );
+
+        // When the long name is the override itself, the remedy names it.
+        let mut context = context_for_host("h".to_string());
+        context.login_server_name = Some("o".repeat(MAX_LOGIN7_NAME_UNITS + 1));
+        let model =
+            LoginRequestModel::from_context(&context, false, &context.transport_context, None);
+        let mut mock = MockNetworkWriter::new(131_072);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        let result = Serializer::new(&model, &mut packet_writer).check_server_name_length();
+        assert!(
+            matches!(&result, Err(crate::error::Error::UsageError(message))
+                if message.contains("Use a shorter login_server_name")),
+            "{result:?}"
+        );
+    }
+
+    // ── Data Classification LOGIN7 advertisement (feature 0x09) ──
+
+    const DATA_CLASSIFICATION_ID: u8 = 0x09;
+    const USER_AGENT_ID: u8 = 0x10;
+
+    /// Serializes the LOGIN7 feature-extension block and splits it into
+    /// `(feature id, feature data)` entries in wire order. Asserts the block is
+    /// well framed, ends in a single terminator, and matches `len_bytes()`.
+    fn login7_feature_blocks(
+        context: &ClientContext,
+        recovery_data: Option<&SessionRecoveryData>,
+    ) -> Vec<(u8, Vec<u8>)> {
+        let transport_context = context.transport_context.clone();
+        let model =
+            LoginRequestModel::from_context(context, false, &transport_context, recovery_data);
+        let mut mock = MockNetworkWriter::new(131_072);
+        let mut packet_writer = PacketWriter::new(PacketType::Login7, &mut mock, None, None);
+        block_on(Serializer::new(&model, &mut packet_writer).write_feature_extension_data())
+            .unwrap();
+        let payload = packet_writer.get_payload();
+        let bytes = &payload.get_ref()[PacketWriter::PACKET_HEADER_SIZE..];
+        assert_eq!(bytes.len(), model.features_request.len_bytes());
+
+        let mut blocks = Vec::new();
+        let mut offset = 0;
+        loop {
+            let id = bytes[offset];
+            if id == 0xFF {
+                assert_eq!(offset + 1, bytes.len(), "terminator must be the last byte");
+                return blocks;
+            }
+            let length = u32::from_le_bytes(bytes[offset + 1..offset + 5].try_into().unwrap());
+            let start = offset + 5;
+            let end = start + length as usize;
+            blocks.push((id, bytes[start..end].to_vec()));
+            offset = end;
+        }
+    }
+
+    fn data_classification_blocks(blocks: &[(u8, Vec<u8>)]) -> Vec<&[u8]> {
+        blocks
+            .iter()
+            .filter(|(id, _)| *id == DATA_CLASSIFICATION_ID)
+            .map(|(_, data)| data.as_slice())
+            .collect()
+    }
+
+    fn by_feature_id(blocks: Vec<(u8, Vec<u8>)>) -> BTreeMap<u8, Vec<u8>> {
+        let count = blocks.len();
+        let map: BTreeMap<_, _> = blocks.into_iter().collect();
+        assert_eq!(map.len(), count, "a feature id was serialized twice");
+        map
+    }
+
+    #[test]
+    fn data_classification_is_not_requested_by_default() {
+        #[allow(deprecated)]
+        let contexts = [
+            ClientContext::default(),
+            ClientContext::new(),
+            ClientContext::with_data_source("tcp:localhost,1433"),
+        ];
+        for context in contexts {
+            assert_eq!(context.requested_data_classification_version, None);
+            assert!(
+                !FeaturesRequest::from((&context, false))
+                    .features
+                    .contains_key(&FeatureExtension::DataClassification)
+            );
+            assert!(
+                !FeaturesRequest::from_context_with_recovery(&context, false, None)
+                    .features
+                    .contains_key(&FeatureExtension::DataClassification)
+            );
+            assert!(data_classification_blocks(&login7_feature_blocks(&context, None)).is_empty());
+        }
+    }
+
+    #[test]
+    fn login7_requests_data_classification_version1() {
+        let context = ClientContext {
+            requested_data_classification_version: Some(DataClassificationVersion::Version1),
+            ..ClientContext::default()
+        };
+        let blocks = login7_feature_blocks(&context, None);
+        assert_eq!(data_classification_blocks(&blocks), [[0x01].as_slice()]);
+    }
+
+    #[test]
+    fn login7_requests_data_classification_version2() {
+        let context = ClientContext {
+            requested_data_classification_version: Some(DataClassificationVersion::Version2),
+            ..ClientContext::default()
+        };
+        let blocks = login7_feature_blocks(&context, None);
+        assert_eq!(data_classification_blocks(&blocks), [[0x02].as_slice()]);
+    }
+
+    #[test]
+    fn data_classification_adds_only_its_own_block_to_existing_features() {
+        let baselines = [
+            ClientContext::default(),
+            ClientContext {
+                connect_retry_count: 0,
+                ..ClientContext::default()
+            },
+            ClientContext {
+                column_encryption_setting: ColumnEncryptionSetting::Enabled,
+                vector_version: VectorVersion::V2,
+                tds_authentication_method: TdsAuthenticationMethod::AccessToken,
+                access_token: Some("token".to_string()),
+                ..ClientContext::default()
+            },
+        ];
+        for baseline in baselines {
+            let without = login7_feature_blocks(&baseline, None);
+            for version in [
+                DataClassificationVersion::Version1,
+                DataClassificationVersion::Version2,
+            ] {
+                let with_context = ClientContext {
+                    requested_data_classification_version: Some(version),
+                    ..baseline.clone()
+                };
+                let with = login7_feature_blocks(&with_context, None);
+                assert_eq!(with.first().map(|(id, _)| *id), Some(USER_AGENT_ID));
+
+                let mut expected = by_feature_id(without.clone());
+                expected.insert(DATA_CLASSIFICATION_ID, vec![version as u8]);
+                assert_eq!(by_feature_id(with), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_rebuild_preserves_requested_data_classification() {
+        let recovery_data = SessionStateTable::new().snapshot(Some("other_db"), None, None);
+        for requested in [
+            None,
+            Some(DataClassificationVersion::Version1),
+            Some(DataClassificationVersion::Version2),
+        ] {
+            let context = ClientContext {
+                requested_data_classification_version: requested,
+                ..ClientContext::default()
+            };
+            let reconnect_context = context.clone();
+            assert_eq!(
+                reconnect_context.requested_data_classification_version,
+                requested
+            );
+
+            let blocks = login7_feature_blocks(&reconnect_context, Some(&recovery_data));
+            assert!(blocks.iter().any(|(id, _)| *id == 0x01));
+            let expected: Vec<Vec<u8>> = requested.map(|v| vec![v as u8]).into_iter().collect();
+            let actual: Vec<Vec<u8>> = data_classification_blocks(&blocks)
+                .into_iter()
+                .map(<[u8]>::to_vec)
+                .collect();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    // ── FeaturesRequest::features() ──
+
+    fn negotiated_data_classification(
+        request: &FeaturesRequest,
+    ) -> Option<DataClassificationVersion> {
+        request
+            .get_acknowledged_features()
+            .iter()
+            .find_map(|f| f.negotiated_data_classification_version())
+    }
+
+    #[test]
+    fn featureextack_negotiates_the_server_version_not_the_requested_one() {
+        let context = ClientContext {
+            requested_data_classification_version: Some(DataClassificationVersion::Version2),
+            ..ClientContext::default()
+        };
+        let mut request = FeaturesRequest::from((&context, false));
+        assert_eq!(negotiated_data_classification(&request), None);
+
+        request
+            .set_acknowledged(FeatureExtension::DataClassification, &[0x01, 0x01])
+            .unwrap();
+
+        assert_eq!(
+            negotiated_data_classification(&request),
+            Some(DataClassificationVersion::Version1)
+        );
+    }
+
+    #[test]
+    fn invalid_data_classification_featureextack_fails_login_response_parsing() {
+        let context = ClientContext {
+            requested_data_classification_version: Some(DataClassificationVersion::Version2),
+            ..ClientContext::default()
+        };
+        let mut request = FeaturesRequest::from((&context, false));
+        let error = request
+            .set_acknowledged(FeatureExtension::DataClassification, &[0x03, 0x01])
+            .unwrap_err();
+        assert!(
+            matches!(error, crate::error::Error::ProtocolError(_)),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn unrequested_data_classification_featureextack_negotiates_nothing() {
+        let mut request = FeaturesRequest::from((&ClientContext::default(), false));
+        request
+            .set_acknowledged(FeatureExtension::DataClassification, &[0x02, 0x01])
+            .unwrap();
+        assert_eq!(negotiated_data_classification(&request), None);
+    }
+
+    #[test]
+    fn features_request_features_returns_all() {
+        let req = make_features_request();
+        assert_eq!(req.features().len(), 2);
+    }
+
+    // ── FeaturesRequest::is_acknowledged ──
+
+    #[test]
+    fn features_request_is_acknowledged_returns_none_for_unacknowledged() {
+        let req = make_features_request();
+        assert!(req.is_acknowledged(FeatureExtension::Json).is_none());
+    }
+
+    #[test]
+    fn features_request_is_acknowledged_returns_some_after_ack() {
+        let mut req = make_features_request();
+        req.set_acknowledged(FeatureExtension::Json, &[1]).unwrap();
+        assert!(req.is_acknowledged(FeatureExtension::Json).is_some());
+    }
+
+    #[test]
+    fn features_request_is_acknowledged_returns_none_for_missing() {
+        let req = make_features_request();
+        assert!(req.is_acknowledged(FeatureExtension::SRecovery).is_none());
+    }
+
+    // ── FeaturesRequest::set_acknowledged ──
+
+    #[test]
+    fn features_request_set_acknowledged_missing_feature_ok() {
+        let mut req = make_features_request();
+        assert!(
+            req.set_acknowledged(FeatureExtension::SRecovery, &[])
+                .is_ok()
+        );
+    }
+
+    // ── FeaturesRequest::get_requested_features / get_acknowledged_features ──
+
+    #[test]
+    fn features_request_get_requested_features() {
+        let req = make_features_request();
+        let requested = req.get_requested_features();
+        assert_eq!(requested.len(), 2);
+    }
+
+    #[test]
+    fn features_request_get_acknowledged_features_initially_empty() {
+        let req = make_features_request();
+        assert!(req.get_acknowledged_features().is_empty());
+    }
+
+    #[test]
+    fn features_request_get_acknowledged_features_after_ack() {
+        let mut req = make_features_request();
+        req.set_acknowledged(FeatureExtension::Json, &[1]).unwrap();
+        assert_eq!(req.get_acknowledged_features().len(), 1);
+    }
+
+    // ── DNS caching (feature 0x0B) ──
+
+    fn dns_caching_verdict(request: &FeaturesRequest) -> Option<(&Resolution, bool)> {
+        request
+            .features
+            .get(&FeatureExtension::SqlDnsCaching)
+            .and_then(|feature| feature.dns_caching_verdict())
+    }
+
+    #[test]
+    fn features_request_always_requests_dns_caching() {
+        let request = FeaturesRequest::from((&ClientContext::default(), false));
+        let feature = request
+            .features
+            .get(&FeatureExtension::SqlDnsCaching)
+            .expect("DNS caching is always advertised");
+        assert!(feature.is_requested());
+        assert_eq!(dns_caching_verdict(&request), None);
+    }
+
+    /// What the replayed logins' connections resolved.
+    fn login_resolution(host: &str) -> Resolution {
+        Resolution::new(host, vec!["10.0.0.7:1433".parse().unwrap()])
+    }
+
+    async fn login_replaying(host: &str, mut tokens: Vec<Tokens>) -> TdsResult<LoginResponseModel> {
+        use crate::token::tokens::{CurrentCommand, DoneStatus, DoneToken};
+
+        tokens.push(Tokens::Done(DoneToken {
+            status: DoneStatus::FINAL,
+            cur_cmd: CurrentCommand::None,
+            row_count: 0,
+        }));
+        replay_login_response(host, tokens).await
+    }
+
+    async fn replay_login_response(
+        host: &str,
+        tokens: Vec<Tokens>,
+    ) -> TdsResult<LoginResponseModel> {
+        use crate::test_client_support::TokenReplayTransport;
+
+        let mut request = FeaturesRequest::from((&ClientContext::default(), false));
+        request.bind_dns_caching(login_resolution(host));
+        let mut transport = TokenReplayTransport::new(tokens);
+        LoginResponse::new()
+            .deserialize(&mut transport, request)
+            .await
+    }
+
+    fn login_ack() -> Tokens {
+        Tokens::LoginAck(LoginAckToken {
+            interface_type: SqlInterfaceType::TSql,
+            tds_version: TdsVersion::V7_4,
+            prog_name: "SQL".to_string(),
+            prog_version: Version {
+                major: 16,
+                minor: 0,
+                build: 0,
+                revision: 0,
+            },
+        })
+    }
+
+    fn feature_ext_ack(acknowledged: Vec<(FeatureExtension, Vec<u8>)>) -> Tokens {
+        Tokens::FeatureExtAck(crate::token::tokens::FeatureExtAckToken::new(acknowledged))
+    }
+
+    fn allowing_dns_caching() -> Tokens {
+        feature_ext_ack(vec![(FeatureExtension::SqlDnsCaching, vec![0x01])])
+    }
+
+    fn login_error() -> Tokens {
+        Tokens::Error(ErrorToken {
+            number: 40613,
+            state: 1,
+            severity: 20,
+            message: "Database is not currently available.".to_string(),
+            server_name: "server".to_string(),
+            proc_name: String::new(),
+            line_number: 1,
+        })
+    }
+
+    fn routing_envchange() -> Tokens {
+        Tokens::EnvChange(routing_token(&routing_info("replica.sql.net", None)))
+    }
+
+    async fn login_with_feature_ext_ack(
+        host: &str,
+        acknowledged: Vec<(FeatureExtension, Vec<u8>)>,
+    ) -> TdsResult<LoginResponseModel> {
+        login_replaying(host, vec![login_ack(), feature_ext_ack(acknowledged)]).await
+    }
+
+    /// The resolution a connect to `host` falls back to when DNS fails.
+    async fn cached(host: &str) -> Option<Resolution> {
+        DnsCache::global()
+            .resolve(host, 1433, || async {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "no such host",
+                ))
+            })
+            .await
+            .ok()
+    }
+
+    async fn resolves_from_cache(host: &str) -> bool {
+        cached(host).await.is_some()
+    }
+
+    #[tokio::test]
+    async fn feature_ext_ack_settles_dns_caching_for_the_login_host() {
+        let host = "dns-caching-verdict.login.example";
+        assert!(
+            !resolves_from_cache(host).await,
+            "not allowed before a login acknowledges"
+        );
+
+        login_with_feature_ext_ack(host, vec![(FeatureExtension::SqlDnsCaching, vec![0x01])])
+            .await
+            .unwrap();
+        assert_eq!(
+            cached(host).await,
+            Some(login_resolution(host)),
+            "the acknowledgement publishes what this login resolved"
+        );
+
+        // A FEATUREEXTACK without the DNS caching bit removes the entry, as in SNI.
+        login_with_feature_ext_ack(host, vec![(FeatureExtension::Utf8Support, vec![0x01])])
+            .await
+            .unwrap();
+        assert!(
+            !resolves_from_cache(host).await,
+            "removed without an acknowledgement"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_login_without_feature_ext_ack_preserves_dns_caching() {
+        let host = "dns-caching-no-ack.login.example";
+        login_replaying(host, vec![login_ack()]).await.unwrap();
+        assert!(!resolves_from_cache(host).await);
+
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+        assert!(resolves_from_cache(host).await);
+
+        login_replaying(host, vec![login_ack()]).await.unwrap();
+        assert_eq!(
+            cached(host).await,
+            Some(login_resolution(host)),
+            "no FEATUREEXTACK leaves an earlier allowance unchanged"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_login_leaves_dns_caching_as_it_was() {
+        let host = "dns-caching-rejected.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        let rejected = login_replaying(host, vec![login_error()]).await.unwrap();
+        assert_eq!(rejected.get_status(), LoginResponseStatus::Error);
+        assert!(
+            resolves_from_cache(host).await,
+            "a rejected login carries no verdict, and its retry still needs the fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_feature_ext_ack_before_a_rejected_login_preserves_dns_caching() {
+        let host = "dns-caching-rejected-after-ack.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        let rejected = login_replaying(
+            host,
+            vec![
+                feature_ext_ack(vec![(FeatureExtension::Utf8Support, vec![0x01])]),
+                login_error(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(rejected.get_status(), LoginResponseStatus::Error);
+        assert_eq!(
+            cached(host).await,
+            Some(login_resolution(host)),
+            "FEATUREEXTACK before a rejected login must not remove the retry's fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_login_ack_or_server_error_prevents_dns_cache_publication() {
+        for (index, tokens) in [
+            vec![allowing_dns_caching()],
+            vec![allowing_dns_caching(), login_error()],
+            vec![login_ack(), allowing_dns_caching(), login_error()],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let host = format!("dns-caching-unaccepted-{index}.login.example");
+            let response = login_replaying(&host, tokens).await.unwrap();
+            assert!(response.success_token.is_none() || !response.errors.is_empty());
+            assert!(!resolves_from_cache(&host).await);
+        }
+    }
+
+    #[tokio::test]
+    async fn authentication_continuations_cannot_change_dns_caching() {
+        let host = "dns-caching-continuation.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        for challenge in [
+            Tokens::Sspi(SspiToken { data: vec![0x01] }),
+            Tokens::FedAuthInfo(FedAuthInfoToken {
+                spn: "spn".to_string(),
+                sts_url: "https://sts".to_string(),
+            }),
+        ] {
+            replay_login_response(
+                host,
+                vec![
+                    login_ack(),
+                    feature_ext_ack(vec![(FeatureExtension::Utf8Support, vec![0x01])]),
+                    challenge,
+                ],
+            )
+            .await
+            .unwrap();
+            assert_eq!(cached(host).await, Some(login_resolution(host)));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_feature_ext_ack_before_login_ack_is_applied_at_done() {
+        let host = "dns-caching-before-loginack.login.example";
+        let response = login_replaying(host, vec![allowing_dns_caching(), login_ack()])
+            .await
+            .unwrap();
+        assert_eq!(response.get_status(), LoginResponseStatus::Success);
+        assert_eq!(cached(host).await, Some(login_resolution(host)));
+    }
+
+    #[tokio::test]
+    async fn a_truncated_login_cannot_apply_a_dns_caching_verdict() {
+        let host = "dns-caching-truncated.login.example";
+        let result = replay_login_response(host, vec![login_ack(), allowing_dns_caching()]).await;
+        assert!(matches!(result, Err(crate::error::Error::ProtocolError(_))));
+        assert!(!resolves_from_cache(host).await);
+
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+        for acknowledgement in [
+            feature_ext_ack(vec![(FeatureExtension::Utf8Support, vec![0x01])]),
+            feature_ext_ack(vec![(FeatureExtension::Utf8Support, Vec::new())]),
+        ] {
+            let result = replay_login_response(host, vec![login_ack(), acknowledgement]).await;
+            assert!(matches!(result, Err(crate::error::Error::ProtocolError(_))));
+            assert_eq!(cached(host).await, Some(login_resolution(host)));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unsuccessful_done_cannot_apply_a_dns_caching_verdict() {
+        use crate::token::tokens::{CurrentCommand, DoneToken};
+
+        let host = "dns-caching-unsuccessful-done.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+        for status in [
+            DoneStatus::ERROR,
+            DoneStatus::SERVER_ERROR,
+            DoneStatus::MORE,
+            DoneStatus::ATTN,
+        ] {
+            replay_login_response(
+                host,
+                vec![
+                    login_ack(),
+                    feature_ext_ack(vec![(FeatureExtension::Utf8Support, vec![0x01])]),
+                    Tokens::Done(DoneToken {
+                        status,
+                        cur_cmd: CurrentCommand::None,
+                        row_count: 0,
+                    }),
+                ],
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                cached(host).await,
+                Some(login_resolution(host)),
+                "{status:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_malformed_feature_ext_ack_revokes_dns_caching() {
+        let host = "dns-caching-malformed.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        // The UTF-8 acknowledgement must carry exactly one byte.
+        let result = login_replaying(
+            host,
+            vec![
+                login_ack(),
+                feature_ext_ack(vec![
+                    (FeatureExtension::SqlDnsCaching, vec![0x01]),
+                    (FeatureExtension::Utf8Support, Vec::new()),
+                ]),
+            ],
+        )
+        .await;
+        assert!(matches!(result, Err(crate::error::Error::ProtocolError(_))));
+        assert!(
+            !resolves_from_cache(host).await,
+            "a malformed FEATUREEXTACK allows nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_malformed_feature_ext_ack_without_login_ack_preserves_dns_caching() {
+        let host = "dns-caching-malformed-rejected.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        let result = login_replaying(
+            host,
+            vec![
+                feature_ext_ack(vec![(FeatureExtension::Utf8Support, Vec::new())]),
+                login_error(),
+            ],
+        )
+        .await;
+        assert!(matches!(result, Err(crate::error::Error::ProtocolError(_))));
+        assert_eq!(cached(host).await, Some(login_resolution(host)));
+    }
+
+    #[tokio::test]
+    async fn a_malformed_feature_ext_ack_cannot_be_overridden_by_a_later_allow() {
+        let host = "dns-caching-malformed-then-allow.login.example";
+        login_replaying(host, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        let result = login_replaying(
+            host,
+            vec![
+                login_ack(),
+                feature_ext_ack(vec![(FeatureExtension::Utf8Support, Vec::new())]),
+                allowing_dns_caching(),
+            ],
+        )
+        .await;
+        assert!(matches!(result, Err(crate::error::Error::ProtocolError(_))));
+        assert!(!resolves_from_cache(host).await);
+    }
+
+    #[tokio::test]
+    async fn the_last_feature_ext_ack_decides_dns_caching_at_login_completion() {
+        let host = "dns-caching-per-token.login.example";
+
+        login_replaying(
+            host,
+            vec![
+                login_ack(),
+                allowing_dns_caching(),
+                feature_ext_ack(vec![(FeatureExtension::Utf8Support, vec![0x01])]),
+            ],
+        )
+        .await
+        .unwrap();
+        assert!(
+            !resolves_from_cache(host).await,
+            "a later token without the acknowledgement revokes an earlier one"
+        );
+
+        login_replaying(
+            host,
+            vec![
+                login_ack(),
+                feature_ext_ack(vec![(FeatureExtension::Utf8Support, vec![0x01])]),
+                allowing_dns_caching(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert!(resolves_from_cache(host).await);
+    }
+
+    #[tokio::test]
+    async fn a_routed_login_settles_dns_caching_before_redirecting() {
+        let gateway = "dns-caching-gateway.login.example";
+
+        for (database, ack_before_route) in [
+            (None, false),
+            (None, true),
+            (Some("sales"), false),
+            (Some("sales"), true),
+        ] {
+            for (flags, allowed) in [(0x01u8, true), (0x00, false)] {
+                let mut features = vec![(FeatureExtension::SqlDnsCaching, vec![flags])];
+                if database.is_some() {
+                    features.push((FeatureExtension::EnhancedRouting, vec![1]));
+                }
+                let acknowledgement = feature_ext_ack(features);
+                let route =
+                    Tokens::EnvChange(routing_token(&routing_info("replica.sql.net", database)));
+                let tokens = if ack_before_route {
+                    vec![login_ack(), acknowledgement, route]
+                } else {
+                    vec![login_ack(), route, acknowledgement]
+                };
+                let Err(error) = login_replaying(gateway, tokens).await else {
+                    panic!("a routed login must redirect");
+                };
+                assert!(
+                    matches!(
+                        &error,
+                        Error::Redirection { host, port: 11000, database: routed_database }
+                            if host == "replica.sql.net" && routed_database.as_deref() == database
+                    ),
+                    "{error:?}"
+                );
+                assert_eq!(
+                    resolves_from_cache(gateway).await,
+                    allowed,
+                    "database {database:?}, ack_before_route {ack_before_route}, flags {flags:#04x}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_routed_login_without_feature_ext_ack_keeps_the_gateway_fallback() {
+        let gateway = "dns-caching-gateway-no-ack.login.example";
+        login_replaying(gateway, vec![login_ack(), allowing_dns_caching()])
+            .await
+            .unwrap();
+
+        let result = login_replaying(gateway, vec![login_ack(), routing_envchange()]).await;
+        assert!(matches!(
+            result,
+            Err(crate::error::Error::Redirection { host, port: 11000, .. })
+                if host == "replica.sql.net"
+        ));
+        assert_eq!(cached(gateway).await, Some(login_resolution(gateway)));
+    }
+
+    #[tokio::test]
+    async fn a_truncated_routed_login_fails_instead_of_redirecting() {
+        let result = replay_login_response(
+            "dns-caching-truncated-route.login.example",
+            vec![login_ack(), routing_envchange()],
+        )
+        .await;
+        assert!(matches!(result, Err(crate::error::Error::ProtocolError(_))));
+    }
+
+    // ── LoginResponseModel::capture_change_property ──
+
+    fn make_response_model() -> LoginResponseModel {
+        LoginResponseModel::new(make_features_request())
+    }
+
+    fn env_token(
+        sub_type: EnvChangeTokenSubType,
+        change_type: EnvChangeContainer,
+    ) -> EnvChangeToken {
+        EnvChangeToken {
+            sub_type,
+            change_type,
+        }
+    }
+
+    #[test]
+    fn capture_change_property_database() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::Database,
+            ("".to_string(), "master".to_string()).into(),
+        );
+        model.capture_change_property(token).unwrap();
+        assert_eq!(model.change_properties.database.as_deref(), Some("master"));
+    }
+
+    #[test]
+    fn capture_change_property_language() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::Language,
+            ("".to_string(), "us_english".to_string()).into(),
+        );
+        model.capture_change_property(token).unwrap();
+        assert_eq!(
+            model.change_properties.language.as_deref(),
+            Some("us_english")
+        );
+    }
+
+    #[test]
+    fn capture_change_property_character_set() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::CharacterSet,
+            ("".to_string(), "iso_1".to_string()).into(),
+        );
+        model.capture_change_property(token).unwrap();
+        assert_eq!(model.change_properties.char_set.as_deref(), Some("iso_1"));
+    }
+
+    #[test]
+    fn capture_change_property_string_unknown_subtype_errors() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::UserInstanceName,
+            ("val".to_string(), "".to_string()).into(),
+        );
+        let err = model.capture_change_property(token).unwrap_err();
+        assert!(err.to_string().contains("Protocol Error"));
+    }
+
+    #[test]
+    fn capture_change_property_packet_size() {
+        let mut model = make_response_model();
+        let token = env_token(EnvChangeTokenSubType::PacketSize, (4096u32, 8192u32).into());
+        model.capture_change_property(token).unwrap();
+        assert_eq!(model.change_properties.packet_size, 8192);
+    }
+
+    #[test]
+    fn capture_change_property_uint32_unknown_subtype_errors() {
+        let mut model = make_response_model();
+        let token = env_token(EnvChangeTokenSubType::BeginTransaction, (1u32, 0u32).into());
+        let err = model.capture_change_property(token).unwrap_err();
+        assert!(err.to_string().contains("Protocol Error"));
+    }
+
+    /// A response model past LOGINACK, which a routing ENVCHANGE must follow.
+    fn logged_in_model() -> LoginResponseModel {
+        let mut model = make_response_model();
+        model.success_token = Some(LoginAckToken {
+            interface_type: SqlInterfaceType::TSql,
+            tds_version: TdsVersion::V7_4,
+            prog_name: "SQL".to_string(),
+            prog_version: Version {
+                major: 1,
+                minor: 0,
+                build: 0,
+                revision: 0,
+            },
+        });
+        model
+    }
+
+    fn routing_info(server: &str, database: Option<&str>) -> RoutingInfo {
+        RoutingInfo {
+            protocol: 0,
+            server: server.to_string(),
+            port: 11000,
+            database: database.map(str::to_string),
+        }
+    }
+
+    /// Type 21 when the route names a database, type 20 otherwise.
+    fn routing_token(routing: &RoutingInfo) -> EnvChangeToken {
+        let sub_type = match routing.database {
+            Some(_) => EnvChangeTokenSubType::EnhancedRouting,
+            None => EnvChangeTokenSubType::Routing,
+        };
+        env_token(sub_type, (None, Some(routing.clone())).into())
+    }
+
+    #[test]
+    fn capture_change_property_routing_is_recorded_not_raised() {
+        let mut model = logged_in_model();
+        let routing = routing_info("redirect.sql.net", None);
+        model
+            .capture_change_property(routing_token(&routing))
+            .unwrap();
+        assert_eq!(model.change_properties.routing_information, Some(routing));
+    }
+
+    #[test]
+    fn capture_change_property_routing_before_login_ack_errors() {
+        for database in [None, Some("sales")] {
+            let mut model = make_response_model();
+            let routing = routing_info("redirect.sql.net", database);
+            let err = model
+                .capture_change_property(routing_token(&routing))
+                .unwrap_err();
+            assert!(
+                matches!(err, Error::ProtocolError(ref message) if message.contains("before LOGINACK")),
+                "database {database:?}: got {err:?}"
+            );
+            assert_eq!(model.change_properties.routing_information, None);
+        }
+    }
+
+    #[test]
+    fn capture_change_property_second_route_errors() {
+        for (first, second) in [
+            (None, None),
+            (Some("sales"), Some("hr")),
+            (Some("sales"), None),
+            (None, Some("sales")),
+        ] {
+            let mut model = logged_in_model();
+            let routing = routing_info("first.sql.net", first);
+            model
+                .capture_change_property(routing_token(&routing))
+                .unwrap();
+            let err = model
+                .capture_change_property(routing_token(&routing_info("second.sql.net", second)))
+                .unwrap_err();
+            assert!(
+                matches!(err, Error::ProtocolError(ref message) if message.contains("more than one routing ENVCHANGE")),
+                "{first:?} then {second:?}: got {err:?}"
+            );
+            assert_eq!(model.change_properties.routing_information, Some(routing));
+        }
+    }
+
+    #[test]
+    fn capture_change_property_routing_without_target_errors() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::Routing,
+            (None::<RoutingInfo>, None::<RoutingInfo>).into(),
+        );
+        let err = model.capture_change_property(token).unwrap_err();
+        assert!(err.to_string().contains("redirection target"));
+    }
+
+    // ── LoginResponseModel::redirect_if_routed ──
+
+    fn routed_model(database: Option<&str>, acknowledgement: Option<u8>) -> LoginResponseModel {
+        let mut model =
+            LoginResponseModel::new(FeaturesRequest::from((&ClientContext::default(), false)));
+        model.change_properties.routing_information = Some(RoutingInfo {
+            protocol: 0,
+            port: 11000,
+            server: "replica.sql.net".to_string(),
+            database: database.map(str::to_string),
+        });
+        if let Some(value) = acknowledgement {
+            model
+                .features
+                .set_acknowledged(FeatureExtension::EnhancedRouting, &[value])
+                .unwrap();
+        }
+        model
+    }
+
+    #[test]
+    fn features_request_always_requests_enhanced_routing() {
+        let request = FeaturesRequest::from((&ClientContext::default(), false));
+        let feature = request
+            .features
+            .get(&FeatureExtension::EnhancedRouting)
+            .expect("Enhanced Routing is always advertised");
+        assert!(feature.is_requested());
+        assert!(!request.enhanced_routing_enabled());
+    }
+
+    #[test]
+    fn no_routing_does_not_redirect() {
+        let model =
+            LoginResponseModel::new(FeaturesRequest::from((&ClientContext::default(), false)));
+        assert!(model.redirect_if_routed().is_ok());
+    }
+
+    #[test]
+    fn plain_routing_redirects_without_a_database() {
+        let error = routed_model(None, None).redirect_if_routed().unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Redirection { ref host, port: 11000, database: None } if host == "replica.sql.net"
+        ));
+    }
+
+    #[test]
+    fn enhanced_routing_redirects_to_its_database_once_acknowledged() {
+        let error = routed_model(Some("sales"), Some(1))
+            .redirect_if_routed()
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Redirection { ref host, port: 11000, database: Some(ref database) }
+                if host == "replica.sql.net" && database == "sales"
+        ));
+    }
+
+    #[test]
+    fn enhanced_routing_without_acknowledgement_fails_the_login() {
+        for acknowledgement in [None, Some(0)] {
+            let error = routed_model(Some("sales"), acknowledgement)
+                .redirect_if_routed()
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::ProtocolError(ref message) if message.contains("Enhanced Routing")),
+                "acknowledgement {acknowledgement:?} should fail the login, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_change_property_bytes_type_errors() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::BeginTransaction,
+            (vec![1u8, 2], vec![3u8, 4]).into(),
+        );
+        let err = model.capture_change_property(token).unwrap_err();
+        assert!(err.to_string().contains("Protocol Error"));
+    }
+
+    #[test]
+    fn capture_change_property_collation() {
+        let mut model = make_response_model();
+        let token = env_token(
+            EnvChangeTokenSubType::SqlCollation,
+            EnvChangeContainer::from((None::<SqlCollation>, None::<SqlCollation>)),
+        );
+        model.capture_change_property(token).unwrap();
+        assert!(model.change_properties.database_collation.is_none());
+    }
+
+    // ── LoginResponseModel::get_status ──
+
+    #[test]
+    fn get_status_rerouting() {
+        let mut model = make_response_model();
+        model.change_properties.routing_information = Some(RoutingInfo {
+            protocol: 0,
+            server: "s".to_string(),
+            port: 1433,
+            database: None,
+        });
+        assert_eq!(model.get_status(), LoginResponseStatus::Rerouting);
+    }
+
+    #[test]
+    fn get_status_success() {
+        let mut model = make_response_model();
+        model.success_token = Some(LoginAckToken {
+            interface_type: SqlInterfaceType::TSql,
+            tds_version: TdsVersion::V7_4,
+            prog_name: "SQL".to_string(),
+            prog_version: Version {
+                major: 1,
+                minor: 0,
+                build: 0,
+                revision: 0,
+            },
+        });
+        assert_eq!(model.get_status(), LoginResponseStatus::Success);
+    }
+
+    #[test]
+    fn get_status_error() {
+        let mut model = make_response_model();
+        model.errors.push(SqlErrorInfo::from(&ErrorToken {
+            number: 1,
+            state: 0,
+            severity: 16,
+            message: "err".to_string(),
+            server_name: "".to_string(),
+            proc_name: "".to_string(),
+            line_number: 0,
+        }));
+        assert_eq!(model.get_status(), LoginResponseStatus::Error);
+    }
+
+    #[test]
+    fn get_status_waiting_for_fed_auth() {
+        let mut model = make_response_model();
+        model.fed_auth_info = Some(FedAuthInfoToken {
+            spn: "spn".to_string(),
+            sts_url: "https://sts".to_string(),
+        });
+        assert_eq!(model.get_status(), LoginResponseStatus::WaitingForFedAuth);
+    }
+
+    #[test]
+    fn get_status_waiting_for_sspi() {
+        let mut model = make_response_model();
+        model.sspi_token = Some(SspiToken {
+            data: vec![0x01, 0x02],
+        });
+        assert_eq!(model.get_status(), LoginResponseStatus::WaitingForSspi);
+    }
+
+    #[test]
+    fn get_status_fallback_error() {
+        let model = make_response_model();
+        assert_eq!(model.get_status(), LoginResponseStatus::Error);
+    }
+
+    // ── LoginResponseStatus discriminants ──
+
+    #[test]
+    fn login_response_status_discriminants() {
+        assert_eq!(LoginResponseStatus::NoResponse as u8, 0x00);
+        assert_eq!(LoginResponseStatus::Success as u8, 0x01);
+        assert_eq!(LoginResponseStatus::Error as u8, 0x02);
+        assert_eq!(LoginResponseStatus::WaitingForFedAuth as u8, 0x03);
+        assert_eq!(LoginResponseStatus::Rerouting as u8, 0x04);
+        assert_eq!(LoginResponseStatus::WaitingForSspi as u8, 0x05);
+    }
+
+    // ── get_status priority: routing > success > error > fedauth > sspi ──
+
+    #[test]
+    fn get_status_rerouting_takes_precedence_over_success() {
+        let mut model = make_response_model();
+        model.change_properties.routing_information = Some(RoutingInfo {
+            protocol: 0,
+            server: "s".to_string(),
+            port: 1433,
+            database: None,
+        });
+        model.success_token = Some(LoginAckToken {
+            interface_type: SqlInterfaceType::TSql,
+            tds_version: TdsVersion::V7_4,
+            prog_name: "SQL".to_string(),
+            prog_version: Version {
+                major: 1,
+                minor: 0,
+                build: 0,
+                revision: 0,
+            },
+        });
+        assert_eq!(model.get_status(), LoginResponseStatus::Rerouting);
+    }
+}
