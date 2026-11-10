@@ -5,12 +5,22 @@ use crate::database::{
     Connected, SavedConnection, Workspace,
 };
 use collab_database::{ContractError, SessionBinding};
+use tauri::Manager;
 fn authorize(window: &tauri::WebviewWindow) -> Result<(), ContractError> {
     if window.label() == "main" {
         Ok(())
     } else {
         Err(ContractError::WrongBinding)
     }
+}
+fn authorize_execution(window: &tauri::WebviewWindow) -> Result<(), ContractError> {
+    authorize(window)?;
+    if crate::background_lifecycle::quit_pending(window.app_handle())
+        || crate::background_lifecycle::is_quitting(window.app_handle())
+    {
+        return Err(ContractError::Busy);
+    }
+    Ok(())
 }
 fn root() -> Result<std::path::PathBuf, ContractError> {
     super::app_config_dir().map_err(|_| ContractError::ConnectionFailed)
@@ -38,7 +48,7 @@ pub async fn database_profile_changed(
     next_owner: String,
 ) -> Result<(), ContractError> {
     authorize(&window)?;
-    database::profile_changed(&previous_owner, &next_owner).await;
+    database::profile_changed(&previous_owner, &next_owner).await?;
     Ok(())
 }
 #[tauri::command]
@@ -95,9 +105,10 @@ pub async fn database_close_tab(
     window: tauri::WebviewWindow,
     token: String,
     binding: SessionBinding,
+    discard: Option<bool>,
 ) -> Result<(), ContractError> {
     authorize(&window)?;
-    database::close_tab(&token, &binding).await
+    database::close_tab(&token, &binding, discard.unwrap_or(false)).await
 }
 #[tauri::command]
 pub async fn database_metadata(
@@ -109,4 +120,144 @@ pub async fn database_metadata(
 ) -> Result<MetadataPage, ContractError> {
     authorize(&window)?;
     database::metadata(&token, &connection_id, binding, request).await
+}
+
+#[tauri::command]
+pub async fn database_query_start(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    sql: String,
+    selection: Option<collab_database::SourceRange>,
+) -> Result<String, ContractError> {
+    authorize_execution(&window)?;
+    database::start_query(&token, binding, sql, selection, false).await
+}
+#[tauri::command]
+pub async fn database_query_rollback(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+) -> Result<String, ContractError> {
+    authorize_execution(&window)?;
+    database::start_query(
+        &token,
+        binding,
+        "IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;".into(),
+        None,
+        true,
+    )
+    .await
+}
+#[tauri::command]
+pub async fn database_query_poll(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    query_id: String,
+    after: Option<u64>,
+) -> Result<database::query::Poll, ContractError> {
+    authorize(&window)?;
+    let live = database::query_live(&token, &binding).await?;
+    let result = live.query.poll(&query_id, after).await?;
+    database::query_live(&token, &binding).await?;
+    Ok(result)
+}
+#[tauri::command]
+pub async fn database_query_cancel(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    query_id: String,
+) -> Result<(), ContractError> {
+    authorize(&window)?;
+    database::query_live(&token, &binding)
+        .await?
+        .query
+        .cancel(&query_id)
+}
+#[tauri::command]
+pub async fn database_query_status(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+) -> Result<database::query::Status, ContractError> {
+    authorize(&window)?;
+    Ok(database::query_live(&token, &binding).await?.query.status())
+}
+#[tauri::command]
+pub async fn database_query_history(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    clear: bool,
+) -> Result<Vec<database::query::HistoryEntry>, ContractError> {
+    authorize(&window)?;
+    let live = database::query_live(&token, &binding).await?;
+    if clear {
+        live.query.clear_history();
+    }
+    Ok(live.query.history())
+}
+#[tauri::command]
+pub async fn database_can_quit(window: tauri::WebviewWindow) -> Result<bool, ContractError> {
+    authorize(&window)?;
+    Ok(database::can_quit().await)
+}
+#[tauri::command]
+pub async fn database_query_export(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    content: String,
+    json: bool,
+) -> Result<bool, ContractError> {
+    authorize(&window)?;
+    database::query_live(&token, &binding).await?;
+    if content.len() > 16 << 20 {
+        return Err(ContractError::LimitReached);
+    }
+    use tauri_plugin_dialog::DialogExt;
+    let name = if json {
+        "query-results.json"
+    } else {
+        "query-results.csv"
+    };
+    let app = window.app_handle().clone();
+    let path = tokio::task::spawn_blocking(move || {
+        app.dialog().file().set_file_name(name).blocking_save_file()
+    })
+    .await
+    .map_err(|_| ContractError::ConnectionFailed)?;
+    let Some(path) = path else {
+        return Ok(false);
+    };
+    let path = path
+        .into_path()
+        .map_err(|_| ContractError::InvalidParameter)?;
+    database::query_live(&token, &binding).await?;
+    tokio::task::spawn_blocking(move || {
+        use std::io::Write;
+        let parent = path.parent().ok_or(ContractError::InvalidParameter)?;
+        let mut file =
+            tempfile::NamedTempFile::new_in(parent).map_err(|_| ContractError::ConnectionFailed)?;
+        file.write_all(content.as_bytes())
+            .map_err(|_| ContractError::ConnectionFailed)?;
+        file.persist(path)
+            .map_err(|_| ContractError::ConnectionFailed)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|_| ContractError::ConnectionFailed)?
+}
+
+#[tauri::command]
+pub async fn database_table_browse(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    request: database::query::BrowseRequest,
+) -> Result<String, ContractError> {
+    authorize_execution(&window)?;
+    database::browse_query(&token, binding, request).await
 }

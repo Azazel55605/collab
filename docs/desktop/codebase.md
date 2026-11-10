@@ -1609,7 +1609,14 @@ is a desktop-target-only dependency. `types/database.ts` and typed wrappers in
 `components/database/` load through `deferredViews` only when the `databases`
 page-level view opens, independent of vault/document tabs. App profile changes
 invalidate native workspace tokens and sockets. Saved metadata stays native;
-passwords never enter persisted frontend stores. Query execution is Phase 2.
+passwords never enter persisted frontend stores. Phase 2 adds `database/query.rs` workers and typed poll/cancel/history/export IPC.
+`crates/collab-database/src/sql.rs` owns lexical GO/selection boundaries.
+`components/database/QueryPanel`, `SqlEditor` and `ResultGrid` provide execution,
+completion and virtualized read-only values. `lib/database/queryStore.ts` retains
+bounded session caches and ordered pulls across view switches;
+`lib/databaseLifecycle.ts` exposes a lightweight draft guard to quit/profile flows.
+The native SQL Server dependency uses the documented bounded-diagnostics patch in
+`vendor/mssql-tds`. See [Database queries](./database-queries.md).
 See [Database workspace](./database-workspace.md) for ownership and native gaps.
 
 Driver comparison experiments remain in the separate locked

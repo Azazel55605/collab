@@ -124,7 +124,7 @@ pub enum DocumentError {
 
 pub fn classify_path(path: &str) -> Option<DocumentKind> {
     let path = path.to_ascii_lowercase();
-    if path.ends_with(".md") {
+    if path.ends_with(".md") || path.ends_with(".sql") {
         Some(DocumentKind::Note)
     } else if path.ends_with(".kanban") {
         Some(DocumentKind::Kanban)

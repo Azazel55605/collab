@@ -1,0 +1,2920 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+use std::borrow::Cow;
+
+use uuid::Uuid;
+
+use crate::datatypes::column_values::{
+    ColumnValues, DEFAULT_VARTIME_SCALE, SqlDate, SqlDateTime, SqlDateTime2, SqlDateTimeOffset,
+    SqlMoney, SqlSmallDateTime, SqlSmallMoney, SqlTime, SqlXml,
+};
+use crate::datatypes::sql_json::SqlJson;
+use crate::datatypes::sql_tvp::{
+    TVP_END_TOKEN, TVP_NOMETADATA_TOKEN, TvpTableData, TvpTypeName, write_tvp_column_metadata,
+    write_tvp_order_unique, write_tvp_rows, write_tvp_type_name,
+};
+use crate::datatypes::sql_udt::{UdtTypeName, write_udt_type_name};
+use crate::datatypes::sql_vector::SqlVector;
+use crate::datatypes::tds_value_serializer::{
+    NULL_LENGTH, TdsTypeContext, TdsValueSerializer, VARNULL,
+};
+use crate::{
+    core::TdsResult,
+    datatypes::{
+        decoder::DecimalParts,
+        sql_string::SqlString,
+        sqldatatypes::{
+            FixedLengthTypes, TdsDataType, VECTOR_HEADER_SIZE, VectorBaseType, VectorLayoutFormat,
+            VectorLayoutVersion,
+        },
+    },
+    error::Error,
+    io::packet_writer::{PacketWriter, TdsPacketWriter},
+    message::parameters::rpc_parameters::RpcTypeMetadata,
+    token::tokens::SqlCollation,
+};
+
+/// Input parameter type for RPC calls.
+///
+/// Each variant wraps an `Option` to support SQL `NULL`. The inner types
+/// carry the Rust-side value; serialization into TDS wire format is handled
+/// by the crate-internal `TdsValueSerializer`.
+#[derive(Debug, PartialEq, Clone)]
+pub enum SqlType {
+    /// Boolean value (`bit`).
+    Bit(Option<bool>),
+    /// Unsigned 8-bit integer (`tinyint`).
+    TinyInt(Option<u8>),
+    /// Signed 16-bit integer (`smallint`).
+    SmallInt(Option<i16>),
+    /// Signed 32-bit integer (`int`).
+    Int(Option<i32>),
+    /// Signed 64-bit integer (`bigint`).
+    BigInt(Option<i64>),
+    /// 32-bit IEEE float (`real`).
+    Real(Option<f32>),
+    /// 64-bit IEEE float (`float`).
+    Float(Option<f64>),
+    /// Exact numeric with configurable precision/scale (`decimal`).
+    Decimal(Option<DecimalParts>),
+    /// Exact numeric with configurable precision/scale (`numeric`).
+    Numeric(Option<DecimalParts>),
+    /// 8-byte currency (`money`).
+    Money(Option<SqlMoney>),
+    /// 4-byte currency (`smallmoney`).
+    SmallMoney(Option<SqlSmallMoney>),
+
+    /// Time-of-day with configurable fractional-second precision.
+    Time(Option<SqlTime>),
+    /// Date and time with configurable fractional-second precision.
+    DateTime2(Option<SqlDateTime2>),
+    /// Date, time, and UTC offset.
+    DateTimeOffset(Option<SqlDateTimeOffset>),
+    /// Date-time with 1-minute accuracy.
+    SmallDateTime(Option<SqlSmallDateTime>),
+    /// Date-time with 1/300-second accuracy.
+    DateTime(Option<SqlDateTime>),
+    /// Calendar date only.
+    Date(Option<SqlDate>),
+
+    /// Represents a Varchar with a specifiied length.
+    NVarchar(Option<SqlString>, u16),
+
+    /// Represents a Varchar with MAX length.
+    NVarcharMax(Option<SqlString>),
+
+    /// Variable-length non-Unicode string with specified max length.
+    Varchar(Option<SqlString>, u16),
+    /// Variable-length non-Unicode string with MAX length.
+    VarcharMax(Option<SqlString>),
+
+    /// Variable-length binary with specified max length.
+    VarBinary(Option<Vec<u8>>, u16),
+    /// Variable-length binary with MAX length.
+    VarBinaryMax(Option<Vec<u8>>),
+
+    /// Fixed-length binary.
+    Binary(Option<Vec<u8>>, u16),
+    /// Fixed-length non-Unicode string.
+    Char(Option<SqlString>, u16),
+    /// Fixed-length Unicode string.
+    NChar(Option<SqlString>, u16),
+
+    /// Legacy variable-length non-Unicode string (`text`).
+    Text(Option<SqlString>),
+    /// Legacy variable-length Unicode string (`ntext`).
+    NText(Option<SqlString>),
+    /// Legacy variable-length binary data (`image`).
+    Image(Option<Vec<u8>>),
+
+    /// JSON document.
+    Json(Option<SqlJson>),
+
+    /// XML document.
+    Xml(Option<SqlXml>),
+    /// 16-byte GUID (`uniqueidentifier`).
+    Uuid(Option<Uuid>),
+
+    /// Parameters: (data, dimensions, base_type)
+    /// Although SqlVector has dimension & base type information, we also pass it separately so
+    /// that we can serialize NULL vector parameters (where SqlVector=None) with correct metadata.
+    Vector(Option<SqlVector>, u16, VectorBaseType),
+
+    /// `sql_variant` container wrapping a concrete inner `SqlType`.
+    ///
+    /// The inner `SqlType` carries the base type, value, and nullability. An inner value of
+    /// `None` is serialized as a NULL variant. The inner type must be one that `sql_variant`
+    /// can hold: it cannot be a MAX type (`nvarchar(max)`, `varchar(max)`, `varbinary(max)`),
+    /// `xml`, `json`, `text`/`ntext`, a vector, or another `sql_variant`.
+    Variant(Box<SqlType>),
+
+    /// Table-valued parameter (input-only, TDS type `0xF3`).
+    ///
+    /// The type name is always present because the wire format requires it
+    /// even for NULL TVPs. `None` table data encodes a NULL TVP; `Some` with
+    /// an empty row set encodes an empty TVP.
+    Table(TvpTypeName, Option<TvpTableData>),
+
+    /// CLR user-defined type (TDS type `0xF0`).
+    ///
+    /// The payload is the type's serialized (`IBinarySerialize`) form, which
+    /// the driver passes through untouched; `None` is a NULL UDT. The name is
+    /// always sent because the server resolves the type from it. A returned
+    /// UDT arrives as plain bytes rather than through this type, so the output
+    /// direction of a UDT parameter needs no variant here.
+    Udt(UdtTypeName, Option<Vec<u8>>),
+}
+
+type NullableTdsType = TdsDataType;
+
+// The maximum length of a variable length type in TDS is 8000 bytes.
+pub(crate) const VAR_TDS_MAX_LENGTH: u16 = 8000u16;
+
+// The maximum data length advertised in sql_variant TYPE_INFO metadata (0x1F49).
+pub(crate) const SQL_VARIANT_MAX_LENGTH: u32 = 8009u32;
+
+// The length of a NULL value in TDS is 65535 bytes for variable length types.
+pub(crate) const MAX_U16_LENGTH: u16 = 65535u16;
+
+// NVARCHAR(n) above this many characters is sent as nvarchar(max).
+const NVARCHAR_MAX_INLINE_CHARS: u16 = 4000;
+
+/// `TYPE_INFO` max length, in bytes, of an `NVARCHAR(chars)` parameter, or
+/// `None` when the declaration is too long for inline framing and is sent as
+/// `nvarchar(max)` (PLP).
+pub(crate) const fn nvarchar_inline_max_bytes(chars: u16) -> Option<u16> {
+    if chars > NVARCHAR_MAX_INLINE_CHARS {
+        None
+    } else {
+        Some(chars * 2)
+    }
+}
+
+/// An RPC parameter `TYPE_INFO` and value that the batched `sp_execute` fast
+/// path writes without awaiting. Produced only by [`SqlType::rpc_inline`] for
+/// values whose async serialization cannot fail.
+pub(crate) enum RpcInlineValue<'a> {
+    Int(Option<i32>),
+    BigInt(Option<i64>),
+    NVarchar {
+        max_bytes: u16,
+        value: Option<&'a [u8]>,
+    },
+}
+
+impl RpcInlineValue<'_> {
+    pub(crate) fn encoded_len(&self) -> usize {
+        match self {
+            Self::Int(value) => 2 + value.map_or(1, |_| 5),
+            Self::BigInt(value) => 2 + value.map_or(1, |_| 9),
+            Self::NVarchar { value, .. } => 8 + 2 + value.map_or(0, <[u8]>::len),
+        }
+    }
+
+    /// Must emit exactly the bytes `serialize_with_narrow_string_byte_limit`
+    /// writes for the same value.
+    pub(crate) fn write(&self, packet_writer: &mut PacketWriter<'_>, db_collation: &SqlCollation) {
+        const INTN: u8 = TdsDataType::IntN as u8;
+        match *self {
+            Self::Int(value) => {
+                packet_writer.write_bytes_within_packet(&[INTN, 4]);
+                match value {
+                    Some(value) => {
+                        let [b0, b1, b2, b3] = value.to_le_bytes();
+                        packet_writer.write_bytes_within_packet(&[4, b0, b1, b2, b3]);
+                    }
+                    None => packet_writer.write_bytes_within_packet(&[NULL_LENGTH]),
+                }
+            }
+            Self::BigInt(value) => {
+                packet_writer.write_bytes_within_packet(&[INTN, 8]);
+                match value {
+                    Some(value) => {
+                        let [b0, b1, b2, b3, b4, b5, b6, b7] = value.to_le_bytes();
+                        packet_writer
+                            .write_bytes_within_packet(&[8, b0, b1, b2, b3, b4, b5, b6, b7]);
+                    }
+                    None => packet_writer.write_bytes_within_packet(&[NULL_LENGTH]),
+                }
+            }
+            Self::NVarchar { max_bytes, value } => {
+                packet_writer.write_bytes_within_packet(&SqlType::collated_type_info_bytes(
+                    TdsDataType::NVarChar as u8,
+                    max_bytes,
+                    db_collation,
+                ));
+                match value {
+                    Some(bytes) => {
+                        // Casts cannot truncate: `rpc_inline` bounds the value by `max_bytes`.
+                        let length = bytes.len() as u16;
+                        TdsValueSerializer::trace_variable_length_string(
+                            true,
+                            TdsDataType::NVarChar as u8,
+                            bytes.len() / 2,
+                            bytes.len(),
+                        );
+                        packet_writer.write_bytes_within_packet(&length.to_le_bytes());
+                        packet_writer.write_bytes_within_packet(bytes);
+                    }
+                    None => packet_writer.write_bytes_within_packet(&VARNULL.to_le_bytes()),
+                }
+            }
+        }
+    }
+}
+
+// The fixed size for Decimal in TDS is 17 bytes.
+pub(crate) const DECIMAL_FIXED_SIZE: u8 = 17;
+
+pub(crate) const PLP_UNKNOWN_LENGTH: u64 = 0xFFFF_FFFF_FFFF_FFFE;
+
+pub(crate) const PLP_NULL: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+
+pub(crate) const NO_XML_SCHEMA: u8 = 0x00;
+
+// TEXT, NTEXT, and IMAGE RPC lengths are limited to 2 GiB - 1 bytes.
+const LEGACY_LOB_MAX_BYTES: usize = 0x7fff_ffff;
+
+impl SqlType {
+    fn get_nullable_type(&self) -> NullableTdsType {
+        match self {
+            SqlType::Bit(_)
+            | SqlType::TinyInt(_)
+            | SqlType::SmallInt(_)
+            | SqlType::Int(_)
+            | SqlType::BigInt(_) => TdsDataType::IntN,
+            SqlType::Real(_) | SqlType::Float(_) => TdsDataType::FltN,
+            SqlType::Decimal(_) => TdsDataType::NumericN,
+            SqlType::Numeric(_) => TdsDataType::NumericN,
+            SqlType::NVarchar(_, _) => TdsDataType::NVarChar,
+            SqlType::VarBinary(_items, _size) => TdsDataType::BigVarBinary,
+            SqlType::Binary(_items, _) => TdsDataType::BigBinary,
+            SqlType::Char(_, _) => TdsDataType::BigChar,
+            SqlType::NChar(_, _) => TdsDataType::NChar,
+            SqlType::Text(_) => TdsDataType::Text,
+            SqlType::NText(_) => TdsDataType::NText,
+            SqlType::Image(_) => TdsDataType::Image,
+            SqlType::Json(_) => TdsDataType::Json,
+
+            SqlType::Time(_) => TdsDataType::TimeN,
+            SqlType::DateTime2(_) => TdsDataType::DateTime2N,
+            SqlType::DateTimeOffset(_) => TdsDataType::DateTimeOffsetN,
+            SqlType::DateTime(_) => TdsDataType::DateTimeN,
+            SqlType::Date(_) => TdsDataType::DateN,
+            SqlType::SmallDateTime(_) => TdsDataType::DateTimeN,
+            SqlType::NVarcharMax(_) => TdsDataType::NVarChar,
+            SqlType::Varchar(_, _) => TdsDataType::BigVarChar,
+            SqlType::VarcharMax(_) => TdsDataType::BigVarChar,
+            SqlType::VarBinaryMax(_) => TdsDataType::BigVarBinary,
+            SqlType::Xml(_) => TdsDataType::Xml,
+            SqlType::Uuid(_) => TdsDataType::Guid,
+            SqlType::Money(_) => TdsDataType::MoneyN,
+            SqlType::SmallMoney(_) => TdsDataType::MoneyN,
+            SqlType::Vector(_, _, _) => TdsDataType::Vector,
+            SqlType::Variant(_) => TdsDataType::SsVariant,
+            SqlType::Table(_, _) => TdsDataType::SqlTable,
+            SqlType::Udt(_, _) => TdsDataType::Udt,
+        }
+    }
+
+    fn get_fixed_length_size(&self) -> usize {
+        let fixed_length_type = FixedLengthTypes::try_from(self);
+        assert!(
+            fixed_length_type.is_ok(),
+            "SqlType is not a fixed length type."
+        );
+        fixed_length_type.unwrap().get_len()
+    }
+
+    /// Convert this SqlType to a ColumnValues (for value serialization) and a TdsTypeContext.
+    /// Returns (ColumnValues, TdsTypeContext).
+    pub(crate) fn to_column_value_and_context(
+        &self,
+        db_collation: &SqlCollation,
+    ) -> (ColumnValues, TdsTypeContext) {
+        let nullable_type = self.get_nullable_type();
+        let tds_type = nullable_type as u8;
+
+        // Common context for nullable RPC types: always nullable, never fixed-length
+        // (RPC value data always has length prefixes)
+        let base_ctx = TdsTypeContext {
+            tds_type,
+            max_size: 0,
+            is_plp: false,
+            is_fixed_length: false,
+            precision: None,
+            scale: None,
+            collation: None,
+            is_nullable: true,
+        };
+
+        match self {
+            // Fixed-size integer/float types
+            SqlType::Bit(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Bit(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 1,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::TinyInt(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::TinyInt(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 1,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::SmallInt(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::SmallInt(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 2,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::Int(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Int(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 4,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::BigInt(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::BigInt(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 8,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::Real(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Real(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 4,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::Float(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Float(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 8,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Decimal/Numeric - RPC always sends 17 bytes, so use precision >= 29
+            SqlType::Decimal(opt) | SqlType::Numeric(opt) => {
+                let cv = match opt {
+                    Some(v) => {
+                        if matches!(self, SqlType::Numeric(_)) {
+                            ColumnValues::Numeric(*v)
+                        } else {
+                            ColumnValues::Decimal(*v)
+                        }
+                    }
+                    None => ColumnValues::Null,
+                };
+                // Use precision 38 to ensure TdsValueSerializer writes 17 bytes (matching RPC behavior)
+                let ctx = TdsTypeContext {
+                    max_size: DECIMAL_FIXED_SIZE as usize,
+                    precision: Some(38),
+                    scale: Some(0),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Money types
+            SqlType::Money(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Money(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 8,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::SmallMoney(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::SmallMoney(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 4,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Date/Time types
+            SqlType::Date(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Date(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                (cv, base_ctx)
+            }
+            SqlType::Time(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Time(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                (cv, base_ctx)
+            }
+            SqlType::DateTime(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::DateTime(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 8,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::SmallDateTime(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::SmallDateTime(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 4,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::DateTime2(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::DateTime2(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                (cv, base_ctx)
+            }
+            SqlType::DateTimeOffset(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::DateTimeOffset(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                (cv, base_ctx)
+            }
+
+            // UUID
+            SqlType::Uuid(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Uuid(*v),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: 16,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // String types - NVarchar
+            SqlType::NVarchar(opt, param_len) => {
+                let param_len = nvarchar_inline_max_bytes(*param_len).unwrap_or(MAX_U16_LENGTH);
+                let is_plp = param_len == MAX_U16_LENGTH;
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::NVarChar as u8,
+                    max_size: if is_plp {
+                        usize::MAX
+                    } else {
+                        (param_len / 2) as usize
+                    },
+                    is_plp,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::NVarcharMax(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::NVarChar as u8,
+                    max_size: usize::MAX,
+                    is_plp: true,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // String types - Varchar
+            SqlType::Varchar(opt, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    MAX_U16_LENGTH
+                } else {
+                    *param_len
+                };
+                let is_plp = param_len == MAX_U16_LENGTH;
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::BigVarChar as u8,
+                    max_size: if is_plp {
+                        usize::MAX
+                    } else {
+                        param_len as usize
+                    },
+                    is_plp,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::VarcharMax(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::BigVarChar as u8,
+                    max_size: usize::MAX,
+                    is_plp: true,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Char/NChar
+            SqlType::Char(opt, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    MAX_U16_LENGTH
+                } else {
+                    *param_len
+                };
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::BigChar as u8,
+                    max_size: param_len as usize,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::NChar(opt, param_len) => {
+                let param_len = if *param_len > 4000 {
+                    MAX_U16_LENGTH
+                } else {
+                    *param_len * 2
+                };
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::NChar as u8,
+                    max_size: (param_len / 2) as usize,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Text/NText (legacy LOB types)
+            SqlType::Text(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::Text as u8,
+                    max_size: usize::MAX,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::NText(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::String(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::NText as u8,
+                    max_size: usize::MAX,
+                    collation: Some(*db_collation),
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::Image(opt) => {
+                let value = match opt {
+                    Some(bytes) => ColumnValues::Bytes(bytes.clone()),
+                    None => ColumnValues::Null,
+                };
+                (
+                    value,
+                    TdsTypeContext {
+                        max_size: usize::MAX,
+                        ..base_ctx
+                    },
+                )
+            }
+
+            // Binary types
+            SqlType::Binary(opt, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    u16::MAX
+                } else {
+                    *param_len
+                };
+                let cv = match opt {
+                    Some(v) => ColumnValues::Bytes(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: param_len as usize,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::VarBinary(opt, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    u16::MAX
+                } else {
+                    *param_len
+                };
+                let is_plp = param_len == u16::MAX;
+                let cv = match opt {
+                    Some(v) => ColumnValues::Bytes(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: param_len as usize,
+                    is_plp,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+            SqlType::VarBinaryMax(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Bytes(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: usize::MAX,
+                    is_plp: true,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // XML
+            SqlType::Xml(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Xml(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: usize::MAX,
+                    is_plp: true,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // JSON
+            SqlType::Json(opt) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Json(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: usize::MAX,
+                    is_plp: true,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Vector
+            SqlType::Vector(opt, dimensions, base_type) => {
+                let cv = match opt {
+                    Some(v) => ColumnValues::Vector(v.clone()),
+                    None => ColumnValues::Null,
+                };
+                let element_size = base_type.element_size_bytes() as u16;
+                let exact_size = (VECTOR_HEADER_SIZE as u16) + (*dimensions * element_size);
+                let ctx = TdsTypeContext {
+                    max_size: exact_size as usize,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+
+            // sql_variant: recurse on the inner type to get its ColumnValues and context
+            // (which carries collation/precision/scale), then override the TDS type to
+            // SQL_VARIANT so the value serializer wraps it as a variant.
+            SqlType::Variant(inner) => {
+                let (cv, inner_ctx) = inner.to_column_value_and_context(db_collation);
+                let ctx = TdsTypeContext {
+                    tds_type: TdsDataType::SsVariant as u8,
+                    ..inner_ctx
+                };
+                (cv, ctx)
+            }
+
+            // Table (TVP): input-only, no ColumnValues counterpart. Serialization is
+            // handled by the `serialize_table` short-circuit in `serialize`, so this
+            // arm is a safe fallback that never feeds real wire data.
+            SqlType::Table(_, _) => (ColumnValues::Null, base_ctx),
+
+            // UDT: the payload is opaque bytes framed as PLP, like varbinary(max).
+            SqlType::Udt(_, opt) => {
+                let cv = match opt {
+                    Some(bytes) => ColumnValues::Bytes(bytes.clone()),
+                    None => ColumnValues::Null,
+                };
+                let ctx = TdsTypeContext {
+                    max_size: usize::MAX,
+                    is_plp: true,
+                    ..base_ctx
+                };
+                (cv, ctx)
+            }
+        }
+    }
+
+    /// Write RPC type metadata preamble, then delegate value serialization to TdsValueSerializer.
+    ///
+    /// `type_metadata` supplies precision/scale for a value template that cannot
+    /// carry them (a typed NULL decimal or temporal). The caller derives the SQL
+    /// declaration from the same metadata, so the declared type and the wire
+    /// `TYPE_INFO` always agree.
+    pub(crate) async fn serialize_with_narrow_string_byte_limit(
+        &self,
+        packet_writer: &mut PacketWriter<'_>,
+        db_collation: &SqlCollation,
+        type_metadata: Option<RpcTypeMetadata>,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<()> {
+        // JSON needs special handling: TdsValueSerializer converts to UTF-16LE for bulk copy,
+        // but RPC sends raw UTF-8 bytes with TDS type 0xF4.
+        if let SqlType::Json(json) = self {
+            return self.serialize_json(packet_writer, json).await;
+        }
+
+        // TVP needs special handling: the payload is a whole table (3-part name,
+        // column metadata, and rows), not a single type preamble + value.
+        if let SqlType::Table(type_name, table) = self {
+            return self
+                .serialize_table(packet_writer, db_collation, type_name, table)
+                .await;
+        }
+
+        // RPC LOBs carry lengths, not the textptr/timestamp used by bulk ROWs.
+        // Resolve encoding once so MaxLen, ActualLen, and the payload agree.
+        if matches!(self, Self::Text(_) | Self::NText(_) | Self::Image(_)) {
+            let narrow_string_byte_limit =
+                self.effective_narrow_string_byte_limit(narrow_string_byte_limit);
+            let (encoded, had_loss) = self.legacy_lob_wire_bytes(db_collation)?;
+            let fitted = encoded
+                .as_deref()
+                .map(|bytes| self.fit_legacy_lob(bytes, narrow_string_byte_limit))
+                .transpose()?;
+            let length = fitted.map_or(0, |(_, length)| length);
+            self.write_legacy_lob_type_info(packet_writer, db_collation, length)
+                .await?;
+            packet_writer
+                .write_u32_async(if fitted.is_some() { length } else { u32::MAX })
+                .await?;
+            if let Some((bytes, _)) = fitted {
+                packet_writer.write_async(bytes).await?;
+            }
+            if had_loss {
+                packet_writer.note_code_page_conversion_loss();
+            }
+            return Ok(());
+        }
+
+        // Step 1: Write the RPC type metadata preamble
+        self.write_rpc_type_metadata(packet_writer, db_collation, type_metadata)
+            .await?;
+
+        // Step 2: Convert to ColumnValues + TdsTypeContext and serialize value
+        let (column_value, ctx) = self.to_column_value_and_context(db_collation);
+        TdsValueSerializer::serialize_value_with_narrow_string_byte_limit(
+            packet_writer,
+            &column_value,
+            &ctx,
+            narrow_string_byte_limit,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Write the RPC type metadata preamble (type byte, max_size, precision/scale/collation).
+    /// This is RPC-specific and must stay exactly as-is for protocol compatibility.
+    async fn write_rpc_type_metadata(
+        &self,
+        packet_writer: &mut PacketWriter<'_>,
+        db_collation: &SqlCollation,
+        type_metadata: Option<RpcTypeMetadata>,
+    ) -> TdsResult<()> {
+        // A value normally carries its own precision/scale; a typed NULL template
+        // cannot, so the caller may supply them here.
+        self.write_type_info(
+            packet_writer,
+            db_collation,
+            type_metadata.and_then(|m| m.precision),
+            type_metadata.and_then(|m| m.scale),
+        )
+        .await
+    }
+
+    async fn write_collated_type_info(
+        packet_writer: &mut PacketWriter<'_>,
+        tds_type: u8,
+        length: u16,
+        collation: &SqlCollation,
+    ) -> TdsResult<()> {
+        packet_writer
+            .write_fixed_bytes(&Self::collated_type_info_bytes(tds_type, length, collation))
+            .await
+    }
+
+    fn collated_type_info_bytes(tds_type: u8, length: u16, collation: &SqlCollation) -> [u8; 8] {
+        let length = length.to_le_bytes();
+        let info = collation.info.to_le_bytes();
+        [
+            tds_type,
+            length[0],
+            length[1],
+            info[0],
+            info[1],
+            info[2],
+            info[3],
+            collation.sort_id,
+        ]
+    }
+
+    /// Describes this value for [`RpcInlineValue::write`] when its async
+    /// serialization is plain buffer writes that cannot fail. `None` keeps the
+    /// value on [`Self::serialize_with_narrow_string_byte_limit`], which owns
+    /// every error: transcoding, odd UTF-16 length, over-length values and all
+    /// other types.
+    pub(crate) fn rpc_inline(&self) -> Option<RpcInlineValue<'_>> {
+        match self {
+            SqlType::Int(value) => Some(RpcInlineValue::Int(*value)),
+            SqlType::BigInt(value) => Some(RpcInlineValue::BigInt(*value)),
+            SqlType::NVarchar(value, chars) => {
+                let max_bytes = nvarchar_inline_max_bytes(*chars)?;
+                let value = match value {
+                    // Same source order as `serialize_string`; other encodings transcode there.
+                    Some(value) => {
+                        let bytes = value
+                            .as_utf16_bytes()
+                            .or_else(|| value.as_raw_wire_bytes())?;
+                        if bytes.len() % 2 != 0 || bytes.len() > usize::from(max_bytes) {
+                            return None;
+                        }
+                        Some(bytes)
+                    }
+                    None => None,
+                };
+                Some(RpcInlineValue::NVarchar { max_bytes, value })
+            }
+            _ => None,
+        }
+    }
+
+    /// Write the TDS `TYPE_INFO` for this type: the type byte followed by its
+    /// length/precision/scale/collation metadata.
+    ///
+    /// Shared by RPC parameter serialization and TVP column metadata. For
+    /// `Decimal`/`Numeric` (precision and scale) and `Time`/`DateTime2`/
+    /// `DateTimeOffset` (scale), the `precision_override`/`scale_override`
+    /// arguments supply metadata that a `None`-valued type template cannot
+    /// carry; when present they take precedence over the value's own
+    /// precision/scale. RPC callers supply them only for a typed NULL, where
+    /// they are derived from the same metadata as the SQL declaration.
+    pub(crate) async fn write_type_info(
+        &self,
+        packet_writer: &mut PacketWriter<'_>,
+        db_collation: &SqlCollation,
+        precision_override: Option<u8>,
+        scale_override: Option<u8>,
+    ) -> TdsResult<()> {
+        let nullable_type = self.get_nullable_type();
+
+        match self {
+            // Fixed-size integer types: type byte + max_size byte
+            SqlType::Bit(_)
+            | SqlType::TinyInt(_)
+            | SqlType::SmallInt(_)
+            | SqlType::Int(_)
+            | SqlType::BigInt(_)
+            | SqlType::Real(_)
+            | SqlType::Float(_) => {
+                let type_size = self.get_fixed_length_size();
+                packet_writer
+                    .write_fixed_bytes(&[nullable_type as u8, type_size as u8])
+                    .await?;
+            }
+
+            // Decimal/Numeric: type byte + 17 + precision + scale
+            SqlType::Decimal(opt) | SqlType::Numeric(opt) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(DECIMAL_FIXED_SIZE).await?;
+                // Overrides (used by TVP column metadata, whose templates carry a
+                // `None` value) take precedence over the value's own precision/scale,
+                // falling back to the TDS defaults (precision 1, scale 0).
+                let precision = precision_override
+                    .or_else(|| opt.as_ref().map(|v| v.precision))
+                    .unwrap_or(1);
+                let scale = scale_override
+                    .or_else(|| opt.as_ref().map(|v| v.scale))
+                    .unwrap_or(0);
+                packet_writer.write_byte_async(precision).await?;
+                packet_writer.write_byte_async(scale).await?;
+            }
+
+            // Money types: type byte + size byte
+            SqlType::Money(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(8u8).await?;
+            }
+            SqlType::SmallMoney(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(4u8).await?;
+            }
+
+            // UUID: type byte + 16
+            SqlType::Uuid(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(16u8).await?;
+            }
+
+            // DateTime: type byte + 8
+            SqlType::DateTime(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(8u8).await?;
+            }
+
+            // SmallDateTime: type byte + 4
+            SqlType::SmallDateTime(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(4u8).await?;
+            }
+
+            // Date: type byte only (no size byte)
+            SqlType::Date(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+            }
+
+            // Time: type byte + scale
+            SqlType::Time(opt) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                let scale = scale_override
+                    .or_else(|| opt.as_ref().map(|t| t.get_scale()))
+                    .unwrap_or(DEFAULT_VARTIME_SCALE);
+                packet_writer.write_byte_async(scale).await?;
+            }
+
+            // DateTime2: type byte + scale
+            SqlType::DateTime2(opt) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                let scale = scale_override
+                    .or_else(|| opt.as_ref().map(|dt2| dt2.time.get_scale()))
+                    .unwrap_or(DEFAULT_VARTIME_SCALE);
+                packet_writer.write_byte_async(scale).await?;
+            }
+
+            // DateTimeOffset: type byte + scale
+            SqlType::DateTimeOffset(opt) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                let scale = scale_override
+                    .or_else(|| opt.as_ref().map(|dto| dto.datetime2.time.get_scale()))
+                    .unwrap_or(DEFAULT_VARTIME_SCALE);
+                packet_writer.write_byte_async(scale).await?;
+            }
+
+            // NVarchar: type byte + param_len(u16) + collation(5 bytes)
+            SqlType::NVarchar(_, param_len) => {
+                let param_len = nvarchar_inline_max_bytes(*param_len).unwrap_or(MAX_U16_LENGTH);
+                Self::write_collated_type_info(
+                    packet_writer,
+                    nullable_type as u8,
+                    param_len,
+                    db_collation,
+                )
+                .await?;
+            }
+            SqlType::NVarcharMax(_) => {
+                Self::write_collated_type_info(
+                    packet_writer,
+                    nullable_type as u8,
+                    MAX_U16_LENGTH,
+                    db_collation,
+                )
+                .await?;
+            }
+
+            // Varchar: type byte + param_len(u16) + collation(5 bytes)
+            SqlType::Varchar(_, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    MAX_U16_LENGTH
+                } else {
+                    *param_len
+                };
+                Self::write_collated_type_info(
+                    packet_writer,
+                    nullable_type as u8,
+                    param_len,
+                    db_collation,
+                )
+                .await?;
+            }
+            SqlType::VarcharMax(_) => {
+                Self::write_collated_type_info(
+                    packet_writer,
+                    nullable_type as u8,
+                    MAX_U16_LENGTH,
+                    db_collation,
+                )
+                .await?;
+            }
+
+            // Char: type byte + param_len(u16) + collation(5 bytes)
+            SqlType::Char(_, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    MAX_U16_LENGTH
+                } else {
+                    *param_len
+                };
+                Self::write_collated_type_info(
+                    packet_writer,
+                    nullable_type as u8,
+                    param_len,
+                    db_collation,
+                )
+                .await?;
+            }
+            SqlType::NChar(_, param_len) => {
+                let param_len = if *param_len > 4000 {
+                    MAX_U16_LENGTH
+                } else {
+                    *param_len * 2
+                };
+                Self::write_collated_type_info(
+                    packet_writer,
+                    nullable_type as u8,
+                    param_len,
+                    db_collation,
+                )
+                .await?;
+            }
+
+            SqlType::Text(_) | SqlType::NText(_) | SqlType::Image(_) => {
+                let (bytes, _) = self.legacy_lob_wire_bytes(db_collation)?;
+                let length = Self::legacy_lob_length(bytes.as_deref().map_or(0, <[u8]>::len))?;
+                self.write_legacy_lob_type_info(packet_writer, db_collation, length)
+                    .await?;
+            }
+
+            // Binary types: type byte + param_len(u16)
+            SqlType::Binary(_, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    u16::MAX
+                } else {
+                    *param_len
+                };
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_u16_async(param_len).await?;
+            }
+            SqlType::VarBinary(_, param_len) => {
+                let param_len = if *param_len > VAR_TDS_MAX_LENGTH {
+                    u16::MAX
+                } else {
+                    *param_len
+                };
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_u16_async(param_len).await?;
+            }
+            SqlType::VarBinaryMax(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_u16_async(u16::MAX).await?;
+            }
+
+            // XML: type byte + no_schema byte
+            SqlType::Xml(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer.write_byte_async(NO_XML_SCHEMA).await?;
+            }
+
+            // JSON: type byte only
+            SqlType::Json(_) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+            }
+
+            // Vector: type byte + exact_size(u16) + base_type byte
+            SqlType::Vector(sql_vector, dimensions, base_type) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+
+                Self::validate_vector(sql_vector.as_ref(), *dimensions, *base_type)?;
+
+                let element_size = base_type.element_size_bytes() as u16;
+                let exact_size = (VECTOR_HEADER_SIZE as u16) + (*dimensions * element_size);
+                packet_writer.write_u16_async(exact_size).await?;
+                packet_writer.write_byte_async(*base_type as u8).await?;
+            }
+
+            // sql_variant: type byte + 4-byte (DWORD) max data length.
+            // Validate the inner type first so an unsupported variant errors before any
+            // bytes are written.
+            SqlType::Variant(inner) => {
+                Self::validate_variant_inner(inner)?;
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                packet_writer
+                    .write_u32_async(SQL_VARIANT_MAX_LENGTH)
+                    .await?;
+            }
+
+            // UDT: type byte + catalog/schema/type name, and nothing else. The
+            // PLP body length that follows is written by the value serializer,
+            // exactly as msodbcsql's `WriteUDTHeader` emits it.
+            SqlType::Udt(type_name, _) => {
+                packet_writer.write_byte_async(nullable_type as u8).await?;
+                write_udt_type_name(packet_writer, type_name).await?;
+            }
+
+            // Table (TVP): metadata and rows are written by the dedicated
+            // `serialize_table` path, which short-circuits in `serialize` before
+            // this method is reached. A TVP is never a column type within another
+            // TVP, so `write_type_info` is never legitimately called on it either.
+            SqlType::Table(_, _) => {
+                return Err(Error::ImplementationError(
+                    "TVP serialization is not handled by write_type_info; \
+                     it is dispatched via serialize_table"
+                        .to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validates what must be correct before *any* byte of this value reaches
+    /// the wire.
+    ///
+    /// The per-type checks below also run during `write_type_info`, but that
+    /// is too late to keep a failure local: by then `RpcParameter::serialize`
+    /// has written this parameter's name and status flags, and in a
+    /// multi-parameter RPC an earlier parameter may have flushed whole packets
+    /// (`PacketWriter` sends on overflow). `SqlRpc::validate_parameters` calls
+    /// this for every parameter before the message writes anything, so
+    /// locally-invalid input fails locally instead of becoming a half-sent
+    /// request that has to be cancelled and drained.
+    ///
+    /// Every fallible *scalar* metadata check in `write_type_info` belongs
+    /// here: the UDT name, the `sql_variant` inner type, vector dimension/base-type
+    /// bounds, raw NTEXT byte alignment, and the legacy LOB length limit. The
+    /// duplicates in the serializer stay, since that function must remain
+    /// correct for callers that reach it by another route.
+    ///
+    /// `SqlType::Table` is the known exception. A TVP's validation lives in
+    /// `serialize_table` / `write_tvp_type_name` / `write_tvp_column_metadata`
+    /// and covers the type name, the column metadata and every row, so hoisting
+    /// it is a larger change than this one - it is tracked in AB#48248 rather
+    /// than half-done here. A TVP with invalid table data can therefore still
+    /// fail mid-write; do not read this method as covering it.
+    pub(crate) fn validate_for_send(
+        &self,
+        db_collation: &SqlCollation,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<()> {
+        let narrow_string_byte_limit =
+            self.effective_narrow_string_byte_limit(narrow_string_byte_limit);
+        let has_narrow_string_byte_limit = narrow_string_byte_limit.is_some();
+
+        match self {
+            SqlType::Udt(type_name, _) => type_name.validate(),
+            SqlType::NText(Some(value)) => {
+                Self::validate_ntext(value)?;
+                self.validate_legacy_lob_length(db_collation, narrow_string_byte_limit)
+            }
+            SqlType::Image(Some(_)) => {
+                self.validate_legacy_lob_length(db_collation, narrow_string_byte_limit)
+            }
+            SqlType::Variant(inner) => {
+                Self::validate_variant_inner(inner)?;
+                inner.validate_for_send(db_collation, narrow_string_byte_limit)
+            }
+            SqlType::Varchar(_, length)
+                if !has_narrow_string_byte_limit && *length > VAR_TDS_MAX_LENGTH =>
+            {
+                Ok(())
+            }
+            SqlType::VarcharMax(_) if !has_narrow_string_byte_limit => Ok(()),
+            SqlType::Text(_) if !has_narrow_string_byte_limit => {
+                self.validate_legacy_lob_length(db_collation, None)
+            }
+            SqlType::Vector(vector, dimensions, base_type) => {
+                Self::validate_vector(vector.as_ref(), *dimensions, *base_type)
+            }
+            SqlType::Char(_, _)
+            | SqlType::Varchar(_, _)
+            | SqlType::VarcharMax(_)
+            | SqlType::Text(_) => {
+                let (value, ctx) = self.to_column_value_and_context(db_collation);
+                TdsValueSerializer::validate_narrow_string_length(
+                    &value,
+                    &ctx,
+                    narrow_string_byte_limit,
+                )?;
+                self.validate_legacy_lob_length(db_collation, narrow_string_byte_limit)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn effective_narrow_string_byte_limit(&self, column_limit: Option<usize>) -> Option<usize> {
+        let value_limit = match self {
+            Self::Char(Some(value), _)
+            | Self::Varchar(Some(value), _)
+            | Self::VarcharMax(Some(value))
+            | Self::Text(Some(value)) => value.narrow_string_byte_limit(),
+            _ => None,
+        };
+        match (value_limit, column_limit) {
+            (Some(value_limit), Some(column_limit)) => Some(value_limit.min(column_limit)),
+            (Some(value_limit), None) => Some(value_limit),
+            (None, column_limit) => column_limit,
+        }
+    }
+
+    /// Checks a vector's declared dimensions against its base type's maximum,
+    /// and - when a value is present - that the declaration matches the value.
+    ///
+    /// Shared with `write_type_info` so the wire path and the preflight cannot
+    /// disagree about what is sendable.
+    fn validate_vector(
+        vector: Option<&SqlVector>,
+        dimensions: u16,
+        base_type: VectorBaseType,
+    ) -> TdsResult<()> {
+        let max_dim = base_type.max_dimensions();
+        if dimensions > max_dim {
+            return Err(Error::UsageError(format!(
+                "Vector dimensions {dimensions} exceeds maximum supported dimensions {max_dim} for base type {base_type:?}"
+            )));
+        }
+
+        if let Some(vector) = vector {
+            let actual_base_type = vector.base_type();
+            if actual_base_type != base_type {
+                return Err(Error::TypeConversionError(format!(
+                    "Vector base type mismatch: declared {base_type:?}, but vector has {actual_base_type:?}"
+                )));
+            }
+            let actual_dimensions = vector.element_count();
+            if actual_dimensions != usize::from(dimensions) {
+                return Err(Error::TypeConversionError(format!(
+                    "Vector dimension mismatch: declared {dimensions}, but vector has {actual_dimensions}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate that the inner type of a `sql_variant` is one the server can store.
+    ///
+    /// `sql_variant` cannot hold MAX types, `xml`, `json`, `text`/`ntext`, vectors,
+    /// table-valued parameters, or a nested `sql_variant`. It also cannot hold sized
+    /// string/binary types whose declared length exceeds the non-MAX limit, since those
+    /// are promoted to MAX/PLP by the type-info paths. Returns [`Error::UsageError`] for
+    /// any of these.
+    fn validate_variant_inner(inner: &SqlType) -> TdsResult<()> {
+        let unsupported = match inner {
+            SqlType::NVarcharMax(_) => Some("nvarchar(max)"),
+            SqlType::VarcharMax(_) => Some("varchar(max)"),
+            SqlType::VarBinaryMax(_) => Some("varbinary(max)"),
+            SqlType::Text(_) => Some("text"),
+            SqlType::NText(_) => Some("ntext"),
+            SqlType::Image(_) => Some("image"),
+            SqlType::Xml(_) => Some("xml"),
+            SqlType::Json(_) => Some("json"),
+            SqlType::Vector(_, _, _) => Some("vector"),
+            SqlType::Udt(_, _) => Some("udt"),
+            SqlType::Variant(_) => Some("sql_variant (nested)"),
+            SqlType::Table(_, _) => Some("table-valued parameter (TVP)"),
+            // Sized string/binary types whose declared length exceeds the non-MAX limit
+            // are promoted to MAX/PLP, which sql_variant cannot hold.
+            SqlType::NVarchar(_, len) if nvarchar_inline_max_bytes(*len).is_none() => {
+                Some("nvarchar(max)")
+            }
+            SqlType::Varchar(_, len) if *len > VAR_TDS_MAX_LENGTH => Some("varchar(max)"),
+            SqlType::VarBinary(_, len) if *len > VAR_TDS_MAX_LENGTH => Some("varbinary(max)"),
+            _ => None,
+        };
+
+        match unsupported {
+            Some(type_name) => Err(Error::UsageError(format!(
+                "sql_variant cannot hold a value of type {type_name}."
+            ))),
+            None => Ok(()),
+        }
+    }
+
+    fn validate_ntext(value: &SqlString) -> TdsResult<()> {
+        if matches!(
+            value.encoding_type(),
+            crate::datatypes::sql_string::EncodingType::Utf16
+                | crate::datatypes::sql_string::EncodingType::DelayedSet
+        ) && !value.bytes.len().is_multiple_of(2)
+        {
+            return Err(Error::UsageError(
+                "NTEXT data must contain complete UTF-16 code units.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn legacy_lob_wire_bytes(
+        &self,
+        collation: &SqlCollation,
+    ) -> TdsResult<(Option<Cow<'_, [u8]>>, bool)> {
+        match self {
+            Self::Text(Some(value)) => {
+                let (bytes, had_loss) =
+                    TdsValueSerializer::narrow_string_wire_bytes(value, Some(*collation));
+                Ok((Some(bytes), had_loss))
+            }
+            Self::NText(Some(value)) => {
+                Self::validate_ntext(value)?;
+                let bytes = match value.encoding_type() {
+                    crate::datatypes::sql_string::EncodingType::Utf16
+                    | crate::datatypes::sql_string::EncodingType::DelayedSet => {
+                        Cow::Borrowed(value.bytes.as_slice())
+                    }
+                    _ => Cow::Owned(
+                        value
+                            .to_utf8_string()
+                            .encode_utf16()
+                            .flat_map(u16::to_le_bytes)
+                            .collect(),
+                    ),
+                };
+                Ok((Some(bytes), false))
+            }
+            Self::Image(Some(bytes)) => Ok((Some(Cow::Borrowed(bytes)), false)),
+            Self::Text(None) | Self::NText(None) | Self::Image(None) => Ok((None, false)),
+            _ => Err(Error::ImplementationError(
+                "Legacy LOB serialization requires text, ntext, or image.".to_string(),
+            )),
+        }
+    }
+
+    /// Rejects a value whose RPC length would exceed the legacy LOB limit,
+    /// using the same encoding and TEXT trimming as the serializer.
+    fn validate_legacy_lob_length(
+        &self,
+        collation: &SqlCollation,
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<()> {
+        let source_len = match self {
+            Self::Text(Some(value)) | Self::NText(Some(value)) => value.bytes.len(),
+            Self::Image(Some(bytes)) => bytes.len(),
+            _ => return Ok(()),
+        };
+        // Encoding at most triples a value, and a TEXT limit within the cap
+        // has already been enforced by the narrow-string check.
+        let limited_text = matches!(self, Self::Text(_))
+            && narrow_string_byte_limit.is_some_and(|maximum| maximum <= LEGACY_LOB_MAX_BYTES);
+        if limited_text || source_len <= LEGACY_LOB_MAX_BYTES / 3 {
+            return Ok(());
+        }
+        let (encoded, _) = self.legacy_lob_wire_bytes(collation)?;
+        if let Some(bytes) = encoded.as_deref() {
+            self.fit_legacy_lob(bytes, narrow_string_byte_limit)?;
+        }
+        Ok(())
+    }
+
+    /// Applies TEXT's encoded-byte limit, which may trim trailing spaces,
+    /// before the legacy LOB length limit.
+    fn fit_legacy_lob<'a>(
+        &self,
+        bytes: &'a [u8],
+        narrow_string_byte_limit: Option<usize>,
+    ) -> TdsResult<(&'a [u8], u32)> {
+        let bytes = match narrow_string_byte_limit {
+            Some(maximum) if matches!(self, Self::Text(_)) => {
+                TdsValueSerializer::fit_narrow_bytes(bytes, maximum)?
+            }
+            _ => bytes,
+        };
+        Ok((bytes, Self::legacy_lob_length(bytes.len())?))
+    }
+
+    fn legacy_lob_length(length: usize) -> TdsResult<u32> {
+        u32::try_from(length)
+            .ok()
+            .filter(|length| *length as usize <= LEGACY_LOB_MAX_BYTES)
+            .ok_or_else(|| Error::UsageError("Legacy LOB exceeds 2 GiB - 1 bytes.".to_string()))
+    }
+
+    async fn write_legacy_lob_type_info(
+        &self,
+        writer: &mut PacketWriter<'_>,
+        collation: &SqlCollation,
+        length: u32,
+    ) -> TdsResult<()> {
+        writer
+            .write_byte_async(self.get_nullable_type() as u8)
+            .await?;
+        writer.write_u32_async(length).await?;
+        if !matches!(self, Self::Image(_)) {
+            writer.write_u32_async(collation.info).await?;
+            writer.write_byte_async(collation.sort_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn serialize_json(
+        &self,
+        packet_writer: &mut PacketWriter<'_>,
+        json: &Option<SqlJson>,
+    ) -> TdsResult<()> {
+        let nullable_type: NullableTdsType = self.get_nullable_type();
+        packet_writer.write_byte_async(nullable_type as u8).await?;
+        let optional_sqljson = match json {
+            Some(binary) => Some(binary),
+            None => None,
+        };
+
+        match optional_sqljson {
+            Some(sqljson) => {
+                let data = &sqljson.bytes;
+
+                // Write unknown length for PLP.
+                packet_writer.write_u64_async(PLP_UNKNOWN_LENGTH).await?;
+
+                let data_len = data.len();
+
+                // Write the data chunk length, which is the same as PLP length.
+                packet_writer.write_u32_async(data_len as u32).await?;
+
+                packet_writer.write_async(data).await?;
+
+                // Write a zero-length PLP chunk terminator to signal the end of the PLP stream.
+                packet_writer.write_u32_async(0).await?;
+            }
+            None => {
+                packet_writer.write_u64_async(PLP_NULL).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serialize a Table-Valued Parameter (TDS type `0xF3`).
+    ///
+    /// Writes the type byte, the three-part type name, then either the NULL-TVP
+    /// encoding (`TVP_NOMETADATA` column count followed by two end tokens) or the
+    /// full column metadata, optional order/unique hints, and row data. This is
+    /// dispatched from [`serialize`](Self::serialize) and replaces the generic
+    /// type-preamble + value path, which does not fit a tabular payload.
+    async fn serialize_table(
+        &self,
+        packet_writer: &mut PacketWriter<'_>,
+        db_collation: &SqlCollation,
+        type_name: &TvpTypeName,
+        table: &Option<TvpTableData>,
+    ) -> TdsResult<()> {
+        // Type byte (0xF3) and the three-part name are always present, even for
+        // a NULL TVP.
+        type_name.validate()?;
+        packet_writer
+            .write_byte_async(TdsDataType::SqlTable as u8)
+            .await?;
+        write_tvp_type_name(packet_writer, type_name).await?;
+
+        match table {
+            // NULL TVP: TVP_NOMETADATA column count, then two end tokens (end of
+            // optional metadata, end of row set).
+            None => {
+                packet_writer.write_u16_async(TVP_NOMETADATA_TOKEN).await?;
+                packet_writer.write_byte_async(TVP_END_TOKEN).await?;
+                packet_writer.write_byte_async(TVP_END_TOKEN).await?;
+            }
+            // Non-NULL TVP: column metadata, optional order/unique block (which
+            // also writes the end-of-metadata token), then the row set (which
+            // writes the end-of-rows token).
+            Some(data) => {
+                data.validate()?;
+                write_tvp_column_metadata(packet_writer, &data.columns, db_collation).await?;
+                write_tvp_order_unique(packet_writer, &data.order_hints).await?;
+                write_tvp_rows(packet_writer, &data.columns, &data.rows, db_collation).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn encode_vector_header(
+        packet_writer: &mut PacketWriter<'_>,
+        dimension_count: u16,
+        base_type: VectorBaseType,
+    ) -> TdsResult<()> {
+        packet_writer
+            .write_byte_async(VectorLayoutFormat::V1 as u8)
+            .await?;
+        packet_writer
+            .write_byte_async(VectorLayoutVersion::V1 as u8)
+            .await?;
+        packet_writer.write_u16_async(dimension_count).await?;
+        packet_writer.write_byte_async(base_type as u8).await?;
+        packet_writer.write_byte_async(0x00).await?; // reserved
+        packet_writer.write_byte_async(0x00).await?; // reserved
+        packet_writer.write_byte_async(0x00).await?; // reserved
+        Ok(())
+    }
+}
+
+/// Calculate the byte length for time-based types based on scale value.
+///
+/// This mapping is defined in the TDS protocol documentation:
+/// - Scale 0-2: 3 bytes
+/// - Scale 3-4: 4 bytes
+/// - Scale 5-7: 5 bytes
+pub(crate) fn get_time_length_from_scale(scale: u8) -> TdsResult<u8> {
+    match scale {
+        0..=2 => Ok(0x03),
+        3 | 4 => Ok(0x04),
+        5..=7 => Ok(0x05),
+        _ => Err(Error::UsageError(format!(
+            "Invalid scale for Time type: {scale}"
+        ))),
+    }
+}
+
+impl TryFrom<&SqlType> for FixedLengthTypes {
+    type Error = Error;
+
+    fn try_from(value: &SqlType) -> TdsResult<FixedLengthTypes> {
+        match value {
+            SqlType::Bit(_) => Ok(FixedLengthTypes::Int1),
+            SqlType::TinyInt(_) => Ok(FixedLengthTypes::Int1),
+            SqlType::SmallInt(_) => Ok(FixedLengthTypes::Int2),
+            SqlType::Int(_) => Ok(FixedLengthTypes::Int4),
+            SqlType::BigInt(_) => Ok(FixedLengthTypes::Int8),
+            SqlType::Real(_) => Ok(FixedLengthTypes::Flt4),
+            SqlType::Float(_) => Ok(FixedLengthTypes::Flt8),
+            _ => Err(Error::UsageError(
+                "SqlType is not a fixed length type.".to_string(),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod legacy_lob_tests {
+    use super::*;
+    use crate::datatypes::sql_string::EncodingType;
+    use crate::io::packet_writer::tests::MockNetworkWriter;
+    use crate::message::messages::PacketType;
+
+    #[test]
+    fn ntext_preflight_checks_only_raw_utf16_alignment() {
+        let collation = SqlCollation::default();
+        for encoding in [
+            EncodingType::Utf16,
+            EncodingType::DelayedSet,
+            EncodingType::Utf8,
+            EncodingType::LcidBased(collation),
+        ] {
+            for length in 0..=3 {
+                let value = SqlType::NText(Some(SqlString::new(vec![b'a'; length], encoding)));
+                let expected = length.is_multiple_of(2)
+                    || !matches!(encoding, EncodingType::Utf16 | EncodingType::DelayedSet);
+                assert_eq!(
+                    value.validate_for_send(&collation, None).is_ok(),
+                    expected,
+                    "{encoding:?}, {length} bytes"
+                );
+            }
+        }
+        assert!(
+            SqlType::NText(None)
+                .validate_for_send(&collation, None)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn legacy_length_has_a_signed_32_bit_ceiling() {
+        assert_eq!(SqlType::legacy_lob_length(0).unwrap(), 0);
+        assert_eq!(
+            SqlType::legacy_lob_length(0x7fff_ffff).unwrap(),
+            0x7fff_ffff
+        );
+        assert!(SqlType::legacy_lob_length(0x8000_0000).is_err());
+    }
+
+    #[tokio::test]
+    async fn text_rpc_keeps_encoded_byte_limits_and_trimmed_lengths() {
+        let collation = SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0x40,
+            sort_id: 0,
+        };
+        for encoding in [EncodingType::Utf8, EncodingType::DelayedSet] {
+            for (text, maximum, fits) in [
+                ("\u{e9} ", 2, true),
+                ("\u{e9}", 1, false),
+                ("\u{e9}x", 2, false),
+            ] {
+                let value = SqlType::Text(Some(SqlString::new(text.as_bytes().to_vec(), encoding)));
+                let mut mock = MockNetworkWriter::new(64);
+                let mut writer = PacketWriter::new(PacketType::RpcRequest, &mut mock, None, None);
+                let result = value
+                    .serialize_with_narrow_string_byte_limit(
+                        &mut writer,
+                        &collation,
+                        None,
+                        Some(maximum),
+                    )
+                    .await;
+                if fits {
+                    result.unwrap();
+                    let mut expected = vec![0x23];
+                    expected.extend_from_slice(&2u32.to_le_bytes());
+                    expected.extend_from_slice(&[0; 5]);
+                    expected.extend_from_slice(&2u32.to_le_bytes());
+                    expected.extend_from_slice("\u{e9}".as_bytes());
+                    assert_eq!(
+                        &writer.get_payload().into_inner()[PacketWriter::PACKET_HEADER_SIZE..],
+                        expected
+                    );
+                } else {
+                    assert!(matches!(result, Err(Error::EncodedValueTooLong { .. })));
+                    assert!(writer.get_payload().into_inner().is_empty());
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn text_rpc_applies_value_level_narrow_byte_limit() {
+        let collation = SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0x40,
+            sort_id: 0,
+        };
+        for (text, value_limit, parameter_limit) in
+            [(b"a ".as_slice(), 1, None), (b"a  ".as_slice(), 2, Some(1))]
+        {
+            let mut text = SqlString::new(text.to_vec(), EncodingType::Utf8);
+            text.set_narrow_string_byte_limit(value_limit);
+            let value = SqlType::Text(Some(text));
+            value
+                .validate_for_send(&collation, parameter_limit)
+                .unwrap();
+
+            let mut mock = MockNetworkWriter::new(64);
+            let mut writer = PacketWriter::new(PacketType::RpcRequest, &mut mock, None, None);
+            value
+                .serialize_with_narrow_string_byte_limit(
+                    &mut writer,
+                    &collation,
+                    None,
+                    parameter_limit,
+                )
+                .await
+                .unwrap();
+
+            let mut expected = vec![0x23];
+            expected.extend_from_slice(&1u32.to_le_bytes());
+            expected.extend_from_slice(&[0; 5]);
+            expected.extend_from_slice(&1u32.to_le_bytes());
+            expected.push(b'a');
+            assert_eq!(
+                &writer.get_payload().into_inner()[PacketWriter::PACKET_HEADER_SIZE..],
+                expected
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn odd_ntext_is_rejected_before_type_metadata() {
+        let value = SqlType::NText(Some(SqlString::new(vec![1], EncodingType::Utf16)));
+        let mut mock = MockNetworkWriter::new(64);
+        let mut writer = PacketWriter::new(PacketType::RpcRequest, &mut mock, None, None);
+        assert!(matches!(
+            value
+                .serialize_with_narrow_string_byte_limit(
+                    &mut writer,
+                    &SqlCollation::default(),
+                    None,
+                    None
+                )
+                .await,
+            Err(Error::UsageError(_))
+        ));
+        assert!(writer.get_payload().into_inner().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use std::io::Cursor;
+
+    use bytes::Buf;
+
+    use crate::{
+        datatypes::{
+            sql_json::SqlJson,
+            sqldatatypes::TdsDataType,
+            sqltypes::{PLP_NULL, PLP_UNKNOWN_LENGTH, SqlType},
+        },
+        io::packet_writer::{PacketWriter, TdsPacketWriter, tests::MockNetworkWriter},
+        message::messages::PacketType,
+    };
+
+    #[tokio::test]
+    async fn test_write_json() {
+        let json_str = "[\"abc\",\"ghi\",\"def\"]";
+        let sqljson: SqlJson = json_str.to_string().into();
+
+        let mut copied_bytes = Vec::new();
+
+        copied_bytes.extend_from_slice(sqljson.bytes.as_slice());
+
+        let byte_len = sqljson.bytes.len();
+
+        let val = Some(sqljson);
+        let sqltypejson = SqlType::Json(val.clone());
+
+        let mut mock_reader_writer = MockNetworkWriter::new(4096);
+
+        let mut packet_writer = PacketWriter::new(
+            PacketType::TabularResult,
+            &mut mock_reader_writer,
+            None,
+            None,
+        );
+
+        sqltypejson
+            .serialize_json(&mut packet_writer, &val)
+            .await
+            .unwrap();
+        packet_writer.finalize().await.unwrap();
+
+        let payload = mock_reader_writer.data;
+        let mut test_cursor = Cursor::new(payload);
+        test_cursor.set_position(PacketWriter::PACKET_HEADER_SIZE as u64);
+        assert_eq!(test_cursor.get_u8(), TdsDataType::Json as u8); // Valdate tds type
+        assert_eq!(test_cursor.get_u64_le(), PLP_UNKNOWN_LENGTH);
+        assert_eq!(test_cursor.get_u32_le(), byte_len as u32); // Chunk len
+        let mut written_bytes = vec![0u8; byte_len];
+        test_cursor.copy_to_slice(&mut written_bytes);
+        assert_eq!(written_bytes, copied_bytes);
+    }
+
+    #[tokio::test]
+    async fn test_write_null_json() {
+        let sqltypejson = SqlType::Json(None);
+
+        let mut mock_reader_writer = MockNetworkWriter::new(4096);
+
+        let mut packet_writer = PacketWriter::new(
+            PacketType::TabularResult,
+            &mut mock_reader_writer,
+            None,
+            None,
+        );
+
+        sqltypejson
+            .serialize_json(&mut packet_writer, &None)
+            .await
+            .unwrap();
+        packet_writer.finalize().await.unwrap();
+
+        let payload = mock_reader_writer.data;
+        let mut test_cursor = Cursor::new(payload);
+        test_cursor.set_position(PacketWriter::PACKET_HEADER_SIZE as u64);
+        assert_eq!(test_cursor.get_u8(), TdsDataType::Json as u8); // Valdate tds type
+        assert_eq!(test_cursor.get_u64_le(), PLP_NULL);
+    }
+}
+
+#[cfg(test)]
+mod variant_tests {
+    use std::io::Cursor;
+
+    use bytes::Buf;
+
+    use crate::{
+        datatypes::{
+            sql_string::{EncodingType, SqlString},
+            sql_udt::UdtTypeName,
+            sqldatatypes::TdsDataType,
+            sqltypes::{SQL_VARIANT_MAX_LENGTH, SqlType},
+        },
+        error::Error,
+        io::packet_writer::{PacketWriter, TdsPacketWriter, tests::MockNetworkWriter},
+        message::messages::PacketType,
+        token::tokens::SqlCollation,
+    };
+
+    fn default_collation() -> SqlCollation {
+        SqlCollation {
+            info: 0x00000409,
+            lcid_language_id: 0x0409,
+            col_flags: 0,
+            sort_id: 52,
+        }
+    }
+
+    async fn serialize_to_bytes(sql_type: &SqlType) -> Vec<u8> {
+        let mut mock_reader_writer = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(
+            PacketType::TabularResult,
+            &mut mock_reader_writer,
+            None,
+            None,
+        );
+        sql_type
+            .serialize_with_narrow_string_byte_limit(
+                &mut packet_writer,
+                &default_collation(),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        packet_writer.finalize().await.unwrap();
+        let payload = mock_reader_writer.data;
+        payload[PacketWriter::PACKET_HEADER_SIZE..].to_vec()
+    }
+
+    #[tokio::test]
+    async fn metadata_emits_type_byte_and_max_length() {
+        let bytes = serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Int(Some(42))))).await;
+        let mut cursor = Cursor::new(bytes);
+        // TYPE_INFO: 0x62 + u32 max data length (8009)
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+    }
+
+    /// The whole UDT parameter on the wire, not just its name block: type
+    /// byte, the three B_VARCHARs `CRPCPolicy::WriteUDTHeader` emits, then the
+    /// PLP body - an 8-byte total length, one chunk with its own u32 length,
+    /// and the PLP terminator. `datatypes::sql_udt::tests` covers only the
+    /// name block, so nothing else pins this framing.
+    #[tokio::test]
+    async fn a_udt_parameter_is_framed_as_plp_after_its_name_block() {
+        let payload = vec![0xDEu8, 0xAD, 0xBE, 0xEF];
+        let value = SqlType::Udt(
+            UdtTypeName::new(None, Some("dbo".to_string()), "Point".to_string()),
+            Some(payload.clone()),
+        );
+        let mut cursor = Cursor::new(serialize_to_bytes(&value).await);
+
+        assert_eq!(cursor.get_u8(), TdsDataType::Udt as u8);
+        assert_eq!(cursor.get_u8(), 0, "absent catalog is a zero-length part");
+        assert_eq!(cursor.get_u8(), 3, "schema \"dbo\" is 3 UTF-16 units");
+        cursor.advance(3 * 2);
+        assert_eq!(cursor.get_u8(), 5, "type \"Point\" is 5 UTF-16 units");
+        cursor.advance(5 * 2);
+
+        // Unknown-length PLP: chunks run until the terminator. msodbcsql
+        // instead writes the actual byte count when it knows it
+        // (`WriteUDTHeader`: `ullActualLen = cbData` unless the value is
+        // unlimited). Both are valid PLP and the server accepts either; this
+        // driver buffers the payload but still declares it unknown, which is
+        // what lets the data-at-execution path share the same writer.
+        assert_eq!(
+            cursor.get_u64_le(),
+            0xFFFF_FFFF_FFFF_FFFE,
+            "PLP unknown-length marker precedes the chunks"
+        );
+        assert_eq!(cursor.get_u32_le(), payload.len() as u32, "chunk length");
+        let mut chunk = vec![0u8; payload.len()];
+        cursor.copy_to_slice(&mut chunk);
+        assert_eq!(chunk, payload, "payload passes through untouched");
+        assert_eq!(cursor.get_u32_le(), 0, "PLP terminator");
+        assert!(!cursor.has_remaining(), "nothing follows the terminator");
+    }
+
+    /// A NULL UDT still names its type - the server cannot resolve the
+    /// parameter otherwise - and then declares the PLP null length rather than
+    /// a zero-length body.
+    #[tokio::test]
+    async fn a_null_udt_parameter_still_carries_its_name() {
+        let value = SqlType::Udt(
+            UdtTypeName::new(None, None, "hierarchyid".to_string()),
+            None,
+        );
+        let mut cursor = Cursor::new(serialize_to_bytes(&value).await);
+
+        assert_eq!(cursor.get_u8(), TdsDataType::Udt as u8);
+        assert_eq!(cursor.get_u8(), 0, "absent catalog");
+        assert_eq!(cursor.get_u8(), 0, "absent schema");
+        assert_eq!(cursor.get_u8(), 11, "type \"hierarchyid\" is 11 units");
+        cursor.advance(11 * 2);
+        assert_eq!(
+            cursor.get_u64_le(),
+            0xFFFF_FFFF_FFFF_FFFF,
+            "a NULL PLP body is the null length (GenericDecoder::SQL_PLP_NULL), \
+             not an empty chunk list"
+        );
+        assert!(!cursor.has_remaining());
+    }
+
+    #[tokio::test]
+    async fn variant_int_round_trip_bytes() {
+        let bytes = serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Int(Some(42))))).await;
+        let mut cursor = Cursor::new(bytes);
+        // Metadata
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        // Value: total_length = 2 + 0(prop) + 4(data) = 6
+        assert_eq!(cursor.get_u32_le(), 6);
+        assert_eq!(cursor.get_u8(), TdsDataType::Int4 as u8); // base type
+        assert_eq!(cursor.get_u8(), 0); // prop_len = 0
+        assert_eq!(cursor.get_i32_le(), 42); // data
+    }
+
+    #[tokio::test]
+    async fn variant_null_emits_zero_length() {
+        let bytes = serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Int(None)))).await;
+        let mut cursor = Cursor::new(bytes);
+        // Metadata still written
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        // NULL variant value: 4-byte length = 0
+        assert_eq!(cursor.get_u32_le(), 0);
+    }
+
+    #[tokio::test]
+    async fn variant_nvarchar_writes_collation_props() {
+        let val = SqlString::from_utf8_string("Hi".to_string());
+        let bytes = serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::NVarchar(
+            Some(val),
+            10,
+        ))))
+        .await;
+        let mut cursor = Cursor::new(bytes);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        // "Hi" UTF-16LE = 4 bytes. total_length = 2 + 7(prop) + 4(data) = 13
+        assert_eq!(cursor.get_u32_le(), 13);
+        assert_eq!(cursor.get_u8(), TdsDataType::NVarChar as u8); // base type
+        assert_eq!(cursor.get_u8(), 7); // prop_len = 7 (collation[5] + max_len[2])
+    }
+
+    /// `DelayedSet` means "encoding not yet known", not "narrow": `mssql-js`
+    /// uses it for both widths (`ffidatatypes.rs:435-443` for `NVarchar`,
+    /// `:449` for `Varchar`), so no encoding-tag heuristic can be right for it
+    /// in general. Landing it in the wide arm here is the defensible default
+    /// regardless: `mssql-js` rejects `SsVariant` outright today, so neither
+    /// pairing is reachable through this function, and `serialize_string`'s
+    /// NVARCHAR arm already honours a pre-encoded wide payload unchanged via
+    /// `as_raw_wire_bytes`, so treating it as wide risks nothing a real
+    /// caller could hit. Classifying it as narrow by negating `Utf16` rather
+    /// than matching the encodings that are actually narrow would instead
+    /// misclassify it as narrow every time, retagging a wide payload
+    /// `BigVarChar` without transcoding it -- corrupting the value on the
+    /// wire while changing not one data byte, which a length-based check
+    /// would not catch. Regression test for that classification bug.
+    #[tokio::test]
+    async fn variant_delayedset_string_is_treated_as_wide() {
+        let wide_hi: Vec<u8> = "Hi".encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let val = SqlString::new(wide_hi.clone(), EncodingType::DelayedSet);
+        let bytes = serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::NVarchar(
+            Some(val),
+            10,
+        ))))
+        .await;
+        let mut cursor = Cursor::new(bytes);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        // Same shape as the plain-UTF-16 "Hi" case above: total_length = 2 + 7(prop) + 4(data) = 13
+        assert_eq!(cursor.get_u32_le(), 13);
+        assert_eq!(cursor.get_u8(), TdsDataType::NVarChar as u8); // base type stays wide, not BigVarChar
+        assert_eq!(cursor.get_u8(), 7); // prop_len = 7 (collation[5] + max_len[2])
+        assert_eq!(cursor.get_u32_le(), 0x0000_0409); // collation.info
+        assert_eq!(cursor.get_u8(), 52); // collation.sort_id
+        assert_eq!(cursor.get_u16_le(), 4); // max_length: the 4 raw UTF-16LE bytes
+        assert_eq!(cursor.chunk(), &wide_hi[..]); // payload is untouched, not re-transcoded
+    }
+
+    /// `LcidBased` bytes are already encoded to the collation's codepage --
+    /// typically by the fetch/decode path reading a non-UTF8-collation narrow
+    /// variant column back (`decode_seven_propbyte_variant`) -- so
+    /// `resolve_narrow_wire_bytes` must pass them through unchanged via its
+    /// `as_raw_wire_bytes` fast path rather than re-encoding. Covers that
+    /// fast path directly: `DelayedSet` no longer reaches it after the fix
+    /// above, so `LcidBased` is the only remaining narrow encoding that does.
+    #[tokio::test]
+    async fn variant_lcidbased_string_bytes_pass_through_unchanged() {
+        let collation = SqlCollation {
+            info: 0x00000409,
+            lcid_language_id: 0x0409,
+            col_flags: 0,
+            sort_id: 52,
+        };
+        // Pre-encoded Windows-1252 bytes for "café": the trailing 'é' is
+        // already the single byte 0xE9, not the two-byte UTF-8 sequence.
+        let val = SqlString::new(
+            vec![b'c', b'a', b'f', 0xE9],
+            EncodingType::LcidBased(collation),
+        );
+        let bytes =
+            serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 10)))).await;
+        let mut cursor = Cursor::new(bytes);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        assert_eq!(cursor.get_u32_le(), 13); // total_length = 2 + 7(prop) + 4(data)
+        assert_eq!(cursor.get_u8(), TdsDataType::BigVarChar as u8); // narrow base type
+        assert_eq!(cursor.get_u8(), 7);
+        assert_eq!(cursor.get_u32_le(), 0x0000_0409); // collation.info
+        assert_eq!(cursor.get_u8(), 52); // collation.sort_id
+        assert_eq!(cursor.get_u16_le(), 4); // max_length: the 4 raw bytes, unchanged
+        assert_eq!(cursor.chunk(), &[b'c', b'a', b'f', 0xE9]); // pass-through, not re-transcoded
+    }
+
+    #[tokio::test]
+    async fn variant_varchar_writes_narrow_base_type_and_length() {
+        let val = SqlString::new(b"Hi".to_vec(), EncodingType::Utf8);
+        let bytes =
+            serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 10)))).await;
+        let mut cursor = Cursor::new(bytes);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        // "Hi" narrow = 2 bytes (vs. 4 bytes for the nvarchar/UTF-16 case above).
+        // total_length = 2 + 7(prop) + 2(data) = 11
+        assert_eq!(cursor.get_u32_le(), 11);
+        assert_eq!(cursor.get_u8(), TdsDataType::BigVarChar as u8); // base type: AB#47800
+        assert_eq!(cursor.get_u8(), 7); // prop_len = 7 (collation[5] + max_len[2])
+        assert_eq!(cursor.get_u32_le(), 0x0000_0409); // collation.info
+        assert_eq!(cursor.get_u8(), 52); // collation.sort_id
+        assert_eq!(cursor.get_u16_le(), 2); // max_length: 2 narrow bytes, not halved as if wide
+        assert_eq!(cursor.chunk(), b"Hi");
+    }
+
+    /// The one narrow shape the tests above don't reach: an empty payload.
+    /// `MaxLength = 0` on a `BIGVARCHARTYPE` follows directly from the same
+    /// `wMaxLen = cbSrc` rule msodbcsql uses (`odbc/sqlcmisc.cpp:7594`), and
+    /// `main` already declared 0 the same way for an empty *wide* payload, but
+    /// no existing test -- unit or the two un-skipped E2E cases -- exercises
+    /// it on the narrow leg.
+    #[tokio::test]
+    async fn variant_varchar_empty_payload_declares_zero_length() {
+        let val = SqlString::new(Vec::new(), EncodingType::Utf8);
+        let bytes =
+            serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 10)))).await;
+        let mut cursor = Cursor::new(bytes);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        assert_eq!(cursor.get_u32_le(), 9); // total_length = 2 + 7(prop) + 0(data)
+        assert_eq!(cursor.get_u8(), TdsDataType::BigVarChar as u8);
+        assert_eq!(cursor.get_u8(), 7);
+        assert_eq!(cursor.get_u32_le(), 0x0000_0409);
+        assert_eq!(cursor.get_u8(), 52);
+        assert_eq!(cursor.get_u16_le(), 0); // max_length = 0, not "unstated"/max
+        assert!(cursor.chunk().is_empty());
+    }
+
+    #[tokio::test]
+    async fn variant_varchar_trims_trailing_space_overflow_on_the_wire() {
+        let collation = SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0x40,
+            sort_id: 0,
+        };
+        let value = SqlType::Variant(Box::new(SqlType::Varchar(
+            Some(SqlString::new("é ".as_bytes().to_vec(), EncodingType::Utf8)),
+            2,
+        )));
+        let mut mock = MockNetworkWriter::new(128);
+        let mut writer = PacketWriter::new(PacketType::TabularResult, &mut mock, None, None);
+        value
+            .serialize_with_narrow_string_byte_limit(&mut writer, &collation, None, None)
+            .await
+            .unwrap();
+        writer.finalize().await.unwrap();
+
+        let payload = mock.data[PacketWriter::PACKET_HEADER_SIZE..].to_vec();
+        let mut cursor = Cursor::new(payload);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        assert_eq!(cursor.get_u32_le(), 11);
+        assert_eq!(cursor.get_u8(), TdsDataType::BigVarChar as u8);
+        assert_eq!(cursor.get_u8(), 7);
+        assert_eq!(cursor.get_u32_le(), 0);
+        assert_eq!(cursor.get_u8(), 0);
+        assert_eq!(cursor.get_u16_le(), 2);
+        assert_eq!(cursor.chunk(), "é".as_bytes());
+    }
+
+    /// The serializer's wire-level 8000-byte cap remains the backstop for a
+    /// caller that reaches variant serialization without RPC preflight.
+    ///
+    /// The expansion that used to reach that cap no longer happens: 2000
+    /// repetitions of U+65E5 (3 UTF-8 bytes each = 6000 source bytes, under the
+    /// 8000-byte declared ceiling) each expanded to an 8-byte NCR escape
+    /// (`&#26085;`) under a non-UTF-8 collation that cannot represent them,
+    /// totalling 16000 bytes -- twice the cap. Each is now a single `?`
+    /// (AB#47598), so the value shrinks to 2000 bytes and lands well inside the
+    /// cap. Pinned so this drifts only on a deliberate change: an encoder that
+    /// went back to escaping would trip the cap again and turn a warning into a
+    /// hard failure.
+    #[tokio::test]
+    async fn variant_varchar_substitutes_unmappable_characters_within_the_byte_cap() {
+        let val = SqlString::new("日".repeat(2000).into_bytes(), EncodingType::Utf8);
+        let mut mock_reader_writer = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(
+            PacketType::TabularResult,
+            &mut mock_reader_writer,
+            None,
+            None,
+        );
+        SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 8000)))
+            .serialize_with_narrow_string_byte_limit(
+                &mut packet_writer,
+                &default_collation(),
+                None,
+                None,
+            )
+            .await
+            .expect("2000 substituted bytes fit the cap");
+        assert!(
+            packet_writer.code_page_conversion_loss(),
+            "the message must carry the loss for the caller"
+        );
+    }
+
+    /// The variant path marks the message only after the value has serialized,
+    /// for the same reason as the plain `varchar` arm: the 8000-byte cap
+    /// rejects before a wrapper byte is written, so a lossy value refused here
+    /// never reached the wire and must not be reported as lost (AB#47598).
+    ///
+    /// 8001 unmappable characters substitute to 8001 bytes -- one past the cap
+    /// -- which is the smallest value that is both lossy and refused. The
+    /// sibling test above pins the accepted side at 2000.
+    ///
+    /// Mutation-sensitive: marking at resolve time rather than after the inner
+    /// serialize makes this fail while the accepted-side tests still pass.
+    #[tokio::test]
+    async fn variant_varchar_rejected_past_the_byte_cap_does_not_mark_the_message() {
+        let val = SqlString::new("日".repeat(8001).into_bytes(), EncodingType::Utf8);
+        let mut mock_reader_writer = MockNetworkWriter::new(4096);
+        let mut packet_writer = PacketWriter::new(
+            PacketType::TabularResult,
+            &mut mock_reader_writer,
+            None,
+            None,
+        );
+        SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 8000)))
+            .serialize_with_narrow_string_byte_limit(
+                &mut packet_writer,
+                &default_collation(),
+                None,
+                None,
+            )
+            .await
+            .expect_err("8001 substituted bytes exceed the variant cap");
+        assert!(
+            !packet_writer.code_page_conversion_loss(),
+            "a variant refused before its wrapper was written must not report loss"
+        );
+    }
+
+    /// The robust fix for AB#47800: a narrow value whose source (UTF-8) and
+    /// wire (collation codepage) byte lengths differ must declare -- and
+    /// send -- the *wire* length, resolved once and reused everywhere,
+    /// rather than a source length recomputed independently in each place
+    /// that needs a length (which is how the original bug manifested: a
+    /// declared length that disagreed with the bytes actually written).
+    ///
+    /// "café" is 5 UTF-8 bytes (the trailing 'é' is 0xC3 0xA9) but 4 bytes
+    /// under Windows-1252 (LCID 0x0409, this test's collation), where 'é' is
+    /// the single byte 0xE9.
+    #[tokio::test]
+    async fn variant_varchar_declares_the_transcoded_length_not_the_source_length() {
+        let val = SqlString::new("café".as_bytes().to_vec(), EncodingType::Utf8);
+        let bytes =
+            serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 10)))).await;
+        let mut cursor = Cursor::new(bytes);
+        assert_eq!(cursor.get_u8(), TdsDataType::SsVariant as u8);
+        assert_eq!(cursor.get_u32_le(), SQL_VARIANT_MAX_LENGTH);
+        // total_length = 2 + 7(prop) + 4(data): 4 transcoded bytes, not the 5-byte UTF-8 source.
+        assert_eq!(cursor.get_u32_le(), 13);
+        assert_eq!(cursor.get_u8(), TdsDataType::BigVarChar as u8);
+        assert_eq!(cursor.get_u8(), 7);
+        assert_eq!(cursor.get_u32_le(), 0x0000_0409);
+        assert_eq!(cursor.get_u8(), 52);
+        assert_eq!(cursor.get_u16_le(), 4); // declared length matches the transcoded bytes
+        assert_eq!(cursor.chunk(), &[b'c', b'a', b'f', 0xE9]); // Windows-1252, not UTF-8
+    }
+
+    /// End-to-end proof for the AB#47800 fix: what the serializer now writes
+    /// for a transcoded narrow value is read back correctly by the existing,
+    /// separately-tested sql_variant decoder -- not just shaped the way a
+    /// hand-written byte assertion expects.
+    #[tokio::test]
+    async fn variant_varchar_round_trips_through_the_decoder() {
+        use crate::datatypes::decoder::GenericDecoder;
+
+        let val = SqlString::new("café".as_bytes().to_vec(), EncodingType::Utf8);
+        let bytes =
+            serialize_to_bytes(&SqlType::Variant(Box::new(SqlType::Varchar(Some(val), 10)))).await;
+        // Skip the RPC TYPE_INFO preamble (1-byte type + 4-byte max length)
+        // this crate writes ahead of every SSVARIANT_INSTANCE.
+        let variant_bytes = &bytes[5..];
+
+        let decoder = GenericDecoder::default();
+        let (base, value, used) = decoder
+            .try_decode_buffered_variant(variant_bytes)
+            .unwrap()
+            .unwrap();
+        assert_eq!(base, Some(TdsDataType::BigVarChar));
+        assert_eq!(used, variant_bytes.len());
+        let crate::datatypes::column_values::ColumnValues::String(decoded) = value else {
+            panic!("expected string variant");
+        };
+        assert_eq!(decoded.to_utf8_string(), "café");
+    }
+
+    #[tokio::test]
+    async fn to_cv_variant_overrides_tds_type() {
+        let (cv, ctx) = SqlType::Variant(Box::new(SqlType::Int(Some(7))))
+            .to_column_value_and_context(&default_collation());
+        assert_eq!(cv, crate::datatypes::column_values::ColumnValues::Int(7));
+        assert_eq!(ctx.tds_type, TdsDataType::SsVariant as u8);
+    }
+
+    #[tokio::test]
+    async fn to_cv_variant_null_inner() {
+        let (cv, ctx) = SqlType::Variant(Box::new(SqlType::BigInt(None)))
+            .to_column_value_and_context(&default_collation());
+        assert_eq!(cv, crate::datatypes::column_values::ColumnValues::Null);
+        assert_eq!(ctx.tds_type, TdsDataType::SsVariant as u8);
+    }
+
+    #[tokio::test]
+    async fn variant_rejects_unsupported_inner_types() {
+        use crate::datatypes::sqldatatypes::VectorBaseType;
+        let unsupported = vec![
+            SqlType::NVarcharMax(None),
+            SqlType::VarcharMax(None),
+            SqlType::VarBinaryMax(None),
+            SqlType::Text(None),
+            SqlType::NText(None),
+            SqlType::Xml(None),
+            SqlType::Json(None),
+            SqlType::Vector(None, 3, VectorBaseType::Float32),
+            SqlType::Variant(Box::new(SqlType::Int(Some(1)))),
+            SqlType::Table(
+                crate::datatypes::sql_tvp::TvpTypeName::new(None, "MyType".to_string()),
+                None,
+            ),
+            // Sized string/binary types promoted to MAX/PLP cannot live in a sql_variant.
+            SqlType::NVarchar(None, 4001),
+            SqlType::Varchar(None, 8001),
+            SqlType::VarBinary(None, 8001),
+        ];
+        for inner in unsupported {
+            let mut mock_reader_writer = MockNetworkWriter::new(4096);
+            let mut packet_writer = PacketWriter::new(
+                PacketType::TabularResult,
+                &mut mock_reader_writer,
+                None,
+                None,
+            );
+            let result = SqlType::Variant(Box::new(inner))
+                .serialize_with_narrow_string_byte_limit(
+                    &mut packet_writer,
+                    &default_collation(),
+                    None,
+                    None,
+                )
+                .await;
+            assert!(
+                matches!(result, Err(Error::UsageError(_))),
+                "expected UsageError for unsupported variant inner type"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use crate::datatypes::{
+        column_values::{
+            ColumnValues, SqlDate, SqlDateTime2, SqlDateTimeOffset, SqlMoney, SqlSmallDateTime,
+            SqlSmallMoney, SqlTime,
+        },
+        decoder::DecimalParts,
+        sqldatatypes::{FixedLengthTypes, TdsDataType},
+        sqltypes::{SqlType, get_time_length_from_scale},
+    };
+    use crate::error::Error;
+    use crate::token::tokens::SqlCollation;
+
+    fn default_collation() -> SqlCollation {
+        SqlCollation {
+            info: 0,
+            lcid_language_id: 0,
+            col_flags: 0,
+            sort_id: 0,
+        }
+    }
+
+    // -- get_time_length_from_scale --
+
+    #[test]
+    fn time_length_scale_0_to_2() {
+        for s in 0..=2 {
+            assert_eq!(get_time_length_from_scale(s).unwrap(), 3);
+        }
+    }
+
+    #[test]
+    fn time_length_scale_3_4() {
+        assert_eq!(get_time_length_from_scale(3).unwrap(), 4);
+        assert_eq!(get_time_length_from_scale(4).unwrap(), 4);
+    }
+
+    #[test]
+    fn time_length_scale_5_to_7() {
+        for s in 5..=7 {
+            assert_eq!(get_time_length_from_scale(s).unwrap(), 5);
+        }
+    }
+
+    #[test]
+    fn time_length_invalid_scale() {
+        assert!(get_time_length_from_scale(8).is_err());
+        assert!(get_time_length_from_scale(255).is_err());
+    }
+
+    // -- TryFrom<&SqlType> for FixedLengthTypes --
+
+    #[test]
+    fn fixed_length_valid_conversions() {
+        let cases: Vec<(SqlType, FixedLengthTypes)> = vec![
+            (SqlType::Bit(None), FixedLengthTypes::Int1),
+            (SqlType::TinyInt(None), FixedLengthTypes::Int1),
+            (SqlType::SmallInt(None), FixedLengthTypes::Int2),
+            (SqlType::Int(None), FixedLengthTypes::Int4),
+            (SqlType::BigInt(None), FixedLengthTypes::Int8),
+            (SqlType::Real(None), FixedLengthTypes::Flt4),
+            (SqlType::Float(None), FixedLengthTypes::Flt8),
+        ];
+        for (sql_type, expected) in cases {
+            assert_eq!(FixedLengthTypes::try_from(&sql_type).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn fixed_length_invalid_conversion() {
+        let non_fixed = SqlType::NVarchar(None, 100);
+        assert!(FixedLengthTypes::try_from(&non_fixed).is_err());
+    }
+
+    // -- get_nullable_type --
+
+    #[test]
+    fn nullable_type_numeric() {
+        let dp = DecimalParts::new(true, 10, 2, 100);
+        assert_eq!(
+            SqlType::Numeric(Some(dp)).get_nullable_type(),
+            TdsDataType::NumericN
+        );
+    }
+
+    #[test]
+    fn nullable_type_char_nchar() {
+        assert_eq!(
+            SqlType::Char(None, 10).get_nullable_type(),
+            TdsDataType::BigChar
+        );
+        assert_eq!(
+            SqlType::NChar(None, 10).get_nullable_type(),
+            TdsDataType::NChar
+        );
+    }
+
+    #[test]
+    fn nullable_type_text_ntext() {
+        assert_eq!(SqlType::Text(None).get_nullable_type(), TdsDataType::Text);
+        assert_eq!(SqlType::NText(None).get_nullable_type(), TdsDataType::NText);
+    }
+
+    #[test]
+    fn nullable_type_time_datetime2_smalldatetime() {
+        assert_eq!(SqlType::Time(None).get_nullable_type(), TdsDataType::TimeN);
+        assert_eq!(
+            SqlType::DateTime2(None).get_nullable_type(),
+            TdsDataType::DateTime2N
+        );
+        assert_eq!(
+            SqlType::SmallDateTime(None).get_nullable_type(),
+            TdsDataType::DateTimeN
+        );
+    }
+
+    // -- get_fixed_length_size --
+
+    #[test]
+    fn fixed_length_sizes() {
+        assert_eq!(SqlType::Bit(None).get_fixed_length_size(), 1);
+        assert_eq!(SqlType::TinyInt(None).get_fixed_length_size(), 1);
+        assert_eq!(SqlType::SmallInt(None).get_fixed_length_size(), 2);
+        assert_eq!(SqlType::Int(None).get_fixed_length_size(), 4);
+        assert_eq!(SqlType::BigInt(None).get_fixed_length_size(), 8);
+        assert_eq!(SqlType::Real(None).get_fixed_length_size(), 4);
+        assert_eq!(SqlType::Float(None).get_fixed_length_size(), 8);
+    }
+
+    #[test]
+    #[should_panic(expected = "SqlType is not a fixed length type")]
+    fn fixed_length_size_non_fixed_panics() {
+        SqlType::NVarchar(None, 50).get_fixed_length_size();
+    }
+
+    // -- to_column_value_and_context: null branches --
+
+    #[test]
+    fn to_cv_smallint_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::SmallInt(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 2);
+        assert!(ctx.is_nullable);
+    }
+
+    #[test]
+    fn to_cv_numeric_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Numeric(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 17);
+        assert_eq!(ctx.precision, Some(38));
+        assert_eq!(ctx.scale, Some(0));
+    }
+
+    #[test]
+    fn to_cv_numeric_some() {
+        let col = &default_collation();
+        let dp = DecimalParts::new(true, 18, 4, 42);
+        let (cv, _) = SqlType::Numeric(Some(dp)).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Numeric(dp));
+    }
+
+    #[test]
+    fn to_cv_date_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Date(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 0);
+    }
+
+    #[test]
+    fn to_cv_time_null() {
+        let col = &default_collation();
+        let (cv, _) = SqlType::Time(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+    }
+
+    #[test]
+    fn to_cv_smalldatetime_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::SmallDateTime(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 4);
+    }
+
+    #[test]
+    fn to_cv_datetime2_null() {
+        let col = &default_collation();
+        let (cv, _) = SqlType::DateTime2(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+    }
+
+    #[test]
+    fn to_cv_datetimeoffset_null() {
+        let col = &default_collation();
+        let (cv, _) = SqlType::DateTimeOffset(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+    }
+
+    #[test]
+    fn to_cv_money_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Money(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 8);
+    }
+
+    #[test]
+    fn to_cv_smallmoney_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::SmallMoney(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 4);
+    }
+
+    #[test]
+    fn to_cv_char_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Char(None, 50).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 50);
+        assert_eq!(ctx.tds_type, TdsDataType::BigChar as u8);
+        assert!(ctx.collation.is_some());
+    }
+
+    #[test]
+    fn to_cv_char_exceeds_max() {
+        let col = &default_collation();
+        let (_, ctx) = SqlType::Char(None, 9000).to_column_value_and_context(col);
+        assert_eq!(ctx.max_size, 65535);
+    }
+
+    #[test]
+    fn to_cv_nchar_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::NChar(None, 100).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.tds_type, TdsDataType::NChar as u8);
+        assert_eq!(ctx.max_size, 100);
+    }
+
+    #[test]
+    fn to_cv_nchar_exceeds_max() {
+        let col = &default_collation();
+        let (_, ctx) = SqlType::NChar(None, 5000).to_column_value_and_context(col);
+        assert_eq!(ctx.max_size, (65535 / 2) as usize);
+    }
+
+    #[test]
+    fn to_cv_text_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Text(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, usize::MAX);
+        assert_eq!(ctx.tds_type, TdsDataType::Text as u8);
+    }
+
+    #[test]
+    fn to_cv_ntext_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::NText(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, usize::MAX);
+        assert_eq!(ctx.tds_type, TdsDataType::NText as u8);
+    }
+
+    #[test]
+    fn to_cv_date_some() {
+        let col = &default_collation();
+        let d = SqlDate::create(100).unwrap();
+        let (cv, _) = SqlType::Date(Some(d.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Date(d));
+    }
+
+    #[test]
+    fn to_cv_time_some() {
+        let col = &default_collation();
+        let t = SqlTime {
+            time_nanoseconds: 1_000_000,
+            scale: 3,
+        };
+        let (cv, _) = SqlType::Time(Some(t.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Time(t));
+    }
+
+    #[test]
+    fn to_cv_smalldatetime_some() {
+        let col = &default_collation();
+        let sdt = SqlSmallDateTime {
+            days: 100,
+            time: 60,
+        };
+        let (cv, ctx) = SqlType::SmallDateTime(Some(sdt.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::SmallDateTime(sdt));
+        assert_eq!(ctx.max_size, 4);
+    }
+
+    #[test]
+    fn to_cv_datetime2_some() {
+        let col = &default_collation();
+        let dt2 = SqlDateTime2 {
+            days: 100,
+            time: SqlTime {
+                time_nanoseconds: 0,
+                scale: 7,
+            },
+        };
+        let (cv, _) = SqlType::DateTime2(Some(dt2.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::DateTime2(dt2));
+    }
+
+    #[test]
+    fn to_cv_datetimeoffset_some() {
+        let col = &default_collation();
+        let dto = SqlDateTimeOffset {
+            datetime2: SqlDateTime2 {
+                days: 100,
+                time: SqlTime {
+                    time_nanoseconds: 0,
+                    scale: 7,
+                },
+            },
+            offset: -300,
+        };
+        let (cv, _) = SqlType::DateTimeOffset(Some(dto.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::DateTimeOffset(dto));
+    }
+
+    #[test]
+    fn to_cv_money_some() {
+        let col = &default_collation();
+        let m = SqlMoney {
+            lsb_part: 100,
+            msb_part: 0,
+        };
+        let (cv, _) = SqlType::Money(Some(m.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Money(m));
+    }
+
+    #[test]
+    fn to_cv_smallmoney_some() {
+        let col = &default_collation();
+        let sm = SqlSmallMoney { int_val: 50 };
+        let (cv, _) = SqlType::SmallMoney(Some(sm.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::SmallMoney(sm));
+    }
+
+    #[test]
+    fn to_cv_nvarchar_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::NVarchar(None, 100).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.tds_type, TdsDataType::NVarChar as u8);
+        assert!(!ctx.is_plp);
+        assert!(ctx.collation.is_some());
+    }
+
+    #[test]
+    fn to_cv_nvarchar_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("hello".to_string());
+        let (cv, ctx) = SqlType::NVarchar(Some(val.clone()), 100).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+        assert_eq!(ctx.max_size, 100);
+    }
+
+    #[test]
+    fn to_cv_nvarchar_exceeds_max_becomes_plp() {
+        let col = &default_collation();
+        let (_, ctx) = SqlType::NVarchar(None, 5000).to_column_value_and_context(col);
+        assert!(ctx.is_plp);
+        assert_eq!(ctx.max_size, usize::MAX);
+    }
+
+    #[test]
+    fn to_cv_nvarcharmax_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::NVarcharMax(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert!(ctx.is_plp);
+        assert_eq!(ctx.max_size, usize::MAX);
+    }
+
+    #[test]
+    fn to_cv_nvarcharmax_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("test".to_string());
+        let (cv, _) = SqlType::NVarcharMax(Some(val.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+    }
+
+    #[test]
+    fn to_cv_varchar_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Varchar(None, 200).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.tds_type, TdsDataType::BigVarChar as u8);
+        assert!(!ctx.is_plp);
+    }
+
+    #[test]
+    fn to_cv_varchar_exceeds_max_becomes_plp() {
+        let col = &default_collation();
+        let (_, ctx) = SqlType::Varchar(None, 9000).to_column_value_and_context(col);
+        assert!(ctx.is_plp);
+    }
+
+    #[test]
+    fn to_cv_varcharmax_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::VarcharMax(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert!(ctx.is_plp);
+    }
+
+    #[test]
+    fn to_cv_varcharmax_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("hello".to_string());
+        let (cv, _) = SqlType::VarcharMax(Some(val.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+    }
+
+    #[test]
+    fn to_cv_text_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("text data".to_string());
+        let (cv, _) = SqlType::Text(Some(val.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+    }
+
+    #[test]
+    fn to_cv_ntext_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("ntext data".to_string());
+        let (cv, _) = SqlType::NText(Some(val.clone())).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+    }
+
+    #[test]
+    fn to_cv_binary_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Binary(None, 16).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 16);
+    }
+
+    #[test]
+    fn to_cv_binary_some() {
+        let col = &default_collation();
+        let data = vec![1, 2, 3];
+        let (cv, _) = SqlType::Binary(Some(data.clone()), 16).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Bytes(data));
+    }
+
+    #[test]
+    fn to_cv_varbinary_null() {
+        let col = &default_collation();
+        let (cv, _) = SqlType::VarBinary(None, 100).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+    }
+
+    #[test]
+    fn to_cv_varbinarymax_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::VarBinaryMax(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert!(ctx.is_plp);
+    }
+
+    #[test]
+    fn to_cv_xml_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Xml(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert!(ctx.is_plp);
+    }
+
+    #[test]
+    fn to_cv_json_null() {
+        let col = &default_collation();
+        let (cv, ctx) = SqlType::Json(None).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert!(ctx.is_plp);
+    }
+
+    #[test]
+    fn to_cv_vector_null() {
+        use crate::datatypes::sqldatatypes::VectorBaseType;
+        let col = &default_collation();
+        let (cv, ctx) =
+            SqlType::Vector(None, 3, VectorBaseType::Float32).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::Null);
+        assert_eq!(ctx.max_size, 8 + 3 * 4); // header + 3 floats
+    }
+
+    #[test]
+    fn validate_vector_wrapped_dimension_count_rejected() {
+        use crate::datatypes::sql_vector::{SqlVector, VectorData};
+        use crate::datatypes::sqldatatypes::VectorBaseType;
+        let col = &default_collation();
+
+        // 65,538 elements wrap to 2 as a u16.
+        for (base_type, data) in [
+            (
+                VectorBaseType::Float16,
+                VectorData::Float16(vec![0.0; 65_538]),
+            ),
+            (
+                VectorBaseType::Float32,
+                VectorData::Float32(vec![0.0; 65_538]),
+            ),
+        ] {
+            let vector = SqlVector { base_type, data };
+            assert_eq!(vector.dimension_count(), 2);
+            let result = SqlType::Vector(Some(vector), 2, base_type).validate_for_send(col, None);
+            assert!(matches!(
+                result,
+                Err(Error::TypeConversionError(message))
+                    if message == "Vector dimension mismatch: declared 2, but vector has 65538"
+            ));
+        }
+    }
+
+    #[test]
+    fn to_cv_char_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("hi".to_string());
+        let (cv, _) = SqlType::Char(Some(val.clone()), 10).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+    }
+
+    #[test]
+    fn to_cv_nchar_some() {
+        use crate::datatypes::sql_string::SqlString;
+        let col = &default_collation();
+        let val = SqlString::from_utf8_string("hello".to_string());
+        let (cv, _) = SqlType::NChar(Some(val.clone()), 50).to_column_value_and_context(col);
+        assert_eq!(cv, ColumnValues::String(val));
+    }
+}

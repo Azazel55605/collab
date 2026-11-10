@@ -1,6 +1,6 @@
 # Database Editor Plan
 
-Status: **Phase 1 implemented; Phase 2 not started**. Created **2026-11-10**.
+Status: **Phase 2 implemented; native release acceptance pending**. Created **2026-11-10**.
 
 [Phase 0 contract and driver evidence](./database-editor-phase0-contract.md) records
 the Linux fixture results and outstanding native platform acceptance.
@@ -211,13 +211,16 @@ Implementation, fixtures and outstanding native acceptance:
 
 ### Phase 2 — Queries And Read-Only Results
 
-- [ ] Add SQL editor, batch/selection execution, cancellation and messages/errors.
-- [ ] Implement bounded multi-result streaming, virtualized results, value inspector,
+- [x] Add SQL editor, batch/selection execution, cancellation and messages/errors.
+- [x] Implement bounded multi-result streaming, virtualized results, value inspector,
       table browsing/filtering, explicit truncation and export.
-- [ ] Add schema-aware completion, saved `.sql` scripts and bounded local history.
+- [x] Add schema-aware completion, saved `.sql` scripts and bounded local history.
 
 Exit: large results remain responsive within budgets; cancellation and connection
 loss do not leave an apparently idle session executing work unnoticed.
+
+Implementation and validation boundaries: [SQL queries](../desktop/database-queries.md).
+Packaged platform, real WebView/IPC, OS save-picker and reconnect acceptance remain open.
 
 ### Phase 3 — SQL Server Data Editing
 

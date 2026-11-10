@@ -16,6 +16,7 @@ import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import VaultPicker from './components/vault/VaultPicker';
 import { subscribeMediaQueryChange } from './lib/browserCompat';
+import { hasDatabaseDrafts } from './lib/databaseLifecycle';
 import { documentVaultIdentity } from './lib/documentPaneContext';
 import { setLiveCollabDebug } from './lib/liveDebugLog';
 import { NOTE_PDF_EXPORT_EVENT } from './lib/notePdfExport';
@@ -392,13 +393,20 @@ export default function App() {
     () =>
       useCollabStore.subscribe((state, previous) => {
         if (state.myUserId !== previous.myUserId) {
-          void tauriCommands
-            .databaseProfileChanged(previous.myUserId, state.myUserId)
-            .catch(() =>
-              toast.error(
-                'Could not close database sessions for the previous profile. Restart Collab before reconnecting.',
-              ),
-            );
+          if (hasDatabaseDrafts(previous.myUserId)) {
+            useCollabStore
+              .getState()
+              .setMyProfile(previous.myUserId, previous.myUserName, previous.myUserColor);
+            toast.error('Save or close SQL drafts before changing profiles.');
+            return;
+          }
+          void tauriCommands.databaseProfileChanged(previous.myUserId, state.myUserId).catch(() => {
+            if (useCollabStore.getState().myUserId === state.myUserId)
+              useCollabStore
+                .getState()
+                .setMyProfile(previous.myUserId, previous.myUserName, previous.myUserColor);
+            toast.error('Resolve or explicitly close database sessions before changing profiles.');
+          });
         }
       }),
     [],

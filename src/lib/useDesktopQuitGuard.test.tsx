@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   off: vi.fn(),
   ready: undefined as (() => void) | undefined,
   requested: vi.fn(),
+  databasesReady: vi.fn(),
 }));
 vi.mock('./nativeSubscription', () => ({
   listenSafely: (_name: string, handler: () => void, ready: () => void) => {
@@ -22,11 +23,16 @@ vi.mock('./nativeSubscription', () => ({
 vi.mock('../store/editorStore', () => ({ flushEditorPersistence: mocks.persist }));
 vi.mock('./documentNavigation', () => ({ runDocumentNavigation: mocks.flush }));
 vi.mock('./tauri', () => ({
-  tauriCommands: { backgroundCompleteQuit: mocks.complete, backgroundQuitPending: mocks.requested },
+  tauriCommands: {
+    backgroundCompleteQuit: mocks.complete,
+    backgroundQuitPending: mocks.requested,
+    databaseCanQuit: mocks.databasesReady,
+  },
 }));
 
 beforeEach(() => {
   mocks.persist.mockClear();
+  mocks.databasesReady.mockReset().mockResolvedValue(true);
   mocks.complete.mockReset().mockResolvedValue(undefined);
   mocks.flush.mockReset();
   mocks.requested.mockReset().mockResolvedValue(false);
@@ -77,4 +83,13 @@ it('recovers a quit requested before native listener registration completes', as
   renderHook(useDesktopQuitGuard);
   await act(async () => mocks.ready!());
   await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith(true));
+});
+
+it('blocks quit while the native database has unresolved work', async () => {
+  mocks.flush.mockResolvedValue(true);
+  mocks.databasesReady.mockResolvedValue(false);
+  renderHook(useDesktopQuitGuard);
+  await act(async () => mocks.handler!());
+  expect(mocks.complete).toHaveBeenCalledWith(false);
+  expect(mocks.persist).not.toHaveBeenCalled();
 });

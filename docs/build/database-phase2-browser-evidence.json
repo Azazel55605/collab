@@ -1,0 +1,11 @@
+{
+  "title": "Collab SQL workspace QA",
+  "page_errors": [],
+  "load_100k_ms": 7572,
+  "rendered_cells_at_100k": 18,
+  "cancelled": true,
+  "schema_completion": true,
+  "body_horizontal_overflow": false,
+  "evidence_kind": "chromium_synthetic_ipc",
+  "native_certification": false
+}

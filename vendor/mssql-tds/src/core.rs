@@ -1,0 +1,394 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+use crate::error::Error;
+use crate::error::Error::OperationCancelledError;
+use futures::FutureExt;
+use futures::future::Either;
+use std::future::Future;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+/// Alias for `Result<T, crate::error::Error>` used throughout the crate.
+pub type TdsResult<T> = Result<T, Error>;
+
+/// ALPN protocol identifier for TDS 8.0 connections.
+pub const TDS_8_ALPN_PROTOCOL: &str = "tds/8.0";
+
+/// Cooperative cancellation handle backed by a [`CancellationToken`].
+///
+/// Pass to [`TdsConnectionProvider::create_client()`](crate::connection_provider::tds_connection_provider::TdsConnectionProvider::create_client)
+/// to cancel a pending connect, or hold for later query cancellation.
+#[derive(Debug)]
+pub struct CancelHandle {
+    pub(crate) cancel_token: CancellationToken,
+    settlement: Option<Arc<CancellationSettlement>>,
+}
+
+#[derive(Debug)]
+struct CancellationSettlement {
+    timeout_secs: AtomicU32,
+    deadline: OnceLock<Instant>,
+}
+
+impl CancelHandle {
+    /// Create a new, uncancelled handle.
+    pub fn new() -> Self {
+        CancelHandle {
+            cancel_token: CancellationToken::new(),
+            settlement: None,
+        }
+    }
+
+    /// Trigger cancellation, notifying all child handles.
+    pub fn cancel(&self) {
+        if let Some(settings) = &self.settlement
+            && let Some(seconds) = self.cancel_timeout_secs()
+        {
+            settings
+                .deadline
+                .get_or_init(|| Instant::now() + Duration::from_secs(u64::from(seconds)));
+        }
+        self.cancel_token.cancel();
+    }
+
+    /// Configure before deriving children; subsequent updates are shared with
+    /// those children. Zero restores the TDS default. Cleanup already in
+    /// progress keeps its original deadline.
+    /// Configured writes finish their current packet within both this budget
+    /// and any request deadline before withdrawing the request; an unfinished
+    /// packet retires the transport.
+    pub fn set_cancel_timeout_secs(&mut self, seconds: u32) {
+        match &self.settlement {
+            Some(settings) => settings.timeout_secs.store(seconds, Ordering::Relaxed),
+            None => {
+                self.settlement = Some(Arc::new(CancellationSettlement {
+                    timeout_secs: AtomicU32::new(seconds),
+                    deadline: OnceLock::new(),
+                }));
+            }
+        }
+    }
+
+    /// The configured cancellation budget, or None for the TDS default.
+    pub fn cancel_timeout_secs(&self) -> Option<u32> {
+        self.settlement
+            .as_ref()
+            .map(|settings| settings.timeout_secs.load(Ordering::Relaxed))
+            .filter(|seconds| *seconds != 0)
+    }
+
+    pub(crate) fn has_settlement_budget(&self) -> bool {
+        self.cancel_timeout_secs().is_some()
+            || self
+                .settlement
+                .as_ref()
+                .is_some_and(|settings| settings.deadline.get().is_some())
+    }
+
+    pub(crate) fn configured_settlement_deadline(&self) -> Option<Instant> {
+        self.settlement
+            .as_ref()
+            .and_then(|settings| settings.deadline.get().copied())
+            .or_else(|| {
+                self.cancel_timeout_secs()
+                    .map(|seconds| Instant::now() + Duration::from_secs(u64::from(seconds)))
+            })
+    }
+
+    pub(crate) fn settlement_deadline(&self, default: Duration) -> Instant {
+        self.configured_settlement_deadline()
+            .unwrap_or_else(|| Instant::now() + default)
+    }
+
+    /// Derive a child handle that is cancelled when this handle is.
+    pub fn child_handle(&self) -> Self {
+        Self {
+            cancel_token: self.cancel_token.child_token(),
+            settlement: self.settlement.clone(),
+        }
+    }
+
+    pub(crate) fn run_until_cancelled<'a, F, ResultType>(
+        cancel_handle: Option<&'a CancelHandle>,
+        f: F,
+    ) -> impl Future<Output = F::Output> + Send + 'a
+    where
+        F: Future<Output = TdsResult<ResultType>> + Send + 'a,
+    {
+        match cancel_handle {
+            Some(handle) => Either::Left(handle.cancel_token.run_until_cancelled(f).map(
+                |result| match result {
+                    Some(result) => result,
+                    None => Err(OperationCancelledError("Request was cancelled".to_string())),
+                },
+            )),
+            None => Either::Right(f),
+        }
+    }
+}
+
+impl From<CancellationToken> for CancelHandle {
+    fn from(value: CancellationToken) -> Self {
+        CancelHandle {
+            cancel_token: value,
+            settlement: None,
+        }
+    }
+}
+
+impl Default for CancelHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// SQL Server major-version discriminant derived from the server's reported version.
+#[derive(PartialEq, Debug)]
+pub enum SQLServerVersion {
+    /// Unsupported or unknown server version.
+    SqlServerNotsupported = 0,
+    /// SQL Server 2000.
+    SqlServer2000 = 8,
+    /// SQL Server 2005.
+    SqlServer2005 = 9,
+    /// SQL Server 2008 / 2008 R2.
+    SqlServer2008 = 10,
+    /// SQL Server 2012.
+    SqlServer2012 = 11,
+    /// SQL Server 2014.
+    SqlServer2014 = 12,
+    /// SQL Server 2016.
+    SqlServer2016 = 13,
+    /// SQL Server 2017.
+    SqlServer2017 = 14,
+    /// SQL Server 2019.
+    SqlServer2019 = 15,
+    /// SQL Server 2022.
+    SqlServer2022 = 16,
+    /// SQL Server 2022+ (version 17).
+    SqlServer2022lus = 17,
+}
+
+impl From<u8> for SQLServerVersion {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => SQLServerVersion::SqlServerNotsupported,
+            8 => SQLServerVersion::SqlServer2000,
+            9 => SQLServerVersion::SqlServer2005,
+            10 => SQLServerVersion::SqlServer2008,
+            11 => SQLServerVersion::SqlServer2012,
+            12 => SQLServerVersion::SqlServer2014,
+            13 => SQLServerVersion::SqlServer2016,
+            14 => SQLServerVersion::SqlServer2017,
+            15 => SQLServerVersion::SqlServer2019,
+            16 => SQLServerVersion::SqlServer2022,
+            17 => SQLServerVersion::SqlServer2022lus,
+            _ => SQLServerVersion::SqlServerNotsupported,
+        }
+    }
+}
+
+/// Four-part server version reported during the TDS pre-login handshake.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Version {
+    /// Major version number.
+    pub major: u8,
+    /// Minor version number.
+    pub minor: u8,
+    /// Build number.
+    pub build: u16,
+    /// Revision number.
+    pub revision: u16,
+}
+
+impl Version {
+    /// Creates a new `Version`.
+    pub fn new(major: u8, minor: u8, build: u16, revision: u16) -> Self {
+        Version {
+            major,
+            minor,
+            build,
+            revision,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn cancellation_budget_is_shared_and_does_not_restart_after_signal() {
+        let mut handle = CancelHandle::new();
+        assert_eq!(handle.cancel_timeout_secs(), None);
+        handle.set_cancel_timeout_secs(120);
+        let child = handle.child_handle();
+        handle.set_cancel_timeout_secs(3);
+        assert_eq!(child.cancel_timeout_secs(), Some(3));
+        let start = Instant::now();
+        handle.cancel();
+        tokio::time::advance(Duration::from_secs(1)).await;
+        handle.cancel();
+        assert_eq!(
+            child.settlement_deadline(Duration::from_secs(5)),
+            start + Duration::from_secs(3)
+        );
+        handle.set_cancel_timeout_secs(0);
+        assert_eq!(child.cancel_timeout_secs(), None);
+        assert!(child.has_settlement_budget());
+        assert_eq!(
+            child.configured_settlement_deadline(),
+            Some(start + Duration::from_secs(3))
+        );
+        assert_eq!(
+            child.settlement_deadline(Duration::from_secs(5)),
+            start + Duration::from_secs(3)
+        );
+    }
+
+    #[test]
+    fn sql_server_version_from_known_values() {
+        assert_eq!(
+            SQLServerVersion::from(0),
+            SQLServerVersion::SqlServerNotsupported
+        );
+        assert_eq!(SQLServerVersion::from(8), SQLServerVersion::SqlServer2000);
+        assert_eq!(SQLServerVersion::from(9), SQLServerVersion::SqlServer2005);
+        assert_eq!(SQLServerVersion::from(10), SQLServerVersion::SqlServer2008);
+        assert_eq!(SQLServerVersion::from(11), SQLServerVersion::SqlServer2012);
+        assert_eq!(SQLServerVersion::from(12), SQLServerVersion::SqlServer2014);
+        assert_eq!(SQLServerVersion::from(13), SQLServerVersion::SqlServer2016);
+        assert_eq!(SQLServerVersion::from(14), SQLServerVersion::SqlServer2017);
+        assert_eq!(SQLServerVersion::from(15), SQLServerVersion::SqlServer2019);
+        assert_eq!(SQLServerVersion::from(16), SQLServerVersion::SqlServer2022);
+        assert_eq!(
+            SQLServerVersion::from(17),
+            SQLServerVersion::SqlServer2022lus
+        );
+    }
+
+    #[test]
+    fn sql_server_version_from_unknown_defaults_to_not_supported() {
+        assert_eq!(
+            SQLServerVersion::from(1),
+            SQLServerVersion::SqlServerNotsupported
+        );
+        assert_eq!(
+            SQLServerVersion::from(7),
+            SQLServerVersion::SqlServerNotsupported
+        );
+        assert_eq!(
+            SQLServerVersion::from(18),
+            SQLServerVersion::SqlServerNotsupported
+        );
+        assert_eq!(
+            SQLServerVersion::from(255),
+            SQLServerVersion::SqlServerNotsupported
+        );
+    }
+
+    #[test]
+    fn cancel_handle_default() {
+        let handle = CancelHandle::default();
+        assert!(!handle.cancel_token.is_cancelled());
+    }
+
+    #[test]
+    fn cancellation_can_be_repeated_and_propagates_to_late_children() {
+        let handle = CancelHandle::new();
+        let child = handle.child_handle();
+        handle.cancel();
+        handle.cancel();
+        assert!(child.cancel_token.is_cancelled());
+        assert!(handle.child_handle().cancel_token.is_cancelled());
+        assert!(!CancelHandle::new().cancel_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_until_cancelled_none_handle() {
+        let result: TdsResult<i32> =
+            CancelHandle::run_until_cancelled(None, async { Ok(42) }).await;
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn run_until_cancelled_with_handle_completes() {
+        let handle = CancelHandle::new();
+        let result: TdsResult<i32> =
+            CancelHandle::run_until_cancelled(Some(&handle), async { Ok(99) }).await;
+        assert_eq!(result.unwrap(), 99);
+    }
+
+    #[tokio::test]
+    async fn run_until_cancelled_with_cancelled_handle_stops_pending_future() {
+        let handle = CancelHandle::new();
+        handle.cancel_token.cancel();
+
+        let result = CancelHandle::run_until_cancelled(
+            Some(&handle),
+            std::future::pending::<TdsResult<i32>>(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(OperationCancelledError(_))));
+    }
+}
+
+/// TLS and encryption settings for a TDS connection.
+#[derive(Clone, PartialEq, Debug)]
+pub struct EncryptionOptions {
+    /// Encryption mode negotiated with the server.
+    pub mode: EncryptionSetting,
+    /// Skip server certificate chain validation.
+    pub trust_server_certificate: bool,
+    /// Expected CN or SAN in the server certificate.
+    pub host_name_in_cert: Option<String>,
+    /// Path to a DER or PEM encoded X.509 certificate file for certificate pinning.
+    /// When specified, the driver performs an exact binary match between the provided
+    /// certificate and the server's certificate, bypassing standard CA chain validation.
+    pub server_certificate: Option<PathBuf>,
+}
+
+impl EncryptionOptions {
+    /// Creates encryption options defaulting to `Strict` mode.
+    pub fn new() -> Self {
+        EncryptionOptions {
+            mode: EncryptionSetting::Strict,
+            trust_server_certificate: false,
+            host_name_in_cert: None,
+            server_certificate: None,
+        }
+    }
+}
+
+impl Default for EncryptionOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Encryption level requested by the client during the TDS pre-login.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum EncryptionSetting {
+    /// Don't encrypt if the server allows it.
+    PreferOff,
+    /// Encrypt the connection after pre-login.
+    On,
+    /// Require encryption after pre-login (semantically identical to `On`).
+    Required,
+    /// Encrypt the entire stream including pre-login (TDS 8.0).
+    Strict,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum NegotiatedEncryptionSetting {
+    Strict,
+    LoginOnly,
+    Mandatory,
+    NoEncryption,
+}

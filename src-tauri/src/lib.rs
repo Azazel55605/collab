@@ -190,6 +190,24 @@ pub fn run() {
             commands::database::database_close_tab,
             #[cfg(not(mobile))]
             commands::database::database_metadata,
+            #[cfg(not(mobile))]
+            commands::database::database_query_start,
+            #[cfg(not(mobile))]
+            commands::database::database_query_rollback,
+            #[cfg(not(mobile))]
+            commands::database::database_query_poll,
+            #[cfg(not(mobile))]
+            commands::database::database_query_cancel,
+            #[cfg(not(mobile))]
+            commands::database::database_query_status,
+            #[cfg(not(mobile))]
+            commands::database::database_query_history,
+            #[cfg(not(mobile))]
+            commands::database::database_can_quit,
+            #[cfg(not(mobile))]
+            commands::database::database_query_export,
+            #[cfg(not(mobile))]
+            commands::database::database_table_browse,
             // user calendar profile store
             commands::calendar::calendar_list,
             commands::calendar::calendar_save,
