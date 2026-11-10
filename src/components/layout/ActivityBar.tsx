@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 import {
   CalendarDays,
+  Database,
   Files,
   GitFork,
   LayoutGrid,
@@ -25,6 +26,7 @@ const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = 
   { view: 'graph', icon: <GitFork size={18} />, label: 'Graph View' },
   { view: 'chats', icon: <MessageCircle size={18} />, label: 'Chats' },
   { view: 'calendar', icon: <CalendarDays size={18} />, label: 'Calendar' },
+  { view: 'databases', icon: <Database size={18} />, label: 'Databases' },
   { view: 'grid', icon: <LayoutGrid size={18} />, label: 'Grid View' },
 ];
 const ACTIVITY_INDICATOR_INSET = 2;

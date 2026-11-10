@@ -40,3 +40,9 @@ cargo audit --file tools/database-driver-spike/Cargo.lock
 Debug binary size and Linux host RSS are not packaged desktop measurements. There
 is no UI, application IPC command, credential persistence or production adapter in
 this spike. Native acceptance remains in the decision record and main tracker.
+
+For the production Phase 1 adapter, first prebuild `cargo test -p collab
+database::tests -- --test-threads=1`, then add `--native-adapter` to the harness
+command. It seeds paginated metadata fixtures and runs one ignored native registry
+integration test per owned SQL Server instance. Reports record the native checks
+separately; this does not certify OS keystore or installed GUI behavior.

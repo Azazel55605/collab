@@ -1,9 +1,10 @@
 # Database Editor Phase 0 Contract
 
-Status: **Implemented**, 2026-11-10. Phase 1 has not started. This freezes the
-portable contract and records a real Linux driver spike; it does not make database
-execution available in the desktop app. The [main tracker](./open-development-work.md)
-owns delivery status. [Plan](./database-editor-plan.md).
+Status: **Implemented**, 2026-11-10. This record freezes the original portable
+contract and Linux driver spike. Phase 1 now implements the
+[desktop database workspace](../desktop/database-workspace.md); query execution
+remains Phase 2. The [main tracker](./open-development-work.md) owns delivery
+status. [Plan](./database-editor-plan.md).
 
 ## Scope And Driver Decision
 
@@ -15,7 +16,8 @@ Choose Microsoft's released **`mssql-tds` 0.4.0** for the Phase 1 native adapter
 subject to packaged-platform qualification below. Keep its concrete types out of
 IPC and portable contracts. The comparison uses released **Tiberius 0.13.0**, not
 an unreleased branch. Both dependencies remain in an isolated, locked spike
-workspace; neither is added to the shipping desktop/server dependency graph.
+workspace; neither was added to the shipping graph at the Phase 0 gate. Phase 1
+subsequently adds `mssql-tds` only to the desktop adapter.
 
 | Real fixture check                                                                      | Tiberius 0.13.0                                      | mssql-tds 0.4.0                                               |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------- |

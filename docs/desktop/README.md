@@ -6,6 +6,7 @@ architecture and visual conventions are documented in
 
 Implementation references:
 
+- [Database Workspace](./database-workspace.md)
 - [Codebase Reference](./codebase.md)
 - [UI Guide](./ui-guide.md)
 - [Startup And Packaged Asset Budgets](./startup-performance.md)

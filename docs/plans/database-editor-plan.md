@@ -1,6 +1,6 @@
 # Database Editor Plan
 
-Status: **Phase 0 implemented; Phase 1 not started**. Created **2026-11-10**.
+Status: **Phase 1 implemented; Phase 2 not started**. Created **2026-11-10**.
 
 [Phase 0 contract and driver evidence](./database-editor-phase0-contract.md) records
 the Linux fixture results and outstanding native platform acceptance.
@@ -198,13 +198,16 @@ decisions. A successful SELECT alone does not pass this gate.
 
 ### Phase 1 — SQL Server Connections And Workspace
 
-- [ ] Implement native connection registry, credential integration, TLS settings,
+- [x] Implement native connection registry, credential integration, TLS settings,
       connect/test/disconnect and profile/session cleanup.
-- [ ] Add lazy workspace routing, connection sidebar and pinned query-tab context.
-- [ ] Load databases/schema metadata on demand with permission-aware error states.
+- [x] Add lazy workspace routing, connection sidebar and pinned query-tab context.
+- [x] Load databases/schema metadata on demand with permission-aware error states.
 
 Exit: multiple connections/tabs remain isolated across switches and failures;
 normal Collab startup does not eagerly load the database feature.
+
+Implementation, fixtures and outstanding native acceptance:
+[Database workspace](../desktop/database-workspace.md).
 
 ### Phase 2 — Queries And Read-Only Results
 

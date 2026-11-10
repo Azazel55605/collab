@@ -1586,7 +1586,7 @@ The repository root is a Cargo workspace:
 | `crates/collab-vault-domain/` | IO-free vault metadata snapshots and deterministic mutation, path, state-transition, optimistic-sequence, reference-impact, quota, idempotency, and conflict decisions                                                                                                                                                          |
 | `crates/collab-replica/`      | Encrypted native hosted-vault offline replica, pending mutation queue, and document/asset/CRDT/logic-component caches                                                                                                                                                                                                           |
 | `crates/collab-sheet/`        | Collab-owned spreadsheet boundaries: the formula engine wrapper (`formula.rs`, isolating `formualizer`) and bounded `.xlsx`/`.csv` conversion (`convert/`). No engine, error, or value type from the third-party engine may reach the `.sheet` schema, IPC, or UI — replacing the engine must stay a change to this crate alone |
-| `crates/collab-database/`     | Driver-free Phase 0 database contract: exact values, capabilities, schema/edit validation, pinned session transitions, safe errors and bounded result credit window; not yet consumed by the app                                                                                                                                |
+| `crates/collab-database/`     | Driver-free Phase 0 database contract: exact values, capabilities, schema/edit validation, pinned session transitions, safe errors and bounded result credit window; consumed by the desktop native database adapter                                                                                                            |
 | `crates/collab-calendar/`     | Shared user-calendar wire model and profile-scoped SQLite store with indexed range queries, pending operations, optimistic item revisions, cross-location mirror groups/anchors/conflicts, and atomic local generated-Kanban projection replacement                                                                             |
 | `crates/collab-server/`       | Standalone Axum server, PostgreSQL migrations, hosted-vault authorization/storage APIs, owner-scoped calendar/CalDAV APIs, runtime calendar quota/request controls, aggregate-only calendar operations health, health checks, and blob storage                                                                                  |
 | `src-tauri/`                  | Native Tauri application adapter and local-vault commands                                                                                                                                                                                                                                                                       |
@@ -1601,11 +1601,23 @@ The table above is the current source of truth. The
 records the completed extraction of `collab-net-policy`, `collab-documents`,
 `collab-vault-domain`, `collab-archive`, and `collab-live`.
 
-Database editor driver experiments live in the separate, locked
+The desktop database adapter lives in `src-tauri/src/database/` (registry,
+versioned native credential references and fixed parameterized metadata reads),
+with main-window-only IPC in `commands/database.rs`. Its concrete SQL Server driver
+is a desktop-target-only dependency. `types/database.ts` and typed wrappers in
+`lib/tauri.ts` expose metadata/opaque handles. `views/DatabasePage.tsx` and
+`components/database/` load through `deferredViews` only when the `databases`
+page-level view opens, independent of vault/document tabs. App profile changes
+invalidate native workspace tokens and sockets. Saved metadata stays native;
+passwords never enter persisted frontend stores. Query execution is Phase 2.
+See [Database workspace](./database-workspace.md) for ownership and native gaps.
+
+Driver comparison experiments remain in the separate locked
 `tools/database-driver-spike/` workspace, driven by
-`scripts/database-driver-spike.py`. They do not add SQL Server drivers to shipping
-adapters. See the [database Phase 0 contract](../plans/database-editor-phase0-contract.md)
-for driver decisions and outstanding native packaging/credential/IPC acceptance.
+`scripts/database-driver-spike.py`; `--native-adapter` additionally exercises the
+production registry against owned SQL Server fixtures. See the
+[database Phase 0 contract](../plans/database-editor-phase0-contract.md) for driver
+selection and the platform matrix.
 
 Phases 0-6 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that
