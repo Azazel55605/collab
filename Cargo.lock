@@ -1102,6 +1102,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "collab-database"
+version = "0.8.9"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "collab-documents"
 version = "0.8.9"
 dependencies = [

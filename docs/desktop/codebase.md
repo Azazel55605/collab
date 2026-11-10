@@ -1586,6 +1586,7 @@ The repository root is a Cargo workspace:
 | `crates/collab-vault-domain/` | IO-free vault metadata snapshots and deterministic mutation, path, state-transition, optimistic-sequence, reference-impact, quota, idempotency, and conflict decisions                                                                                                                                                          |
 | `crates/collab-replica/`      | Encrypted native hosted-vault offline replica, pending mutation queue, and document/asset/CRDT/logic-component caches                                                                                                                                                                                                           |
 | `crates/collab-sheet/`        | Collab-owned spreadsheet boundaries: the formula engine wrapper (`formula.rs`, isolating `formualizer`) and bounded `.xlsx`/`.csv` conversion (`convert/`). No engine, error, or value type from the third-party engine may reach the `.sheet` schema, IPC, or UI — replacing the engine must stay a change to this crate alone |
+| `crates/collab-database/`     | Driver-free Phase 0 database contract: exact values, capabilities, schema/edit validation, pinned session transitions, safe errors and bounded result credit window; not yet consumed by the app                                                                                                                                |
 | `crates/collab-calendar/`     | Shared user-calendar wire model and profile-scoped SQLite store with indexed range queries, pending operations, optimistic item revisions, cross-location mirror groups/anchors/conflicts, and atomic local generated-Kanban projection replacement                                                                             |
 | `crates/collab-server/`       | Standalone Axum server, PostgreSQL migrations, hosted-vault authorization/storage APIs, owner-scoped calendar/CalDAV APIs, runtime calendar quota/request controls, aggregate-only calendar operations health, health checks, and blob storage                                                                                  |
 | `src-tauri/`                  | Native Tauri application adapter and local-vault commands                                                                                                                                                                                                                                                                       |
@@ -1599,6 +1600,12 @@ The table above is the current source of truth. The
 [Rust Crate Boundary Refactor Plan](../archive/rust-crate-boundary-refactor-plan.md)
 records the completed extraction of `collab-net-policy`, `collab-documents`,
 `collab-vault-domain`, `collab-archive`, and `collab-live`.
+
+Database editor driver experiments live in the separate, locked
+`tools/database-driver-spike/` workspace, driven by
+`scripts/database-driver-spike.py`. They do not add SQL Server drivers to shipping
+adapters. See the [database Phase 0 contract](../plans/database-editor-phase0-contract.md)
+for driver decisions and outstanding native packaging/credential/IPC acceptance.
 
 Phases 0-6 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that

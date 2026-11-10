@@ -1,0 +1,20 @@
+[package]
+name = "collab-database-driver-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Deliberately separate from the shipped desktop/server dependency graph.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+collab-database = { path = "../../crates/collab-database" }
+futures-util = "0.3"
+mssql-tds = { version = "=0.4.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiberius = { version = "=0.13.0", default-features = false, features = ["tds73", "native-tls", "chrono", "bigdecimal"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"] }

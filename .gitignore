@@ -36,3 +36,4 @@ flatpak-repo/
 *.flatpak
 .directory
 COLLAB_SERVER_PERMISSIONSYSTEM.md
+tools/database-driver-spike/target/
