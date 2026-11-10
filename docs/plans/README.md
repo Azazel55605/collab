@@ -7,6 +7,7 @@ Start with
 - [Teams, Chats, And Shared File Libraries](./teams-chat-and-file-sharing-plan.md)
 - [Android Companion App](./android-companion-app-plan.md)
 - [Advanced Tables](./advanced-tables-plan.md)
+- [Database Editor — SQL Server, SQLite And MariaDB](./database-editor-plan.md)
 - [Digital Ink And Annotation](./digital-ink-and-annotation-plan.md)
   - [Phase 0 Contract](./digital-ink-phase0-contract.md)
 - [Electronic Circuit Simulation](./electronic-circuit-simulation-plan.md)
