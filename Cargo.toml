@@ -2,6 +2,7 @@
 resolver = "2"
 exclude = ["vendor/tauri-plugin-updater", "vendor/sqlx-sqlite"]
 members = [
+  "crates/collab-database",
   "crates/collab-circuit",
   "crates/collab-core",
   "crates/collab-calendar",

@@ -16,7 +16,7 @@ Four independently versioned artifacts from one workspace ([`versions.json`](./v
 | Collaboration server | `crates/collab-server/`              | Axum, SQLx, PostgreSQL                 |
 | Admin web            | `apps/admin-web/`                    | React 19, Vite, served under `/admin/` |
 
-Rust is a Cargo workspace of 12 crates plus `src-tauri`. Portable domain logic
+Rust is a Cargo workspace of 13 crates plus `src-tauri`. Portable domain logic
 lives in `crates/`; Tauri and Axum are adapters around it.
 
 ## Requirements

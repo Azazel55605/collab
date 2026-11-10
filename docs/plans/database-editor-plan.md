@@ -1,6 +1,9 @@
 # Database Editor Plan
 
-Status: **Not started**. Created **2026-11-10**.
+Status: **Phase 0 implemented; Phase 1 not started**. Created **2026-11-10**.
+
+[Phase 0 contract and driver evidence](./database-editor-phase0-contract.md) records
+the Linux fixture results and outstanding native platform acceptance.
 
 The [main tracker](./open-development-work.md) owns overall project status.
 Checkboxes below describe implementation and acceptance, not features already
@@ -180,13 +183,13 @@ rename/drop behavior is part of acceptance, not a cosmetic form feature.
 
 ### Phase 0 — Contracts And Driver Spike
 
-- [ ] Confirm supported SQL Server versions and required authentication modes;
+- [x] Confirm supported SQL Server versions and required authentication modes;
       assess SQL login, Windows integrated authentication and Entra separately.
-- [ ] Compare candidate drivers on real SQL Server fixtures: TLS, types, multiple
+- [x] Compare candidate drivers on real SQL Server fixtures: TLS, types, multiple
       results/messages, transactions, cancellation and connection recovery.
-- [ ] Define capability, typed value, session, streaming, edit/conflict and error
+- [x] Define capability, typed value, session, streaming, edit/conflict and error
       contracts; choose native adapters and ownership boundaries.
-- [ ] Set measured connection/result/IPC limits, history policy and the native
+- [x] Set measured connection/result/IPC limits, history policy and the native
       Windows/Linux/macOS test matrix. Verify packaging implications, including
       Flatpak credential access and selected-file authority.
 

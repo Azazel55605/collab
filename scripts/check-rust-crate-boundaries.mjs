@@ -22,6 +22,7 @@ const packages = new Map(
 );
 
 const allowedWorkspaceEdges = new Map([
+  ['collab-database', new Set()],
   ['collab-core', new Set()],
   ['collab-protocol', new Set()],
   ['collab-net-policy', new Set()],
@@ -65,6 +66,7 @@ const allowedWorkspaceEdges = new Map([
 ]);
 
 const domainCrates = new Set([
+  'collab-database',
   'collab-core',
   'collab-protocol',
   'collab-net-policy',
@@ -95,6 +97,8 @@ const adapterFrameworks = new Set([
   'wry',
 ]);
 const persistenceFrameworks = new Set([
+  'tiberius',
+  'mssql-tds',
   'diesel',
   'postgres',
   'redb',
