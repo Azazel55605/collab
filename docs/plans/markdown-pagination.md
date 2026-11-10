@@ -73,3 +73,20 @@ Full repository checks and browser/PDF results are recorded with the implementat
   smoke attempt stopped during image build on a Debian repository `Hash Sum
 mismatch`, alongside upstream dependency download errors. Server health checks
   were not reached; the temporary Compose project was taken down.
+
+### Security scan follow-up on 2026-11-10
+
+- [x] Replace the vulnerable JavaScript lockfile resolutions and upgrade Lexical
+      together to use patched Happy DOM within its supported dependency range.
+- [x] Update `ctutils` and backport SQLx's SQLite dependency requirement to the
+      fixed bundled SQLite release, preserving and checksum-testing driver source.
+- [x] Fresh JavaScript audit: zero high/critical findings. Fresh RustSec audit:
+      zero vulnerabilities. No new advisory ignores or reduced scan thresholds.
+- [x] Full frontend run: 2,524 tests passed, one skipped. Additional SQLx backport
+      checksum and Lexical evaluation checks passed. Admin tests/build, all 258
+      mobile tests, TypeScript, Rust workspace tests/checks and repository guards
+      passed against the refreshed dependencies.
+
+See [security advisory tracking](../build/security-advisories.md) for the affected
+versions and backport removal conditions. Native database and print acceptance
+remain the platform release checks listed above.

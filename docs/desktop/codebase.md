@@ -2015,3 +2015,13 @@ installed acceptance and tagged-release evidence remain distinct.
   `docs/build/performance-evidence/<tag>/`. Desktop build/publication jobs depend
   only on release-version validation; diagnostic candidate builds remain available. Native process memory
   excludes webview/worker/GPU allocations, which need separate release evidence.
+
+### SQLx SQLite security backport
+
+`vendor/sqlx-sqlite/` retains the published SQLx 0.9.0 driver source with only
+its `libsqlite3-sys` requirement changed to the patched 0.39 release line. The
+root Cargo patch selects it, and the directory is excluded from workspace
+membership. Its archive provenance and source/license checksums are checked by
+`scripts/sqlite-dependency-patch.test.ts`. See
+[the backport removal conditions](../../vendor/sqlx-sqlite/UPSTREAM.md) and
+[security tracking](../build/security-advisories.md).

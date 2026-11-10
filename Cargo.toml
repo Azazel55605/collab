@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["vendor/tauri-plugin-updater"]
+exclude = ["vendor/tauri-plugin-updater", "vendor/sqlx-sqlite"]
 members = [
   "crates/collab-circuit",
   "crates/collab-core",
@@ -77,3 +77,4 @@ zip = "9"
 # Remove once an API-compatible upstream release uses patched ZIP.
 [patch.crates-io]
 tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }
+sqlx-sqlite = { path = "vendor/sqlx-sqlite" }

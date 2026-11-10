@@ -15,11 +15,11 @@ verifyDepsBeforeRun: false
 overrides:
   '@hono/node-server@>=1.0.0 <1.19.15': 1.19.15
   '@modelcontextprotocol/sdk@>=1.12.0 <1.31.0': 1.31.0
-  'body-parser@>=2.0.0 <2.3.0': 2.3.0
+  'body-parser@>=2.0.0 <2.4.0': 2.4.0
   'brace-expansion@>=3.0.0 <5.0.12': 5.0.12
   # mermaid declares ^3.3.3 and so already permits this; without the override
   # pnpm keeps a second, older copy alongside our direct dependency.
-  'dompurify@>=3.0.0 <3.4.16': 3.4.16
+  'dompurify@>=3.0.0 <3.4.17': 3.4.17
   'fast-uri@>=3.0.0 <3.1.8': 3.1.8
   'hono@>=4.0.0 <4.13.7': 4.13.7
   'ip-address@>=10.0.0 <10.7.1': 10.7.1
@@ -30,7 +30,9 @@ overrides:
   'postcss-selector-parser@>=7.0.0 <7.1.6': 7.1.6
   'qs@>=6.0.0 <6.16.0': 6.16.0
   'source-map-js@>=1.0.0 <1.2.2': 1.2.2
-  'undici@>=7.0.0 <7.30.0': 7.30.0
+  'systeminformation@>=5.0.0 <5.33.16': 5.33.16
+  'undici@>=7.0.0 <7.30.1': 7.30.1
+  'zod@>=4.0.0 <4.6.6': 4.6.7
 
 allowBuilds:
   esbuild: true
