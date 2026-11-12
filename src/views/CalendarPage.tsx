@@ -34,6 +34,7 @@ import {
   CalendarAttendeeEditor,
   CalendarInvitations,
 } from '../components/calendar/CalendarRelations';
+import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
 import { ColorPicker } from '../components/ui/color-picker';
@@ -738,7 +739,7 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
 
       <div className="flex min-h-0 flex-1">
         <CalendarRail
-          hidden={!showCalendarRail}
+          open={showCalendarRail}
           calendars={store.calendars}
           subscriptions={store.subscriptions}
           visibleIds={store.visibleCalendarIds}
@@ -1309,7 +1310,7 @@ export function setCompactCalendarDragImage(
 }
 
 export function CalendarRail({
-  hidden = false,
+  open,
   calendars,
   subscriptions,
   visibleIds,
@@ -1327,7 +1328,7 @@ export function CalendarRail({
   onDeleteSubscription,
   onArchive,
 }: {
-  hidden?: boolean;
+  open?: boolean;
   calendars: CalendarDefinition[];
   subscriptions: CalendarSubscription[];
   visibleIds: string[];
@@ -1348,10 +1349,11 @@ export function CalendarRail({
   const activeCalendars = calendars.filter((calendar) => !calendar.archived);
   const archivedCalendars = calendars.filter((calendar) => calendar.archived);
   return (
-    <aside
+    <WorkspaceSidebar
       aria-label="Calendar overview"
-      hidden={hidden}
-      className="flex w-44 max-w-[40%] shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
+      open={open}
+      frameClassName="[--workspace-sidebar-width:min(11rem,40vw)]"
+      className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
     >
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span>
@@ -1470,7 +1472,7 @@ export function CalendarRail({
           </>
         )}
       </div>
-    </aside>
+    </WorkspaceSidebar>
   );
 }
 

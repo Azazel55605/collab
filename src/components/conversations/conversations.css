@@ -410,8 +410,8 @@
   border-right: 1px solid var(--border);
   background: var(--chat-sidebar);
 }
-.conversation-sidebar[hidden] {
-  display: none;
+.conversation-sidebar-frame {
+  --workspace-sidebar-width: 336px;
 }
 .conversation-sidebar-heading {
   display: flex;
@@ -1463,9 +1463,8 @@
     width: 100%;
     border-right: 0;
   }
-  .conversation-split[data-sidebar-open] .conversation-sidebar {
-    width: min(336px, 45%);
-    min-width: 0;
+  .conversation-sidebar-frame {
+    --workspace-sidebar-width: min(336px, 45vw);
   }
   .conversation-sidebar-heading {
     padding: 14px 10px 6px 18px;

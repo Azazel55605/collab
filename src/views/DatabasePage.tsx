@@ -6,6 +6,7 @@ import ConnectionForm from '../components/database/ConnectionForm';
 import MetadataExplorer from '../components/database/MetadataExplorer';
 import QueryPanel from '../components/database/QueryPanel';
 import { DocumentTopBar, DocumentTopBarButton } from '../components/layout/DocumentTopBar';
+import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import {
@@ -211,10 +212,11 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
         }
       />
       <div className="flex min-h-0 flex-1">
-        <aside
-          className="flex w-64 shrink-0 flex-col gap-3 overflow-auto border-r border-border/50 bg-sidebar p-3"
+        <WorkspaceSidebar
+          open={sidebarOpen}
+          frameClassName="[--workspace-sidebar-width:16rem]"
+          className="flex flex-col gap-3 overflow-auto border-r border-border/50 bg-sidebar p-3"
           aria-label="Database connections"
-          hidden={!sidebarOpen}
         >
           <Input
             aria-label="Search connections"
@@ -327,7 +329,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
               <span className="text-[11px] text-muted-foreground">Browse databases</span>
             </Button>
           ))}
-        </aside>
+        </WorkspaceSidebar>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {busy && (
             <p role="status" className="px-4 py-2 text-sm text-muted-foreground">

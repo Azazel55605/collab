@@ -367,8 +367,10 @@ Rules:
 Use the activity bar sidebar button for the left panel that belongs to the
 active workspace. The label names the panel and changes between Show and Hide.
 Calendar shows its calendar overview, Chats shows chats and teams, and
-Databases shows connections. Document views use the vault sidebar. Place Graph
-beside Filter in the file tree because it opens a document tab.
+Databases shows connections. Document views use the vault sidebar. Collapsing
+or expanding a panel animates its width and opacity with the standard app
+motion. Reduced-motion preferences apply to the transition. Place Graph beside
+Filter in the file tree because it opens a document tab.
 
 ## Dialogs, Menus, and Popovers
 

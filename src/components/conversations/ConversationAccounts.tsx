@@ -14,6 +14,7 @@ import { useConversationInbox } from '../../lib/useConversationInbox';
 import { type ChatPreferences, useChatPreferences } from '../../store/chatPreferences';
 import { useConversationNavigation } from '../../store/conversationNavigation';
 import type { ConversationSummary } from '../../types/conversation';
+import { WorkspaceSidebar } from '../layout/WorkspaceSidebar';
 import { TeamWorkspace } from '../teams/TeamWorkspace';
 import { Button } from '../ui/button';
 import {
@@ -228,10 +229,11 @@ function AccountWorkspace({
         className={`conversation-split ${hasContent ? 'has-content' : ''}`}
         data-sidebar-open={sidebarOpen}
       >
-        <aside
+        <WorkspaceSidebar
+          open={sidebarOpen}
+          frameClassName="conversation-sidebar-frame"
           className="conversation-sidebar"
           aria-label="Chats and teams"
-          hidden={sidebarOpen === false}
         >
           <header className="conversation-sidebar-heading">
             <h1>{layout === 'combined' ? 'Chats' : section === 'chats' ? 'Chats' : 'Teams'}</h1>
@@ -397,7 +399,7 @@ function AccountWorkspace({
               />
             )}
           </div>
-        </aside>
+        </WorkspaceSidebar>
         <div className="conversation-detail">
           {error && <p role="alert">{error}</p>}
           {panel === 'group' ? (

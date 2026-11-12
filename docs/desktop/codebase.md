@@ -163,7 +163,9 @@ Located in `src/views/`. View selection is **two-layered** and resolved in
 The activity bar sidebar button and Ctrl/Cmd+Shift+B toggle the active
 workspace’s sidebar. Calendar, Chats, and Databases own their overview, chat
 list, and connections panel. `uiStore.workspaceSidebars` remembers each
-panel’s visibility. The vault sidebar has its own width and visibility setting
+panel’s visibility. `components/layout/WorkspaceSidebar.tsx` keeps the mounted
+panel at full width inside the animated frame. The vault sidebar has its own
+width and visibility setting
 and steps aside for those workspaces.
 
 There is no `activeView` key for sheet, ink, deck, logic, image, PDF, or SVG — those
