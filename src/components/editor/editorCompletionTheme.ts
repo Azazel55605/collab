@@ -51,7 +51,10 @@ export const editorCompletionTheme = {
     textAlign: 'right',
     fontStyle: 'normal',
   },
-  '.cm-completionIcon': {
-    display: 'none',
+  '.cm-collab-completion-icon': {
+    width: '14px',
+    height: '14px',
+    flex: 'none',
+    color: 'var(--muted-foreground)',
   },
 };

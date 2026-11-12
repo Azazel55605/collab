@@ -371,14 +371,15 @@ Rules:
 
 ### Editor suggestion menus
 
-Markdown and SQL use the shared CodeMirror suggestion style in
+The Markdown, SQL, and fenced code block editors use the shared CodeMirror suggestion style in
 `src/components/editor/editorCompletionTheme.ts`. Use it for new editor
 completion menus. The popup uses the active theme’s popover surface and border,
 with rounded corners, a shadow, and a compact scrollable list. Use the foreground
 color for suggestion labels, muted text for optional details, and an accent tint
-for the active row. Keep the default list text-first by hiding CodeMirror’s
-built-in completion icons. Preserve the editor’s keyboard navigation and
-selection behavior.
+for the active row. Use the shared Lucide icons in
+`src/components/editor/editorCompletionIcons.ts` to identify suggestion kinds,
+such as tables, columns, functions, and files. Icons are decorative and sit
+beside the text label. Preserve keyboard navigation and selection behavior.
 
 ## What To Avoid
 

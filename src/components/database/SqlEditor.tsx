@@ -7,12 +7,13 @@ import {
   completionKeymap,
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { MSSQL, sql } from '@codemirror/lang-sql';
+import { MSSQL, sql, type SQLNamespace } from '@codemirror/lang-sql';
 import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 
 import { useUiStore } from '../../store/uiStore';
+import { editorCompletionOptions } from '../editor/editorCompletionIcons';
 import { editorCompletionTheme } from '../editor/editorCompletionTheme';
 import { buildMarkdownHighlightStyle } from '../editor/markdownEditorTheme';
 
@@ -48,6 +49,39 @@ export interface SqlEditorHandle {
   focusRange: (from: number, to: number) => void;
 }
 export type SqlSchema = Record<string, Record<string, string[]>>;
+function sqlEditorLanguage(schema: SqlSchema) {
+  const namespace = (
+    label: string,
+    type: 'namespace' | 'table',
+    children: SQLNamespace,
+  ): SQLNamespace => ({
+    self: {
+      label,
+      type,
+      apply: /^[a-z_][a-z_0-9]*$/.test(label) ? undefined : `"${label.replace(/"/g, '""')}"`,
+    },
+    children,
+  });
+  return sql({
+    dialect: MSSQL,
+    schema: Object.fromEntries(
+      Object.entries(schema).map(([name, tables]) => [
+        name,
+        namespace(
+          name,
+          'namespace',
+          Object.fromEntries(
+            Object.entries(tables).map(([table, columns]) => [
+              table,
+              namespace(table, 'table', columns),
+            ]),
+          ),
+        ),
+      ]),
+    ),
+  });
+}
+
 export default function SqlEditor({
   value,
   schema,
@@ -90,8 +124,8 @@ export default function SqlEditor({
           bracketMatching(),
           closeBrackets(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          language.current.of(sql({ dialect: MSSQL, schema })),
-          autocompletion(),
+          language.current.of(sqlEditorLanguage(schema)),
+          autocompletion(editorCompletionOptions),
           EditorView.contentAttributes.of({ 'aria-label': 'SQL editor', spellcheck: 'false' }),
           EditorState.transactionFilter.of((transaction) =>
             transaction.newDoc.length > 1024 * 1024 ? [] : transaction,
@@ -167,7 +201,7 @@ export default function SqlEditor({
   }, [value]);
   useEffect(() => {
     view.current?.dispatch({
-      effects: language.current.reconfigure(sql({ dialect: MSSQL, schema })),
+      effects: language.current.reconfigure(sqlEditorLanguage(schema)),
     });
   }, [schema]);
   useEffect(() => {

@@ -30,6 +30,7 @@ import { GFM } from '@lezer/markdown';
 import { getVaultWikilinkAutocompleteItems } from '../../lib/vaultLinks';
 import { useVaultStore } from '../../store/vaultStore';
 
+import { editorCompletionOptions } from './editorCompletionIcons';
 import { asciiArrowLigatures, handleTabKey } from './indentationPlugins';
 import { createMarkdownSearchPanel } from './MarkdownSearchPanel';
 import { createMathBlockShortcutExtension } from './mathBlockCommands';
@@ -156,6 +157,7 @@ export function createMarkdownEditorState({
         markdown({ base: markdownLanguage, extensions: GFM, codeLanguages: languages }),
         livePreviewExtension,
         autocompletion({
+          ...editorCompletionOptions,
           override: [slashCommandOverride, ...wikiAutocompleteOverride],
         }),
         createMathBlockShortcutExtension(),
@@ -213,7 +215,7 @@ export function createMarkdownWikiAutocompleteOverride() {
         (item) => ({
           label: item.label,
           detail: item.detail,
-          type: item.type,
+          type: 'file',
           apply: (view: EditorView, _completion: unknown, applyFrom: number, applyTo: number) => {
             const afterCursor = view.state.sliceDoc(applyTo, applyTo + 2);
             const insertTo = afterCursor === ']]' ? applyTo + 2 : applyTo;
