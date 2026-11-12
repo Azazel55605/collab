@@ -13,6 +13,7 @@ import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 
 import { useUiStore } from '../../store/uiStore';
+import { editorCompletionTheme } from '../editor/editorCompletionTheme';
 import { buildMarkdownHighlightStyle } from '../editor/markdownEditorTheme';
 
 function buildSqlTheme(dark: boolean) {
@@ -36,6 +37,7 @@ function buildSqlTheme(dark: boolean) {
         color: 'var(--popover-foreground)',
         borderColor: 'var(--border)',
       },
+      ...editorCompletionTheme,
       '&.cm-focused': { outline: 'none' },
     },
     { dark },

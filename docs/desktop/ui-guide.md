@@ -369,6 +369,17 @@ Rules:
 - Menus and popovers should use the same border, blur, and shadow language as the rest of the app.
 - Confirmation flows should make the safe action easy to identify.
 
+### Editor suggestion menus
+
+Markdown and SQL use the shared CodeMirror suggestion style in
+`src/components/editor/editorCompletionTheme.ts`. Use it for new editor
+completion menus. The popup uses the active theme’s popover surface and border,
+with rounded corners, a shadow, and a compact scrollable list. Use the foreground
+color for suggestion labels, muted text for optional details, and an accent tint
+for the active row. Keep the default list text-first by hiding CodeMirror’s
+built-in completion icons. Preserve the editor’s keyboard navigation and
+selection behavior.
+
 ## What To Avoid
 
 - browser-default looking controls when a shared app style exists

@@ -1612,7 +1612,9 @@ invalidate native workspace tokens and sockets. Saved metadata stays native;
 passwords never enter persisted frontend stores. Phase 2 adds `database/query.rs` workers and typed poll/cancel/history/export IPC.
 `crates/collab-database/src/sql.rs` owns lexical GO/selection boundaries.
 `components/database/QueryPanel`, `SqlEditor` and `ResultGrid` provide execution,
-completion and virtualized read-only values. `lib/database/queryStore.ts` retains
+completion and virtualized read-only values. SQL and Markdown share suggestion
+styles from `components/editor/editorCompletionTheme.ts`.
+`lib/database/queryStore.ts` retains
 bounded session caches and ordered pulls across view switches;
 `lib/databaseLifecycle.ts` exposes a lightweight draft guard to quit/profile flows.
 The native SQL Server dependency uses the documented bounded-diagnostics patch in
