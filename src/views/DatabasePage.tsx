@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import {
   executeQuery,
   forgetQuery,
+  hasQueryDraft,
   syncQueryTabs,
   useDatabaseQueries,
 } from '../lib/database/queryStore';
@@ -194,7 +195,7 @@ function Workspace({ owner }: { owner: string }) {
                     void perform(async () => {
                       if (
                         Object.values(useDatabaseQueries.getState().tabs).some(
-                          (t) => t.binding.connection_id === connection.id && t.dirty,
+                          (t) => t.binding.connection_id === connection.id && hasQueryDraft(t),
                         )
                       )
                         throw 'unresolved_session';
@@ -289,7 +290,7 @@ function Workspace({ owner }: { owner: string }) {
                                 workspace.connections.some(
                                   (c) =>
                                     c.saved_id === profile.id && c.id === t.binding.connection_id,
-                                ) && t.dirty,
+                                ) && hasQueryDraft(t),
                             )
                           )
                             throw 'unresolved_session';
@@ -423,10 +424,10 @@ function Workspace({ owner }: { owner: string }) {
             <DialogHeader>
               <DialogTitle>Close database session?</DialogTitle>
               <DialogDescription>
-                Discard this tab’s SQL draft, results and history. Running work is stopped by
-                closing the connection; uncommitted transactions are not committed. Already
-                committed changes are not undone. If an outcome is unknown, verify the database
-                before rerunning SQL.
+                Discard this tab’s SQL draft, staged row changes, results and history. Running work
+                is stopped by closing the connection; uncommitted transactions are not committed.
+                Already committed changes are not undone. If an outcome is unknown, verify the
+                database before rerunning SQL.
               </DialogDescription>
             </DialogHeader>
             <Button variant="outline" onClick={() => setClosing(false)}>
@@ -470,7 +471,7 @@ function Workspace({ owner }: { owner: string }) {
                     (t) =>
                       workspace.connections.some(
                         (c) => c.saved_id === config.id && c.id === t.binding.connection_id,
-                      ) && t.dirty,
+                      ) && hasQueryDraft(t),
                   )
                 )
                   throw 'unresolved_session';

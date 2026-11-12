@@ -240,6 +240,33 @@ pub fn browse(
     binding: SessionBinding,
     request: BrowseRequest,
 ) -> Result<String, E> {
+    let schema =
+        Identifier::new(request.schema.clone())?.quoted(collab_database::Engine::SqlServer)?;
+    let table =
+        Identifier::new(request.table.clone())?.quoted(collab_database::Engine::SqlServer)?;
+    let (filter, parameters) = browse_filter(&request)?;
+    let sql = format!("SELECT TOP (500) * FROM {schema}.{table}{filter}");
+    start_inner(
+        live,
+        binding,
+        sql,
+        None,
+        false,
+        Some(parameters),
+        500,
+        false,
+    )
+}
+
+pub(super) fn browse_filter(
+    request: &BrowseRequest,
+) -> Result<
+    (
+        String,
+        Vec<mssql_tds::message::parameters::rpc_parameters::RpcParameter>,
+    ),
+    E,
+> {
     use mssql_tds::{
         datatypes::{sql_string::SqlString, sqltypes::SqlType},
         message::parameters::rpc_parameters::{RpcParameter, StatusFlags},
@@ -247,37 +274,33 @@ pub fn browse(
     if request.filter_text.len() > 4096 {
         return Err(E::LimitReached);
     }
-    let schema = Identifier::new(request.schema)?.quoted(collab_database::Engine::SqlServer)?;
-    let table = Identifier::new(request.table)?.quoted(collab_database::Engine::SqlServer)?;
-    let mut sql = format!("SELECT TOP (500) * FROM {schema}.{table}");
-    let mut params = vec![];
-    if let Some(column) = request
+    if request.filter_text.is_empty() {
+        return Ok((String::new(), vec![]));
+    }
+    let column = request
         .filter_column
-        .filter(|value| !value.is_empty() && !request.filter_text.is_empty())
-    {
-        let column = Identifier::new(column)?.quoted(collab_database::Engine::SqlServer)?;
-        sql.push_str(&format!(
-            " WHERE TRY_CONVERT(nvarchar(4000), {column}) LIKE @P1 ESCAPE N'~'"
-        ));
-        let pattern = format!(
-            "%{}%",
-            request
-                .filter_text
-                .replace('~', "~~")
-                .replace('%', "~%")
-                .replace('_', "~_")
-                .replace('[', "~[")
-        );
-        params.push(RpcParameter::new(
+        .as_deref()
+        .ok_or(E::InvalidParameter)?;
+    let column = Identifier::new(column)?.quoted(collab_database::Engine::SqlServer)?;
+    let pattern = format!(
+        "%{}%",
+        request
+            .filter_text
+            .replace('~', "~~")
+            .replace('%', "~%")
+            .replace('_', "~_")
+            .replace('[', "~[")
+    );
+    Ok((
+        format!(" WHERE TRY_CONVERT(nvarchar(4000), {column}) LIKE @P1 ESCAPE N'~'"),
+        vec![RpcParameter::new(
             Some("@P1".into()),
             StatusFlags::NONE,
             SqlType::NVarcharMax(Some(SqlString::from_utf8_string(pattern))),
-        ));
-    } else if !request.filter_text.is_empty() {
-        return Err(E::InvalidParameter);
-    }
-    start_inner(live, binding, sql, None, false, Some(params), 500)
+        )],
+    ))
 }
+
 pub fn start(
     live: Arc<Live>,
     binding: SessionBinding,
@@ -285,7 +308,43 @@ pub fn start(
     selection: Option<SourceRange>,
     recovery: bool,
 ) -> Result<String, E> {
-    start_inner(live, binding, sql, selection, recovery, None, 100_000)
+    start_inner(
+        live, binding, sql, selection, recovery, None, 100_000, false,
+    )
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionAction {
+    Begin,
+    Commit,
+    Rollback,
+}
+pub(super) fn transaction(
+    live: Arc<Live>,
+    binding: SessionBinding,
+    action: TransactionAction,
+) -> Result<String, E> {
+    let state = live.query.status().transaction;
+    let sql = match (&action, state) {
+        (TransactionAction::Begin, TransactionState::None) => "BEGIN TRANSACTION;",
+        (TransactionAction::Commit, TransactionState::Open) => {
+            "IF XACT_STATE()=1 AND @@TRANCOUNT>0 COMMIT TRANSACTION;"
+        }
+        (TransactionAction::Rollback, TransactionState::Open | TransactionState::Failed) => {
+            "IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;"
+        }
+        _ => return Err(E::UnresolvedSession),
+    };
+    start_inner(
+        live,
+        binding,
+        sql.into(),
+        None,
+        true,
+        None,
+        100_000,
+        matches!(action, TransactionAction::Commit),
+    )
 }
 fn start_inner(
     live: Arc<Live>,
@@ -295,6 +354,7 @@ fn start_inner(
     recovery: bool,
     parameters: Option<Vec<mssql_tds::message::parameters::rpc_parameters::RpcParameter>>,
     row_limit: usize,
+    committing: bool,
 ) -> Result<String, E> {
     let batches = collab_database::sql_batches(&sql, selection)?;
     let mut state = live.query.inner.lock();
@@ -376,7 +436,7 @@ fn start_inner(
     };
     let monitor = live.clone();
     let task = tokio::spawn(async move {
-        run(live, batches, output, parameters).await;
+        run(live, batches, output, parameters, committing).await;
     });
     tokio::spawn(async move {
         if task.await.is_err() {
@@ -394,6 +454,7 @@ async fn run(
     batches: Vec<SqlBatch>,
     mut output: Output,
     parameters: Option<Vec<mssql_tds::message::parameters::rpc_parameters::RpcParameter>>,
+    committing: bool,
 ) {
     let mut guard = live.client.lock().await;
     let mut error = None;
@@ -430,7 +491,7 @@ async fn run(
         } else {
             true
         };
-        if drained && !live.cancel.is_cancelled() {
+        if drained && !live.cancel.is_cancelled() && !(committing && interrupted) {
             if let Ok(Ok(observed)) = tokio::time::timeout(
                 Duration::from_secs(3),
                 observe(client, &output.binding.database),
@@ -764,7 +825,7 @@ fn truncate(text: &mut String, limit: usize) {
         text.truncate(end);
     }
 }
-async fn read_cell(
+pub(super) async fn read_cell(
     client: &mut TdsClient,
     index: usize,
     column: &mssql_tds::query::metadata::ColumnMetadata,

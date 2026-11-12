@@ -4,10 +4,14 @@ import type {
   DatabaseBinding,
   DatabaseBrowseRequest,
   DatabaseColumn,
+  DatabaseEditChange,
+  DatabaseEditFailure,
+  DatabaseEditPage,
   DatabaseExecutionError,
   DatabaseFinishReason,
   DatabaseQueryStatus,
   DatabaseResultFrame,
+  DatabaseTransactionAction,
   DatabaseValue,
   DatabaseWorkspace,
 } from '../../types/database';
@@ -24,8 +28,26 @@ export interface ScriptFile {
   version: string;
   base: string;
 }
+export interface EditDraft {
+  request: DatabaseBrowseRequest;
+  visible?: boolean;
+  page: DatabaseEditPage | null;
+  changes: DatabaseEditChange[];
+  busy: boolean;
+  failure: DatabaseEditFailure | null;
+  outcome: 'draft' | 'conflict' | 'unknown' | 'committed';
+  committedRows: (DatabaseValue[] | null)[];
+  committedColumns?: string[];
+}
+export function hasQueryDraft(tab: QueryTab) {
+  return (
+    tab.dirty ||
+    (!!tab.edit && (tab.edit.busy || tab.edit.changes.length > 0 || tab.edit.outcome === 'unknown'))
+  );
+}
 export interface QueryTab {
   script: ScriptFile | null;
+  edit?: EditDraft;
   browse: DatabaseBrowseRequest | null;
   binding: DatabaseBinding;
   sql: string;
@@ -87,7 +109,7 @@ export function forgetQuery(id: string) {
 }
 registerDatabaseDraftGuard((profile) =>
   Object.values(useDatabaseQueries.getState().tabs).some(
-    (tab) => tab.dirty && (!profile || tab.binding.profile_id === profile),
+    (tab) => hasQueryDraft(tab) && (!profile || tab.binding.profile_id === profile),
   ),
 );
 window.addEventListener('database:profile-closed', (event) => {
@@ -158,12 +180,12 @@ export async function executeQuery(
   token: string,
   binding: DatabaseBinding,
   selection?: { start_utf16: number; end_utf16: number },
-  rollback = false,
+  transaction: false | DatabaseTransactionAction = false,
   browse?: DatabaseBrowseRequest,
 ) {
   ensureQuery(binding);
   const before = useDatabaseQueries.getState().tabs[binding.tab_id];
-  if (before.receiving) return;
+  if (before.receiving || before.edit?.busy) return;
   updateQuery(binding.tab_id, (tab) => ({
     ...tab,
     receiving: true,
@@ -181,9 +203,11 @@ export async function executeQuery(
   try {
     id = browse
       ? await tauriCommands.databaseTableBrowse(token, binding, browse)
-      : rollback
+      : transaction === 'rollback'
         ? await tauriCommands.databaseQueryRollback(token, binding)
-        : await tauriCommands.databaseQueryStart(token, binding, before.sql, selection);
+        : transaction
+          ? await tauriCommands.databaseManualTransaction(token, binding, transaction)
+          : await tauriCommands.databaseQueryStart(token, binding, before.sql, selection);
     updateQuery(binding.tab_id, (tab) => ({
       ...tab,
       status: { ...tab.status, query_id: id, phase: 'running' },

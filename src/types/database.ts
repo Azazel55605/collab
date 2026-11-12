@@ -114,3 +114,55 @@ export interface DatabaseBrowseRequest {
   filter_column: string | null;
   filter_text: string;
 }
+
+export type DatabaseTransactionAction = 'begin' | 'commit' | 'rollback';
+
+export interface DatabaseEditColumn {
+  name: string;
+  engine_type: string;
+  input:
+    | 'integer'
+    | 'decimal'
+    | 'boolean'
+    | 'text'
+    | 'binary'
+    | 'uuid'
+    | 'date'
+    | 'time'
+    | 'date_time'
+    | 'date_time_offset';
+  nullable: boolean;
+  generated: boolean;
+  has_default: boolean;
+  key: boolean;
+}
+export interface DatabaseEditRow {
+  id: string;
+  values: DatabaseValue[];
+}
+export interface DatabaseEditPage {
+  id: string;
+  schema: string;
+  table: string;
+  columns: DatabaseEditColumn[];
+  rows: DatabaseEditRow[];
+  more: boolean;
+}
+export type DatabaseEditInput =
+  { kind: 'default' } | { kind: 'null' } | { kind: 'value'; text: string };
+export interface DatabaseEditField {
+  column: number;
+  value: DatabaseEditInput;
+}
+export type DatabaseEditChange =
+  | { kind: 'insert'; values: DatabaseEditField[] }
+  | { kind: 'update'; row_id: string; values: DatabaseEditField[] }
+  | { kind: 'delete'; row_id: string };
+export interface DatabaseEditFailure {
+  code: string;
+  server_code: number | null;
+  change_index: number | null;
+}
+export type DatabaseEditResult =
+  | { outcome: 'committed'; rows: (DatabaseValue[] | null)[] }
+  | { outcome: 'rejected' | 'unknown'; failure: DatabaseEditFailure };

@@ -27,7 +27,13 @@ import type {
   CircuitTransientChunk,
 } from '../types/circuitRuntime';
 import type { ChatMessage, PresenceEntry, SnapshotMeta } from '../types/collab';
-import type { DatabaseBrowseRequest } from '../types/database';
+import type {
+  DatabaseBrowseRequest,
+  DatabaseEditChange,
+  DatabaseEditPage,
+  DatabaseEditResult,
+  DatabaseTransactionAction,
+} from '../types/database';
 import type {
   DatabaseHistoryEntry,
   DatabaseQueryPoll,
@@ -370,6 +376,24 @@ export async function invokeMedia<T>(
 let databaseProfileChange: Promise<void> = Promise.resolve();
 
 export const tauriCommands = {
+  databaseManualTransaction: (
+    token: string,
+    binding: DatabaseBinding,
+    action: DatabaseTransactionAction,
+  ) => invoke<string>('database_manual_transaction', { token, binding, action }),
+  databaseEditLoad: (token: string, binding: DatabaseBinding, request: DatabaseBrowseRequest) =>
+    invoke<DatabaseEditPage>('database_edit_load', { token, binding, request }),
+  databaseEditApply: (
+    token: string,
+    binding: DatabaseBinding,
+    snapshotId: string,
+    changes: DatabaseEditChange[],
+  ) =>
+    invoke<DatabaseEditResult>('database_edit_apply', {
+      token,
+      binding,
+      request: { snapshot_id: snapshotId, changes },
+    }),
   databaseTableBrowse: (token: string, binding: DatabaseBinding, request: DatabaseBrowseRequest) =>
     invoke<string>('database_table_browse', { token, binding, request }),
   databaseQueryStart: (

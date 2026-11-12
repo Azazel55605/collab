@@ -24,7 +24,7 @@ export function useDesktopQuitGuard() {
             documentsReady && !hasDatabaseDrafts() && (await tauriCommands.databaseCanQuit());
           if (documentsReady && !databasesReady)
             toast.error(
-              'Save SQL drafts and resolve or explicitly close database sessions before quitting. Open transactions are never committed on quit.',
+              'Save SQL drafts and resolve staged row changes before quitting. Resolve open transactions or explicitly close their database sessions.',
             );
           const allowed = documentsReady && databasesReady;
           if (allowed && !disposed) flushEditorPersistence();

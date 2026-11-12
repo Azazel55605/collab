@@ -208,6 +208,9 @@ pub fn run() {
             commands::database::database_query_export,
             #[cfg(not(mobile))]
             commands::database::database_table_browse,
+            commands::database::database_manual_transaction,
+            commands::database::database_edit_load,
+            commands::database::database_edit_apply,
             // user calendar profile store
             commands::calendar::calendar_list,
             commands::calendar::calendar_save,

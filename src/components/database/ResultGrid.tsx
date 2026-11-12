@@ -7,7 +7,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 const HEIGHT = 28,
   WIDTH = 170;
-export default function ResultGrid({ result }: { result: ResultSet }) {
+export default function ResultGrid({
+  result,
+  onCellActivate,
+  rowClass,
+}: {
+  result: ResultSet;
+  onCellActivate?: (row: number, column: number) => void;
+  rowClass?: (row: number) => string | undefined;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ top: 0, left: 0, height: 320, width: 800 });
   const [inspector, setInspector] = useState<{ value: DatabaseValue; name: string } | null>(null);
@@ -26,12 +34,16 @@ export default function ResultGrid({ result }: { result: ResultSet }) {
   const colFirst = Math.max(0, Math.floor(viewport.left / WIDTH) - 1),
     colLast = Math.min(result.columns.length, colFirst + Math.ceil(viewport.width / WIDTH) + 3);
   const columns = result.columns.slice(colFirst, colLast);
+  const activate = (row: number, column: number, value: DatabaseValue) => {
+    if (onCellActivate) onCellActivate(row, column);
+    else setInspector({ value, name: result.columns[column].name });
+  };
   return (
     <>
       <div
         ref={host}
         role="grid"
-        aria-label="Read-only query results"
+        aria-label={onCellActivate ? 'Editable table rows' : 'Read-only query results'}
         aria-rowcount={result.rows.length + 1}
         aria-colcount={result.columns.length}
         tabIndex={0}
@@ -72,6 +84,7 @@ export default function ResultGrid({ result }: { result: ResultSet }) {
               role="row"
               aria-rowindex={first + index + 2}
               key={first + index}
+              className={rowClass?.(first + index)}
               style={{
                 position: 'absolute',
                 top: (first + index) * HEIGHT,
@@ -87,13 +100,11 @@ export default function ResultGrid({ result }: { result: ResultSet }) {
                   tabIndex={0}
                   className="absolute cursor-pointer truncate border-b border-r border-border/40 px-2 py-1.5 outline-none focus:bg-accent"
                   style={{ left: (colFirst + columnIndex) * WIDTH, width: WIDTH, height: HEIGHT }}
-                  onClick={() =>
-                    setInspector({ value, name: result.columns[colFirst + columnIndex].name })
-                  }
+                  onClick={() => activate(first + index, colFirst + columnIndex, value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      setInspector({ value, name: result.columns[colFirst + columnIndex].name });
+                      activate(first + index, colFirst + columnIndex, value);
                     }
                   }}
                   title={value.kind === 'truncated' ? 'Truncated value' : undefined}

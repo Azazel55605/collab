@@ -1618,6 +1618,11 @@ editors share suggestion styles and Lucide glyphs from
 `lib/database/queryStore.ts` retains
 bounded session caches and ordered pulls across view switches;
 `lib/databaseLifecycle.ts` exposes a lightweight draft guard to quit/profile flows.
+Phase 3 adds `database/edit.rs` with native table snapshots, metadata and
+concurrency validation, and a dedicated Apply transaction. `TableEditDialog`
+reuses the virtual result grid, and `lib/database/tableEditing.ts` handles staged
+changes, refreshes, and commit outcomes in the session store. Fixed manual
+transaction actions stay on the pinned query session.
 The native SQL Server dependency uses the documented bounded-diagnostics patch in
 `vendor/mssql-tds`. See [Database queries](./database-queries.md).
 See [Database workspace](./database-workspace.md) for ownership and native gaps.
