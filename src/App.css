@@ -223,6 +223,25 @@
   transition-timing-function: var(--motion-ease-standard) !important;
 }
 
+/* Clip a fixed-width panel while its frame makes room for the main content. */
+.app-workspace-sidebar {
+  display: flex;
+  flex: none;
+  width: var(--workspace-sidebar-width);
+  overflow: hidden;
+}
+
+.app-workspace-sidebar[aria-hidden='true'] {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-workspace-sidebar > aside {
+  width: var(--workspace-sidebar-width);
+  flex: none;
+}
+
 .app-motion-slow {
   transition-duration: var(--motion-slow) !important;
   transition-timing-function: var(--motion-ease-standard) !important;

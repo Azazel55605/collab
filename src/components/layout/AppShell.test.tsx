@@ -10,6 +10,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { TooltipProvider } from '../ui/tooltip';
 
 import AppShell from './AppShell';
+import { WorkspaceSidebar } from './WorkspaceSidebar';
 
 const providerLifecycle = vi.hoisted(() => ({ mounted: 0, unmounted: 0 }));
 const noteLifecycle = vi.hoisted(() => ({ events: [] as string[] }));
@@ -43,7 +44,7 @@ vi.mock('../collaboration/CollabProvider', () => ({
 vi.mock('../../views/DatabasePage', () => ({
   default: ({ sidebarOpen }: { sidebarOpen: boolean }) => (
     <div data-testid="database-workspace">
-      <aside aria-label="Database connections" hidden={!sidebarOpen} />
+      <WorkspaceSidebar aria-label="Database connections" open={sidebarOpen} />
     </div>
   ),
 }));
@@ -51,13 +52,13 @@ vi.mock('../../views/ChatsPage', () => ({
   default: ({ standalone, sidebarOpen }: { standalone: boolean; sidebarOpen: boolean }) => (
     <div data-testid="personal-chats">
       {String(standalone)}
-      <aside aria-label="Chats and teams" hidden={!sidebarOpen} />
+      <WorkspaceSidebar aria-label="Chats and teams" open={sidebarOpen} />
     </div>
   ),
 }));
 vi.mock('../../views/CalendarPage', () => ({
   default: ({ sidebarOpen }: { sidebarOpen: boolean }) => (
-    <aside aria-label="Calendar overview" hidden={!sidebarOpen} />
+    <WorkspaceSidebar aria-label="Calendar overview" open={sidebarOpen} />
   ),
 }));
 vi.mock('../../contexts/DragContext', () => ({
@@ -233,7 +234,9 @@ describe('AppShell document remounting', () => {
       const hide = screen.getByRole('button', { name: `Hide ${sidebar.toLowerCase()}` });
       expect(hide.getAttribute('aria-expanded')).toBe('true');
       fireEvent.click(hide);
-      expect(panel.hidden).toBe(true);
+      expect(panel.parentElement?.getAttribute('aria-hidden')).toBe('true');
+      expect(panel.parentElement?.hasAttribute('inert')).toBe(true);
+      expect(panel.isConnected).toBe(true);
       const show = screen.getByRole('button', { name: `Show ${sidebar.toLowerCase()}` });
       expect(show.getAttribute('aria-expanded')).toBe('false');
       expect(useUiStore.getState().isSidebarOpen).toBe(true);
@@ -241,9 +244,8 @@ describe('AppShell document remounting', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
     expect(screen.getByRole('button', { name: 'Show calendar overview' })).toBeTruthy();
     fireEvent.keyDown(document, { key: 'B', ctrlKey: true, shiftKey: true });
-    expect((await screen.findByRole('complementary', { name: 'Calendar overview' })).hidden).toBe(
-      false,
-    );
+    const reopened = await screen.findByRole('complementary', { name: 'Calendar overview' });
+    expect(reopened.parentElement?.hasAttribute('inert')).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(vaultSidebar?.getAttribute('aria-hidden')).toBe('false');
     expect(useUiStore.getState().workspaceSidebars).toEqual({
