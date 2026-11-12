@@ -152,12 +152,19 @@ Expectation:
 Located in `src/views/`. View selection is **two-layered** and resolved in
 `components/layout/AppShell.tsx`:
 
-1. `uiStore.activeView` (`'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid'`)
-   wins for the page-level `graph`, `grid`, and `calendar` workspaces.
+1. `uiStore.activeView` selects the page-level Calendar, Chats, Databases, and
+   Grid workspaces before document tabs are considered.
 2. Otherwise `editorStore` tab type (`'note' | 'canvas' | 'kanban' | 'logic' |
 'sheet' | 'ink' | 'deck' | 'graph' | 'settings' | 'image' | 'pdf'`) selects the
    document view. Canvas and Kanban are file-backed document views opened from
-   the unified file tree; they have no singleton ActivityBar destination.
+   the unified file tree. The Graph button beside the file filter opens the
+   singleton Graph tab.
+
+The activity bar sidebar button and Ctrl/Cmd+Shift+B toggle the active
+workspace’s sidebar. Calendar, Chats, and Databases own their overview, chat
+list, and connections panel. `uiStore.workspaceSidebars` remembers each
+panel’s visibility. The vault sidebar has its own width and visibility setting
+and steps aside for those workspaces.
 
 There is no `activeView` key for sheet, ink, deck, logic, image, PDF, or SVG — those
 are reachable only as document tabs.

@@ -4,7 +4,6 @@ import {
   CalendarDays,
   Database,
   Files,
-  GitFork,
   LayoutGrid,
   MessageCircle,
   PanelLeft,
@@ -17,13 +16,12 @@ import {
 import { cn } from '../../lib/utils';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
-import { type ActiveView, useUiStore } from '../../store/uiStore';
+import { type ActiveView, hasWorkspaceSidebar, useUiStore } from '../../store/uiStore';
 import { AppLogo } from '../ui/AppLogo';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = [
   { view: 'editor', icon: <Files size={18} />, label: 'Files' },
-  { view: 'graph', icon: <GitFork size={18} />, label: 'Graph View' },
   { view: 'chats', icon: <MessageCircle size={18} />, label: 'Chats' },
   { view: 'calendar', icon: <CalendarDays size={18} />, label: 'Calendar' },
   { view: 'databases', icon: <Database size={18} />, label: 'Databases' },
@@ -31,10 +29,10 @@ const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = 
 ];
 const ACTIVITY_INDICATOR_INSET = 2;
 
-// Synthetic paths for singleton view tabs (not real files)
-const VIEW_TAB_PATHS: Partial<Record<ActiveView, string>> = {
-  graph: '__graph__',
-  grid: '__grid__',
+const SIDEBAR_LABELS = {
+  calendar: 'calendar overview',
+  chats: 'chats and teams',
+  databases: 'database connections',
 };
 
 export default function ActivityBar() {
@@ -42,7 +40,13 @@ export default function ActivityBar() {
   const setActiveView = useUiStore((state) => state.setActiveView);
   const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
-  const setSidebarPanel = useUiStore((state) => state.setSidebarPanel);
+  const openVaultSidebar = useUiStore((state) => state.openVaultSidebar);
+  const sidebarOpen = useUiStore((state) =>
+    hasWorkspaceSidebar(state.activeView)
+      ? state.workspaceSidebars[state.activeView]
+      : state.isSidebarOpen,
+  );
+  const sidebarLabel = `${sidebarOpen ? 'Hide' : 'Show'} ${hasWorkspaceSidebar(activeView) ? SIDEBAR_LABELS[activeView] : 'vault sidebar'}`;
   const sidebarPanel = useUiStore((state) => state.sidebarPanel);
   const isSettingsOpen = useUiStore((state) => state.isSettingsOpen);
   const openSettings = useUiStore((state) => state.openSettings);
@@ -52,9 +56,11 @@ export default function ActivityBar() {
   const closeVaultManager = useUiStore((state) => state.closeVaultManager);
   const openTab = useEditorStore((state) => state.openTab);
   const peers = useCollabStore((state) => state.peers);
-  const activeNavIndex = isSettingsOpen
-    ? -1
-    : NAV_ITEMS.findIndex((item) => item.view === activeView);
+  const navView =
+    activeView === 'graph' || activeView === 'canvas' || activeView === 'kanban'
+      ? 'editor'
+      : activeView;
+  const activeNavIndex = isSettingsOpen ? -1 : NAV_ITEMS.findIndex((item) => item.view === navView);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const navButtonRefs = useRef<Partial<Record<ActiveView, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState<{ top: number; height: number } | null>(null);
@@ -100,29 +106,17 @@ export default function ActivityBar() {
 
   const handleNavClick = (view: ActiveView) => {
     if (view === 'editor') {
-      setSidebarPanel('files');
-      setActiveView('editor');
-      if (!isSidebarOpen) toggleSidebar();
-      else if (activeView === 'editor') toggleSidebar();
-    } else if (view === 'graph') {
-      openTab('__graph__', 'Graph', 'graph');
-      setActiveView('graph');
+      if (activeView === 'editor' && sidebarPanel === 'files' && isSidebarOpen) toggleSidebar();
+      else openVaultSidebar('files', true);
     } else {
       setActiveView(view);
     }
   };
 
-  // Middle-click: open the view as a persistent tab without switching the main view
-  const handleNavMiddleClick = (e: React.MouseEvent, view: ActiveView) => {
-    if (e.button !== 1) return;
-    e.preventDefault();
-    const path = VIEW_TAB_PATHS[view];
-    if (!path) return; // 'editor' has no singleton tab
-    const titles: Partial<Record<ActiveView, string>> = {
-      graph: 'Graph',
-      grid: 'Grid',
-    };
-    openTab(path, titles[view] ?? view, view as 'graph' | 'canvas' | 'kanban');
+  const handleNavMiddleClick = (event: React.MouseEvent, view: ActiveView) => {
+    if (event.button !== 1 || view !== 'grid') return;
+    event.preventDefault();
+    openTab('__grid__', 'Grid', view as 'canvas');
     setActiveView(view);
   };
 
@@ -160,23 +154,25 @@ export default function ActivityBar() {
         <TooltipTrigger asChild>
           <button
             onClick={toggleSidebar}
+            aria-label={sidebarLabel}
+            aria-expanded={sidebarOpen}
             className="w-9 h-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-150 app-motion-base"
           >
-            {isSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
+            {sidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
           </button>
         </TooltipTrigger>
         <TooltipContent
           side="right"
           className="glass-strong border-border/50 text-xs text-foreground"
         >
-          {isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          {sidebarLabel}
         </TooltipContent>
       </Tooltip>
 
       <div className="w-6 h-px bg-border/50 my-1" />
 
       {NAV_ITEMS.map(({ view, icon, label }) => {
-        const isActive = activeView === view && !isSettingsOpen;
+        const isActive = navView === view && !isSettingsOpen;
         return (
           <Tooltip key={view}>
             <TooltipTrigger asChild>
@@ -215,13 +211,13 @@ export default function ActivityBar() {
         <TooltipTrigger asChild>
           <button
             onClick={() => {
-              setSidebarPanel('collab');
-              if (!isSidebarOpen) toggleSidebar();
-              else if (sidebarPanel === 'collab') toggleSidebar();
+              if (!hasWorkspaceSidebar(activeView) && isSidebarOpen && sidebarPanel === 'collab')
+                toggleSidebar();
+              else openVaultSidebar('collab');
             }}
             className={cn(
               'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150 app-motion-base',
-              sidebarPanel === 'collab' && isSidebarOpen
+              !hasWorkspaceSidebar(activeView) && sidebarPanel === 'collab' && isSidebarOpen
                 ? 'activity-item-active text-primary bg-primary/10'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60',
             )}

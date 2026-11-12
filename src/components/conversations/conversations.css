@@ -410,6 +410,9 @@
   border-right: 1px solid var(--border);
   background: var(--chat-sidebar);
 }
+.conversation-sidebar[hidden] {
+  display: none;
+}
 .conversation-sidebar-heading {
   display: flex;
   align-items: center;
@@ -1456,9 +1459,13 @@
   .conversation-account .conversation-avatar {
     --avatar-size: 36px;
   }
-  .conversation-sidebar {
+  .conversation-split:not([data-sidebar-open]) .conversation-sidebar {
     width: 100%;
     border-right: 0;
+  }
+  .conversation-split[data-sidebar-open] .conversation-sidebar {
+    width: min(336px, 45%);
+    min-width: 0;
   }
   .conversation-sidebar-heading {
     padding: 14px 10px 6px 18px;
@@ -1466,17 +1473,18 @@
   .conversation-sidebar-scroll {
     padding: 4px 6px 12px;
   }
-  .conversation-detail {
+  .conversation-split:not([data-sidebar-open]) .conversation-detail {
     display: none;
   }
-  .conversation-split.has-content .conversation-sidebar {
+  .conversation-split:not([data-sidebar-open]).has-content .conversation-sidebar {
     display: none;
   }
-  .conversation-split.has-content .conversation-detail {
+  .conversation-split:not([data-sidebar-open]).has-content .conversation-detail {
     display: flex;
   }
   /* Inside a conversation, the conversation header is the page header. */
-  .conversation-workspace:has(.conversation-split.has-content) .conversation-toolbar {
+  .conversation-workspace:has(.conversation-split:not([data-sidebar-open]).has-content)
+    .conversation-toolbar {
     display: none;
   }
   .conversation-header {

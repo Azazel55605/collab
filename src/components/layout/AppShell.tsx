@@ -27,6 +27,7 @@ import { useSidebarResize } from '../../lib/useSidebarResize';
 import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
 import { useEditorStore, useUiStore, useVaultStore } from '../../store';
+import { hasWorkspaceSidebar } from '../../store/uiStore';
 import {
   CalendarPage,
   CanvasPage,
@@ -102,6 +103,9 @@ export default function AppShell() {
   const activeView = useUiStore((state) => state.activeView);
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const workspaceSidebarOpen = useUiStore(
+    (state) => hasWorkspaceSidebar(state.activeView) && state.workspaceSidebars[state.activeView],
+  );
   const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const openSettings = useUiStore((state) => state.openSettings);
@@ -271,10 +275,11 @@ export default function AppShell() {
 
   const renderMainContent = () => {
     // Grid mode is self-contained — always shown when activeView === 'grid'
-    if (activeView === 'databases') return <DatabasePage />;
+    if (activeView === 'databases') return <DatabasePage sidebarOpen={workspaceSidebarOpen} />;
     if (activeView === 'grid') return <GridView />;
-    if (activeView === 'calendar') return <CalendarPage />;
-    if (activeView === 'chats') return <ChatsPage standalone={false} />;
+    if (activeView === 'calendar') return <CalendarPage sidebarOpen={workspaceSidebarOpen} />;
+    if (activeView === 'chats')
+      return <ChatsPage standalone={false} sidebarOpen={workspaceSidebarOpen} />;
 
     // View and document tabs take priority because their type unambiguously
     // identifies the content that was explicitly opened.
@@ -320,7 +325,7 @@ export default function AppShell() {
     return <EmptyEditor />;
   };
 
-  const showSidebar = isSidebarOpen && activeView !== 'chats' && activeView !== 'databases';
+  const showSidebar = isSidebarOpen && !hasWorkspaceSidebar(activeView);
   return (
     <CollabProvider>
       <CalendarSyncCoordinator />
@@ -329,7 +334,7 @@ export default function AppShell() {
           {/* Activity bar */}
           <ActivityBar />
 
-          {/* Sidebar + resize handle; Chats brings its own list, so the vault sidebar steps aside */}
+          {/* Vault sidebar and resize handle */}
           <div
             ref={sidebarRef}
             className={cn(
@@ -344,6 +349,7 @@ export default function AppShell() {
               } as CSSProperties
             }
             aria-hidden={!showSidebar}
+            inert={!showSidebar}
           >
             <div
               className="flex-1 overflow-hidden"

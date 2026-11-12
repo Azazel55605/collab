@@ -1,12 +1,13 @@
 import React, { useEffect } from 'react';
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useEditorStore } from '../../store/editorStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { TooltipProvider } from '../ui/tooltip';
 
 import AppShell from './AppShell';
 
@@ -23,7 +24,6 @@ vi.mock('../../lib/tauri', () => ({
   },
 }));
 
-vi.mock('./ActivityBar', () => ({ default: () => <div data-testid="activity-bar" /> }));
 vi.mock('./Sidebar', () => ({ default: () => <div data-testid="sidebar" /> }));
 vi.mock('./TabBar', () => ({ default: () => <div data-testid="tab-bar" /> }));
 vi.mock('./StatusBar', () => ({ default: () => <div data-testid="status-bar" /> }));
@@ -41,11 +41,23 @@ vi.mock('../collaboration/CollabProvider', () => ({
   },
 }));
 vi.mock('../../views/DatabasePage', () => ({
-  default: () => <div data-testid="database-workspace" />,
+  default: ({ sidebarOpen }: { sidebarOpen: boolean }) => (
+    <div data-testid="database-workspace">
+      <aside aria-label="Database connections" hidden={!sidebarOpen} />
+    </div>
+  ),
 }));
 vi.mock('../../views/ChatsPage', () => ({
-  default: ({ standalone }: { standalone: boolean }) => (
-    <div data-testid="personal-chats">{String(standalone)}</div>
+  default: ({ standalone, sidebarOpen }: { standalone: boolean; sidebarOpen: boolean }) => (
+    <div data-testid="personal-chats">
+      {String(standalone)}
+      <aside aria-label="Chats and teams" hidden={!sidebarOpen} />
+    </div>
+  ),
+}));
+vi.mock('../../views/CalendarPage', () => ({
+  default: ({ sidebarOpen }: { sidebarOpen: boolean }) => (
+    <aside aria-label="Calendar overview" hidden={!sidebarOpen} />
   ),
 }));
 vi.mock('../../contexts/DragContext', () => ({
@@ -117,6 +129,7 @@ describe('AppShell document remounting', () => {
       collabTab: 'peers',
       sidebarWidth: 240,
       isSidebarOpen: true,
+      workspaceSidebars: { calendar: true, chats: true, databases: true },
       isSettingsOpen: false,
       isVaultManagerOpen: false,
     });
@@ -132,7 +145,7 @@ describe('AppShell document remounting', () => {
   });
 
   it('remounts the active note view when switching between note tabs', async () => {
-    render(<AppShell />);
+    render(<AppShell />, { wrapper: TooltipProvider });
 
     expect((await screen.findByTestId('note-view')).textContent).toBe('Notes/a.md');
 
@@ -149,7 +162,7 @@ describe('AppShell document remounting', () => {
     ]);
   });
   it('keeps the mounted editor and its DOM across sidebar and appearance updates', async () => {
-    render(<AppShell />);
+    render(<AppShell />, { wrapper: TooltipProvider });
     const editor = await screen.findByTestId('note-view');
     for (const changes of [
       { sidebarPanel: 'search' as const },
@@ -167,7 +180,7 @@ describe('AppShell document remounting', () => {
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
   });
   it('opens personal chats without closing the current vault collaboration session', async () => {
-    render(<AppShell />);
+    render(<AppShell />, { wrapper: TooltipProvider });
     await screen.findByTestId('note-view');
     await act(async () => {
       useUiStore.getState().setActiveView('chats');
@@ -189,7 +202,7 @@ describe('AppShell document remounting', () => {
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
   });
   it('loads the databases route only when opened and keeps the vault session alive', async () => {
-    render(<AppShell />);
+    render(<AppShell />, { wrapper: TooltipProvider });
     await screen.findByTestId('note-view');
     expect(screen.queryByTestId('database-workspace')).toBeNull();
     await act(async () => useUiStore.getState().setActiveView('databases'));
@@ -202,5 +215,41 @@ describe('AppShell document remounting', () => {
     await act(async () => useUiStore.getState().setActiveView('editor'));
     await screen.findByTestId('note-view');
     expect(providerLifecycle).toEqual({ mounted: 1, unmounted: 0 });
+  });
+  it('routes the button and shortcut to the active workspace sidebar and remembers each view', async () => {
+    render(<AppShell />, { wrapper: TooltipProvider });
+    const vaultSidebar = screen.getByTestId('sidebar').closest('[aria-hidden]');
+    expect(vaultSidebar?.getAttribute('aria-hidden')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'Graph View' })).toBeNull();
+
+    for (const [view, sidebar] of [
+      ['Calendar', 'Calendar overview'],
+      ['Chats', 'Chats and teams'],
+      ['Databases', 'Database connections'],
+    ]) {
+      fireEvent.click(screen.getByRole('button', { name: view }));
+      const panel = await screen.findByRole('complementary', { name: sidebar });
+      expect(vaultSidebar?.hasAttribute('inert')).toBe(true);
+      const hide = screen.getByRole('button', { name: `Hide ${sidebar.toLowerCase()}` });
+      expect(hide.getAttribute('aria-expanded')).toBe('true');
+      fireEvent.click(hide);
+      expect(panel.hidden).toBe(true);
+      const show = screen.getByRole('button', { name: `Show ${sidebar.toLowerCase()}` });
+      expect(show.getAttribute('aria-expanded')).toBe('false');
+      expect(useUiStore.getState().isSidebarOpen).toBe(true);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+    expect(screen.getByRole('button', { name: 'Show calendar overview' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'B', ctrlKey: true, shiftKey: true });
+    expect((await screen.findByRole('complementary', { name: 'Calendar overview' })).hidden).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    expect(vaultSidebar?.getAttribute('aria-hidden')).toBe('false');
+    expect(useUiStore.getState().workspaceSidebars).toEqual({
+      calendar: true,
+      chats: false,
+      databases: false,
+    });
   });
 });

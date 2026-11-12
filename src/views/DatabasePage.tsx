@@ -31,11 +31,11 @@ import { useCollabStore } from '../store/collabStore';
 import { useUiStore } from '../store/uiStore';
 import type { DatabaseConnection, DatabaseWorkspace } from '../types/database';
 
-export default function DatabasePage() {
+export default function DatabasePage({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const owner = useCollabStore((state) => state.myUserId);
-  return <Workspace key={owner} owner={owner} />;
+  return <Workspace key={owner} owner={owner} sidebarOpen={sidebarOpen} />;
 }
-function Workspace({ owner }: { owner: string }) {
+function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean }) {
   const [workspace, setWorkspace] = useState<DatabaseWorkspace | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -214,6 +214,7 @@ function Workspace({ owner }: { owner: string }) {
         <aside
           className="flex w-64 shrink-0 flex-col gap-3 overflow-auto border-r border-border/50 bg-sidebar p-3"
           aria-label="Database connections"
+          hidden={!sidebarOpen}
         >
           <Input
             aria-label="Search connections"

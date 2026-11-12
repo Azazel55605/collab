@@ -36,11 +36,13 @@ import { TeamSidebar } from './TeamSidebar';
 
 export function ConversationAccounts({
   accounts,
+  sidebarOpen,
   registerBack,
   openAccountSettings,
   openChatSettings,
 }: {
   accounts: ChatAccount[];
+  sidebarOpen?: boolean;
   registerBack?: (dismiss: () => void) => () => void;
   openAccountSettings?: () => void;
   /** Opens the app's Chats settings section. */
@@ -69,6 +71,7 @@ export function ConversationAccounts({
           key={JSON.stringify([selected.serverUrl, selected.accountId])}
           account={selected}
           accounts={accounts}
+          sidebarOpen={sidebarOpen}
           registerBack={registerBack}
           openAccountSettings={openAccountSettings}
           openChatSettings={openChatSettings}
@@ -87,6 +90,7 @@ export function ConversationAccounts({
 function AccountWorkspace({
   account,
   accounts,
+  sidebarOpen,
   selectAccount,
   registerBack,
   openAccountSettings,
@@ -95,6 +99,7 @@ function AccountWorkspace({
 }: {
   account: ChatAccount;
   accounts: ChatAccount[];
+  sidebarOpen?: boolean;
   selectAccount: (account: ChatAccount) => void;
   registerBack?: (dismiss: () => void) => () => void;
   openAccountSettings?: () => void;
@@ -219,8 +224,15 @@ function AccountWorkspace({
           openSettings={openAccountSettings}
         />
       </header>
-      <div className={`conversation-split ${hasContent ? 'has-content' : ''}`}>
-        <aside className="conversation-sidebar" aria-label="Chats and teams">
+      <div
+        className={`conversation-split ${hasContent ? 'has-content' : ''}`}
+        data-sidebar-open={sidebarOpen}
+      >
+        <aside
+          className="conversation-sidebar"
+          aria-label="Chats and teams"
+          hidden={sidebarOpen === false}
+        >
           <header className="conversation-sidebar-heading">
             <h1>{layout === 'combined' ? 'Chats' : section === 'chats' ? 'Chats' : 'Teams'}</h1>
             <Button

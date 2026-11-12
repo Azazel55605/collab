@@ -3,7 +3,9 @@ import type { ComponentProps } from 'react';
 import { deferredView } from '../components/layout/deferredView';
 
 export const DatabasePage = deferredView(() => import('./DatabasePage'));
-export const CalendarPage = deferredView(() => import('./CalendarPage'));
+export const CalendarPage = deferredView<
+  NonNullable<ComponentProps<typeof import('./CalendarPage').default>>
+>(() => import('./CalendarPage'));
 export const CanvasPage = deferredView(() => import('./CanvasPage'));
 export const ChatsPage = deferredView<
   NonNullable<ComponentProps<typeof import('./ChatsPage').default>>
