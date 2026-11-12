@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircuitBoard,
+  Database,
   Download,
   FileText,
   FileUp,
@@ -34,6 +35,7 @@ import { createInkDocument, serializeInkDocument } from '../../lib/ink/document'
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
 import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
+import { isSqlitePath } from '../../lib/sqliteFiles';
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import { createVaultClient } from '../../lib/vaultClient';
@@ -365,15 +367,49 @@ export default function FileTree() {
     vault?.path,
   );
 
+  const handleDownload = useCallback(
+    async (file: NoteFile) => {
+      if (!vault || file.isFolder) return;
+      try {
+        const sqlite = isSqlitePath(file.relativePath);
+        const chooseDestination = () => tauriCommands.showDownloadDialog(file.name);
+        const sqliteDestination = sqlite ? await chooseDestination() : null;
+        if (sqlite && !sqliteDestination) return;
+        if (sqliteDestination && !isSqlitePath(sqliteDestination)) {
+          toast.error('Save the copy with a .sqlite, .sqlite3, or .db extension.');
+          return;
+        }
+        const dataUrl = await createVaultClient(vault).readAssetDataUrl(file.relativePath);
+        const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+        const dest = sqliteDestination ?? (await chooseDestination());
+        if (!dest) return;
+        await tauriCommands.writeDownloadedFile(dest, base64);
+        if (sqlite) {
+          toast.success('SQLite copy saved. Use Open SQLite to select it.');
+          setActiveView('databases');
+        } else {
+          toast.success(`Downloaded ${file.name}`);
+        }
+      } catch (e) {
+        toast.error(`Could not download ${file.name}: ${e}`);
+      }
+    },
+    [vault, setActiveView],
+  );
+
   const handleOpenFile = useCallback(
     (file: NoteFile) => {
+      if (isSqlitePath(file.relativePath)) {
+        void handleDownload(file);
+        return;
+      }
       const type = getVaultDocumentTabType(file.relativePath);
       openTab(file.relativePath, file.name, type);
       if (type === 'canvas') setActiveView('canvas');
       else if (type === 'kanban') setActiveView('kanban');
       else setActiveView('editor');
     },
-    [openTab, setActiveView],
+    [handleDownload, openTab, setActiveView],
   );
 
   const handleNodeClick = useCallback(
@@ -567,23 +603,6 @@ export default function FileTree() {
       );
     },
     [vault, isLocalVault],
-  );
-
-  const handleDownload = useCallback(
-    async (file: NoteFile) => {
-      if (!vault || file.isFolder) return;
-      try {
-        const dataUrl = await createVaultClient(vault).readAssetDataUrl(file.relativePath);
-        const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
-        const dest = await tauriCommands.showDownloadDialog(file.name);
-        if (!dest) return;
-        await tauriCommands.writeDownloadedFile(dest, base64);
-        toast.success(`Downloaded ${file.name}`);
-      } catch (e) {
-        toast.error(`Could not download ${file.name}: ${e}`);
-      }
-    },
-    [vault],
   );
 
   const handleDuplicate = useCallback(
@@ -1626,6 +1645,7 @@ const FileTreeNode = memo(function FileTreeNode({
         />
       );
     }
+    if (isSqlitePath(node.relativePath)) return <Database size={13} className="text-primary/70" />;
     if (isImageAsset) return <ImageIcon size={13} className="text-sky-400/80" />;
     if (node.extension === 'canvas') return <Layout size={13} className="text-blue-400/70" />;
     if (node.extension === 'kanban')
@@ -1944,7 +1964,8 @@ const FileTreeNode = memo(function FileTreeNode({
         )}
         {!node.isFolder && (
           <ContextMenuItem onClick={() => void onDownload(node)}>
-            <Download size={12} /> Download…
+            <Download size={12} />{' '}
+            {isSqlitePath(node.relativePath) ? 'Save SQLite copy…' : 'Download…'}
           </ContextMenuItem>
         )}
         {canReveal && (

@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { createDeferredPersistence } from '../lib/deferredPersistence';
 import { runDocumentNavigation } from '../lib/documentNavigation';
 import { documentSessionRetention } from '../lib/documentSessionRetention';
+import { isSqlitePath } from '../lib/sqliteFiles';
 
 export interface OpenTab {
   relativePath: string;
@@ -226,8 +227,9 @@ export const useEditorStore = create<EditorState>()(
         flushEditorPersistence();
       },
 
-      openTab: (relativePath, title, type = 'note') =>
-        runDocumentNavigation(() => {
+      openTab: (relativePath, title, type = 'note') => {
+        if (isSqlitePath(relativePath)) return;
+        void runDocumentNavigation(() => {
           const { openTabs, activeTabPath } = get();
           const exists = openTabs.some((tab) => tab.relativePath === relativePath);
           if (exists && activeTabPath === relativePath) return;
@@ -246,7 +248,8 @@ export const useEditorStore = create<EditorState>()(
             inkViewStates: touch(get().inkViewStates),
             deckViewStates: touch(get().deckViewStates),
           });
-        }),
+        });
+      },
 
       closeTab: (relativePath) => {
         void get().closeTabs([relativePath]);

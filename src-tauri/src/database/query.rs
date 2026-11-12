@@ -152,7 +152,7 @@ impl Runtime {
         Ok(Poll { frame, status })
     }
 }
-struct Output {
+pub(super) struct Output {
     sender: mpsc::Sender<Queued>,
     credits: Arc<Semaphore>,
     window: Arc<Mutex<StreamWindow>>,
@@ -163,18 +163,22 @@ struct Output {
     counts: usize,
     sets: usize,
     cancel: Arc<CancelHandle>,
-    stop: tokio_util::sync::CancellationToken,
-    limits: Limits,
+    pub(super) stop: tokio_util::sync::CancellationToken,
+    pub(super) limits: Limits,
 }
 impl Output {
-    async fn credit(&self) -> Result<OwnedSemaphorePermit, E> {
+    pub(super) async fn credit(&self) -> Result<OwnedSemaphorePermit, E> {
         tokio::select! {biased;_ = self.stop.cancelled()=>Err(E::Cancelled),result=tokio::time::timeout(Duration::from_secs(5),self.credits.clone().acquire_owned())=>result.map_err(|_|E::Timeout)?.map_err(|_|E::Cancelled)}
     }
-    async fn emit(&mut self, event: ResultEvent) -> Result<(), E> {
+    pub(super) async fn emit(&mut self, event: ResultEvent) -> Result<(), E> {
         let credit = self.credit().await?;
         self.emit_with(event, credit)
     }
-    fn emit_with(&mut self, event: ResultEvent, credit: OwnedSemaphorePermit) -> Result<(), E> {
+    pub(super) fn emit_with(
+        &mut self,
+        event: ResultEvent,
+        credit: OwnedSemaphorePermit,
+    ) -> Result<(), E> {
         match &event {
             ResultEvent::Message { .. } => {
                 if self.messages >= 256 {
@@ -357,7 +361,37 @@ fn start_inner(
     committing: bool,
 ) -> Result<String, E> {
     let batches = collab_database::sql_batches(&sql, selection)?;
-    let mut state = live.query.inner.lock();
+    let (selected, _) = collab_database::selected_sql(&sql, selection)?;
+    let (id, output) = start_stream(
+        &live.query,
+        binding,
+        row_limit,
+        (parameters.is_none() && !recovery).then_some(selected),
+        recovery,
+    )?;
+    let monitor = live.clone();
+    let task = tokio::spawn(async move {
+        run(live, batches, output, parameters, committing).await;
+    });
+    tokio::spawn(async move {
+        if task.await.is_err() {
+            monitor.cancel.cancel();
+            monitor.client.lock().await.take();
+            let mut state = monitor.query.inner.lock();
+            state.status.phase = "outcome_unknown".into();
+            state.status.transaction = TransactionState::Unknown;
+        }
+    });
+    Ok(id)
+}
+pub(super) fn start_stream(
+    runtime: &Runtime,
+    binding: SessionBinding,
+    row_limit: usize,
+    history_sql: Option<&str>,
+    recovery: bool,
+) -> Result<(String, Output), E> {
+    let mut state = runtime.inner.lock();
     if matches!(
         state.status.phase.as_str(),
         "running" | "cancelling" | "finishing"
@@ -402,8 +436,7 @@ fn start_inner(
         last_ack: None,
         window: window.clone(),
     })));
-    let (selected, _) = collab_database::selected_sql(&sql, selection)?;
-    if parameters.is_none() && !recovery {
+    if let Some(selected) = history_sql {
         state.history.push_front(HistoryEntry {
             sql: selected.into(),
             executed_at: chrono::Utc::now().to_rfc3339(),
@@ -434,21 +467,26 @@ fn start_inner(
         stop,
         limits,
     };
-    let monitor = live.clone();
-    let task = tokio::spawn(async move {
-        run(live, batches, output, parameters, committing).await;
-    });
-    tokio::spawn(async move {
-        if task.await.is_err() {
-            monitor.cancel.cancel();
-            monitor.client.lock().await.take();
-            let mut state = monitor.query.inner.lock();
-            state.status.phase = "outcome_unknown".into();
-            state.status.transaction = TransactionState::Unknown;
-        }
-    });
-    Ok(id)
+    Ok((id, output))
 }
+
+impl Runtime {
+    pub(super) fn retire(&self, unknown: bool) {
+        let mut state = self.inner.lock();
+        state.status.phase = if unknown {
+            "outcome_unknown"
+        } else {
+            "retired"
+        }
+        .into();
+        state.status.transaction = if unknown {
+            TransactionState::Unknown
+        } else {
+            TransactionState::None
+        };
+    }
+}
+
 async fn run(
     live: Arc<Live>,
     batches: Vec<SqlBatch>,
@@ -515,16 +553,41 @@ async fn run(
             e.outcome_unknown = true;
         }
     }
+    if !finish_stream(
+        &live.query,
+        &live.cancel,
+        output,
+        transaction,
+        reusable,
+        error,
+        reason,
+    )
+    .await
+    {
+        live.client.lock().await.take();
+        live.cancel.cancel();
+    }
+}
+
+pub(super) async fn finish_stream(
+    runtime: &Runtime,
+    cancel: &tokio_util::sync::CancellationToken,
+    mut output: Output,
+    transaction: TransactionState,
+    reusable: bool,
+    error: Option<ExecutionError>,
+    reason: FinishReason,
+) -> bool {
     // Publish completion before trying to enqueue it: a stalled renderer must never
     // hold a running server request open merely by withholding acknowledgements.
     {
-        let mut state = live.query.inner.lock();
+        let mut state = runtime.inner.lock();
         state.status.phase = "finishing".into();
         state.status.transaction = transaction;
         state.status.reason = Some(reason);
     }
-    if live.cancel.is_cancelled() {
-        return;
+    if cancel.is_cancelled() {
+        return false;
     }
     // Completion has an independent bounded wait even after user cancellation.
     output.cancel = Arc::new(CancelHandle::new());
@@ -535,32 +598,27 @@ async fn run(
     };
     let credit = output.credit().await;
     let delivered = {
-        let mut state = live.query.inner.lock();
+        let mut state = runtime.inner.lock();
         let delivered = credit
             .and_then(|credit| output.emit_with(event, credit))
             .is_ok();
-        state.status.phase = if delivered {
-            if reusable {
-                "idle"
-            } else {
-                "outcome_unknown"
-            }
+        state.status.phase = if !reusable && transaction == TransactionState::Unknown {
+            "outcome_unknown"
+        } else if delivered && reusable {
+            "idle"
         } else {
-            if reusable {
-                "retired"
-            } else {
-                "outcome_unknown"
-            }
+            "retired"
         }
         .into();
         delivered
     };
-    if !delivered {
-        live.client.lock().await.take();
-        live.cancel.cancel();
-    }
+    delivered
 }
-fn failure(code: E, source: Option<SourceRange>, outcome_unknown: bool) -> ExecutionError {
+pub(super) fn failure(
+    code: E,
+    source: Option<SourceRange>,
+    outcome_unknown: bool,
+) -> ExecutionError {
     ExecutionError {
         code,
         source,

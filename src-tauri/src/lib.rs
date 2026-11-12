@@ -172,6 +172,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             #[cfg(not(mobile))]
             commands::database::database_activate,
+            commands::database::database_sqlite_pick,
+            commands::database::database_sqlite_backup,
             #[cfg(not(mobile))]
             commands::database::database_deactivate,
             #[cfg(not(mobile))]

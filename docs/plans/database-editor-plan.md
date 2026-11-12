@@ -80,11 +80,11 @@ must explicitly resolve session ownership and pending changes.
 
 ### Drivers And Engines
 
-| Engine     | Connection model                                            | Adapter investigation                                                                                                                       |
-| ---------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQL Server | Native TCP connection; explicit database and authentication | Evaluate Tiberius and Microsoft mssql-rs against real target servers; SQLx's existing core drivers are not a built-in MSSQL implementation. |
-| SQLite     | Native-owned handle to an explicitly selected local file    | Evaluate the existing SQLx SQLite adapter for dynamic queries, cancellation, locking and bounded streaming.                                 |
-| MariaDB    | Native TCP connection; explicit database and authentication | Evaluate SQLx's MySQL/MariaDB adapter against supported MariaDB versions and SQL modes.                                                     |
+| Engine     | Connection model                                            | Adapter investigation                                                                                                                                      |
+| ---------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQL Server | Native TCP connection; explicit database and authentication | Evaluate Tiberius and Microsoft mssql-rs against real target servers; SQLx's existing core drivers are not a built-in MSSQL implementation.                |
+| SQLite     | Native-owned handle to an explicitly selected local file    | Phase 4 uses rusqlite for synchronous stepping, progress cancellation, authorizer hooks and online backup. It shares the bundled SQLite library with SQLx. |
+| MariaDB    | Native TCP connection; explicit database and authentication | Evaluate SQLx's MySQL/MariaDB adapter against supported MariaDB versions and SQL modes.                                                                    |
 
 Driver selection is a Phase 0 gate, not a decision to add dependencies immediately.
 Check released-version maintenance, licensing, packaging, TLS, type coverage,
@@ -235,13 +235,19 @@ The disposable SQL Server 2019/2022/2025 fixtures cover competing writes, AFTER 
 
 ### Phase 4 — SQLite
 
-- [ ] Implement local-file selection/creation and native file-handle ownership.
-- [ ] Add schema browsing, query execution, typed results and safe row edits through
+- [x] Implement local-file selection/creation and native file-handle ownership.
+- [x] Add schema browsing, query execution, typed results and safe row edits through
       the shared contracts; cover WITHOUT ROWID and keyless tables explicitly.
-- [ ] Validate WAL/external-writer contention, busy timeouts, read-only files,
+- [x] Validate WAL/external-writer contention, busy timeouts, read-only files,
       cancellation, moved files and crash recovery without corrupting databases.
 
 Exit: file-based editing works without leaking database files into text-vault sync.
+
+Disposable SQLite files cover read-only opens, cancellation, moved files, keyed
+edits and external-writer conflicts. A subprocess exit leaves committed WAL
+data and an unfinished writer for the recovery fixture. Installed desktop
+picker, WebView and packaged platform acceptance remain open. See
+[Local SQLite](../desktop/database-queries.md#local-sqlite).
 
 ### Phase 5 — MariaDB
 

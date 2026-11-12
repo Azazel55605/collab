@@ -1636,6 +1636,13 @@ concurrency validation, and a dedicated Apply transaction. `TableEditDialog`
 reuses the virtual result grid, and `lib/database/tableEditing.ts` handles staged
 changes, refreshes, and commit outcomes in the session store. Fixed manual
 transaction actions stay on the pinned query session.
+Phase 4 adds the desktop SQLite driver in `database/sqlite.rs` and keyed grid
+edits in `database/sqlite/edits.rs`. The registry binds each picker-owned local
+file to a native session with the shared query stream. SQLite completion,
+metadata and table edits reuse the database workspace. Explicit vault imports
+use SQLite's online backup API and the binary asset path. The server validates
+SQLite attachment headers and stores them without a text or live-document
+type. The file tree saves a new local copy for editing.
 The native SQL Server dependency uses the documented bounded-diagnostics patch in
 `vendor/mssql-tds`. See [Database queries](./database-queries.md).
 See [Database workspace](./database-workspace.md) for ownership and native gaps.

@@ -156,9 +156,9 @@ pub async fn database_query_poll(
     after: Option<u64>,
 ) -> Result<database::query::Poll, ContractError> {
     authorize(&window)?;
-    let live = database::query_live(&token, &binding).await?;
-    let result = live.query.poll(&query_id, after).await?;
-    database::query_live(&token, &binding).await?;
+    let live = database::query_target(&token, &binding).await?;
+    let result = live.runtime().poll(&query_id, after).await?;
+    database::query_target(&token, &binding).await?;
     Ok(result)
 }
 #[tauri::command]
@@ -169,9 +169,9 @@ pub async fn database_query_cancel(
     query_id: String,
 ) -> Result<(), ContractError> {
     authorize(&window)?;
-    database::query_live(&token, &binding)
+    database::query_target(&token, &binding)
         .await?
-        .query
+        .runtime()
         .cancel(&query_id)
 }
 #[tauri::command]
@@ -181,7 +181,10 @@ pub async fn database_query_status(
     binding: SessionBinding,
 ) -> Result<database::query::Status, ContractError> {
     authorize(&window)?;
-    Ok(database::query_live(&token, &binding).await?.query.status())
+    Ok(database::query_target(&token, &binding)
+        .await?
+        .runtime()
+        .status())
 }
 #[tauri::command]
 pub async fn database_query_history(
@@ -191,11 +194,11 @@ pub async fn database_query_history(
     clear: bool,
 ) -> Result<Vec<database::query::HistoryEntry>, ContractError> {
     authorize(&window)?;
-    let live = database::query_live(&token, &binding).await?;
+    let live = database::query_target(&token, &binding).await?;
     if clear {
-        live.query.clear_history();
+        live.runtime().clear_history();
     }
-    Ok(live.query.history())
+    Ok(live.runtime().history())
 }
 #[tauri::command]
 pub async fn database_can_quit(window: tauri::WebviewWindow) -> Result<bool, ContractError> {
@@ -211,7 +214,7 @@ pub async fn database_query_export(
     json: bool,
 ) -> Result<bool, ContractError> {
     authorize(&window)?;
-    database::query_live(&token, &binding).await?;
+    database::query_target(&token, &binding).await?;
     if content.len() > 16 << 20 {
         return Err(ContractError::LimitReached);
     }
@@ -233,7 +236,7 @@ pub async fn database_query_export(
     let path = path
         .into_path()
         .map_err(|_| ContractError::InvalidParameter)?;
-    database::query_live(&token, &binding).await?;
+    database::query_target(&token, &binding).await?;
     tokio::task::spawn_blocking(move || {
         use std::io::Write;
         let parent = path.parent().ok_or(ContractError::InvalidParameter)?;
@@ -289,4 +292,68 @@ pub async fn database_edit_apply(
 ) -> Result<database::edit::ApplyResult, database::edit::Failure> {
     authorize_execution(&window)?;
     database::edit_apply(&token, binding, request).await
+}
+
+#[tauri::command]
+pub async fn database_sqlite_pick(
+    window: tauri::WebviewWindow,
+    token: String,
+    mode: database::sqlite::OpenMode,
+) -> Result<Option<database::sqlite::FileView>, ContractError> {
+    authorize_execution(&window)?;
+    database::validate_token(&token).await?;
+    use tauri_plugin_dialog::DialogExt;
+    let app = window.app_handle().clone();
+    let selection = tokio::task::spawn_blocking(move || {
+        let picker = app
+            .dialog()
+            .file()
+            .add_filter("SQLite database", &["sqlite", "sqlite3", "db"]);
+        match mode {
+            database::sqlite::OpenMode::Create => {
+                picker.set_file_name("database.sqlite").blocking_save_file()
+            }
+            _ => picker.blocking_pick_file(),
+        }
+    })
+    .await
+    .map_err(|_| ContractError::ConnectionFailed)?;
+    authorize_execution(&window)?;
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|_| ContractError::InvalidParameter)?;
+    database::open_sqlite(&token, path, mode).await.map(Some)
+}
+
+#[tauri::command]
+pub async fn database_sqlite_backup(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+) -> Result<bool, ContractError> {
+    authorize_execution(&window)?;
+    database::query_target(&token, &binding).await?;
+    use tauri_plugin_dialog::DialogExt;
+    let app = window.app_handle().clone();
+    let selection = tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("SQLite database", &["sqlite", "sqlite3", "db"])
+            .set_file_name("backup.sqlite")
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|_| ContractError::ConnectionFailed)?;
+    authorize_execution(&window)?;
+    let Some(selection) = selection else {
+        return Ok(false);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|_| ContractError::InvalidParameter)?;
+    database::backup_sqlite(&token, &binding, path).await?;
+    Ok(true)
 }

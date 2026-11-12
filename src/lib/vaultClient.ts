@@ -432,6 +432,10 @@ function guessAssetMime(relativePath: string): string {
       return 'image/avif';
     case 'pdf':
       return 'application/pdf';
+    case 'sqlite':
+    case 'sqlite3':
+    case 'db':
+      return 'application/vnd.sqlite3';
     default:
       return 'application/octet-stream';
   }

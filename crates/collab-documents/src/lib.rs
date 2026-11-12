@@ -5,6 +5,7 @@ pub mod pdf;
 pub mod preview;
 pub mod references;
 pub mod sheet;
+pub mod sqlite_file;
 
 use quick_xml::{events::Event, Reader};
 use serde_json::Value;
