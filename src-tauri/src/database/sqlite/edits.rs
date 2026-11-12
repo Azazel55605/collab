@@ -274,7 +274,7 @@ impl Session {
                 })
                 .collect::<Result<Vec<_>, E>>()?;
             Ok(Snapshot {
-                page: Page::sqlite(request.table.clone(), columns, rows, more),
+                page: Page::new("main".into(), request.table.clone(), columns, rows, more),
                 table: request.table,
                 revision: table.revision,
                 rows: originals,

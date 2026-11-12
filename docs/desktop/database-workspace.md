@@ -3,7 +3,8 @@
 Phase 1 adds desktop SQL Server connection management and metadata browsing.
 Phase 2 adds [queries and read-only results](./database-queries.md). Phase 3 adds
 [staged row editing](./database-queries.md#edit-table-rows) for eligible SQL Server tables. Phase 4 adds
-[local SQLite files and vault snapshots](./database-queries.md#local-sqlite). [Plan](../plans/database-editor-plan.md),
+[local SQLite files and vault snapshots](./database-queries.md#local-sqlite). Phase 5 adds
+[MariaDB connections and table editing](./database-queries.md#mariadb). [Plan](../plans/database-editor-plan.md),
 [Phase 0 contract](../plans/database-editor-phase0-contract.md).
 
 ## Connect And Browse
@@ -38,6 +39,17 @@ credentials; credential-store failure is explicit and can be retried.
 
 Phase 2 executes SQL and guards running work, dirty scripts and open/unknown
 transactions before disposal. See [queries and read-only results](./database-queries.md).
+
+## Connect To MariaDB
+
+Choose **New connection**, select **MariaDB**, and enter the hostname, TCP
+port (default 3306), database and SQL login. The hostname or IP must match a
+name or address on the server certificate. Install the issuing CA in the
+desktop system trust store for a private CA. The active connection shows the
+server version, InnoDB availability, SQL mode and connection collation.
+
+Select a database and **Open session**. In a session, **Browse metadata**
+lists its tables and views, with columns and indexes available for each object.
 
 ## Native Ownership And Credentials
 

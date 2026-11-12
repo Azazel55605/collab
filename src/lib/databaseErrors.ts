@@ -1,9 +1,11 @@
+import type { DatabaseEngine } from '../types/database';
+
 const messages: Record<string, string> = {
   database_moved:
     'The SQLite file moved or was replaced. Close the session and select the file again.',
   database_read_only: 'The SQLite file is read-only.',
   database_locked:
-    'Another writer is holding a lock on the SQLite file. Wait for it to finish and try again.',
+    'Another database operation is holding a lock. Wait for it to finish and try again.',
   invalid_database: 'The selected file could not be opened as a SQLite database.',
   script_conflict:
     'The saved SQL script changed. Your draft is kept; reload it or save under a new name.',
@@ -38,7 +40,7 @@ const messages: Record<string, string> = {
   invalid_parameter:
     'Check the connection fields and use a plain hostname or IP address with a separate TCP port.',
   unsupported:
-    'This option is unavailable in this package. Flatpak currently supports session-only passwords.',
+    'This operation is unavailable for this database engine, server version, or desktop package.',
 };
 export function databaseError(error: unknown): string {
   return typeof error === 'string' && messages[error]
@@ -46,7 +48,13 @@ export function databaseError(error: unknown): string {
     : 'Could not complete the database operation. Database connections require the desktop app; check the server and try again.';
 }
 
-export function databaseQueryError(code: string): string {
+export function databaseQueryError(code: string, engine: DatabaseEngine = 'sql_server'): string {
+  if (engine === 'maria_db' && code === 'cancelled') {
+    return 'The client stopped waiting and closed this session. Check the database before rerunning the statement.';
+  }
+  if (engine === 'maria_db' && code === 'query_failed') {
+    return 'MariaDB rejected the statement. Check its error number and run one statement at a time.';
+  }
   if (code === 'unsupported')
     return 'This SQL operation is unsupported. Use plain GO delimiters; SQLCMD commands and GO repeat counts are unavailable.';
   if (code === 'invalid_parameter') return 'Check the SQL text, selection and table/filter fields.';

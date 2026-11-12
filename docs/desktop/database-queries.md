@@ -278,3 +278,36 @@ with normal asset permissions, hashes and quotas. Use **Save SQLite copy…** in
 the file tree, choose a new destination, and open that file from Databases.
 Edits belong to the copy. Import another snapshot when you want to share the
 updated database. SQLite journals and WAL sidecars belong with the live file.
+
+## MariaDB
+
+MariaDB tabs use the MariaDB SQL dialect and the pinned database as the schema.
+Run one server-prepared statement at a time. The editor supports selection,
+typed results and completion from visible metadata. The connection starts in
+strict mode with UTC timestamps and autocommit enabled. Observe the transaction
+badge after running SQL. MariaDB can implicitly commit a transaction before
+executing DDL.
+
+Cancellation closes the client session. The server can still settle an
+in-flight statement, so check the database before retrying. A lost commit
+reply is shown as an unknown outcome. Collab never replays the operation.
+
+Grid editing requires an ordinary InnoDB table with a non-null primary or
+full unique key and supported column types. The SQL login needs write
+privileges for the staged operations and a direct `TRIGGER` grant at table,
+database or server scope so Collab can check for triggers. Tables with
+triggers, views, keyless tables, nontransactional engines and unsupported
+types remain available for browsing. Generated and auto-increment cells are
+read-only. Exact integers and decimals use strings in the UI. Bound values
+and a strict SQL mode protect against silent engine or value substitution.
+Update counts report matched rows, including unchanged values.
+
+Apply holds a table metadata lock while rechecking eligibility and uses
+locking reads to compare every original value, including case differences
+under case-insensitive collations. The batch rolls back if a row changed or a
+statement fails. Successful edits return generated values and defaults.
+
+The disposable TLS fixture is available as
+`./scripts/database-mariadb-fixture.sh 11.4` or
+`./scripts/database-mariadb-fixture.sh 10.11`. It uses loopback networking,
+isolated credentials and a temporary CA.

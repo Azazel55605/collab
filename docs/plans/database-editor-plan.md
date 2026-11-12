@@ -84,7 +84,7 @@ must explicitly resolve session ownership and pending changes.
 | ---------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SQL Server | Native TCP connection; explicit database and authentication | Evaluate Tiberius and Microsoft mssql-rs against real target servers; SQLx's existing core drivers are not a built-in MSSQL implementation.                |
 | SQLite     | Native-owned handle to an explicitly selected local file    | Phase 4 uses rusqlite for synchronous stepping, progress cancellation, authorizer hooks and online backup. It shares the bundled SQLite library with SQLx. |
-| MariaDB    | Native TCP connection; explicit database and authentication | Evaluate SQLx's MySQL/MariaDB adapter against supported MariaDB versions and SQL modes.                                                                    |
+| MariaDB    | Native TCP connection; explicit database and authentication | Phase 5 uses SQLx MySQL transport for MariaDB 10.11 and newer, with verified TLS and a strict session baseline.                                            |
 
 Driver selection is a Phase 0 gate, not a decision to add dependencies immediately.
 Check released-version maintenance, licensing, packaging, TLS, type coverage,
@@ -251,14 +251,19 @@ picker, WebView and packaged platform acceptance remain open. See
 
 ### Phase 5 — MariaDB
 
-- [ ] Implement connection/authentication/TLS and engine capability discovery.
-- [ ] Add metadata, query/results and safe data edits through the shared workspace.
-- [ ] Cover SQL modes, quoting, collations, exact numeric types, generated values,
+- [x] Implement connection/authentication/TLS and engine capability discovery.
+- [x] Add metadata, query/results and safe data edits through the shared workspace.
+- [x] Cover SQL modes, quoting, collations, exact numeric types, generated values,
       affected-row semantics and transactional versus non-transactional tables.
       Disable atomic grid Apply where the storage engine cannot guarantee it.
 
 Exit: supported MariaDB versions pass the same edit/conflict contract with their
 engine-specific restrictions visible to users.
+
+Disposable MariaDB 10.11 and 11.4 TLS fixtures cover authentication, the strict
+session baseline, typed results, implicit DDL commits, atomic edits and
+cancellation. Packaged desktop and broader compatibility acceptance remain
+open. See [MariaDB](../desktop/database-queries.md#mariadb).
 
 ### Phase 6 — Schema Editing Across Supported Engines
 

@@ -2,6 +2,7 @@ use super::*;
 use driver::MetadataRequest;
 fn config() -> SavedConnection {
     SavedConnection {
+        engine: Engine::SqlServer,
         id: String::new(),
         label: "Fixture".into(),
         environment: "Test".into(),
@@ -15,6 +16,14 @@ fn config() -> SavedConnection {
         retired_credentials: vec![],
     }
 }
+#[test]
+fn existing_network_profiles_default_to_sql_server() {
+    let mut profile = serde_json::to_value(config()).unwrap();
+    profile.as_object_mut().unwrap().remove("engine");
+    let restored: SavedConnection = serde_json::from_value(profile).unwrap();
+    assert_eq!(restored.engine, Engine::SqlServer);
+}
+
 #[test]
 fn profiles_reject_connection_string_injection_and_do_not_store_secrets() {
     let mut c = config();
@@ -428,9 +437,11 @@ async fn phase2_fixture(token: &str, connection: &str) {
         DbValue as V, FinishReason as F, ResultEvent as R, TransactionState as T,
     };
     let began = std::time::Instant::now();
-    let observer = {
+    let Network::SqlServer(observer) = ({
         let r = registry().lock().await;
         r.connections.get(connection).unwrap().live.clone()
+    }) else {
+        panic!("SQL Server fixture requires a SQL Server connection");
     };
     edit_fixture_command(
         &observer,
@@ -1015,7 +1026,11 @@ async fn phase3_fixture(token: &str, connection: &str) {
         .await
         .unwrap();
     let operation = edit_connection(token, &edit_tab).await.unwrap();
-    let (operation, live) = operation.connect(&edit_tab.database).await.unwrap();
+    let (operation, Network::SqlServer(live)) =
+        operation.connect(&edit_tab.database).await.unwrap()
+    else {
+        panic!("SQL Server fixture requires a SQL Server connection");
+    };
     let result = edit::apply_with_lost_ack(
         operation,
         live,

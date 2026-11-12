@@ -119,6 +119,9 @@ impl Live {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MetadataRequest {
     Completion { after: String },
+    MariaTables { after: String },
+    MariaColumns { table: String, after: i32 },
+    MariaIndexes { table: String, after: String },
     Databases { after: String },
     Schemas { after: i32 },
     Objects { schema_id: i32, after: i32 },
@@ -128,6 +131,7 @@ pub enum MetadataRequest {
 impl MetadataRequest {
     fn sql(&self) -> Result<(String, Vec<RpcParameter>), E> {
         let (sql, values) = match self {
+            Self::MariaTables { .. } | Self::MariaColumns { .. } | Self::MariaIndexes { .. } => return Err(E::InvalidParameter),
             Self::Completion{after}=>{let (object,column)=after.split_once(':').ok_or(E::InvalidParameter)?;let object=nonnegative(object.parse().map_err(|_|E::InvalidParameter)?)?;let column=nonnegative(column.parse().map_err(|_|E::InvalidParameter)?)?;
             ("SELECT TOP(101) CAST(CONCAT(o.object_id,':',c.column_id) AS nvarchar(40)), CAST(c.name AS nvarchar(128)), CAST(o.name AS nvarchar(128)), CAST(s.name AS nvarchar(128)) FROM sys.objects o JOIN sys.schemas s ON o.schema_id=s.schema_id JOIN sys.columns c ON c.object_id=o.object_id WHERE o.type IN ('U','V') AND o.is_ms_shipped=0 AND (o.object_id>@P1 OR (o.object_id=@P1 AND c.column_id>@P2)) ORDER BY o.object_id,c.column_id",vec![SqlType::Int(Some(object)),SqlType::Int(Some(column))])},
             Self::Databases { after } => {

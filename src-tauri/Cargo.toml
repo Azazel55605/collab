@@ -85,6 +85,7 @@ keyring = { version = "3", features = ["apple-native"] }
 tauri-plugin-drag = "2.1.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
+sqlx = { workspace = true, features = ["mysql", "tls-rustls-ring-native-roots"] }
 rusqlite = { version = "0.41", features = ["bundled", "hooks", "backup", "limits"] }
 same-file = "1"
 collab-database = { path = "../crates/collab-database" }

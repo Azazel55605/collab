@@ -1643,6 +1643,14 @@ metadata and table edits reuse the database workspace. Explicit vault imports
 use SQLite's online backup API and the binary asset path. The server validates
 SQLite attachment headers and stores them without a text or live-document
 type. The file tree saves a new local copy for editing.
+Phase 5 adds the desktop-only SQLx MariaDB adapter in `database/maria.rs`
+and staged table edits in `database/maria/edit.rs`. The network registry
+dispatches SQL Server and MariaDB under the same credential, binding and
+session limits. MariaDB runs one prepared statement per request and probes
+the current database and transaction state. Its grid uses short-lived
+connections, table metadata locks, and row locks to verify a trigger-free
+InnoDB target and original values before committing. Older saved connection
+profiles default to SQL Server.
 The native SQL Server dependency uses the documented bounded-diagnostics patch in
 `vendor/mssql-tds`. See [Database queries](./database-queries.md).
 See [Database workspace](./database-workspace.md) for ownership and native gaps.
