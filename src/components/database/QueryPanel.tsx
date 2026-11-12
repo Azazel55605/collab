@@ -16,6 +16,7 @@ import { documentVaultIdentity } from '../../lib/documentPaneContext';
 import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useVaultStore } from '../../store/vaultStore';
+import type { DatabaseSqliteFile } from '../../types/database';
 import type { DatabaseBinding, DatabaseHistoryEntry } from '../../types/database';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -31,16 +32,18 @@ import TableEditDialog from './TableEditDialog';
 export default function QueryPanel({
   token,
   binding,
+  sqlite,
 }: {
   token: string;
   binding: DatabaseBinding;
+  sqlite?: DatabaseSqliteFile;
 }) {
   const tab = useDatabaseQueries((state) => state.tabs[binding.tab_id]);
   const vault = useVaultStore((state) => state.vault);
   const locked = useVaultStore((state) => state.isVaultLocked);
   const editor = useRef<SqlEditorHandle | null>(null);
   const [browse, setBrowse] = useState({
-    schema: tab?.browse?.schema ?? 'dbo',
+    schema: tab?.browse?.schema ?? (sqlite ? 'main' : 'dbo'),
     table: tab?.browse?.table ?? '',
     filter_column: tab?.browse?.filter_column ?? '',
     filter_text: tab?.browse?.filter_text ?? '',
@@ -306,6 +309,7 @@ export default function QueryPanel({
           size="sm"
           variant="outline"
           disabled={
+            sqlite?.read_only ||
             !canControlTransaction ||
             status.transaction !== 'none' ||
             !!tab.edit ||
@@ -341,13 +345,16 @@ export default function QueryPanel({
         </p>
       )}
       <p className="shrink-0 px-3 pb-2 text-xs text-muted-foreground">
-        {script?.path ?? 'Untitled SQL'} · SQL runs with your account’s permissions. Results are
-        read-only. Ctrl/Cmd+Enter runs the selection, or the whole batch when empty. GO separates
-        batches; repeat counts and SQLCMD commands are unsupported.
+        {script?.path ?? 'Untitled SQL'} · Ctrl/Cmd+Enter runs the selection, or the whole script
+        when empty.{' '}
+        {sqlite
+          ? 'SQLite statements use semicolons. Result grids are read-only.'
+          : 'SQL runs with your account’s permissions. Result grids are read-only. GO separates batches.'}
       </p>
       <div className="flex min-h-36 shrink-0 flex-col" style={{ height: '32%', maxHeight: 420 }}>
         <SqlEditor
           value={tab.sql}
+          sqlite={!!sqlite}
           readOnly={running}
           schema={schema}
           handle={editor}
@@ -368,7 +375,7 @@ export default function QueryPanel({
       {tab.error && (
         <div role="alert" className="shrink-0 px-3 py-2 text-sm text-destructive">
           {databaseQueryError(tab.error.code)}
-          {tab.error.server_code !== null && ` SQL Server ${tab.error.server_code}.`}
+          {tab.error.server_code !== null && ` Database error ${tab.error.server_code}.`}
           {tab.error.outcome_unknown &&
             ' Outcome unknown. Verify the database before rerunning; no query is replayed automatically.'}
           {tab.error.source && (

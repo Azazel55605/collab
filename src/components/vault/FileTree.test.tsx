@@ -463,6 +463,37 @@ describe('FileTree folder collapse state', () => {
     );
   });
 
+  it('saves SQLite attachments as local copies and opens the database workspace', async () => {
+    useVaultStore.setState({
+      fileTree: [
+        {
+          relativePath: 'Data/inventory.sqlite3',
+          name: 'inventory.sqlite3',
+          extension: 'sqlite3',
+          modifiedAt: 1,
+          size: 4096,
+          isFolder: false,
+        },
+      ],
+    });
+    vi.mocked(tauriCommands.readNoteAssetDataUrl).mockResolvedValue(
+      'data:application/vnd.sqlite3;base64,QUJD',
+    );
+    vi.mocked(tauriCommands.showDownloadDialog).mockResolvedValue('/downloads/inventory.sqlite3');
+    render(<FileTree />);
+    fireEvent.click(screen.getByText('Save SQLite copy…'));
+    await waitFor(() => expect(useUiStore.getState().activeView).toBe('databases'));
+    expect(tauriCommands.readNoteAssetDataUrl).toHaveBeenCalledWith(
+      '/vault',
+      'Data/inventory.sqlite3',
+    );
+    expect(tauriCommands.writeDownloadedFile).toHaveBeenCalledWith(
+      '/downloads/inventory.sqlite3',
+      'QUJD',
+    );
+    expect(useEditorStore.getState().openTabs).toEqual([]);
+  });
+
   it('does not write when the download dialog is cancelled', async () => {
     vi.mocked(tauriCommands.readNoteAssetDataUrl).mockResolvedValue(
       'data:text/markdown;base64,QUJD',

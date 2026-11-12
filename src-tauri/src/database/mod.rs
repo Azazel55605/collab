@@ -3,6 +3,7 @@ mod credentials;
 pub(crate) mod driver;
 pub(crate) mod edit;
 pub(crate) mod query;
+pub(crate) mod sqlite;
 use collab_database::{ContractError as E, SessionBinding};
 use driver::Live;
 use serde::{Deserialize, Serialize};
@@ -95,6 +96,7 @@ pub struct Workspace {
     pub profiles: Vec<SavedConnection>,
     pub connections: Vec<Connected>,
     pub tabs: Vec<SessionBinding>,
+    pub sqlite_files: Vec<sqlite::FileView>,
     pub durable_credentials: bool,
 }
 struct Connection {
@@ -122,7 +124,22 @@ struct Registry {
     profiles: Vec<SavedConnection>,
     connections: HashMap<String, Connection>,
     tabs: HashMap<String, Tab>,
+    sqlite: HashMap<String, Arc<sqlite::Session>>,
 }
+impl Registry {
+    fn clean(&self) -> bool {
+        self.tabs.values().all(Tab::clean) && self.sqlite.values().all(|file| file.clean())
+    }
+
+    fn sqlite_tab(&self, binding: &SessionBinding) -> Result<Option<&Arc<sqlite::Session>>, E> {
+        let file = self.sqlite.get(&binding.tab_id);
+        if file.is_some_and(|file| file.view.binding != *binding) {
+            return Err(E::WrongBinding);
+        }
+        Ok(file)
+    }
+}
+
 static CURRENT_PROFILE: OnceLock<parking_lot::Mutex<Option<String>>> = OnceLock::new();
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 static SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
@@ -131,7 +148,7 @@ fn registry() -> &'static Mutex<Registry> {
 }
 pub async fn profile_changed(previous_owner: &str, next_owner: &str) -> Result<(), E> {
     let mut r = registry().lock().await;
-    if r.owner == previous_owner && r.tabs.values().any(|t| !t.clean()) {
+    if r.owner == previous_owner && !r.clean() {
         return Err(E::UnresolvedSession);
     }
     {
@@ -229,14 +246,20 @@ pub async fn activate(root: &Path, owner: String) -> Result<Workspace, E> {
         token: r.token.clone(),
         profiles: r.profiles.clone(),
         connections: r.connections.values().map(|c| c.view.clone()).collect(),
-        tabs: r.tabs.values().map(|t| t.binding.clone()).collect(),
+        tabs: r
+            .tabs
+            .values()
+            .map(|t| t.binding.clone())
+            .chain(r.sqlite.values().map(|file| file.view.binding.clone()))
+            .collect(),
+        sqlite_files: r.sqlite.values().map(|file| file.view.clone()).collect(),
         durable_credentials: std::env::var_os("FLATPAK_ID").is_none(),
     })
 }
 pub async fn deactivate(token: &str) -> Result<(), E> {
     let mut r = registry().lock().await;
     check(&r, token)?;
-    if r.tabs.values().any(|t| !t.clean()) {
+    if !r.clean() {
         return Err(E::UnresolvedSession);
     }
     r.cancel.cancel();
@@ -617,9 +640,85 @@ pub async fn open_tab(token: &str, id: &str, database: String) -> Result<Session
     );
     Ok(binding)
 }
+pub async fn validate_token(token: &str) -> Result<(), E> {
+    let r = registry().lock().await;
+    check(&r, token)
+}
+
+pub async fn open_sqlite(
+    token: &str,
+    path: PathBuf,
+    mode: sqlite::OpenMode,
+) -> Result<sqlite::FileView, E> {
+    let (profile_id, cancel, permit) = {
+        let r = registry().lock().await;
+        check(&r, token)?;
+        (
+            r.owner.clone(),
+            r.cancel.child_token(),
+            slots().try_acquire_owned().map_err(|_| E::LimitReached)?,
+        )
+    };
+    let binding = SessionBinding {
+        profile_id,
+        session_id: Uuid::new_v4().to_string(),
+        generation: 1,
+        connection_id: Uuid::new_v4().to_string(),
+        tab_id: Uuid::new_v4().to_string(),
+        database: "main".into(),
+    };
+    let file = tokio::task::spawn_blocking(move || {
+        if cancel.is_cancelled() {
+            return Err(E::WrongBinding);
+        }
+        sqlite::Session::open(binding, path, mode, cancel, permit)
+    })
+    .await
+    .map_err(|_| E::ConnectionFailed)??;
+    let mut r = registry().lock().await;
+    check(&r, token)?;
+    let view = file.view.clone();
+    r.sqlite.insert(view.binding.tab_id.clone(), file);
+    Ok(view)
+}
+
+async fn sqlite_operation(
+    token: &str,
+    binding: &SessionBinding,
+) -> Result<Option<(Arc<sqlite::Session>, sqlite::Maintenance)>, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    r.sqlite_tab(binding)?
+        .map(|file| Ok((file.clone(), file.reserve()?)))
+        .transpose()
+}
+
+pub async fn backup_sqlite(
+    token: &str,
+    binding: &SessionBinding,
+    destination: PathBuf,
+) -> Result<(), E> {
+    let (file, operation) = sqlite_operation(token, binding)
+        .await?
+        .ok_or(E::WrongBinding)?;
+    tokio::task::spawn_blocking(move || {
+        let _operation = operation;
+        file.backup(&destination)
+    })
+    .await
+    .map_err(|_| E::ConnectionFailed)?
+}
 pub async fn close_tab(token: &str, binding: &SessionBinding, discard: bool) -> Result<(), E> {
     let mut r = registry().lock().await;
     check(&r, token)?;
+    if let Some(file) = r.sqlite_tab(binding)? {
+        if file.busy() || (!discard && !file.clean()) {
+            return Err(E::UnresolvedSession);
+        }
+        file.cancel.cancel();
+        r.sqlite.remove(&binding.tab_id);
+        return Ok(());
+    }
     let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
     if tab.binding != *binding {
         return Err(E::WrongBinding);
@@ -638,6 +737,19 @@ pub async fn metadata(
     binding: Option<SessionBinding>,
     request: driver::MetadataRequest,
 ) -> Result<driver::MetadataPage, E> {
+    if let Some(binding) = binding.as_ref() {
+        if binding.connection_id != connection_id {
+            return Err(E::WrongBinding);
+        }
+        if let Some((file, operation)) = sqlite_operation(token, binding).await? {
+            return tokio::task::spawn_blocking(move || {
+                let _operation = operation;
+                file.metadata(request)
+            })
+            .await
+            .map_err(|_| E::ConnectionFailed)?;
+        }
+    }
     let (live, tab_context) = {
         let r = registry().lock().await;
         check(&r, token)?;
@@ -680,6 +792,7 @@ pub async fn metadata(
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 pub async fn query_live(token: &str, binding: &SessionBinding) -> Result<Arc<Live>, E> {
     let r = registry().lock().await;
     check(&r, token)?;
@@ -689,11 +802,37 @@ pub async fn query_live(token: &str, binding: &SessionBinding) -> Result<Arc<Liv
     }
     Ok(tab.live.clone())
 }
+enum QueryOwner {
+    Server(Arc<Live>),
+    Sqlite(Arc<sqlite::Session>),
+}
+pub struct QueryTarget(QueryOwner);
+impl QueryTarget {
+    pub fn runtime(&self) -> &query::Runtime {
+        match &self.0 {
+            QueryOwner::Server(live) => &live.query,
+            QueryOwner::Sqlite(file) => &file.query,
+        }
+    }
+}
+pub async fn query_target(token: &str, binding: &SessionBinding) -> Result<QueryTarget, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    if let Some(file) = r.sqlite_tab(binding)? {
+        return Ok(QueryTarget(QueryOwner::Sqlite(file.clone())));
+    }
+    let tab = r
+        .tabs
+        .get(&binding.tab_id)
+        .filter(|tab| tab.binding == *binding)
+        .ok_or(E::WrongBinding)?;
+    Ok(QueryTarget(QueryOwner::Server(tab.live.clone())))
+}
 pub async fn can_quit() -> bool {
     let Some(registry) = REGISTRY.get() else {
         return true;
     };
-    registry.lock().await.tabs.values().all(Tab::clean)
+    registry.lock().await.clean()
 }
 
 pub async fn start_query(
@@ -705,6 +844,9 @@ pub async fn start_query(
 ) -> Result<String, E> {
     let r = registry().lock().await;
     check(&r, token)?;
+    if let Some(file) = r.sqlite_tab(&binding)? {
+        return sqlite::start(file.clone(), binding, sql, selection);
+    }
     let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
     if tab.binding != binding {
         return Err(E::WrongBinding);
@@ -722,6 +864,9 @@ pub async fn browse_query(
 ) -> Result<String, E> {
     let r = registry().lock().await;
     check(&r, token)?;
+    if let Some(file) = r.sqlite_tab(&binding)? {
+        return sqlite::browse(file.clone(), binding, request);
+    }
     let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
     if tab.binding != binding {
         return Err(E::WrongBinding);
@@ -739,6 +884,9 @@ pub async fn manual_transaction(
 ) -> Result<String, E> {
     let r = registry().lock().await;
     check(&r, token)?;
+    if let Some(file) = r.sqlite_tab(&binding)? {
+        return sqlite::transaction(file.clone(), binding, action);
+    }
     let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
     if tab.binding != binding {
         return Err(E::WrongBinding);
@@ -798,6 +946,14 @@ pub async fn edit_load(
     binding: SessionBinding,
     request: query::BrowseRequest,
 ) -> Result<edit::Page, edit::Failure> {
+    if let Some((file, operation)) = sqlite_operation(token, &binding).await? {
+        return tokio::task::spawn_blocking(move || {
+            let _operation = operation;
+            file.edit_load(request)
+        })
+        .await
+        .map_err(|_| E::UnresolvedSession)?;
+    }
     let connection = edit_connection(token, &binding).await?;
     let (operation, live) = connection.connect(&binding.database).await?;
     edit::load(operation, live, request).await
@@ -807,6 +963,14 @@ pub async fn edit_apply(
     binding: SessionBinding,
     request: edit::ApplyRequest,
 ) -> Result<edit::ApplyResult, edit::Failure> {
+    if let Some((file, operation)) = sqlite_operation(token, &binding).await? {
+        return tokio::task::spawn_blocking(move || {
+            let _operation = operation;
+            file.edit_apply(request)
+        })
+        .await
+        .map_err(|_| E::UnresolvedSession)?;
+    }
     let connection = edit_connection(token, &binding).await?;
     // Keep ownership until settlement even if the renderer drops its invoke.
     tokio::spawn(async move {

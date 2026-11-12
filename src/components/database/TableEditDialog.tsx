@@ -12,6 +12,7 @@ import type {
   DatabaseEditInput,
   DatabaseEditPage,
   DatabaseValue,
+  SqliteStorage,
 } from '../../types/database';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -25,11 +26,33 @@ import ResultGrid from './ResultGrid';
 
 type EditorSelection = { kind: 'insert' } | { kind: 'cell'; row: number; column: number };
 
+const sqliteStorageTypes: Record<SqliteStorage, string> = {
+  integer: 'Integer',
+  real: 'Real',
+  text: 'Text',
+  binary: 'BLOB (Base64)',
+};
+
 function showInput(input: DatabaseEditInput) {
+  if (input.kind === 'sqlite_value') return `${sqliteStorageTypes[input.storage]} · ${input.text}`;
   return input.kind === 'value' ? input.text : input.kind === 'null' ? 'NULL' : 'DEFAULT';
 }
-function initialInput(value: DatabaseValue): DatabaseEditInput {
-  return value.kind === 'null' ? { kind: 'null' } : { kind: 'value', text: valueText(value) };
+
+function initialInput(column: DatabaseEditColumn, value?: DatabaseValue): DatabaseEditInput {
+  if (value?.kind === 'null') return { kind: 'null' };
+  if (column.input === 'sqlite') {
+    const storage =
+      value?.kind === 'float'
+        ? 'real'
+        : value?.kind === 'integer' || value?.kind === 'binary'
+          ? value.kind
+          : 'text';
+    return { kind: 'sqlite_value', storage, text: value ? valueText(value) : '' };
+  }
+  return {
+    kind: 'value',
+    text: value ? valueText(value) : column.input === 'boolean' ? 'false' : '',
+  };
 }
 function editError(code: string) {
   switch (code) {
@@ -42,7 +65,7 @@ function editError(code: string) {
     case 'invalid_parameter':
       return 'Check the value, required fields, and the column type.';
     case 'query_failed':
-      return 'SQL Server rejected the change. Check the error number and review your values.';
+      return 'The database rejected the change. Check the error number and review your values.';
     case 'limit_reached':
       return 'The edit limit was reached. Filter to fewer rows or stage a smaller batch.';
     default:
@@ -187,7 +210,7 @@ export default function TableEditDialog({
             {outcome === 'committed' && 'Changes committed. Refresh failed. '}
             {failure.change_index != null && `Change ${failure.change_index + 1}. `}
             {editError(failure.code)}
-            {failure.server_code != null && ` SQL Server ${failure.server_code}.`}
+            {failure.server_code != null && ` Database error ${failure.server_code}.`}
           </p>
         )}
         {outcome === 'committed' && (
@@ -198,7 +221,7 @@ export default function TableEditDialog({
         )}
         {draft.committedRows.some(Boolean) && (
           <details className="text-sm">
-            <summary className="cursor-pointer">Values returned by SQL Server</summary>
+            <summary className="cursor-pointer">Values returned by the database</summary>
             <div className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
               {draft.committedRows.flatMap((row, index) =>
                 row
@@ -259,8 +282,8 @@ export default function TableEditDialog({
                   Review {changes.length} pending {changes.length === 1 ? 'change' : 'changes'}
                 </DialogTitle>
                 <DialogDescription>
-                  Changes apply in order in one transaction. SQL Server briefly locks this table
-                  during Apply.
+                  Changes apply in order in one transaction. Other writers may have to wait during
+                  Apply.
                 </DialogDescription>
               </DialogHeader>
               <ol className="max-h-72 space-y-2 overflow-auto text-sm">
@@ -322,9 +345,7 @@ export default function TableEditDialog({
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Discard pending row changes?</DialogTitle>
-                <DialogDescription>
-                  These staged changes have never been applied to SQL Server.
-                </DialogDescription>
+                <DialogDescription>These changes are staged locally.</DialogDescription>
               </DialogHeader>
               <Button variant="outline" onClick={() => setDiscard(false)}>
                 Keep editing
@@ -403,10 +424,10 @@ function CellEditDialog({
         value:
           existing ??
           (row
-            ? initialInput(row.values[column])
+            ? initialInput(metadata, row.values[column])
             : metadata.has_default || metadata.nullable
               ? { kind: 'default' }
-              : { kind: 'value', text: metadata.input === 'boolean' ? 'false' : '' }),
+              : initialInput(metadata)),
       };
     }),
   );
@@ -419,12 +440,16 @@ function CellEditDialog({
       onStage({ kind: 'update', row_id: row.id, values: [...retained, ...values] });
     }
   };
-  const incomplete = values.some(
-    ({ column, value }) =>
+  const incomplete = values.some(({ column, value }) => {
+    if (value.kind === 'sqlite_value') {
+      return !value.text && (value.storage === 'integer' || value.storage === 'real');
+    }
+    return (
       value.kind === 'value' &&
       !value.text &&
-      !['text', 'binary'].includes(page.columns[column].input),
-  );
+      !['text', 'binary'].includes(page.columns[column].input)
+    );
+  });
   return (
     <Dialog
       open
@@ -450,6 +475,7 @@ function CellEditDialog({
           <TypedField
             key={column}
             column={page.columns[column]}
+            inserting={inserting}
             value={value}
             onChange={(next) =>
               setValues((fields) =>
@@ -485,12 +511,16 @@ function TypedField({
   column,
   value,
   onChange,
+  inserting,
 }: {
+  inserting: boolean;
   column: DatabaseEditColumn;
   value: DatabaseEditInput;
   onChange: (value: DatabaseEditInput) => void;
 }) {
   const label = `${column.name} value`;
+  const allowDefault =
+    (inserting || column.input !== 'sqlite') && (column.has_default || column.nullable);
   const hints: Partial<Record<DatabaseEditColumn['input'], string>> = {
     binary: 'Base64',
     date: 'YYYY-MM-DD',
@@ -503,16 +533,16 @@ function TypedField({
       <FieldLabel>
         {column.name} · {column.engine_type}
       </FieldLabel>
-      {(column.nullable || column.has_default) && (
+      {(column.nullable || allowDefault) && (
         <Select
-          value={value.kind}
+          value={value.kind === 'sqlite_value' ? 'value' : value.kind}
           onValueChange={(kind) =>
             onChange(
               kind === 'null'
                 ? { kind: 'null' }
                 : kind === 'default'
                   ? { kind: 'default' }
-                  : { kind: 'value', text: column.input === 'boolean' ? 'false' : '' },
+                  : initialInput(column),
             )
           }
         >
@@ -522,11 +552,34 @@ function TypedField({
           <SelectContent>
             <SelectItem value="value">Value</SelectItem>
             {column.nullable && <SelectItem value="null">NULL</SelectItem>}
-            {(column.has_default || column.nullable) && (
-              <SelectItem value="default">Database default</SelectItem>
-            )}
+            {allowDefault && <SelectItem value="default">Database default</SelectItem>}
           </SelectContent>
         </Select>
+      )}
+      {value.kind === 'sqlite_value' && (
+        <>
+          <Select
+            value={value.storage}
+            onValueChange={(storage: SqliteStorage) => onChange({ ...value, storage })}
+          >
+            <SelectTrigger aria-label={`${column.name} storage class`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(sqliteStorageTypes).map(([storage, name]) => (
+                <SelectItem key={storage} value={storage}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Textarea
+            aria-label={label}
+            maxLength={value.storage === 'binary' ? 24 * 1024 : 16 * 1024}
+            value={value.text}
+            onChange={(event) => onChange({ ...value, text: event.target.value })}
+          />
+        </>
       )}
       {value.kind === 'value' &&
         (column.input === 'boolean' ? (

@@ -17,6 +17,7 @@ vi.mock('../lib/tauri', () => ({
     databaseOpenTab: vi.fn(),
     databaseCloseTab: vi.fn(),
     databaseMetadata: vi.fn(),
+    databaseSqlitePick: vi.fn(),
     databaseRemove: vi.fn(),
   },
 }));
@@ -81,6 +82,39 @@ beforeEach(() => {
   vi.mocked(tauriCommands.databaseMetadata).mockResolvedValue({ items: [], next: null });
 });
 describe('database workspace', () => {
+  it('opens a native SQLite selection read-only and browses metadata with its binding', async () => {
+    const sqliteBinding = {
+      ...binding,
+      connection_id: 'file',
+      tab_id: 'sqlite-tab',
+      database: 'main',
+    };
+    const file = { binding: sqliteBinding, label: 'inventory.sqlite', read_only: true };
+    vi.mocked(tauriCommands.databaseSqlitePick).mockImplementationOnce(async () => {
+      workspace.tabs.push(sqliteBinding);
+      workspace.sqlite_files = [file];
+      return file;
+    });
+    renderPage();
+    const open = await screen.findByRole('button', { name: 'Open SQLite read-only…' });
+    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(open);
+    expect((await screen.findByRole('tab', { name: file.label })).getAttribute('data-state')).toBe(
+      'active',
+    );
+    expect(screen.getByText('Read-only')).toBeTruthy();
+    expect(tauriCommands.databaseSqlitePick).toHaveBeenCalledWith('workspace-a', 'read_only');
+    fireEvent.click(screen.getByRole('button', { name: 'Browse metadata' }));
+    await waitFor(() =>
+      expect(tauriCommands.databaseMetadata).toHaveBeenCalledWith(
+        'workspace-a',
+        'file',
+        sqliteBinding,
+        { kind: 'schemas', after: 0 },
+      ),
+    );
+  });
+
   it('pins an existing tab across sidebar selection and retires only an explicitly disconnected connection', async () => {
     renderPage();
     fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Server A · catalog-a' }), {

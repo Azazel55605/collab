@@ -424,6 +424,14 @@ pub enum ContractError {
     InvalidParameter,
     #[error("Unsupported capability")]
     Unsupported,
+    #[error("The SQLite database file moved or was replaced")]
+    DatabaseMoved,
+    #[error("The SQLite database is read-only")]
+    DatabaseReadOnly,
+    #[error("Another connection is holding a SQLite lock")]
+    DatabaseLocked,
+    #[error("The selected file is not a valid SQLite database")]
+    InvalidDatabase,
     #[error("The session is busy")]
     Busy,
     #[error("The session binding does not match")]

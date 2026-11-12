@@ -71,6 +71,7 @@ impl Drop for Operation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum InputKind {
+    Sqlite,
     Integer,
     Decimal,
     Boolean,
@@ -138,7 +139,64 @@ struct Snapshot {
 pub enum Input {
     Default,
     Null,
-    Value { text: String },
+    Value {
+        text: String,
+    },
+    SqliteValue {
+        storage: SqliteStorage,
+        text: String,
+    },
+}
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SqliteStorage {
+    Integer,
+    Real,
+    Text,
+    Binary,
+}
+impl Column {
+    pub(super) fn sqlite(
+        name: Identifier,
+        engine_type: String,
+        nullable: bool,
+        generated: bool,
+        has_default: bool,
+        key: bool,
+    ) -> Self {
+        Self {
+            name,
+            engine_type,
+            input: InputKind::Sqlite,
+            nullable,
+            generated,
+            has_default,
+            key,
+            base: String::new(),
+            length: 0,
+            precision: 0,
+            scale: 0,
+            version: false,
+            default_id: 0,
+        }
+    }
+}
+impl Page {
+    pub(super) fn sqlite(
+        table: String,
+        columns: Vec<Column>,
+        rows: Vec<EditRow>,
+        more: bool,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            schema: "main".into(),
+            table,
+            columns,
+            rows,
+            more,
+        }
+    }
 }
 #[derive(Deserialize, Serialize)]
 pub struct Field {
@@ -546,6 +604,7 @@ fn input_value(column: &Column, value: Input, parameters: &mut Parameters) -> Re
     }
     use InputKind::*;
     let parameter = match column.input {
+        Sqlite => return Err(E::InvalidParameter),
         Integer => {
             let number = text.parse::<i64>().map_err(|_| E::InvalidParameter)?;
             let fits = match column.base.as_str() {

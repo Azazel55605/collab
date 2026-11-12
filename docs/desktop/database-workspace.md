@@ -2,7 +2,8 @@
 
 Phase 1 adds desktop SQL Server connection management and metadata browsing.
 Phase 2 adds [queries and read-only results](./database-queries.md). Phase 3 adds
-[staged row editing](./database-queries.md#edit-table-rows) for eligible SQL Server tables. [Plan](../plans/database-editor-plan.md),
+[staged row editing](./database-queries.md#edit-table-rows) for eligible SQL Server tables. Phase 4 adds
+[local SQLite files and vault snapshots](./database-queries.md#local-sqlite). [Plan](../plans/database-editor-plan.md),
 [Phase 0 contract](../plans/database-editor-phase0-contract.md).
 
 ## Connect And Browse

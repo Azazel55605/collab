@@ -30,7 +30,7 @@ import { databaseError } from '../lib/databaseErrors';
 import { tauriCommands } from '../lib/tauri';
 import { useCollabStore } from '../store/collabStore';
 import { useUiStore } from '../store/uiStore';
-import type { DatabaseConnection, DatabaseWorkspace } from '../types/database';
+import type { DatabaseConnection, DatabaseWorkspace, SqliteOpenMode } from '../types/database';
 
 export default function DatabasePage({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const owner = useCollabStore((state) => state.myUserId);
@@ -114,6 +114,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
   const reload = () => tauriCommands.databaseActivate(owner);
   const profile = workspace?.profiles.find((p) => p.id === selected);
   const tab = workspace?.tabs.find((t) => t.tab_id === activeTab) ?? null;
+  const sqlite = workspace?.sqlite_files?.find((file) => file.binding.tab_id === tab?.tab_id);
   const connection = workspace?.connections.find(
     (c) => c.id === (tab?.connection_id ?? connectionId),
   );
@@ -141,6 +142,21 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
       },
     );
   };
+  const pickSqlite = (mode: SqliteOpenMode) => {
+    if (!workspace || busy) return;
+    void perform(
+      async () => {
+        const file = await tauriCommands.databaseSqlitePick(workspace.token, mode);
+        return file ? { file, state: await reload() } : null;
+      },
+      (result) => {
+        if (!result) return;
+        setWorkspace(result.state);
+        setActiveTab(result.file.binding.tab_id);
+        setMetadata(false);
+      },
+    );
+  };
   const open = (database: string) => {
     if (!workspace || !connection || busy) return;
     void perform(
@@ -165,9 +181,11 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
         title="Databases"
         icon={<Database size={18} />}
         subtitle={
-          connection
-            ? `${connection.label} · ${tab?.database ?? connection.database} · ${connection.environment}`
-            : 'SQL Server connections for your local profile'
+          sqlite
+            ? `${sqlite.label} · SQLite`
+            : connection
+              ? `${connection.label} · ${tab?.database ?? connection.database} · ${connection.environment}`
+              : 'SQL Server connections and local SQLite files'
         }
         meta={
           <>
@@ -181,7 +199,27 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           </>
         }
         secondary={
-          connection ? (
+          sqlite && workspace ? (
+            <>
+              <Badge variant="outline">{sqlite.read_only ? 'Read-only' : 'Read/write'}</Badge>
+              <Badge variant="secondary">Transaction {queryStatus?.transaction ?? 'none'}</Badge>
+              <DocumentTopBarButton
+                disabled={
+                  busy || queryStatus?.phase !== 'idle' || queryStatus.transaction !== 'none'
+                }
+                onClick={() =>
+                  void perform(
+                    () => tauriCommands.databaseSqliteBackup(workspace.token, sqlite.binding),
+                    (saved) => {
+                      if (saved) setNotice('SQLite backup saved.');
+                    },
+                  )
+                }
+              >
+                Save backup…
+              </DocumentTopBarButton>
+            </>
+          ) : connection ? (
             <>
               <Badge variant="outline">TLS verified</Badge>
               <Badge variant="secondary">
@@ -216,8 +254,33 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           open={sidebarOpen}
           frameClassName="[--workspace-sidebar-width:16rem]"
           className="flex flex-col gap-3 overflow-auto border-r border-border/50 bg-sidebar p-3"
-          aria-label="Database connections"
+          aria-label="Database connections and files"
         >
+          <h2 className="text-xs font-semibold text-muted-foreground">SQLite files</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!workspace || busy}
+            onClick={() => pickSqlite('read_write')}
+          >
+            Open SQLite…
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!workspace || busy}
+            onClick={() => pickSqlite('read_only')}
+          >
+            Open SQLite read-only…
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!workspace || busy}
+            onClick={() => pickSqlite('create')}
+          >
+            Create SQLite…
+          </Button>
           <Input
             aria-label="Search connections"
             placeholder="Search connections…"
@@ -349,14 +412,18 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           {workspace && workspace.tabs.length > 0 && (
             <Tabs
               value={tab?.tab_id ?? ''}
-              onValueChange={setActiveTab}
+              onValueChange={(id) => {
+                setActiveTab(id);
+                setMetadata(false);
+              }}
               className="shrink-0 overflow-x-auto p-2"
             >
               <TabsList aria-label="Database sessions">
                 {workspace.tabs.map((t) => (
                   <TabsTrigger key={t.tab_id} value={t.tab_id}>
-                    {workspace.connections.find((c) => c.id === t.connection_id)?.label} ·{' '}
-                    {t.database}
+                    {workspace.sqlite_files?.find((file) => file.binding.tab_id === t.tab_id)
+                      ?.label ??
+                      `${workspace.connections.find((c) => c.id === t.connection_id)?.label ?? 'SQL Server'} · ${t.database}`}
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -365,7 +432,9 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           {tab && workspace && (
             <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-2">
               <p className="text-xs text-muted-foreground">
-                This session stays pinned to its connection and database.
+                {sqlite
+                  ? 'Changes apply to the selected local SQLite file.'
+                  : 'This session stays pinned to its connection and database.'}
               </p>
               <Button size="sm" variant="ghost" onClick={() => setMetadata((value) => !value)}>
                 {metadata ? 'SQL editor' : 'Browse metadata'}
@@ -382,12 +451,13 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             </div>
           )}
           {workspace && tab && !metadata ? (
-            <QueryPanel key={tab.tab_id} token={workspace.token} binding={tab} />
-          ) : workspace && connection ? (
+            <QueryPanel key={tab.tab_id} token={workspace.token} binding={tab} sqlite={sqlite} />
+          ) : workspace && (connection || sqlite) ? (
             <MetadataExplorer
-              key={`${connection.id}:${tab?.tab_id ?? 'databases'}`}
+              key={`${sqlite?.binding.connection_id ?? connection?.id}:${tab?.tab_id ?? 'databases'}`}
               token={workspace.token}
-              connectionId={connection.id}
+              connectionId={sqlite?.binding.connection_id ?? connection?.id ?? ''}
+              sqlite={!!sqlite}
               binding={tab}
               onOpen={open}
               onBrowse={
@@ -409,8 +479,8 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
               <Database size={32} className="text-muted-foreground" />
               <h2 className="text-lg font-semibold">Your database workspace</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Connect to SQL Server to browse databases, schemas, tables, views, columns and
-                indexes. Passwords stay separate from your vaults.
+                Connect to SQL Server or open a local SQLite database to browse its schema, run SQL
+                and edit table rows.
               </p>
               {!workspace && !error && (
                 <p role="status" className="text-sm text-muted-foreground">

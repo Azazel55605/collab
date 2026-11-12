@@ -1,11 +1,17 @@
 const messages: Record<string, string> = {
+  database_moved:
+    'The SQLite file moved or was replaced. Close the session and select the file again.',
+  database_read_only: 'The SQLite file is read-only.',
+  database_locked:
+    'Another writer is holding a lock on the SQLite file. Wait for it to finish and try again.',
+  invalid_database: 'The selected file could not be opened as a SQLite database.',
   script_conflict:
     'The saved SQL script changed. Your draft is kept; reload it or save under a new name.',
   busy: 'This session is executing a query. Cancel it or wait for completion.',
   unresolved_session:
     'Resolve the running query, open transaction or unknown outcome before closing or changing this session.',
   query_failed:
-    'SQL Server rejected the statement. Check the error number and highlighted source line.',
+    'The database rejected the statement. Check the error number and highlighted source line.',
   cancelled: 'The query was cancelled. Previously committed statements are not undone.',
   invalid_sequence:
     'Result delivery was interrupted. The query will be stopped; reconnect explicitly.',
@@ -25,7 +31,7 @@ const messages: Record<string, string> = {
   connection_failed:
     'The connection was lost or could not be opened. Check the server address and network, then disconnect and reconnect explicitly.',
   timeout:
-    'The server did not respond in time. The affected session was retired; reconnect explicitly.',
+    'The database operation did not finish in time. Check the session status before retrying.',
   wrong_binding: 'This connection or session is no longer active. Reopen the database workspace.',
   limit_reached:
     'A query, result or workspace limit was reached. Narrow the SQL/results or close unused sessions.',

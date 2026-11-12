@@ -45,7 +45,9 @@ import type {
   DatabaseConnection,
   DatabaseMetadataPage,
   DatabaseMetadataRequest,
+  DatabaseSqliteFile,
   DatabaseWorkspace,
+  SqliteOpenMode,
 } from '../types/database';
 import type { KanbanBoard } from '../types/kanban';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
@@ -376,6 +378,10 @@ export async function invokeMedia<T>(
 let databaseProfileChange: Promise<void> = Promise.resolve();
 
 export const tauriCommands = {
+  databaseSqlitePick: (token: string, mode: SqliteOpenMode) =>
+    invoke<DatabaseSqliteFile | null>('database_sqlite_pick', { token, mode }),
+  databaseSqliteBackup: (token: string, binding: DatabaseBinding) =>
+    invoke<boolean>('database_sqlite_backup', { token, binding }),
   databaseManualTransaction: (
     token: string,
     binding: DatabaseBinding,

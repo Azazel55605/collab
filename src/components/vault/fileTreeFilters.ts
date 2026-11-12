@@ -1,7 +1,18 @@
+import { SQLITE_EXTENSIONS } from '../../lib/sqliteFiles';
 import type { NoteFile } from '../../types/vault';
 
 export type FileTypeFilter =
-  'note' | 'canvas' | 'kanban' | 'sheet' | 'ink' | 'deck' | 'logic' | 'image' | 'pdf' | 'other';
+  | 'note'
+  | 'canvas'
+  | 'kanban'
+  | 'sheet'
+  | 'ink'
+  | 'deck'
+  | 'logic'
+  | 'image'
+  | 'pdf'
+  | 'sqlite'
+  | 'other';
 
 export const FILE_TYPE_FILTERS: Array<{ id: FileTypeFilter; label: string }> = [
   { id: 'note', label: 'Notes' },
@@ -13,6 +24,7 @@ export const FILE_TYPE_FILTERS: Array<{ id: FileTypeFilter; label: string }> = [
   { id: 'logic', label: 'Logic diagrams' },
   { id: 'image', label: 'Images' },
   { id: 'pdf', label: 'PDFs' },
+  { id: 'sqlite', label: 'SQLite databases' },
   { id: 'other', label: 'Other files' },
 ];
 
@@ -40,6 +52,7 @@ export function getFileTypeFilter(node: Pick<NoteFile, 'extension'>): FileTypeFi
   if (extension === 'logic') return 'logic';
   if (IMAGE_FILE_EXTENSIONS.has(extension)) return 'image';
   if (extension === 'pdf') return 'pdf';
+  if (SQLITE_EXTENSIONS.includes(extension)) return 'sqlite';
   return 'other';
 }
 

@@ -7,6 +7,7 @@ import { parseDeckDocument } from './deck/document';
 import { parseInkDocument } from './ink/document';
 import { importWorkbookFile } from './sheet/conversion';
 import { inspectSheetDocumentText } from './sheet/document';
+import { isSqlitePath, SQLITE_EXTENSIONS } from './sqliteFiles';
 import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
 
@@ -40,6 +41,7 @@ export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_IMAGE_EXTENSIONS,
   ...IMPORT_SVG_EXTENSIONS,
   ...IMPORT_PDF_EXTENSIONS,
+  ...SQLITE_EXTENSIONS,
   ...IMPORT_MARKDOWN_EXTENSIONS,
   ...IMPORT_CANVAS_EXTENSIONS,
   ...IMPORT_KANBAN_EXTENSIONS,
@@ -54,6 +56,7 @@ export type ImportableCategory =
   | 'image'
   | 'svg'
   | 'pdf'
+  | 'sqlite'
   | 'markdown'
   | 'canvas'
   | 'kanban'
@@ -75,6 +78,7 @@ function extensionOf(name: string): string {
 
 export function importCategoryForName(name: string): ImportableCategory | null {
   const ext = extensionOf(name);
+  if (isSqlitePath(name)) return 'sqlite';
   if (IMPORT_SVG_EXTENSIONS.includes(ext)) return 'svg';
   if (IMPORT_IMAGE_EXTENSIONS.includes(ext)) return 'image';
   if (IMPORT_PDF_EXTENSIONS.includes(ext)) return 'pdf';
@@ -233,7 +237,7 @@ export async function importExternalFilesIntoVault(
         result.failed.push({
           name,
           error:
-            'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, spreadsheet, and .xlsx/.csv files can be imported.',
+            'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, spreadsheet, SQLite, and .xlsx/.csv files can be imported.',
         });
         continue;
       }

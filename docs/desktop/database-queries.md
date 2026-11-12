@@ -246,3 +246,35 @@ observer, large-cell and 8 MiB result limits, bound table filters, INFO/ERROR
 floods, killed sessions without replay, and retirement of stalled consumers.
 These are real native driver tests against disposable servers, separate from the
 Chromium synthetic-IPC responsiveness test.
+
+## Local SQLite
+
+In **Databases**, choose **Open SQLite**, **Open SQLite read-only**, or
+**Create SQLite**. Select a local `.sqlite`, `.sqlite3`, or `.db` file. A native
+session pins the selected file until you close the tab. Read-only mode opens
+the file with SQLite's read-only flag. If the path is moved or replaced, close
+the tab and select the intended file again.
+
+Browse the `main` schema or load it for completion. The SQLite SQL editor
+executes semicolon-separated statements and uses the same typed results,
+cancellation, export, and manual transaction controls. The local driver
+restricts SQL to the selected database and disallows attachment, extension
+loading and changes to journal or connection settings. Write locks wait up to
+two seconds. Check transaction status before retrying work after cancellation.
+
+The grid supports ordinary tables with a non-null primary key or a suitable
+nonpartial unique index, including composite keys on `WITHOUT ROWID` tables.
+Keyless tables, views, generated cells and existing key values remain read-only.
+The value editor lets you choose the SQLite storage class. SQLite applies the
+column's affinity and constraints when storing the value. Apply holds a writer
+transaction while comparing the key and all original values, including their
+storage classes. A conflict rolls back the batch. The committed receipt shows
+the stored values, including defaults and trigger updates.
+
+Use **Save backup…** to save a new consistent local copy. Vault import uses the
+same SQLite online backup mechanism to capture committed WAL data in a standalone
+binary attachment. The server stores these snapshots as `application/vnd.sqlite3`
+with normal asset permissions, hashes and quotas. Use **Save SQLite copy…** in
+the file tree, choose a new destination, and open that file from Databases.
+Edits belong to the copy. Import another snapshot when you want to share the
+updated database. SQLite journals and WAL sidecars belong with the live file.

@@ -4496,6 +4496,8 @@ pub async fn upload_binary_asset(
     let content = STANDARD.decode(&payload.content_base64).map_err(|_| {
         ApiFailure::validation("Asset content is not valid base64.", request_id.clone())
     })?;
+    let media_type =
+        sqlite_asset_media_type(&name, &content, &request_id)?.unwrap_or(payload.media_type.trim());
     let settings = load_effective_runtime_settings(&state.config);
     if content.len() > settings.max_file_bytes {
         return Err(ApiFailure::quota_exceeded(request_id));
@@ -4547,7 +4549,7 @@ pub async fn upload_binary_asset(
         &mut transaction,
         &digest,
         content.len(),
-        payload.media_type.trim(),
+        media_type,
         &request_id,
     )
     .await?;
@@ -4644,10 +4646,19 @@ pub async fn download_vault_file(
     if collab_core::sha256_bytes(&bytes) != digest {
         return Err(ApiFailure::upload_hash_mismatch(request_id));
     }
+    let name: String = row.get("name");
+    let stored_media_type: String = row.get("media_type");
+    let media_type = if collab_documents::sqlite_file::matches_path(&name)
+        && collab_documents::sqlite_file::has_header(&bytes)
+    {
+        collab_documents::sqlite_file::MEDIA_TYPE
+    } else {
+        &stored_media_type
+    };
     let mut response = Response::new(Body::from(bytes));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(row.get::<String, _>("media_type").as_str())
+        HeaderValue::from_str(media_type)
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     response.headers_mut().insert(
@@ -5409,7 +5420,11 @@ pub async fn import_vault_zip(
         .map_err(|error| map_path_database_error(error, request_id.clone()))?;
         if let (Some(content), Some(digest)) = (entry.content.as_deref(), entry.digest.as_deref()) {
             let revision_id = Uuid::now_v7();
-            let media_type = if entry.kind == HostedFileKind::Document {
+            let media_type = if let Some(media_type) =
+                sqlite_asset_media_type(&entry.name, content, &request_id)?
+            {
+                media_type
+            } else if entry.kind == HostedFileKind::Document {
                 "text/plain"
             } else {
                 "application/octet-stream"
@@ -11186,6 +11201,19 @@ fn validate_structural_operation(
             request_id.to_owned(),
         ));
     }
+    if payload.operation_type == HostedStructuralOperationType::Rename
+        && target.kind != HostedFileKind::Folder
+        && payload.name.as_deref().is_some_and(|name| {
+            collab_documents::sqlite_file::is_sidecar(name)
+                || collab_documents::sqlite_file::matches_path(name)
+                    != collab_documents::sqlite_file::matches_path(&target.name)
+        })
+    {
+        return Err(ApiFailure::validation(
+            "Renaming a SQLite asset must preserve its file type.",
+            request_id.to_owned(),
+        ));
+    }
     let capability = domain_capability(payload.operation_type);
     let request = match payload.operation_type {
         HostedStructuralOperationType::Rename => DomainMutationRequest::Rename {
@@ -11462,6 +11490,29 @@ async fn delete_subtree_trash_records(
     Ok(())
 }
 
+fn sqlite_asset_media_type(
+    name: &str,
+    content: &[u8],
+    request_id: &str,
+) -> Result<Option<&'static str>, ApiFailure> {
+    if collab_documents::sqlite_file::matches_path(name) {
+        if !collab_documents::sqlite_file::has_header(content) {
+            return Err(ApiFailure::validation(
+                "SQLite assets require a standalone database snapshot.",
+                request_id.to_owned(),
+            ));
+        }
+        Ok(Some(collab_documents::sqlite_file::MEDIA_TYPE))
+    } else if collab_documents::sqlite_file::is_sidecar(name) {
+        Err(ApiFailure::validation(
+            "Export a standalone SQLite snapshot instead of uploading a journal or WAL sidecar.",
+            request_id.to_owned(),
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
 fn validate_file_kind(
     kind: HostedFileKind,
     document_type: Option<HostedDocumentType>,
@@ -11469,6 +11520,15 @@ fn validate_file_kind(
     content: &str,
     request_id: &str,
 ) -> Result<(), ApiFailure> {
+    if kind == HostedFileKind::Document
+        && (collab_documents::sqlite_file::matches_path(name)
+            || collab_documents::sqlite_file::is_sidecar(name))
+    {
+        return Err(ApiFailure::validation(
+            "SQLite snapshots must be uploaded as binary assets.",
+            request_id.to_owned(),
+        ));
+    }
     match kind {
         HostedFileKind::Folder if document_type.is_none() && content.is_empty() => Ok(()),
         HostedFileKind::Document if document_type.is_some() => {
@@ -18999,6 +19059,57 @@ mod tests {
             json_body(reactivate_before_force).await["data"]["status"],
             "active"
         );
+
+        let mut sqlite = vec![0u8; 4096];
+        sqlite[..16].copy_from_slice(collab_documents::sqlite_file::HEADER);
+        let sqlite_hash = collab_core::sha256_bytes(&sqlite);
+        let sqlite = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/uploads"),
+            json!({
+                "name": "inventory.SQLite3",
+                "mediaType": "application/octet-stream",
+                "contentBase64": STANDARD.encode(&sqlite),
+                "expectedHash": sqlite_hash
+            }),
+            Some(&admin_cookie),
+            Some(&admin_csrf),
+        )
+        .await;
+        assert_eq!(sqlite.status(), StatusCode::CREATED);
+        let sqlite = json_body(sqlite).await;
+        assert_eq!(sqlite["data"]["kind"], "asset");
+        let sqlite_id = sqlite["data"]["id"].as_str().unwrap();
+        let sqlite_download = request(
+            &app,
+            "GET",
+            &format!("/api/v1/vaults/{vault_id}/files/{sqlite_id}/content"),
+            json!({}),
+            Some(&admin_cookie),
+            None,
+        )
+        .await;
+        assert_eq!(sqlite_download.status(), StatusCode::OK);
+        assert_eq!(
+            sqlite_download.headers()[header::CONTENT_TYPE],
+            collab_documents::sqlite_file::MEDIA_TYPE
+        );
+        assert_eq!(
+            collab_core::sha256_bytes(&response_bytes(sqlite_download).await),
+            sqlite_hash
+        );
+
+        let sqlite_document = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/files"),
+            json!({"name": "text.db", "kind": "document", "documentType": "note", "content": ""}),
+            Some(&admin_cookie),
+            Some(&admin_csrf),
+        )
+        .await;
+        assert_eq!(sqlite_document.status(), StatusCode::BAD_REQUEST);
 
         // Force-delete must be rejected while the vault is still active: a vault
         // has to be marked for deletion first.

@@ -50,6 +50,19 @@ function makeClient(
   return { client, importMock };
 }
 
+it('routes SQLite snapshots to binary import and excludes live sidecars', async () => {
+  const { client, importMock } = makeClient({ importMock: vi.fn(async () => 'Data/snapshot.DB') });
+  const result = await importExternalFilesIntoVault(
+    client,
+    ['/tmp/snapshot.DB', '/tmp/snapshot.DB-wal'],
+    { targetFolder: 'Data' },
+  );
+  expect(result.imported).toEqual(['Data/snapshot.DB']);
+  expect(result.failed).toHaveLength(1);
+  expect(importMock).toHaveBeenCalledExactlyOnceWith('/tmp/snapshot.DB', 'Data');
+  expect(client.createDocument).not.toHaveBeenCalled();
+});
+
 describe('vaultFileImport categorization', () => {
   it('classifies importable extensions', () => {
     expect(importCategoryForName('photo.PNG')).toBe('image');

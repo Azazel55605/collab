@@ -15,8 +15,10 @@ export default function MetadataExplorer({
   binding,
   onOpen,
   onBrowse,
+  sqlite = false,
 }: {
   token: string;
+  sqlite?: boolean;
   connectionId: string;
   binding: DatabaseBinding | null;
   onOpen: (database: string) => void;
@@ -80,7 +82,10 @@ export default function MetadataExplorer({
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Only objects visible to your SQL account are listed. Metadata is loaded one page at a time.
+        {sqlite
+          ? 'Schema objects in the selected SQLite file.'
+          : 'Only objects visible to your SQL account are listed.'}{' '}
+        Metadata is loaded one page at a time.
       </p>
       {loading && (
         <p role="status" className="text-sm text-muted-foreground">
@@ -94,7 +99,9 @@ export default function MetadataExplorer({
       )}
       {page?.items.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No visible objects. Your account permissions may hide metadata.
+          {sqlite
+            ? 'No objects in this schema.'
+            : 'No visible objects. Your account permissions may hide metadata.'}
         </p>
       )}
       {page && (

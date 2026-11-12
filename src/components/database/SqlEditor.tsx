@@ -7,7 +7,7 @@ import {
   completionKeymap,
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { MSSQL, sql, type SQLNamespace } from '@codemirror/lang-sql';
+import { MSSQL, sql, SQLite, type SQLNamespace } from '@codemirror/lang-sql';
 import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
@@ -49,7 +49,7 @@ export interface SqlEditorHandle {
   focusRange: (from: number, to: number) => void;
 }
 export type SqlSchema = Record<string, Record<string, string[]>>;
-function sqlEditorLanguage(schema: SqlSchema) {
+function sqlEditorLanguage(schema: SqlSchema, sqlite: boolean) {
   const namespace = (
     label: string,
     type: 'namespace' | 'table',
@@ -63,7 +63,7 @@ function sqlEditorLanguage(schema: SqlSchema) {
     children,
   });
   return sql({
-    dialect: MSSQL,
+    dialect: sqlite ? SQLite : MSSQL,
     schema: Object.fromEntries(
       Object.entries(schema).map(([name, tables]) => [
         name,
@@ -85,6 +85,7 @@ function sqlEditorLanguage(schema: SqlSchema) {
 export default function SqlEditor({
   value,
   schema,
+  sqlite = false,
   onChange,
   onRun,
   onSave,
@@ -94,6 +95,7 @@ export default function SqlEditor({
   value: string;
   readOnly: boolean;
   schema: SqlSchema;
+  sqlite?: boolean;
   onChange: (value: string) => void;
   onRun: () => void;
   onSave?: () => void;
@@ -124,7 +126,7 @@ export default function SqlEditor({
           bracketMatching(),
           closeBrackets(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          language.current.of(sqlEditorLanguage(schema)),
+          language.current.of(sqlEditorLanguage(schema, sqlite)),
           autocompletion(editorCompletionOptions),
           EditorView.contentAttributes.of({ 'aria-label': 'SQL editor', spellcheck: 'false' }),
           EditorState.transactionFilter.of((transaction) =>
@@ -201,9 +203,9 @@ export default function SqlEditor({
   }, [value]);
   useEffect(() => {
     view.current?.dispatch({
-      effects: language.current.reconfigure(sqlEditorLanguage(schema)),
+      effects: language.current.reconfigure(sqlEditorLanguage(schema, sqlite)),
     });
-  }, [schema]);
+  }, [schema, sqlite]);
   useEffect(() => {
     view.current?.dispatch({
       effects: editable.current.reconfigure([

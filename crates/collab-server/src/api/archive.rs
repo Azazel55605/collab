@@ -96,6 +96,7 @@ pub(super) fn parse_vault_zip(
             return Err(ApiFailure::quota_exceeded(request_id.to_owned()));
         }
         let path = planned.relative_path;
+        super::sqlite_asset_media_type(&path, &content, request_id)?;
         let (kind, document_type) = imported_file_kind(&path);
         if kind == HostedFileKind::Document && String::from_utf8(content.clone()).is_err() {
             return Err(ApiFailure::validation(
@@ -175,6 +176,27 @@ fn imported_file_kind(path: &str) -> (HostedFileKind, Option<HostedDocumentType>
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn sqlite_entries_are_assets_and_sidecars_are_rejected() {
+        let mut snapshot = vec![0u8; 4096];
+        snapshot[..16].copy_from_slice(collab_documents::sqlite_file::HEADER);
+        let entries = parse_vault_zip(
+            &archive(&[("Data/test.SQLite3", &snapshot)]),
+            8192,
+            8192,
+            "test",
+        )
+        .unwrap();
+        assert_eq!(entries[1].kind, HostedFileKind::Asset);
+        assert_eq!(entries[1].document_type, None);
+        assert!(
+            parse_vault_zip(&archive(&[("test.db", b"not sqlite")]), 8192, 8192, "test").is_err()
+        );
+        assert!(
+            parse_vault_zip(&archive(&[("test.db-wal", b"sidecar")]), 8192, 8192, "test").is_err()
+        );
+    }
 
     fn archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));

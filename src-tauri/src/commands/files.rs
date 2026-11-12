@@ -102,6 +102,7 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 
 fn is_allowed_extension(ext: &str) -> bool {
     collab_documents::classify_path(&format!("document.{ext}")).is_some()
+        || collab_documents::sqlite_file::matches_path(&format!("file.{ext}"))
         || matches!(
             ext,
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif" | "pdf"
@@ -145,6 +146,9 @@ fn is_image_extension(ext: &str) -> bool {
 }
 
 fn guess_mime_type(relative_path: &str) -> &'static str {
+    if collab_documents::sqlite_file::matches_path(relative_path) {
+        return collab_documents::sqlite_file::MEDIA_TYPE;
+    }
     match Path::new(relative_path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -1050,6 +1054,9 @@ fn read_note_from_path(
     relative_path: &str,
     key_opt: Option<[u8; 32]>,
 ) -> Result<NoteContent, String> {
+    if collab_documents::sqlite_file::matches_path(relative_path) {
+        return Err("SQLite snapshots are binary assets.".into());
+    }
     let raw = std::fs::read(full_path)
         .map_err(|e| format!("Failed to read '{}': {}", relative_path, e))?;
 
@@ -1085,6 +1092,9 @@ pub(super) fn write_note_to_path(
     base_content: Option<String>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<WriteResult, String> {
+    if collab_documents::sqlite_file::matches_path(relative_path) {
+        return Err("SQLite snapshots are binary assets.".into());
+    }
     let _mutation = crate::local_mutation::lock_path(full_path)?;
     let observed_hash = if expected_hash.is_some() {
         match std::fs::read(full_path) {
@@ -1236,6 +1246,9 @@ fn create_note_at_path(
     relative_path: &str,
     key_opt: Option<[u8; 32]>,
 ) -> Result<NoteFile, String> {
+    if collab_documents::sqlite_file::matches_path(relative_path) {
+        return Err("SQLite snapshots are binary assets.".into());
+    }
     let _mutation = crate::local_mutation::lock_path(full_path)?;
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1492,6 +1505,25 @@ pub fn read_note_asset_data_url(
     state: State<AppState>,
 ) -> Result<String, String> {
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    let sqlite = collab_documents::sqlite_file::matches_path(&relative_path);
+    #[cfg(not(mobile))]
+    if sqlite {
+        match crate::database::sqlite::snapshot_for_upload(&full_path) {
+            Ok(copy) => {
+                let bytes = std::fs::read(copy.path().join("snapshot.sqlite"))
+                    .map_err(|error| error.to_string())?;
+                let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+                return Ok(format!(
+                    "data:{};base64,{encoded}",
+                    collab_documents::sqlite_file::MEDIA_TYPE
+                ));
+            }
+            // Encrypted local attachments are decrypted by the vault below.
+            Err(collab_database::ContractError::InvalidDatabase)
+                if state.encryption_key.read().is_some() => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
     let raw = std::fs::read(&full_path)
         .map_err(|e| format!("Failed to read asset '{}': {}", relative_path, e))?;
 
@@ -1505,6 +1537,9 @@ pub fn read_note_asset_data_url(
         raw
     };
 
+    if sqlite && !collab_documents::sqlite_file::has_header(&bytes) {
+        return Err("This attachment does not have a SQLite database header.".into());
+    }
     let mime = guess_mime_type(&relative_path);
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{};base64,{}", mime, encoded))
@@ -1537,6 +1572,23 @@ pub fn write_downloaded_file(
     if let Some(parent) = Path::new(&destination_path).parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to prepare destination folder: {}", e))?;
+    }
+    if collab_documents::sqlite_file::matches_path(&destination_path) {
+        if !collab_documents::sqlite_file::has_header(&bytes) {
+            return Err("This attachment does not have a SQLite database header.".into());
+        }
+        #[cfg(not(mobile))]
+        {
+            use std::io::Write;
+            let path = Path::new(&destination_path);
+            let mut stage =
+                crate::database::sqlite::stage_at(path).map_err(|error| error.to_string())?;
+            stage.write_all(&bytes).map_err(|error| error.to_string())?;
+            return crate::database::sqlite::save_stage(stage, path)
+                .map_err(|error| error.to_string());
+        }
+        #[cfg(mobile)]
+        return Err("Save SQLite copies using the desktop app.".into());
     }
     std::fs::write(&destination_path, bytes)
         .map_err(|e| format!("Failed to write '{}': {}", destination_path, e))?;
@@ -1636,7 +1688,11 @@ pub fn import_asset_into_vault(
         .unwrap_or_else(|| "image".into());
 
     let target_path = unique_target_path(&target_dir, &source_name);
-    let source_bytes = std::fs::read(source).map_err(|e| e.to_string())?;
+    let source_bytes = if collab_documents::sqlite_file::matches_path(&source_name) {
+        read_sqlite_snapshot(source)?
+    } else {
+        std::fs::read(source).map_err(|e| e.to_string())?
+    };
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     let bytes_to_write = if let Some(ref key) = key_opt {
         crypto::encrypt_bytes(key, &source_bytes)?
@@ -1653,6 +1709,20 @@ pub fn import_asset_into_vault(
         .replace('\\', "/");
 
     Ok(relative)
+}
+
+fn read_sqlite_snapshot(source: &Path) -> Result<Vec<u8>, String> {
+    #[cfg(not(mobile))]
+    {
+        let copy = crate::database::sqlite::snapshot_for_upload(source)
+            .map_err(|error| error.to_string())?;
+        std::fs::read(copy.path().join("snapshot.sqlite")).map_err(|error| error.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = source;
+        Err("Create a SQLite snapshot using the desktop app before importing.".into())
+    }
 }
 
 /// Digest-verified upload payload for a desktop file destined for a hosted vault.
@@ -1702,16 +1772,24 @@ pub fn read_file_for_upload(
         .map(sanitize_file_name)
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "asset".into());
-    let mut options = OpenOptions::new();
-    options.read(true);
-    let mut source = app
-        .fs()
-        .open(source_path, options)
-        .map_err(|_| "Could not open the selected upload file.".to_string())?;
-    let mut bytes = Vec::new();
-    source
-        .read_to_end(&mut bytes)
-        .map_err(|_| "Could not read the selected upload file.".to_string())?;
+    let bytes = if collab_documents::sqlite_file::matches_path(&name) {
+        let FilePath::Path(path) = source_path else {
+            return Err("Select a local SQLite database to create a snapshot.".into());
+        };
+        read_sqlite_snapshot(&path)?
+    } else {
+        let mut options = OpenOptions::new();
+        options.read(true);
+        let mut source = app
+            .fs()
+            .open(source_path, options)
+            .map_err(|_| "Could not open the selected upload file.".to_string())?;
+        let mut bytes = Vec::new();
+        source
+            .read_to_end(&mut bytes)
+            .map_err(|_| "Could not read the selected upload file.".to_string())?;
+        bytes
+    };
     let expected_hash = sha256_bytes(&bytes);
     let media_type = guess_mime_type(&name).to_string();
     let content_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);

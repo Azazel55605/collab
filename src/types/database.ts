@@ -25,12 +25,19 @@ export interface DatabaseBinding {
   database: string;
   generation: number;
 }
+export type SqliteOpenMode = 'read_only' | 'read_write' | 'create';
+export interface DatabaseSqliteFile {
+  binding: DatabaseBinding;
+  label: string;
+  read_only: boolean;
+}
 export interface DatabaseWorkspace {
   token: string;
   profiles: DatabaseConnection[];
   connections: DatabaseConnected[];
   tabs: DatabaseBinding[];
   durable_credentials: boolean;
+  sqlite_files?: DatabaseSqliteFile[];
 }
 export type DatabaseMetadataRequest =
   | { kind: 'completion'; after: string }
@@ -121,6 +128,7 @@ export interface DatabaseEditColumn {
   name: string;
   engine_type: string;
   input:
+    | 'sqlite'
     | 'integer'
     | 'decimal'
     | 'boolean'
@@ -148,8 +156,12 @@ export interface DatabaseEditPage {
   rows: DatabaseEditRow[];
   more: boolean;
 }
+export type SqliteStorage = 'integer' | 'real' | 'text' | 'binary';
 export type DatabaseEditInput =
-  { kind: 'default' } | { kind: 'null' } | { kind: 'value'; text: string };
+  | { kind: 'default' }
+  | { kind: 'null' }
+  | { kind: 'value'; text: string }
+  | { kind: 'sqlite_value'; storage: SqliteStorage; text: string };
 export interface DatabaseEditField {
   column: number;
   value: DatabaseEditInput;
