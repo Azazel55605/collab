@@ -242,6 +242,42 @@
   flex: none;
 }
 
+/* Wait for the direct view to resolve before animating its entrance. */
+[data-workspace-entry]:where(
+  :not(:has(> [data-slot='main-content'] > [data-slot='deferred-view-loading']))
+) {
+  animation: app-workspace-enter var(--motion-base) var(--motion-ease-standard);
+}
+
+[data-workspace-entry='down'] {
+  --workspace-entry-y: 14px;
+}
+
+[data-workspace-entry='up'] {
+  --workspace-entry-y: -14px;
+}
+
+@keyframes app-workspace-enter {
+  from {
+    translate: 0 var(--workspace-entry-y);
+    opacity: 0.65;
+  }
+  to {
+    translate: 0 0;
+    opacity: 1;
+  }
+}
+
+[data-motion='off'] [data-workspace-entry] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='workspace-content'][data-workspace-entry] {
+    animation: none;
+  }
+}
+
 .app-motion-slow {
   transition-duration: var(--motion-slow) !important;
   transition-timing-function: var(--motion-ease-standard) !important;

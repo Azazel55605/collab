@@ -250,6 +250,10 @@ vault previews; the existing link-hover preference controls their visibility.
 
 - Respect global animation settings from `uiStore`.
 - Use existing motion timing tokens and app conventions.
+- On activity bar navigation, slide the incoming workspace a short distance
+  from below when moving down the list and from above when moving up. Start
+  the entrance when the view is ready. Keep the activity bar and status bar
+  in place, and respect reduced motion.
 - Routine content updates stay opaque: expanding folders/tags, changing sidebar
   panels/settings categories and switching document views must not fade the new
   content from zero opacity or stack parent/child entrance animations. Keep
