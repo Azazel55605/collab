@@ -3,8 +3,7 @@
 Phase 2 extends the [database workspace](./database-workspace.md). The
 [main tracker](../plans/open-development-work.md) owns current acceptance status.
 Raw SQL runs with the connected account's permissions; it can write or administer
-the server. The result grid itself is read-only. No server proxy, Android/browser
-execution, row Apply or schema-change forms are added.
+the server. Query result grids are read-only. Eligible SQL Server base tables have a separate edit mode.
 
 ## Run SQL
 
@@ -27,8 +26,11 @@ physical connection establishes `IMPLICIT_TRANSACTIONS OFF`; user SQL can still
 open/change transactions. A post-execution probe checks database context,
 `XACT_STATE()` and `@@TRANCOUNT`. The latter distinguishes a retained user
 transaction from the probe's own autocommit read transaction. Open/failed states
-remain visible. **Roll back transaction** executes a native fixed rollback on the
-same session; failed transactions cannot run arbitrary SQL until resolved.
+remain visible. **Begin transaction**, **Commit transaction**, and **Roll back
+transaction** send fixed commands on the pinned session. Commit requires
+confirmation. SQL Server commits nested transactions one level at a time, so the
+badge stays open until the outermost transaction is committed. Rollback resolves
+the whole transaction, including a failed transaction.
 
 Connection loss, failed cancellation settlement, worker failure or unverified
 context never becomes an apparently idle, reusable connection. The physical
@@ -64,6 +66,59 @@ exchange. A native save picker grants destination authority, and an atomic stage
 write saves the bounded payload. No filesystem path crosses back from the picker
 to the renderer. Results are not written into vaults or synced automatically.
 
+## Edit Table Rows
+
+Choose a schema and table in the browse controls, then select **Edit table
+rows**. The optional contains filter also applies to this view. Collab loads up
+to 100 rows ordered by the selected key. Filter to reach rows beyond this
+window. Queries, views, and ineligible tables remain available through the
+read-only workspace.
+
+Eligibility requires a SQL Server base table with a primary key or an
+unfiltered, enabled unique index over non-null, non-computed columns. The login
+needs SELECT, VIEW DEFINITION, and the appropriate permissions for the requested
+writes. Phase 3 supports up to 32 columns with bounded exact integers, decimals,
+bits, text, binary, GUIDs, dates, and modern time types. Unicode text is
+supported in nchar/nvarchar. Writes to char/varchar accept ASCII to avoid
+code-page loss. Unsupported types and enabled INSTEAD OF triggers make a table
+ineligible. Identity, computed, and rowversion columns are read-only. Existing
+key values are read-only.
+
+Select a cell to stage an edit or delete its row. **Insert row** opens a form for
+writable columns. Value, NULL, and database default are distinct choices where
+allowed. Review the pending changes and select **Apply** to commit them
+together. A successful Apply shows values returned by SQL Server, including
+generated identities, defaults, and changes made by AFTER triggers, then
+reloads the window. A refresh failure keeps the commit receipt visible.
+
+The native adapter keeps the metadata and original values in memory and
+accepts only snapshot and row handles for that tab. Apply opens a separate
+connection with the same login. It holds a table lock while rechecking
+metadata, uses parameterized statements, and verifies exactly one affected row
+per change. The predicates compare the key and rowversion when present, or
+compare the exact bytes and length of each original value. Changes roll back
+together on a conflict or a rejected statement. A conflict keeps the staged
+values available for review. Reloading discards them explicitly.
+
+Apply allows at most 128 changes with a 1 MiB request and result limit. The
+server lock wait is capped at three seconds, and the mutation work has a
+20-second deadline. An unconfirmed commit is marked **Apply outcome unknown**.
+Verify the data in a new session before making further edits. Close the
+affected session explicitly to resolve the local warning.
+
+### Phase 3 verification
+
+Disposable native fixtures passed on SQL Server 2019, 2022, and 2025. They cover
+key eligibility, forged row and snapshot handles, generated values, AFTER
+triggers, all-or-nothing constraint rollback, competing updates with rowversion
+and original values, schema changes, and manual transaction disposal. The
+fixture simulates losing the acknowledgement after a real commit and verifies
+that one write remains and the snapshot cannot be applied again.
+
+Chromium preview checks used simulated IPC for staging, conflict review,
+reloading, generated values, and manual transaction controls. Installed
+Windows, Linux, macOS, and Flatpak verification remains open.
+
 ## Scripts, History And Disposal
 
 **Open .sql** and **Save .sql** use relative paths in the current unlocked vault
@@ -94,7 +149,7 @@ A session close explicitly discards its SQL draft/results/history, stops running
 work and closes the physical socket. It never commits a transaction; committed
 changes cannot be undone by closing. Disconnect/edit/remove refuse unresolved
 sessions and dirty drafts until the tabs are resolved or explicitly closed.
-Quit and profile changes are blocked by dirty drafts or unresolved native work;
+Quit and profile changes are blocked by dirty drafts, staged row edits, or unresolved native work;
 a rejected profile change restores the previous local profile.
 
 ## Bounded Native Stream

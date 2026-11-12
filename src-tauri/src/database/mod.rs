@@ -1,6 +1,7 @@
 //! Desktop native authority. No automatic connection or keystore access at startup.
 mod credentials;
 pub(crate) mod driver;
+pub(crate) mod edit;
 pub(crate) mod query;
 use collab_database::{ContractError as E, SessionBinding};
 use driver::Live;
@@ -105,6 +106,12 @@ struct Connection {
 struct Tab {
     binding: SessionBinding,
     live: Arc<Live>,
+    edit: Arc<edit::Runtime>,
+}
+impl Tab {
+    fn clean(&self) -> bool {
+        self.live.query.clean() && self.edit.clean()
+    }
 }
 #[derive(Default)]
 struct Registry {
@@ -124,7 +131,7 @@ fn registry() -> &'static Mutex<Registry> {
 }
 pub async fn profile_changed(previous_owner: &str, next_owner: &str) -> Result<(), E> {
     let mut r = registry().lock().await;
-    if r.owner == previous_owner && r.tabs.values().any(|t| !t.live.query.clean()) {
+    if r.owner == previous_owner && r.tabs.values().any(|t| !t.clean()) {
         return Err(E::UnresolvedSession);
     }
     {
@@ -229,7 +236,7 @@ pub async fn activate(root: &Path, owner: String) -> Result<Workspace, E> {
 pub async fn deactivate(token: &str) -> Result<(), E> {
     let mut r = registry().lock().await;
     check(&r, token)?;
-    if r.tabs.values().any(|t| !t.live.query.clean()) {
+    if r.tabs.values().any(|t| !t.clean()) {
         return Err(E::UnresolvedSession);
     }
     r.cancel.cancel();
@@ -255,7 +262,7 @@ pub async fn save(
             c.config.id == config.id
                 && r.tabs
                     .values()
-                    .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+                    .any(|t| t.binding.connection_id == c.view.id && !t.clean())
         }) {
             return Err(E::UnresolvedSession);
         }
@@ -345,7 +352,7 @@ pub async fn save(
             c.config.id == config.id
                 && r.tabs
                     .values()
-                    .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+                    .any(|t| t.binding.connection_id == c.view.id && !t.clean())
         }) {
             Err(E::UnresolvedSession)
         } else {
@@ -427,7 +434,7 @@ pub async fn remove(root: &Path, token: &str, id: &str) -> Result<(), E> {
             c.config.id == id
                 && r.tabs
                     .values()
-                    .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+                    .any(|t| t.binding.connection_id == c.view.id && !t.clean())
         }) {
             return Err(E::UnresolvedSession);
         }
@@ -461,7 +468,7 @@ pub async fn remove(root: &Path, token: &str, id: &str) -> Result<(), E> {
         c.config.id == id
             && r.tabs
                 .values()
-                .any(|t| t.binding.connection_id == c.view.id && !t.live.query.clean())
+                .any(|t| t.binding.connection_id == c.view.id && !t.clean())
     }) {
         return Err(E::UnresolvedSession);
     }
@@ -563,7 +570,7 @@ pub async fn disconnect(token: &str, id: &str) -> Result<(), E> {
     }
     if r.tabs
         .values()
-        .any(|t| t.binding.connection_id == id && !t.live.query.clean())
+        .any(|t| t.binding.connection_id == id && !t.clean())
     {
         return Err(E::UnresolvedSession);
     }
@@ -605,6 +612,7 @@ pub async fn open_tab(token: &str, id: &str, database: String) -> Result<Session
         Tab {
             binding: binding.clone(),
             live,
+            edit: Default::default(),
         },
     );
     Ok(binding)
@@ -616,7 +624,7 @@ pub async fn close_tab(token: &str, binding: &SessionBinding, discard: bool) -> 
     if tab.binding != *binding {
         return Err(E::WrongBinding);
     }
-    if !discard && !tab.live.query.clean() {
+    if tab.edit.busy() || (!discard && !tab.clean()) {
         return Err(E::UnresolvedSession);
     }
     if let Some(tab) = r.tabs.remove(&binding.tab_id) {
@@ -685,12 +693,7 @@ pub async fn can_quit() -> bool {
     let Some(registry) = REGISTRY.get() else {
         return true;
     };
-    registry
-        .lock()
-        .await
-        .tabs
-        .values()
-        .all(|tab| tab.live.query.clean())
+    registry.lock().await.tabs.values().all(Tab::clean)
 }
 
 pub async fn start_query(
@@ -706,6 +709,9 @@ pub async fn start_query(
     if tab.binding != binding {
         return Err(E::WrongBinding);
     }
+    if tab.edit.busy() {
+        return Err(E::Busy);
+    }
     query::start(tab.live.clone(), binding, sql, selection, recovery)
 }
 
@@ -720,5 +726,93 @@ pub async fn browse_query(
     if tab.binding != binding {
         return Err(E::WrongBinding);
     }
+    if tab.edit.busy() {
+        return Err(E::Busy);
+    }
     query::browse(tab.live.clone(), binding, request)
+}
+
+pub async fn manual_transaction(
+    token: &str,
+    binding: SessionBinding,
+    action: query::TransactionAction,
+) -> Result<String, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
+    if tab.binding != binding {
+        return Err(E::WrongBinding);
+    }
+    if tab.edit.busy() {
+        return Err(E::Busy);
+    }
+    query::transaction(tab.live.clone(), binding, action)
+}
+
+struct EditConnection {
+    operation: edit::Operation,
+    config: SavedConnection,
+    secret: Arc<Zeroizing<String>>,
+    cancel: CancellationToken,
+    permit: tokio::sync::OwnedSemaphorePermit,
+}
+async fn edit_connection(token: &str, binding: &SessionBinding) -> Result<EditConnection, E> {
+    let r = registry().lock().await;
+    check(&r, token)?;
+    let tab = r.tabs.get(&binding.tab_id).ok_or(E::WrongBinding)?;
+    if tab.binding != *binding {
+        return Err(E::WrongBinding);
+    }
+    if tab.live.query.status().phase != "idle" || !tab.live.query.clean() {
+        return Err(E::UnresolvedSession);
+    }
+    let connection = r
+        .connections
+        .get(&binding.connection_id)
+        .ok_or(E::WrongBinding)?;
+    let permit = slots().try_acquire_owned().map_err(|_| E::LimitReached)?;
+    let operation = tab.edit.reserve()?;
+    Ok(EditConnection {
+        operation,
+        config: connection.config.clone(),
+        secret: connection.secret.clone(),
+        cancel: tab.live.cancel.child_token(),
+        permit,
+    })
+}
+impl EditConnection {
+    async fn connect(self, database: &str) -> Result<(edit::Operation, Arc<Live>), E> {
+        let live = Live::connect(
+            &self.config,
+            database,
+            &self.secret,
+            self.cancel,
+            self.permit,
+        )
+        .await?;
+        Ok((self.operation, live))
+    }
+}
+pub async fn edit_load(
+    token: &str,
+    binding: SessionBinding,
+    request: query::BrowseRequest,
+) -> Result<edit::Page, edit::Failure> {
+    let connection = edit_connection(token, &binding).await?;
+    let (operation, live) = connection.connect(&binding.database).await?;
+    edit::load(operation, live, request).await
+}
+pub async fn edit_apply(
+    token: &str,
+    binding: SessionBinding,
+    request: edit::ApplyRequest,
+) -> Result<edit::ApplyResult, edit::Failure> {
+    let connection = edit_connection(token, &binding).await?;
+    // Keep ownership until settlement even if the renderer drops its invoke.
+    tokio::spawn(async move {
+        let (operation, live) = connection.connect(&binding.database).await?;
+        edit::apply(operation, live, request).await
+    })
+    .await
+    .map_err(|_| E::UnresolvedSession)?
 }

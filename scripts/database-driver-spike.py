@@ -129,13 +129,15 @@ def fixture(version, image, work, record, native_adapter=False, native_only=Fals
             except subprocess.CalledProcessError as error:
                 # Report only source locations and fixed lifecycle labels. Never
                 # copy raw native/driver diagnostics, SQL values or credentials.
-                for location in re.findall(r'database/(?:tests|query)\.rs:\d+:\d+', error.stdout+'\n'+error.stderr):
+                for location in re.findall(r'database/(?:tests|query|edit)\.rs:\d+:\d+', error.stdout+'\n'+error.stderr):
                     print('Native fixture assertion: ' + location, flush=True)
                 diagnostics=error.stdout+'\n'+error.stderr
                 for code in re.findall(r'error\[E[0-9]+\]',diagnostics):
                     print('Native fixture compiler: '+code,flush=True)
-                for probe in re.findall(r'fixture scalar (session-id|server-request|side-effect)', diagnostics):
+                for probe in re.findall(r'fixture scalar ((?:session-id|server-request|side-effect|phase3-rows|phase3-original)(?: code=(?:Some\(\d+\)|None) kind=[A-Za-z]+)?)', diagnostics):
                     print('Native fixture scalar: '+probe,flush=True)
+                for failure in re.findall(r'Failure \{ code: [A-Za-z]+, server_code: (?:Some\(\d+\)|None), change_index: (?:Some\(\d+\)|None) \}', diagnostics):
+                    print('Native edit fixture: '+failure, flush=True)
                 if 'overflowed its stack' in diagnostics:
                     print('Native fixture failed: stack overflow',flush=True)
                 for signal in re.findall(r'signal: [0-9]+',diagnostics):
@@ -148,7 +150,7 @@ def fixture(version, image, work, record, native_adapter=False, native_only=Fals
             metrics_match=re.search(r'COLLAB_DATABASE_PHASE2 (\{[^\n]+\})',native_output)
             metrics=json.loads(metrics_match.group(1)) if metrics_match else {}
             metrics={key:value for key,value in metrics.items() if re.fullmatch(r'[a-z0-9_]+',key) and (value is None or isinstance(value,(int,bool)))}
-            record({'query_metrics':metrics,'kind': 'native_registry', 'fixture_version': version, 'image': digest,
+            record({'edit_fixture_passed': 'COLLAB_DATABASE_PHASE3 passed' in native_output, 'query_metrics':metrics,'kind': 'native_registry', 'fixture_version': version, 'image': digest,
                     'passed': True, 'checks': ['test-connect-closes-socket', 'independent-connections',
                     'pinned-tabs', 'forged-binding-rejected', 'paged-metadata', 'typed-cursor',
                     'columns-and-indexes', 'disconnect-isolation', 'connection-budget', 'profile-cleanup']})

@@ -397,7 +397,7 @@ export default function App() {
             useCollabStore
               .getState()
               .setMyProfile(previous.myUserId, previous.myUserName, previous.myUserColor);
-            toast.error('Save or close SQL drafts before changing profiles.');
+            toast.error('Save SQL drafts or resolve staged row changes before changing profiles.');
             return;
           }
           void tauriCommands.databaseProfileChanged(previous.myUserId, state.myUserId).catch(() => {

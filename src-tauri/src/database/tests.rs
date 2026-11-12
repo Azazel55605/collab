@@ -304,6 +304,7 @@ async fn real_disposable_registry_connections_and_metadata() {
     ));
     close_tab(&w.token, &tb, false).await.unwrap();
     phase2_fixture(&w.token, &b.id).await;
+    Box::pin(phase3_fixture(&w.token, &b.id)).await;
     let mut held = vec![];
     for _ in 0..7 {
         held.push(
@@ -376,7 +377,11 @@ async fn fixture_scalar(live: &Arc<Live>, sql: String) -> i64 {
     use mssql_tds::datatypes::column_values::ColumnValues as C;
     let mut guard = live.client.lock().await;
     let client = guard.as_mut().unwrap();
-    let probe = if sql.contains("@@SPID") {
+    let probe = if sql.contains("phase3_rows") {
+        "phase3-rows"
+    } else if sql.contains("phase3_original") {
+        "phase3-original"
+    } else if sql.contains("@@SPID") {
         "session-id"
     } else if sql.contains("dm_exec_requests") {
         "server-request"
@@ -386,7 +391,17 @@ async fn fixture_scalar(live: &Arc<Live>, sql: String) -> i64 {
     let mut result = client
         .execute(sql, ExecuteOptions::new().timeout_secs(3))
         .await
-        .unwrap_or_else(|_| panic!("fixture scalar {probe}"));
+        .unwrap_or_else(|error| {
+            let code = if let mssql_tds::error::Error::SqlServerError { diagnostics } = &error {
+                diagnostics.errors.first().map(|item| item.number)
+            } else {
+                None
+            };
+            panic!(
+                "fixture scalar {probe} code={code:?} kind={:?}",
+                driver::classify(error)
+            )
+        });
     let mut value = None;
     loop {
         match result {
@@ -417,6 +432,11 @@ async fn phase2_fixture(token: &str, connection: &str) {
         let r = registry().lock().await;
         r.connections.get(connection).unwrap().live.clone()
     };
+    edit_fixture_command(
+        &observer,
+        "CREATE TABLE collab_phase0.dbo.phase2_cancel(id int NOT NULL PRIMARY KEY)",
+    )
+    .await;
     let tab = open_tab(token, connection, "collab_phase0".into())
         .await
         .unwrap();
@@ -517,7 +537,7 @@ async fn phase2_fixture(token: &str, connection: &str) {
     let id = start_query(
         token,
         tab.clone(),
-        "WAITFOR DELAY '00:00:30'; INSERT dbo.phase0_cancel VALUES(42);".into(),
+        "WAITFOR DELAY '00:00:30'; INSERT dbo.phase2_cancel VALUES(42);".into(),
         None,
         false,
     )
@@ -551,7 +571,7 @@ async fn phase2_fixture(token: &str, connection: &str) {
     assert_eq!(
         fixture_scalar(
             &observer,
-            "SELECT COUNT(*) FROM collab_phase0.dbo.phase0_cancel WHERE id=42".into()
+            "SELECT COUNT(*) FROM collab_phase0.dbo.phase2_cancel WHERE id=42".into()
         )
         .await,
         0
@@ -645,7 +665,7 @@ async fn phase2_fixture(token: &str, connection: &str) {
     let id = start_query(
         token,
         tab.clone(),
-        "INSERT dbo.phase0_cancel VALUES(99);".into(),
+        "INSERT dbo.phase2_cancel VALUES(99);".into(),
         None,
         false,
     )
@@ -664,7 +684,7 @@ async fn phase2_fixture(token: &str, connection: &str) {
     assert_eq!(
         fixture_scalar(
             &observer,
-            "SELECT COUNT(*) FROM collab_phase0.dbo.phase0_cancel WHERE id=99".into()
+            "SELECT COUNT(*) FROM collab_phase0.dbo.phase2_cancel WHERE id=99".into()
         )
         .await,
         0
@@ -721,4 +741,315 @@ async fn phase2_fixture(token: &str, connection: &str) {
         "COLLAB_DATABASE_PHASE2 {}",
         serde_json::json!({"query_checks":true,"cancel_ms":cancel_ms,"streamed_rows":streamed_rows,"result_wire_bytes":result_wire_bytes,"peak_resident_kib":peak_resident_kib,"total_query_ms":began.elapsed().as_millis(),"server_work_stopped":true,"stalled_consumer_retired":true,"no_replay":true,"bounded_diagnostics":true})
     );
+}
+
+async fn edit_fixture_command(live: &Arc<Live>, sql: &str) {
+    let mut guard = live.client.lock().await;
+    edit::command(guard.as_mut().unwrap(), sql.into())
+        .await
+        .unwrap();
+}
+
+async fn phase3_fixture(token: &str, connection: &str) {
+    use edit::{ApplyRequest, ApplyResult, Change, Field, Input};
+    let edit_tab = open_tab(token, connection, "collab_phase0".into())
+        .await
+        .unwrap();
+    let observer = open_tab(token, connection, "collab_phase0".into())
+        .await
+        .unwrap();
+    let other = query_live(token, &observer).await.unwrap();
+    edit_fixture_command(
+        &other,
+        "
+        CREATE TABLE dbo.phase3_rows(
+            Id bigint IDENTITY PRIMARY KEY,
+            Qty int NOT NULL CHECK(Qty>=0),
+            Note nvarchar(40) NULL DEFAULT N'generated',
+            Amount decimal(38,8) NOT NULL DEFAULT 0,
+            AtTime datetimeoffset(7) NULL,
+            Rv rowversion);
+        INSERT dbo.phase3_rows(Qty) VALUES(1),(2);
+        CREATE TABLE dbo.phase3_original(K int NOT NULL, Label nvarchar(40) NULL);
+        CREATE UNIQUE INDEX uq_phase3_original ON dbo.phase3_original(K);
+        INSERT dbo.phase3_original VALUES(1,N'a');
+        CREATE TABLE dbo.phase3_keyless(K int NULL UNIQUE);
+        CREATE TABLE dbo.phase3_filtered(K int NOT NULL);
+        CREATE UNIQUE INDEX uq_phase3_filtered ON dbo.phase3_filtered(K) WHERE K>0;
+        CREATE TABLE dbo.phase3_instead(K int NOT NULL PRIMARY KEY);
+        INSERT dbo.phase3_instead VALUES(1);
+    ",
+    )
+    .await;
+    edit_fixture_command(&other, "CREATE TRIGGER dbo.phase3_after ON dbo.phase3_rows AFTER UPDATE AS
+        BEGIN SET NOCOUNT ON;
+        IF UPDATE(Qty) UPDATE t SET Note=N'after trigger' FROM dbo.phase3_rows t JOIN inserted i ON i.Id=t.Id;
+        END").await;
+    edit_fixture_command(
+        &other,
+        "CREATE TRIGGER dbo.phase3_instead_trigger ON dbo.phase3_instead INSTEAD OF UPDATE AS
+        BEGIN SET NOCOUNT ON; END",
+    )
+    .await;
+
+    let request = |table: &str| query::BrowseRequest {
+        schema: "dbo".into(),
+        table: table.into(),
+        filter_column: None,
+        filter_text: String::new(),
+    };
+    let field = |column, value: &str| Field {
+        column,
+        value: Input::Value { text: value.into() },
+    };
+    let update = |row: &edit::EditRow, values| Change::Update {
+        row_id: row.id.clone(),
+        values,
+    };
+    let apply_request = |page: &edit::Page, changes| ApplyRequest {
+        snapshot_id: page.id.clone(),
+        changes,
+    };
+    let table = "phase3_rows";
+
+    for name in ["phase3_keyless", "phase3_filtered", "phase3_instead"] {
+        let error = edit_load(token, edit_tab.clone(), request(name))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.code, E::ReadOnlyResult);
+    }
+    let page = edit_load(token, edit_tab.clone(), request(table))
+        .await
+        .unwrap();
+    assert_eq!(page.rows.len(), 2);
+    let forged = ApplyRequest {
+        snapshot_id: page.id.clone(),
+        changes: vec![Change::Delete {
+            row_id: "forged".into(),
+        }],
+    };
+    assert_eq!(
+        edit_apply(token, edit_tab.clone(), forged)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        E::WrongBinding
+    );
+    let crossed = apply_request(
+        &page,
+        vec![Change::Insert {
+            values: vec![field(1, "7")],
+        }],
+    );
+    assert_eq!(
+        edit_apply(token, observer.clone(), crossed)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        E::WrongBinding
+    );
+
+    // Constraint failure after an earlier insert must roll back the entire batch.
+    let result = edit_apply(
+        token,
+        edit_tab.clone(),
+        apply_request(
+            &page,
+            vec![
+                Change::Insert {
+                    values: vec![field(1, "10")],
+                },
+                update(&page.rows[0], vec![field(1, "-1")]),
+            ],
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(result, ApplyResult::Rejected { failure } if failure.server_code == Some(547) && failure.change_index == Some(1))
+    );
+    assert_eq!(
+        fixture_scalar(&other, "SELECT COUNT(*) FROM dbo.phase3_rows".into()).await,
+        2
+    );
+
+    let result = edit_apply(
+        token,
+        edit_tab.clone(),
+        apply_request(
+            &page,
+            vec![
+                update(&page.rows[0], vec![field(1, "5")]),
+                Change::Delete {
+                    row_id: page.rows[1].id.clone(),
+                },
+                Change::Insert {
+                    values: vec![
+                        field(1, "12"),
+                        field(3, "123456789012345678901234567890.12345678"),
+                        field(4, "2026-11-10T12:34:56.1234567+05:30"),
+                    ],
+                },
+            ],
+        ),
+    )
+    .await
+    .unwrap();
+    let ApplyResult::Committed { rows } = result else {
+        panic!("Phase 3 edit fixture did not commit");
+    };
+    assert_eq!(rows.len(), 3);
+    assert!(
+        matches!(&rows[0].as_ref().unwrap()[2], collab_database::DbValue::Text { value } if value=="after trigger")
+    );
+    assert!(rows[1].is_none());
+    let inserted = rows[2].as_ref().unwrap();
+    assert!(
+        matches!(&inserted[0], collab_database::DbValue::Integer { decimal } if decimal.parse::<i64>().is_ok_and(|id|id>2))
+    );
+    assert!(matches!(&inserted[2], collab_database::DbValue::Text { value } if value=="generated"));
+    assert!(
+        matches!(&inserted[3], collab_database::DbValue::Decimal { decimal,.. } if decimal=="123456789012345678901234567890.12345678")
+    );
+    assert!(matches!(
+        &inserted[4],
+        collab_database::DbValue::DateTime {
+            offset_minutes: Some(330),
+            ..
+        }
+    ));
+
+    // Rowversion and exact original-value comparisons both reject competing writes.
+    let page = edit_load(token, edit_tab.clone(), request(table))
+        .await
+        .unwrap();
+    edit_fixture_command(
+        &other,
+        "UPDATE dbo.phase3_rows SET Note=N'competing client' WHERE Id=1",
+    )
+    .await;
+    let result = edit_apply(
+        token,
+        edit_tab.clone(),
+        apply_request(&page, vec![update(&page.rows[0], vec![field(1, "99")])]),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(result, ApplyResult::Rejected { failure } if failure.code==E::RowConflict));
+    assert_eq!(
+        fixture_scalar(&other, "SELECT Qty FROM dbo.phase3_rows WHERE Id=1".into()).await,
+        5
+    );
+
+    let page = edit_load(token, edit_tab.clone(), request("phase3_original"))
+        .await
+        .unwrap();
+    edit_fixture_command(
+        &other,
+        "UPDATE dbo.phase3_original SET Label=N'A ' WHERE K=1",
+    )
+    .await;
+    let result = edit_apply(
+        token,
+        edit_tab.clone(),
+        apply_request(
+            &page,
+            vec![Change::Delete {
+                row_id: page.rows[0].id.clone(),
+            }],
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(result, ApplyResult::Rejected { failure } if failure.code==E::RowConflict));
+    assert_eq!(
+        fixture_scalar(&other, "SELECT COUNT(*) FROM dbo.phase3_original".into()).await,
+        1
+    );
+
+    let page = edit_load(token, edit_tab.clone(), request(table))
+        .await
+        .unwrap();
+    edit_fixture_command(&other, "ALTER TABLE dbo.phase3_rows ADD Added int NULL").await;
+    let result = edit_apply(
+        token,
+        edit_tab.clone(),
+        apply_request(
+            &page,
+            vec![Change::Insert {
+                values: vec![field(1, "20")],
+            }],
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(result, ApplyResult::Rejected { failure } if failure.code==E::SchemaConflict));
+
+    let id = manual_transaction(token, edit_tab.clone(), query::TransactionAction::Begin)
+        .await
+        .unwrap();
+    let (_, status) = collect_query(token, &edit_tab, &id).await;
+    assert_eq!(status.transaction, collab_database::TransactionState::Open);
+    assert_eq!(
+        edit_load(token, edit_tab.clone(), request(table))
+            .await
+            .err()
+            .unwrap()
+            .code,
+        E::UnresolvedSession
+    );
+    assert!(matches!(
+        close_tab(token, &edit_tab, false).await,
+        Err(E::UnresolvedSession)
+    ));
+    let id = manual_transaction(token, edit_tab.clone(), query::TransactionAction::Commit)
+        .await
+        .unwrap();
+    let (_, status) = collect_query(token, &edit_tab, &id).await;
+    assert_eq!(status.transaction, collab_database::TransactionState::None);
+
+    let page = edit_load(token, edit_tab.clone(), request(table))
+        .await
+        .unwrap();
+    let operation = edit_connection(token, &edit_tab).await.unwrap();
+    let (operation, live) = operation.connect(&edit_tab.database).await.unwrap();
+    let result = edit::apply_with_lost_ack(
+        operation,
+        live,
+        apply_request(
+            &page,
+            vec![Change::Insert {
+                values: vec![field(1, "30")],
+            }],
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(result, ApplyResult::Unknown { .. }));
+    assert_eq!(
+        fixture_scalar(
+            &other,
+            "SELECT COUNT(*) FROM dbo.phase3_rows WHERE Qty=30".into()
+        )
+        .await,
+        1
+    );
+    assert!(matches!(
+        close_tab(token, &edit_tab, false).await,
+        Err(E::UnresolvedSession)
+    ));
+    assert_eq!(
+        edit_load(token, edit_tab.clone(), request(table))
+            .await
+            .err()
+            .unwrap()
+            .code,
+        E::UnresolvedSession
+    );
+    close_tab(token, &edit_tab, true).await.unwrap();
+    close_tab(token, &observer, false).await.unwrap();
+    println!("COLLAB_DATABASE_PHASE3 passed");
 }

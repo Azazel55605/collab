@@ -1,6 +1,6 @@
 # Database Editor Plan
 
-Status: **Phase 2 implemented; native release acceptance pending**. Created **2026-11-10**.
+Status: **Phase 3 implemented; native release acceptance pending**. Created **2026-11-10**.
 
 [Phase 0 contract and driver evidence](./database-editor-phase0-contract.md) records
 the Linux fixture results and outstanding native platform acceptance.
@@ -224,14 +224,14 @@ Packaged platform, real WebView/IPC, OS save-picker and reconnect acceptance rem
 
 ### Phase 3 — SQL Server Data Editing
 
-- [ ] Add eligible-row detection and explicit edit mode, typed cell editors,
+- [x] Add eligible-row detection and explicit edit mode, typed cell editors,
       inserts/deletes and pending-change review.
-- [ ] Implement transactional Apply, optimistic concurrency, exact affected-row
+- [x] Implement transactional Apply, optimistic concurrency, exact affected-row
       checks, generated values, conflict review and unknown-outcome handling.
-- [ ] Add visible manual transaction controls with safe tab/session disposal.
+- [x] Add visible manual transaction controls with safe tab/session disposal.
 
 Exit: dependable query and row-edit workflows form the first usable release.
-Test competing clients, triggers, constraint errors and interrupted commits.
+The disposable SQL Server 2019/2022/2025 fixtures cover competing writes, AFTER triggers, constraint rollback, and a simulated lost acknowledgement after a real commit. Installed desktop acceptance remains open. See [SQL Server table editing](../desktop/database-queries.md#edit-table-rows).
 
 ### Phase 4 — SQLite
 

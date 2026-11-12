@@ -140,12 +140,10 @@ pub async fn database_query_rollback(
     binding: SessionBinding,
 ) -> Result<String, ContractError> {
     authorize_execution(&window)?;
-    database::start_query(
+    database::manual_transaction(
         &token,
         binding,
-        "IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;".into(),
-        None,
-        true,
+        database::query::TransactionAction::Rollback,
     )
     .await
 }
@@ -260,4 +258,35 @@ pub async fn database_table_browse(
 ) -> Result<String, ContractError> {
     authorize_execution(&window)?;
     database::browse_query(&token, binding, request).await
+}
+
+#[tauri::command]
+pub async fn database_manual_transaction(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    action: database::query::TransactionAction,
+) -> Result<String, ContractError> {
+    authorize_execution(&window)?;
+    database::manual_transaction(&token, binding, action).await
+}
+#[tauri::command]
+pub async fn database_edit_load(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    request: database::query::BrowseRequest,
+) -> Result<database::edit::Page, database::edit::Failure> {
+    authorize_execution(&window)?;
+    database::edit_load(&token, binding, request).await
+}
+#[tauri::command]
+pub async fn database_edit_apply(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    request: database::edit::ApplyRequest,
+) -> Result<database::edit::ApplyResult, database::edit::Failure> {
+    authorize_execution(&window)?;
+    database::edit_apply(&token, binding, request).await
 }

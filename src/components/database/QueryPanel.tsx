@@ -9,6 +9,7 @@ import {
   updateQuery,
   useDatabaseQueries,
 } from '../../lib/database/queryStore';
+import { openTableEdit } from '../../lib/database/tableEditing';
 import { exportResults } from '../../lib/database/values';
 import { databaseError, databaseQueryError } from '../../lib/databaseErrors';
 import { documentVaultIdentity } from '../../lib/documentPaneContext';
@@ -25,6 +26,7 @@ import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 import ResultGrid from './ResultGrid';
 import SqlEditor, { type SqlEditorHandle, type SqlSchema } from './SqlEditor';
+import TableEditDialog from './TableEditDialog';
 
 export default function QueryPanel({
   token,
@@ -52,6 +54,7 @@ export default function QueryPanel({
   const [cursor, setCursor] = useState('0:0');
   const [schemaCount, setSchemaCount] = useState(0);
   const [working, setWorking] = useState(false);
+  const [confirmCommit, setConfirmCommit] = useState(false);
   useEffect(() => {
     ensureQuery(binding);
     void tauriCommands
@@ -62,6 +65,8 @@ export default function QueryPanel({
   const status = tab?.status ?? idleStatus;
   const running = !!tab?.receiving || ['running', 'cancelling', 'finishing'].includes(status.phase);
   const retired = ['retired', 'outcome_unknown'].includes(status.phase);
+  const editingBusy = !!tab?.edit?.busy;
+  const canControlTransaction = !running && !retired && !editingBusy;
   const result = tab?.results[Number(set)];
   const sets = useMemo(() => Object.keys(tab?.results ?? {}), [tab?.results]);
   const job = async (action: () => Promise<void>) => {
@@ -75,7 +80,7 @@ export default function QueryPanel({
     }
   };
   const run = (selection: boolean) => {
-    if (!tab || running || retired) return;
+    if (!tab || running || retired || editingBusy) return;
     void executeQuery(token, binding, selection ? editor.current?.selection() : undefined);
   };
   const completion = () =>
@@ -152,7 +157,7 @@ export default function QueryPanel({
       <div className="flex shrink-0 items-center gap-2 overflow-x-auto p-2">
         <Button
           size="sm"
-          disabled={running || retired || !tab.sql.trim()}
+          disabled={running || retired || editingBusy || !tab.sql.trim()}
           onClick={() => run(false)}
         >
           Run batch
@@ -160,7 +165,7 @@ export default function QueryPanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={running || retired || !tab.sql.trim()}
+          disabled={running || retired || editingBusy || !tab.sql.trim()}
           onClick={() => run(true)}
         >
           Run selection
@@ -180,12 +185,32 @@ export default function QueryPanel({
           {status.phase} · Transaction {status.transaction}
         </Badge>
         {tab.dirty && <Badge variant="secondary">Unsaved SQL</Badge>}
+        {status.transaction === 'none' && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canControlTransaction}
+            onClick={() => void executeQuery(token, binding, undefined, 'begin')}
+          >
+            Begin transaction
+          </Button>
+        )}
+        {status.transaction === 'open' && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canControlTransaction}
+            onClick={() => setConfirmCommit(true)}
+          >
+            Commit transaction
+          </Button>
+        )}
         {['open', 'failed'].includes(status.transaction) && (
           <Button
             size="sm"
             variant="outline"
-            disabled={running || retired}
-            onClick={() => void executeQuery(token, binding, undefined, true)}
+            disabled={!canControlTransaction}
+            onClick={() => void executeQuery(token, binding, undefined, 'rollback')}
           >
             Roll back transaction
           </Button>
@@ -267,7 +292,7 @@ export default function QueryPanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={running || retired || !browse.table || !browse.schema}
+          disabled={running || retired || editingBusy || !browse.table || !browse.schema}
           onClick={() =>
             void executeQuery(token, binding, undefined, false, {
               ...browse,
@@ -277,6 +302,38 @@ export default function QueryPanel({
         >
           Browse 500 rows
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={
+            !canControlTransaction ||
+            status.transaction !== 'none' ||
+            !!tab.edit ||
+            !browse.table ||
+            !browse.schema
+          }
+          onClick={() =>
+            void openTableEdit(token, binding, {
+              ...browse,
+              filter_column: browse.filter_column || null,
+            })
+          }
+        >
+          Edit table rows
+        </Button>
+        {tab.edit?.visible === false && (
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() =>
+              updateQuery(binding.tab_id, (current) =>
+                current.edit ? { ...current, edit: { ...current.edit, visible: true } } : current,
+              )
+            }
+          >
+            Review unresolved edit
+          </Button>
+        )}
       </div>
       {tab.browse && (
         <p className="shrink-0 px-3 pb-1 text-xs text-muted-foreground">
@@ -414,6 +471,34 @@ export default function QueryPanel({
         <p className="p-4 text-sm text-muted-foreground">
           Run SQL to display results. No statements run when a script is opened.
         </p>
+      )}
+      {tab.edit && tab.edit.visible !== false && (
+        <TableEditDialog token={token} binding={binding} draft={tab.edit} />
+      )}
+      {confirmCommit && (
+        <Dialog open onOpenChange={setConfirmCommit}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Commit this session’s transaction?</DialogTitle>
+              <DialogDescription>
+                Commit pending SQL changes on the pinned session. A nested transaction stays open
+                until its outermost level is committed.
+              </DialogDescription>
+            </DialogHeader>
+            <Button variant="outline" onClick={() => setConfirmCommit(false)}>
+              Keep transaction open
+            </Button>
+            <Button
+              disabled={!canControlTransaction || status.transaction !== 'open'}
+              onClick={() => {
+                setConfirmCommit(false);
+                void executeQuery(token, binding, undefined, 'commit');
+              }}
+            >
+              Confirm commit
+            </Button>
+          </DialogContent>
+        </Dialog>
       )}
       {history && (
         <Dialog
