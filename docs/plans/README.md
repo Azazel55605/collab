@@ -8,6 +8,7 @@ Start with
 - [Android Companion App](./android-companion-app-plan.md)
 - [Advanced Tables](./advanced-tables-plan.md)
 - [Database Editor — SQL Server, SQLite And MariaDB](./database-editor-plan.md)
+- [Media Playback And Library](./media-playback-plan.md)
   - [Phase 0 Contract And Driver Evidence](./database-editor-phase0-contract.md)
 - [Digital Ink And Annotation](./digital-ink-and-annotation-plan.md)
   - [Phase 0 Contract](./digital-ink-phase0-contract.md)
