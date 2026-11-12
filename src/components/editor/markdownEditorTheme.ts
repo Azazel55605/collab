@@ -2,6 +2,8 @@ import { HighlightStyle } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 
+import { editorCompletionTheme, editorTooltipSurface } from './editorCompletionTheme';
+
 export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, fontSize: number) {
   return EditorView.theme(
     {
@@ -145,57 +147,8 @@ export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, font
       '.cm-url': { color: 'color-mix(in oklch, var(--primary) 70%, var(--muted-foreground))' },
       '.cm-code': { fontFamily: 'monospace' },
       '.cm-strikethrough': { textDecoration: 'line-through' },
-      '.cm-tooltip': {
-        border: '1px solid color-mix(in oklch, var(--border) 60%, transparent)',
-        borderRadius: '8px',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-        overflow: 'hidden',
-        backgroundColor: 'color-mix(in oklch, var(--popover) 92%, transparent)',
-      },
-      '.cm-tooltip-autocomplete': {
-        fontFamily: "'Geist Variable', system-ui, sans-serif",
-      },
-      '.cm-tooltip-autocomplete ul': {
-        margin: '0',
-        padding: '4px',
-        minWidth: '220px',
-        maxWidth: '340px',
-        maxHeight: '260px',
-      },
-      '.cm-tooltip-autocomplete ul li': {
-        display: 'flex',
-        alignItems: 'center',
-        padding: '5px 8px',
-        borderRadius: '5px',
-        cursor: 'pointer',
-        lineHeight: '1.4',
-        gap: '8px',
-      },
-      '.cm-tooltip-autocomplete ul li[aria-selected]': {
-        background: 'color-mix(in oklch, var(--primary) 15%, transparent)',
-        color: 'var(--foreground)',
-      },
-      '.cm-completionLabel': {
-        fontSize: '13px',
-        color: 'var(--foreground)',
-        flex: '1',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-      },
-      '.cm-completionDetail': {
-        fontSize: '11px',
-        color: 'var(--muted-foreground)',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        maxWidth: '120px',
-        textAlign: 'right',
-        fontStyle: 'normal',
-      },
-      '.cm-completionIcon': {
-        display: 'none',
-      },
+      '.cm-tooltip': editorTooltipSurface,
+      ...editorCompletionTheme,
     },
     { dark },
   );

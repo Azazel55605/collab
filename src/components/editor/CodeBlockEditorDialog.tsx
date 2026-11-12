@@ -45,6 +45,8 @@ import {
   getLanguageLabel,
   loadCodeLanguageSupport,
 } from './codeBlockUtils';
+import { editorCompletionOptions } from './editorCompletionIcons';
+import { editorCompletionTheme } from './editorCompletionTheme';
 import { asciiArrowLigatures, indentationConfig, indentVisualization } from './indentationPlugins';
 import { buildMarkdownHighlightStyle } from './markdownEditorTheme';
 
@@ -145,6 +147,7 @@ function buildCodeEditorTheme(dark: boolean, fontFamily: string, fontSize: numbe
     '.cm-activeLineGutter': {
       backgroundColor: 'transparent',
     },
+    ...editorCompletionTheme,
   });
 }
 
@@ -211,7 +214,7 @@ function CodeEditorSurface({
         bracketMatching(),
         closeBrackets(),
         indentOnInput(),
-        autocompletion(),
+        autocompletion(editorCompletionOptions),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         syntaxHighlighting(buildMarkdownHighlightStyle(isDark)),
         themeCompartment.current.of(buildCodeEditorTheme(isDark, fontFamily, editorFontSize)),
