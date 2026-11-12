@@ -16,8 +16,12 @@ import { documentVaultIdentity } from '../../lib/documentPaneContext';
 import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useVaultStore } from '../../store/vaultStore';
-import type { DatabaseSqliteFile } from '../../types/database';
-import type { DatabaseBinding, DatabaseHistoryEntry } from '../../types/database';
+import type {
+  DatabaseBinding,
+  DatabaseEngine,
+  DatabaseHistoryEntry,
+  DatabaseSqliteFile,
+} from '../../types/database';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -33,17 +37,20 @@ export default function QueryPanel({
   token,
   binding,
   sqlite,
+  engine = 'sql_server',
 }: {
   token: string;
   binding: DatabaseBinding;
   sqlite?: DatabaseSqliteFile;
+  engine?: DatabaseEngine;
 }) {
+  const maria = engine === 'maria_db';
   const tab = useDatabaseQueries((state) => state.tabs[binding.tab_id]);
   const vault = useVaultStore((state) => state.vault);
   const locked = useVaultStore((state) => state.isVaultLocked);
   const editor = useRef<SqlEditorHandle | null>(null);
   const [browse, setBrowse] = useState({
-    schema: tab?.browse?.schema ?? (sqlite ? 'main' : 'dbo'),
+    schema: tab?.browse?.schema ?? (sqlite ? 'main' : maria ? binding.database : 'dbo'),
     table: tab?.browse?.table ?? '',
     filter_column: tab?.browse?.filter_column ?? '',
     filter_text: tab?.browse?.filter_text ?? '',
@@ -94,7 +101,14 @@ export default function QueryPanel({
       });
       const next: SqlSchema = structuredClone(schema);
       for (const item of page.items) {
-        ((next[item.detail] ??= {})[item.kind] ??= []).push(item.name);
+        if (!Object.prototype.hasOwnProperty.call(next, item.detail)) {
+          Object.defineProperty(next, item.detail, { value: {}, enumerable: true });
+        }
+        const tables = next[item.detail];
+        if (!Object.prototype.hasOwnProperty.call(tables, item.kind)) {
+          Object.defineProperty(tables, item.kind, { value: [], enumerable: true });
+        }
+        tables[item.kind].push(item.name);
       }
       setSchema(next);
       setSchemaCount((v) => v + page.items.length);
@@ -163,7 +177,7 @@ export default function QueryPanel({
           disabled={running || retired || editingBusy || !tab.sql.trim()}
           onClick={() => run(false)}
         >
-          Run batch
+          {maria ? 'Run statement' : 'Run batch'}
         </Button>
         <Button
           size="sm"
@@ -268,6 +282,7 @@ export default function QueryPanel({
         <Input
           className="w-28"
           aria-label="Table schema"
+          readOnly={maria}
           value={browse.schema}
           onChange={(event) => setBrowse((v) => ({ ...v, schema: event.target.value }))}
         />
@@ -347,14 +362,16 @@ export default function QueryPanel({
       <p className="shrink-0 px-3 pb-2 text-xs text-muted-foreground">
         {script?.path ?? 'Untitled SQL'} · Ctrl/Cmd+Enter runs the selection, or the whole script
         when empty.{' '}
-        {sqlite
-          ? 'SQLite statements use semicolons. Result grids are read-only.'
-          : 'SQL runs with your account’s permissions. Result grids are read-only. GO separates batches.'}
+        {maria
+          ? 'Run one MariaDB statement at a time. DDL may commit an open transaction. Grid editing requires a keyed, trigger-free InnoDB table.'
+          : sqlite
+            ? 'SQLite statements use semicolons. Result grids are read-only.'
+            : 'SQL runs with your account’s permissions. Result grids are read-only. GO separates batches.'}
       </p>
       <div className="flex min-h-36 shrink-0 flex-col" style={{ height: '32%', maxHeight: 420 }}>
         <SqlEditor
           value={tab.sql}
-          sqlite={!!sqlite}
+          engine={engine}
           readOnly={running}
           schema={schema}
           handle={editor}
@@ -374,7 +391,7 @@ export default function QueryPanel({
       </div>
       {tab.error && (
         <div role="alert" className="shrink-0 px-3 py-2 text-sm text-destructive">
-          {databaseQueryError(tab.error.code)}
+          {databaseQueryError(tab.error.code, engine)}
           {tab.error.server_code !== null && ` Database error ${tab.error.server_code}.`}
           {tab.error.outcome_unknown &&
             ' Outcome unknown. Verify the database before rerunning; no query is replayed automatically.'}
@@ -488,8 +505,9 @@ export default function QueryPanel({
             <DialogHeader>
               <DialogTitle>Commit this session’s transaction?</DialogTitle>
               <DialogDescription>
-                Commit pending SQL changes on the pinned session. A nested transaction stays open
-                until its outermost level is committed.
+                Commit pending SQL changes on the pinned session.
+                {engine === 'sql_server' &&
+                  ' A nested transaction stays open until its outermost level is committed.'}
               </DialogDescription>
             </DialogHeader>
             <Button variant="outline" onClick={() => setConfirmCommit(false)}>

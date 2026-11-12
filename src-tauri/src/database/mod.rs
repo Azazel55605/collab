@@ -2,9 +2,10 @@
 mod credentials;
 pub(crate) mod driver;
 pub(crate) mod edit;
+mod maria;
 pub(crate) mod query;
 pub(crate) mod sqlite;
-use collab_database::{ContractError as E, SessionBinding};
+use collab_database::{ContractError as E, Engine, SessionBinding};
 use driver::Live;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,6 +21,8 @@ use zeroize::Zeroizing;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedConnection {
+    #[serde(default = "default_engine")]
+    pub engine: Engine,
     pub id: String,
     pub label: String,
     pub environment: String,
@@ -34,8 +37,18 @@ pub struct SavedConnection {
     #[serde(default)]
     pub retired_credentials: Vec<String>,
 }
+fn default_engine() -> Engine {
+    Engine::SqlServer
+}
 impl SavedConnection {
     fn validate(&self) -> Result<(), E> {
+        match self.engine {
+            Engine::SqlServer => {}
+            Engine::MariaDb if self.certificate_hostname.is_none() => {
+                collab_database::Identifier::new(&self.database)?.quoted(Engine::MariaDb)?;
+            }
+            _ => return Err(E::InvalidParameter),
+        }
         if self.retired_credentials.len() > 32
             || self
                 .retired_credentials
@@ -84,6 +97,8 @@ impl SavedConnection {
 }
 #[derive(Clone, Serialize)]
 pub struct Connected {
+    pub engine: Engine,
+    pub maria_capabilities: Option<maria::Capabilities>,
     pub id: String,
     pub saved_id: String,
     pub label: String,
@@ -99,20 +114,65 @@ pub struct Workspace {
     pub sqlite_files: Vec<sqlite::FileView>,
     pub durable_credentials: bool,
 }
+#[derive(Clone)]
+enum Network {
+    SqlServer(Arc<Live>),
+    MariaDb(Arc<maria::Live>),
+}
+impl Network {
+    async fn connect(
+        config: &SavedConnection,
+        database: &str,
+        password: &str,
+        cancel: CancellationToken,
+        permit: tokio::sync::OwnedSemaphorePermit,
+    ) -> Result<Self, E> {
+        match config.engine {
+            Engine::SqlServer => Live::connect(config, database, password, cancel, permit)
+                .await
+                .map(Self::SqlServer),
+            Engine::MariaDb => maria::Live::connect(config, database, password, cancel, permit)
+                .await
+                .map(Self::MariaDb),
+            Engine::Sqlite => Err(E::Unsupported),
+        }
+    }
+
+    fn query(&self) -> &query::Runtime {
+        match self {
+            Self::SqlServer(live) => &live.query,
+            Self::MariaDb(live) => &live.query,
+        }
+    }
+
+    fn cancel(&self) -> &CancellationToken {
+        match self {
+            Self::SqlServer(live) => &live.cancel,
+            Self::MariaDb(live) => &live.cancel,
+        }
+    }
+
+    async fn metadata(&self, request: &driver::MetadataRequest) -> Result<driver::MetadataPage, E> {
+        match self {
+            Self::SqlServer(live) => live.metadata(request).await,
+            Self::MariaDb(live) => live.metadata(request).await,
+        }
+    }
+}
 struct Connection {
     view: Connected,
     config: SavedConnection,
     secret: Arc<Zeroizing<String>>,
-    live: Arc<Live>,
+    live: Network,
 }
 struct Tab {
     binding: SessionBinding,
-    live: Arc<Live>,
+    live: Network,
     edit: Arc<edit::Runtime>,
 }
 impl Tab {
     fn clean(&self) -> bool {
-        self.live.query.clean() && self.edit.clean()
+        self.live.query().clean() && self.edit.clean()
     }
 }
 #[derive(Default)]
@@ -306,7 +366,8 @@ pub async fn save(
     if config.remember_password
         && secret.is_none()
         && old.as_ref().is_some_and(|p| {
-            p.host != config.host
+            p.engine != config.engine
+                || p.host != config.host
                 || p.port != config.port
                 || p.username != config.username
                 || p.database != config.database
@@ -545,7 +606,7 @@ pub async fn connect(
         None => return Err(E::AuthenticationFailed),
     };
     let permit = slots().try_acquire_owned().map_err(|_| E::LimitReached)?;
-    let live = Live::connect(&config, &config.database, &secret, cancel, permit).await?;
+    let live = Network::connect(&config, &config.database, &secret, cancel, permit).await?;
     let mut r = registry().lock().await;
     check(&r, token)?;
     // An edited/deleted profile must invalidate an in-flight connection attempt.
@@ -553,6 +614,11 @@ pub async fn connect(
         return Err(E::WrongBinding);
     }
     let view = Connected {
+        engine: config.engine,
+        maria_capabilities: match &live {
+            Network::MariaDb(live) => Some(live.capabilities.clone()),
+            _ => None,
+        },
         id: Uuid::new_v4().to_string(),
         saved_id: config.id.clone(),
         label: config.label.clone(),
@@ -574,11 +640,11 @@ pub async fn connect(
 }
 fn disconnect_inner(r: &mut Registry, id: &str) {
     if let Some(connection) = r.connections.remove(id) {
-        connection.live.cancel.cancel();
+        connection.live.cancel().cancel();
     }
     r.tabs.retain(|_, tab| {
         if tab.binding.connection_id == id {
-            tab.live.cancel.cancel();
+            tab.live.cancel().cancel();
             false
         } else {
             true
@@ -611,12 +677,12 @@ pub async fn open_tab(token: &str, id: &str, database: String) -> Result<Session
         (
             c.config.clone(),
             c.secret.clone(),
-            c.live.cancel.child_token(),
+            c.live.cancel().child_token(),
             r.owner.clone(),
         )
     };
     let permit = slots().try_acquire_owned().map_err(|_| E::LimitReached)?;
-    let live = Live::connect(&config, &database, &secret, cancel, permit).await?;
+    let live = Network::connect(&config, &database, &secret, cancel, permit).await?;
     let mut r = registry().lock().await;
     check(&r, token)?;
     if !r.connections.contains_key(id) {
@@ -727,7 +793,7 @@ pub async fn close_tab(token: &str, binding: &SessionBinding, discard: bool) -> 
         return Err(E::UnresolvedSession);
     }
     if let Some(tab) = r.tabs.remove(&binding.tab_id) {
-        tab.live.cancel.cancel();
+        tab.live.cancel().cancel();
     }
     Ok(())
 }
@@ -765,7 +831,7 @@ pub async fn metadata(
                     connection.config.clone(),
                     connection.secret.clone(),
                     binding.database,
-                    tab.live.cancel.child_token(),
+                    tab.live.cancel().child_token(),
                 )),
             )
         } else {
@@ -776,14 +842,14 @@ pub async fn metadata(
     // session uses the same login and pinned database, and is dropped afterwards.
     let live = if let Some((config, secret, database, cancel)) = tab_context {
         let permit = slots().try_acquire_owned().map_err(|_| E::LimitReached)?;
-        Live::connect(&config, &database, &secret, cancel, permit).await?
+        Network::connect(&config, &database, &secret, cancel, permit).await?
     } else {
         live
     };
     let page = live.metadata(&request).await?;
     let r = registry().lock().await;
     check(&r, token)?;
-    if live.cancel.is_cancelled() {
+    if live.cancel().is_cancelled() {
         return Err(E::WrongBinding);
     }
     Ok(page)
@@ -800,17 +866,20 @@ pub async fn query_live(token: &str, binding: &SessionBinding) -> Result<Arc<Liv
     if tab.binding != *binding {
         return Err(E::WrongBinding);
     }
-    Ok(tab.live.clone())
+    match &tab.live {
+        Network::SqlServer(live) => Ok(live.clone()),
+        Network::MariaDb(_) => Err(E::WrongBinding),
+    }
 }
 enum QueryOwner {
-    Server(Arc<Live>),
+    Network(Network),
     Sqlite(Arc<sqlite::Session>),
 }
 pub struct QueryTarget(QueryOwner);
 impl QueryTarget {
     pub fn runtime(&self) -> &query::Runtime {
         match &self.0 {
-            QueryOwner::Server(live) => &live.query,
+            QueryOwner::Network(live) => live.query(),
             QueryOwner::Sqlite(file) => &file.query,
         }
     }
@@ -826,7 +895,7 @@ pub async fn query_target(token: &str, binding: &SessionBinding) -> Result<Query
         .get(&binding.tab_id)
         .filter(|tab| tab.binding == *binding)
         .ok_or(E::WrongBinding)?;
-    Ok(QueryTarget(QueryOwner::Server(tab.live.clone())))
+    Ok(QueryTarget(QueryOwner::Network(tab.live.clone())))
 }
 pub async fn can_quit() -> bool {
     let Some(registry) = REGISTRY.get() else {
@@ -854,7 +923,10 @@ pub async fn start_query(
     if tab.edit.busy() {
         return Err(E::Busy);
     }
-    query::start(tab.live.clone(), binding, sql, selection, recovery)
+    match &tab.live {
+        Network::SqlServer(live) => query::start(live.clone(), binding, sql, selection, recovery),
+        Network::MariaDb(live) => maria::start(live.clone(), binding, sql, selection),
+    }
 }
 
 pub async fn browse_query(
@@ -874,7 +946,10 @@ pub async fn browse_query(
     if tab.edit.busy() {
         return Err(E::Busy);
     }
-    query::browse(tab.live.clone(), binding, request)
+    match &tab.live {
+        Network::SqlServer(live) => query::browse(live.clone(), binding, request),
+        Network::MariaDb(live) => maria::browse(live.clone(), binding, request),
+    }
 }
 
 pub async fn manual_transaction(
@@ -894,7 +969,10 @@ pub async fn manual_transaction(
     if tab.edit.busy() {
         return Err(E::Busy);
     }
-    query::transaction(tab.live.clone(), binding, action)
+    match &tab.live {
+        Network::SqlServer(live) => query::transaction(live.clone(), binding, action),
+        Network::MariaDb(live) => maria::transaction(live.clone(), binding, action),
+    }
 }
 
 struct EditConnection {
@@ -911,7 +989,7 @@ async fn edit_connection(token: &str, binding: &SessionBinding) -> Result<EditCo
     if tab.binding != *binding {
         return Err(E::WrongBinding);
     }
-    if tab.live.query.status().phase != "idle" || !tab.live.query.clean() {
+    if tab.live.query().status().phase != "idle" || !tab.live.query().clean() {
         return Err(E::UnresolvedSession);
     }
     let connection = r
@@ -924,13 +1002,13 @@ async fn edit_connection(token: &str, binding: &SessionBinding) -> Result<EditCo
         operation,
         config: connection.config.clone(),
         secret: connection.secret.clone(),
-        cancel: tab.live.cancel.child_token(),
+        cancel: tab.live.cancel().child_token(),
         permit,
     })
 }
 impl EditConnection {
-    async fn connect(self, database: &str) -> Result<(edit::Operation, Arc<Live>), E> {
-        let live = Live::connect(
+    async fn connect(self, database: &str) -> Result<(edit::Operation, Network), E> {
+        let live = Network::connect(
             &self.config,
             database,
             &self.secret,
@@ -956,7 +1034,10 @@ pub async fn edit_load(
     }
     let connection = edit_connection(token, &binding).await?;
     let (operation, live) = connection.connect(&binding.database).await?;
-    edit::load(operation, live, request).await
+    match live {
+        Network::SqlServer(live) => edit::load(operation, live, request).await,
+        Network::MariaDb(live) => maria::edit::load(operation, live, request).await,
+    }
 }
 pub async fn edit_apply(
     token: &str,
@@ -975,7 +1056,10 @@ pub async fn edit_apply(
     // Keep ownership until settlement even if the renderer drops its invoke.
     tokio::spawn(async move {
         let (operation, live) = connection.connect(&binding.database).await?;
-        edit::apply(operation, live, request).await
+        match live {
+            Network::SqlServer(live) => edit::apply(operation, live, request).await,
+            Network::MariaDb(live) => maria::edit::apply(operation, live, request).await,
+        }
     })
     .await
     .map_err(|_| E::UnresolvedSession)?

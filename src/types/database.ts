@@ -1,5 +1,14 @@
 /** Desktop database metadata only. Passwords never enter stores or persistence. */
+export type DatabaseNetworkEngine = 'sql_server' | 'maria_db';
+export type DatabaseEngine = DatabaseNetworkEngine | 'sqlite';
+export interface MariaDbCapabilities {
+  version: string;
+  sql_mode: string;
+  collation: string;
+  innodb: boolean;
+}
 export interface DatabaseConnection {
+  engine?: DatabaseNetworkEngine;
   id: string;
   label: string;
   environment: string;
@@ -11,6 +20,8 @@ export interface DatabaseConnection {
   remember_password: boolean;
 }
 export interface DatabaseConnected {
+  engine?: DatabaseNetworkEngine;
+  maria_capabilities?: MariaDbCapabilities | null;
   id: string;
   saved_id: string;
   label: string;
@@ -41,7 +52,9 @@ export interface DatabaseWorkspace {
 }
 export type DatabaseMetadataRequest =
   | { kind: 'completion'; after: string }
-  | { kind: 'databases'; after: string }
+  | { kind: 'databases' | 'maria_tables'; after: string }
+  | { kind: 'maria_columns'; table: string; after: number }
+  | { kind: 'maria_indexes'; table: string; after: string }
   | { kind: 'schemas'; after: number }
   | { kind: 'objects'; schema_id: number; after: number }
   | { kind: 'columns' | 'indexes'; object_id: number; after: number };

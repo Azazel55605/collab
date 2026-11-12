@@ -4,6 +4,7 @@ import { databaseError } from '../../lib/databaseErrors';
 import { tauriCommands } from '../../lib/tauri';
 import type {
   DatabaseBinding,
+  DatabaseEngine,
   DatabaseMetadataPage,
   DatabaseMetadataRequest,
 } from '../../types/database';
@@ -15,20 +16,26 @@ export default function MetadataExplorer({
   binding,
   onOpen,
   onBrowse,
-  sqlite = false,
+  engine = 'sql_server',
 }: {
   token: string;
-  sqlite?: boolean;
+  engine?: DatabaseEngine;
   connectionId: string;
   binding: DatabaseBinding | null;
   onOpen: (database: string) => void;
   onBrowse?: (schema: string, table: string) => void;
 }) {
-  const initial: DatabaseMetadataRequest = binding
-    ? { kind: 'schemas', after: 0 }
-    : { kind: 'databases', after: '' };
+  const sqlite = engine === 'sqlite';
+  const initial: DatabaseMetadataRequest = !binding
+    ? { kind: 'databases', after: '' }
+    : engine === 'maria_db'
+      ? { kind: 'maria_tables', after: '' }
+      : { kind: 'schemas', after: 0 };
   const [trail, setTrail] = useState<{ title: string; request: DatabaseMetadataRequest }[]>([
-    { title: binding ? 'Schemas' : 'Databases', request: initial },
+    {
+      title: !binding ? 'Databases' : engine === 'maria_db' ? binding.database : 'Schemas',
+      request: initial,
+    },
   ]);
   const [page, setPage] = useState<DatabaseMetadataPage | null>(null);
   const [error, setError] = useState('');
@@ -132,7 +139,7 @@ export default function MetadataExplorer({
                   Browse objects
                 </Button>
               )}
-              {current.request.kind === 'objects' && (
+              {(current.request.kind === 'objects' || current.request.kind === 'maria_tables') && (
                 <>
                   {onBrowse && (
                     <Button
@@ -147,11 +154,12 @@ export default function MetadataExplorer({
                     size="sm"
                     variant="outline"
                     onClick={() =>
-                      navigate(`${item.name} · Columns`, {
-                        kind: 'columns',
-                        object_id: Number(item.id),
-                        after: 0,
-                      })
+                      navigate(
+                        `${item.name} · Columns`,
+                        engine === 'maria_db'
+                          ? { kind: 'maria_columns', table: item.name, after: 0 }
+                          : { kind: 'columns', object_id: Number(item.id), after: 0 },
+                      )
                     }
                   >
                     Columns
@@ -160,11 +168,12 @@ export default function MetadataExplorer({
                     size="sm"
                     variant="outline"
                     onClick={() =>
-                      navigate(`${item.name} · Indexes`, {
-                        kind: 'indexes',
-                        object_id: Number(item.id),
-                        after: 0,
-                      })
+                      navigate(
+                        `${item.name} · Indexes`,
+                        engine === 'maria_db'
+                          ? { kind: 'maria_indexes', table: item.name, after: '' }
+                          : { kind: 'indexes', object_id: Number(item.id), after: 0 },
+                      )
                     }
                   >
                     Indexes
@@ -184,7 +193,7 @@ export default function MetadataExplorer({
             const next = page.next!;
             navigate(current.title, {
               ...current.request,
-              after: current.request.kind === 'databases' ? next : Number(next),
+              after: typeof current.request.after === 'string' ? next : Number(next),
             } as DatabaseMetadataRequest);
           }}
         >

@@ -29,6 +29,7 @@ struct State {
     busy: bool,
     unknown: bool,
     snapshot: Option<Arc<Snapshot>>,
+    maria_snapshot: Option<super::maria::edit::Snapshot>,
 }
 pub(super) struct Operation {
     runtime: Arc<Runtime>,
@@ -57,6 +58,19 @@ impl Runtime {
         })
     }
 }
+impl Operation {
+    pub(super) fn set_maria_snapshot(&self, snapshot: Option<super::maria::edit::Snapshot>) {
+        self.runtime.state.lock().maria_snapshot = snapshot;
+    }
+
+    pub(super) fn take_maria_snapshot(&self) -> Option<super::maria::edit::Snapshot> {
+        self.runtime.state.lock().maria_snapshot.take()
+    }
+
+    pub(super) fn mark_unresolved(&mut self) {
+        self.unresolved = true;
+    }
+}
 impl Drop for Operation {
     fn drop(&mut self) {
         let mut state = self.runtime.state.lock();
@@ -64,13 +78,14 @@ impl Drop for Operation {
         if self.unresolved {
             state.unknown = true;
             state.snapshot = None;
+            state.maria_snapshot = None;
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum InputKind {
+pub(super) enum InputKind {
     Sqlite,
     Integer,
     Decimal,
@@ -156,6 +171,19 @@ pub enum SqliteStorage {
     Binary,
 }
 impl Column {
+    pub(super) fn maria(
+        name: Identifier,
+        engine_type: String,
+        input: InputKind,
+        nullable: bool,
+        generated: bool,
+        has_default: bool,
+        key: bool,
+    ) -> Self {
+        let mut column = Self::sqlite(name, engine_type, nullable, generated, has_default, key);
+        column.input = input;
+        column
+    }
     pub(super) fn sqlite(
         name: Identifier,
         engine_type: String,
@@ -182,7 +210,8 @@ impl Column {
     }
 }
 impl Page {
-    pub(super) fn sqlite(
+    pub(super) fn new(
+        schema: String,
         table: String,
         columns: Vec<Column>,
         rows: Vec<EditRow>,
@@ -190,7 +219,7 @@ impl Page {
     ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            schema: "main".into(),
+            schema,
             table,
             columns,
             rows,

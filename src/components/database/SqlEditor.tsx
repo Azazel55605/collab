@@ -7,12 +7,13 @@ import {
   completionKeymap,
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { MSSQL, sql, SQLite, type SQLNamespace } from '@codemirror/lang-sql';
+import { MariaSQL, MSSQL, sql, SQLite, type SQLNamespace } from '@codemirror/lang-sql';
 import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 
 import { useUiStore } from '../../store/uiStore';
+import type { DatabaseEngine } from '../../types/database';
 import { editorCompletionOptions } from '../editor/editorCompletionIcons';
 import { editorCompletionTheme } from '../editor/editorCompletionTheme';
 import { buildMarkdownHighlightStyle } from '../editor/markdownEditorTheme';
@@ -49,7 +50,10 @@ export interface SqlEditorHandle {
   focusRange: (from: number, to: number) => void;
 }
 export type SqlSchema = Record<string, Record<string, string[]>>;
-function sqlEditorLanguage(schema: SqlSchema, sqlite: boolean) {
+function sqlEditorLanguage(schema: SqlSchema, engine: DatabaseEngine) {
+  const maria = engine === 'maria_db';
+  const quote = maria ? '`' : '"';
+  const quoteIdentifier = (label: string) => quote + label.split(quote).join(quote + quote) + quote;
   const namespace = (
     label: string,
     type: 'namespace' | 'table',
@@ -58,12 +62,12 @@ function sqlEditorLanguage(schema: SqlSchema, sqlite: boolean) {
     self: {
       label,
       type,
-      apply: /^[a-z_][a-z_0-9]*$/.test(label) ? undefined : `"${label.replace(/"/g, '""')}"`,
+      apply: !maria && /^[a-z_][a-z_0-9]*$/.test(label) ? undefined : quoteIdentifier(label),
     },
     children,
   });
   return sql({
-    dialect: sqlite ? SQLite : MSSQL,
+    dialect: engine === 'sqlite' ? SQLite : engine === 'maria_db' ? MariaSQL : MSSQL,
     schema: Object.fromEntries(
       Object.entries(schema).map(([name, tables]) => [
         name,
@@ -73,7 +77,17 @@ function sqlEditorLanguage(schema: SqlSchema, sqlite: boolean) {
           Object.fromEntries(
             Object.entries(tables).map(([table, columns]) => [
               table,
-              namespace(table, 'table', columns),
+              namespace(
+                table,
+                'table',
+                maria
+                  ? columns.map((label) => ({
+                      label,
+                      type: 'property',
+                      apply: quoteIdentifier(label),
+                    }))
+                  : columns,
+              ),
             ]),
           ),
         ),
@@ -85,7 +99,7 @@ function sqlEditorLanguage(schema: SqlSchema, sqlite: boolean) {
 export default function SqlEditor({
   value,
   schema,
-  sqlite = false,
+  engine = 'sql_server',
   onChange,
   onRun,
   onSave,
@@ -95,7 +109,7 @@ export default function SqlEditor({
   value: string;
   readOnly: boolean;
   schema: SqlSchema;
-  sqlite?: boolean;
+  engine?: DatabaseEngine;
   onChange: (value: string) => void;
   onRun: () => void;
   onSave?: () => void;
@@ -126,7 +140,7 @@ export default function SqlEditor({
           bracketMatching(),
           closeBrackets(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          language.current.of(sqlEditorLanguage(schema, sqlite)),
+          language.current.of(sqlEditorLanguage(schema, engine)),
           autocompletion(editorCompletionOptions),
           EditorView.contentAttributes.of({ 'aria-label': 'SQL editor', spellcheck: 'false' }),
           EditorState.transactionFilter.of((transaction) =>
@@ -203,9 +217,9 @@ export default function SqlEditor({
   }, [value]);
   useEffect(() => {
     view.current?.dispatch({
-      effects: language.current.reconfigure(sqlEditorLanguage(schema, sqlite)),
+      effects: language.current.reconfigure(sqlEditorLanguage(schema, engine)),
     });
-  }, [schema, sqlite]);
+  }, [schema, engine]);
   useEffect(() => {
     view.current?.dispatch({
       effects: editable.current.reconfigure([

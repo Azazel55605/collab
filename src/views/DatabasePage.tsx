@@ -118,6 +118,8 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
   const connection = workspace?.connections.find(
     (c) => c.id === (tab?.connection_id ?? connectionId),
   );
+  const engine = sqlite ? 'sqlite' : (connection?.engine ?? 'sql_server');
+  const mariaCapabilities = connection?.maria_capabilities;
   const connect = (testOnly: boolean) => {
     if (!workspace || !profile) return;
     const secret = password || undefined;
@@ -185,7 +187,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             ? `${sqlite.label} · SQLite`
             : connection
               ? `${connection.label} · ${tab?.database ?? connection.database} · ${connection.environment}`
-              : 'SQL Server connections and local SQLite files'
+              : 'SQL Server, MariaDB and local SQLite files'
         }
         meta={
           <>
@@ -222,6 +224,15 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           ) : connection ? (
             <>
               <Badge variant="outline">TLS verified</Badge>
+              {mariaCapabilities && (
+                <Badge
+                  variant="secondary"
+                  title={`SQL mode ${mariaCapabilities.sql_mode} · ${mariaCapabilities.collation}`}
+                >
+                  {mariaCapabilities.version} ·{' '}
+                  {mariaCapabilities.innodb ? 'InnoDB available' : 'InnoDB unavailable'}
+                </Badge>
+              )}
               <Badge variant="secondary">
                 {tab
                   ? `Session pinned · Transaction ${queryStatus?.transaction ?? 'none'}`
@@ -308,7 +319,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             ))}
           {workspace?.profiles.length === 0 && (
             <p className="text-xs text-muted-foreground">
-              Add a SQL Server connection to get started. No vault is required.
+              Add a SQL Server or MariaDB connection to get started.
             </p>
           )}
           {profile && (
@@ -451,13 +462,19 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             </div>
           )}
           {workspace && tab && !metadata ? (
-            <QueryPanel key={tab.tab_id} token={workspace.token} binding={tab} sqlite={sqlite} />
+            <QueryPanel
+              key={tab.tab_id}
+              token={workspace.token}
+              binding={tab}
+              engine={engine}
+              sqlite={sqlite}
+            />
           ) : workspace && (connection || sqlite) ? (
             <MetadataExplorer
               key={`${sqlite?.binding.connection_id ?? connection?.id}:${tab?.tab_id ?? 'databases'}`}
               token={workspace.token}
               connectionId={sqlite?.binding.connection_id ?? connection?.id ?? ''}
-              sqlite={!!sqlite}
+              engine={engine}
               binding={tab}
               onOpen={open}
               onBrowse={
@@ -479,8 +496,8 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
               <Database size={32} className="text-muted-foreground" />
               <h2 className="text-lg font-semibold">Your database workspace</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Connect to SQL Server or open a local SQLite database to browse its schema, run SQL
-                and edit table rows.
+                Connect to SQL Server or MariaDB, or open a local SQLite database to browse its
+                schema, run SQL and edit table rows.
               </p>
               {!workspace && !error && (
                 <p role="status" className="text-sm text-muted-foreground">

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 
-import type { DatabaseConnection } from '../../types/database';
+import type { DatabaseConnection, DatabaseNetworkEngine } from '../../types/database';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 export default function ConnectionForm({
   initial,
@@ -23,6 +24,7 @@ export default function ConnectionForm({
   const [config, setConfig] = useState<DatabaseConnection>(
     initial ?? {
       id: '',
+      engine: 'sql_server',
       label: '',
       environment: 'Development',
       host: '',
@@ -33,6 +35,7 @@ export default function ConnectionForm({
       remember_password: false,
     },
   );
+  const maria = config.engine === 'maria_db';
   const [password, setPassword] = useState('');
   const update = <K extends keyof DatabaseConnection>(key: K, value: DatabaseConnection[K]) =>
     setConfig((previous) => ({ ...previous, [key]: value }));
@@ -45,7 +48,7 @@ export default function ConnectionForm({
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{initial ? 'Edit connection' : 'New SQL Server connection'}</DialogTitle>
+          <DialogTitle>{initial ? 'Edit connection' : 'New database connection'}</DialogTitle>
           <DialogDescription>
             Connections belong to your local profile. TLS encryption and certificate verification
             are required. {initial && 'Saving changes closes this connection’s current sessions.'}
@@ -59,6 +62,35 @@ export default function ConnectionForm({
           }}
         >
           <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="db-engine">Database engine</FieldLabel>
+              <Select
+                value={config.engine ?? 'sql_server'}
+                disabled={busy || !!initial}
+                onValueChange={(engine: DatabaseNetworkEngine) =>
+                  setConfig((previous) => ({
+                    ...previous,
+                    engine,
+                    port: engine === 'maria_db' ? 3306 : 1433,
+                    database: engine === 'maria_db' ? '' : 'master',
+                    certificate_hostname: null,
+                  }))
+                }
+              >
+                <SelectTrigger id="db-engine">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sql_server">SQL Server</SelectItem>
+                  <SelectItem value="maria_db">MariaDB</SelectItem>
+                </SelectContent>
+              </Select>
+              {maria && (
+                <FieldDescription>
+                  Use the hostname on the server certificate and a CA trusted by your system.
+                </FieldDescription>
+              )}
+            </Field>
             {(['label', 'environment', 'host', 'database', 'username'] as const).map((key) => (
               <Field key={key}>
                 <FieldLabel htmlFor={`db-${key}`}>
@@ -97,20 +129,22 @@ export default function ConnectionForm({
                 onChange={(event) => update('port', Number(event.target.value))}
               />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="db-certificate">Certificate hostname (optional)</FieldLabel>
-              <Input
-                id="db-certificate"
-                value={config.certificate_hostname ?? ''}
-                maxLength={253}
-                disabled={busy}
-                onChange={(event) => update('certificate_hostname', event.target.value || null)}
-              />
-              <FieldDescription>
-                Leave blank to verify the server hostname above. Use a certificate name only when
-                connecting through an address alias.
-              </FieldDescription>
-            </Field>
+            {!maria && (
+              <Field>
+                <FieldLabel htmlFor="db-certificate">Certificate hostname (optional)</FieldLabel>
+                <Input
+                  id="db-certificate"
+                  value={config.certificate_hostname ?? ''}
+                  maxLength={253}
+                  disabled={busy}
+                  onChange={(event) => update('certificate_hostname', event.target.value || null)}
+                />
+                <FieldDescription>
+                  Leave blank to verify the server hostname above. Use a certificate name only when
+                  connecting through an address alias.
+                </FieldDescription>
+              </Field>
+            )}
             <Field>
               <FieldLabel htmlFor="db-password">SQL password</FieldLabel>
               <Input
