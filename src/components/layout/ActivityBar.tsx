@@ -20,13 +20,15 @@ import { type ActiveView, hasWorkspaceSidebar, useUiStore } from '../../store/ui
 import { AppLogo } from '../ui/AppLogo';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
-const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = [
-  { view: 'editor', icon: <Files size={18} />, label: 'Files' },
-  { view: 'chats', icon: <MessageCircle size={18} />, label: 'Chats' },
-  { view: 'calendar', icon: <CalendarDays size={18} />, label: 'Calendar' },
-  { view: 'databases', icon: <Database size={18} />, label: 'Databases' },
-  { view: 'grid', icon: <LayoutGrid size={18} />, label: 'Grid View' },
-];
+import { activityWorkspace, WORKSPACE_ORDER, type WorkspaceView } from './workspaceNavigation';
+
+const NAV_ITEMS: Record<WorkspaceView, { icon: React.ReactNode; label: string }> = {
+  editor: { icon: <Files size={18} />, label: 'Files' },
+  chats: { icon: <MessageCircle size={18} />, label: 'Chats' },
+  calendar: { icon: <CalendarDays size={18} />, label: 'Calendar' },
+  databases: { icon: <Database size={18} />, label: 'Databases' },
+  grid: { icon: <LayoutGrid size={18} />, label: 'Grid View' },
+};
 const ACTIVITY_INDICATOR_INSET = 2;
 
 const SIDEBAR_LABELS = {
@@ -56,11 +58,8 @@ export default function ActivityBar() {
   const closeVaultManager = useUiStore((state) => state.closeVaultManager);
   const openTab = useEditorStore((state) => state.openTab);
   const peers = useCollabStore((state) => state.peers);
-  const navView =
-    activeView === 'graph' || activeView === 'canvas' || activeView === 'kanban'
-      ? 'editor'
-      : activeView;
-  const activeNavIndex = isSettingsOpen ? -1 : NAV_ITEMS.findIndex((item) => item.view === navView);
+  const navView = activityWorkspace(activeView);
+  const activeNavIndex = isSettingsOpen ? -1 : WORKSPACE_ORDER.indexOf(navView);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const navButtonRefs = useRef<Partial<Record<ActiveView, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState<{ top: number; height: number } | null>(null);
@@ -70,9 +69,9 @@ export default function ActivityBar() {
       setIndicator(null);
       return;
     }
-    const item = NAV_ITEMS[activeNavIndex];
+    const view = WORKSPACE_ORDER[activeNavIndex];
     const root = rootRef.current;
-    const button = item ? navButtonRefs.current[item.view] : null;
+    const button = view ? navButtonRefs.current[view] : null;
     if (!root || !button) {
       setIndicator(null);
       return;
@@ -90,8 +89,8 @@ export default function ActivityBar() {
   useLayoutEffect(() => {
     measureIndicator();
     const root = rootRef.current;
-    const activeItem = activeNavIndex >= 0 ? NAV_ITEMS[activeNavIndex] : null;
-    const button = activeItem ? navButtonRefs.current[activeItem.view] : null;
+    const view = WORKSPACE_ORDER[activeNavIndex];
+    const button = view ? navButtonRefs.current[view] : null;
     if (!root) return;
     const observer =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureIndicator);
@@ -171,7 +170,8 @@ export default function ActivityBar() {
 
       <div className="w-6 h-px bg-border/50 my-1" />
 
-      {NAV_ITEMS.map(({ view, icon, label }) => {
+      {WORKSPACE_ORDER.map((view) => {
+        const { icon, label } = NAV_ITEMS[view];
         const isActive = navView === view && !isSettingsOpen;
         return (
           <Tooltip key={view}>

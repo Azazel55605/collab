@@ -160,6 +160,10 @@ Located in `src/views/`. View selection is **two-layered** and resolved in
    the unified file tree. The Graph button beside the file filter opens the
    singleton Graph tab.
 
+`components/layout/workspaceNavigation.ts` shares activity bar order with the
+shell’s directional workspace entrance. The main pane starts its entrance when
+the deferred view resolves.
+
 The activity bar sidebar button and Ctrl/Cmd+Shift+B toggle the active
 workspace’s sidebar. Calendar, Chats, and Databases own their overview, chat
 list, and connections panel. `uiStore.workspaceSidebars` remembers each

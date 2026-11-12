@@ -132,6 +132,7 @@ describe('AppShell document remounting', () => {
       isSidebarOpen: true,
       workspaceSidebars: { calendar: true, chats: true, databases: true },
       isSettingsOpen: false,
+      animationsEnabled: true,
       isVaultManagerOpen: false,
     });
 
@@ -253,5 +254,33 @@ describe('AppShell document remounting', () => {
       chats: false,
       databases: false,
     });
+  });
+  it('animates workspace entry in activity bar order and skips changes within Files', async () => {
+    const { container } = render(<AppShell />, { wrapper: TooltipProvider });
+    const frame = () => container.querySelector('[data-slot="workspace-content"]')!;
+    const direction = () => frame().getAttribute('data-workspace-entry');
+    const files = frame();
+    expect(direction()).toBeNull();
+
+    await act(async () => useEditorStore.getState().setActiveTab('Notes/b.md'));
+    expect(frame()).toBe(files);
+    expect(direction()).toBeNull();
+
+    await act(async () => useUiStore.getState().setActiveView('graph'));
+    expect(frame()).toBe(files);
+    expect(direction()).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }));
+    expect(direction()).toBe('down');
+    const calendar = frame();
+    fireEvent.click(screen.getByRole('button', { name: 'Databases' }));
+    expect(frame()).not.toBe(calendar);
+    expect(direction()).toBe('down');
+    fireEvent.click(screen.getByRole('button', { name: 'Chats' }));
+    expect(direction()).toBe('up');
+
+    act(() => useUiStore.setState({ animationsEnabled: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    expect(direction()).toBeNull();
   });
 });

@@ -55,6 +55,7 @@ import CalendarSyncCoordinator from './CalendarSyncCoordinator';
 import Sidebar from './Sidebar';
 import StatusBar from './StatusBar';
 import TabBar from './TabBar';
+import { activityWorkspace, WORKSPACE_ORDER } from './workspaceNavigation';
 
 // ── Editor error boundary ─────────────────────────────────────────────────────
 class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -101,6 +102,18 @@ export default function AppShell() {
   const closeTab = useEditorStore((state) => state.closeTab);
   const setActiveTab = useEditorStore((state) => state.setActiveTab);
   const activeView = useUiStore((state) => state.activeView);
+  const animationsEnabled = useUiStore((state) => state.animationsEnabled);
+  const workspace = activityWorkspace(activeView);
+  const [entry, setEntry] = useState({
+    workspace,
+    direction: null as 'up' | 'down' | null,
+  });
+  if (entry.workspace !== workspace) {
+    const direction =
+      WORKSPACE_ORDER.indexOf(workspace) > WORKSPACE_ORDER.indexOf(entry.workspace) ? 'down' : 'up';
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    setEntry({ workspace, direction: animationsEnabled && !reducedMotion ? direction : null });
+  }
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
   const workspaceSidebarOpen = useUiStore(
@@ -376,21 +389,36 @@ export default function AppShell() {
               activeView !== 'databases' && <TabBar />}
             {/* position:relative so the split drop zones are positioned inside the content area */}
             <div className="relative flex-1 overflow-hidden">
-              <EditorErrorBoundary key={activeTabPath ?? activeView}>
-                <div
-                  key={`${activeView}:${activeDocumentKey}`}
-                  data-slot="main-content"
-                  className="h-full min-h-0"
-                >
-                  <DocumentPane
-                    vault={vault}
-                    relativePath={activeTab?.relativePath}
-                    type={activeTab?.type}
+              <div
+                key={workspace}
+                data-slot="workspace-content"
+                data-workspace-entry={entry.direction ?? undefined}
+                className="h-full min-h-0"
+                onAnimationEnd={(event) => {
+                  if (
+                    event.target === event.currentTarget &&
+                    event.animationName === 'app-workspace-enter'
+                  ) {
+                    setEntry({ workspace, direction: null });
+                  }
+                }}
+              >
+                <EditorErrorBoundary key={activeTabPath ?? activeView}>
+                  <div
+                    key={`${activeView}:${activeDocumentKey}`}
+                    data-slot="main-content"
+                    className="h-full min-h-0"
                   >
-                    {renderMainContent()}
-                  </DocumentPane>
-                </div>
-              </EditorErrorBoundary>
+                    <DocumentPane
+                      vault={vault}
+                      relativePath={activeTab?.relativePath}
+                      type={activeTab?.type}
+                    >
+                      {renderMainContent()}
+                    </DocumentPane>
+                  </div>
+                </EditorErrorBoundary>
+              </div>
               {/* Edge drop zones — only visible when a tab is being dragged */}
               {activeView !== 'grid' &&
                 activeView !== 'calendar' &&
