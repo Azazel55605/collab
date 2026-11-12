@@ -301,7 +301,7 @@ function ItemContextMenu({
   );
 }
 
-export default function CalendarPage() {
+export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } = {}) {
   const profileId = useCollabStore((state) => state.myUserId);
   const weekStart = useUiStore((state) => state.weekStart);
   const timeFormat = useUiStore((state) => state.timeFormat);
@@ -513,7 +513,7 @@ export default function CalendarPage() {
     ],
     [profileId, serverConnections],
   );
-  const showCalendarRail = rootWidth >= 720;
+  const showCalendarRail = sidebarOpen ?? rootWidth >= 720;
   const showMonthAgenda = rootWidth >= 1080 && viewMode === 'month';
 
   const movePeriod = (direction: -1 | 1) => {
@@ -737,39 +737,36 @@ export default function CalendarPage() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {showCalendarRail && (
-          <CalendarRail
-            calendars={store.calendars}
-            subscriptions={store.subscriptions}
-            visibleIds={store.visibleCalendarIds}
-            saving={store.saving}
-            onVisible={store.setCalendarVisible}
-            onAdd={() => setCalendarDialogOpen(true)}
-            onSubscribe={() => setSubscriptionDialogOpen(true)}
-            onMirrors={() => setMirrorDialogOpen(true)}
-            mirrorAttention={store.mirrorStatuses.some(
-              (status) =>
-                status.state === 'waiting' ||
-                status.state === 'conflict' ||
-                status.state === 'error',
-            )}
-            onEdit={setCalendarEditor}
-            onImport={(calendar) => void importCalendar(calendar)}
-            onExport={(calendar) => void exportCalendar(calendar)}
-            onPublish={setPublishCalendar}
-            onRefreshSubscription={(subscriptionId) =>
-              void store.refreshSubscription(subscriptionId).catch(() => {})
-            }
-            onDeleteSubscription={(subscriptionId) =>
-              setSubscriptionDeleteRequest(
-                store.subscriptions.find((entry) => entry.id === subscriptionId) ?? null,
-              )
-            }
-            onArchive={(calendar, archived) => {
-              void store.updateCalendar(calendar.id, { archived }).catch(() => {});
-            }}
-          />
-        )}
+        <CalendarRail
+          hidden={!showCalendarRail}
+          calendars={store.calendars}
+          subscriptions={store.subscriptions}
+          visibleIds={store.visibleCalendarIds}
+          saving={store.saving}
+          onVisible={store.setCalendarVisible}
+          onAdd={() => setCalendarDialogOpen(true)}
+          onSubscribe={() => setSubscriptionDialogOpen(true)}
+          onMirrors={() => setMirrorDialogOpen(true)}
+          mirrorAttention={store.mirrorStatuses.some(
+            (status) =>
+              status.state === 'waiting' || status.state === 'conflict' || status.state === 'error',
+          )}
+          onEdit={setCalendarEditor}
+          onImport={(calendar) => void importCalendar(calendar)}
+          onExport={(calendar) => void exportCalendar(calendar)}
+          onPublish={setPublishCalendar}
+          onRefreshSubscription={(subscriptionId) =>
+            void store.refreshSubscription(subscriptionId).catch(() => {})
+          }
+          onDeleteSubscription={(subscriptionId) =>
+            setSubscriptionDeleteRequest(
+              store.subscriptions.find((entry) => entry.id === subscriptionId) ?? null,
+            )
+          }
+          onArchive={(calendar, archived) => {
+            void store.updateCalendar(calendar.id, { archived }).catch(() => {});
+          }}
+        />
         <main
           className={cn(
             'grid min-h-0 min-w-0 flex-1',
@@ -1312,6 +1309,7 @@ export function setCompactCalendarDragImage(
 }
 
 export function CalendarRail({
+  hidden = false,
   calendars,
   subscriptions,
   visibleIds,
@@ -1329,6 +1327,7 @@ export function CalendarRail({
   onDeleteSubscription,
   onArchive,
 }: {
+  hidden?: boolean;
   calendars: CalendarDefinition[];
   subscriptions: CalendarSubscription[];
   visibleIds: string[];
@@ -1349,7 +1348,11 @@ export function CalendarRail({
   const activeCalendars = calendars.filter((calendar) => !calendar.archived);
   const archivedCalendars = calendars.filter((calendar) => calendar.archived);
   return (
-    <aside className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3">
+    <aside
+      aria-label="Calendar overview"
+      hidden={hidden}
+      className="flex w-44 max-w-[40%] shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
+    >
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span>
         <span className="flex items-center">

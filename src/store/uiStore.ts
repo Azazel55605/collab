@@ -8,6 +8,12 @@ import type { SchematicSymbolSet } from '../types/logicDiagram';
 
 export type ActiveView =
   'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid' | 'chats' | 'databases';
+export type WorkspaceSidebarView = 'calendar' | 'chats' | 'databases';
+
+export function hasWorkspaceSidebar(view: ActiveView): view is WorkspaceSidebarView {
+  return view === 'calendar' || view === 'chats' || view === 'databases';
+}
+
 export type SidebarPanel = 'files' | 'search' | 'tags' | 'collab';
 export type CollabTab = 'peers' | 'chat' | 'history';
 export type Theme = 'dark' | 'midnight' | 'warm' | 'light';
@@ -190,6 +196,8 @@ function normalizeFontSize(value: unknown, fallback: number): number {
 function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
   if (!persisted || typeof persisted !== 'object') return {};
   const state = persisted as Record<string, unknown>;
+  const workspaceSidebars = state.workspaceSidebars as
+    Partial<Record<WorkspaceSidebarView, unknown>> | undefined;
   const legacyFont = state.editorFont;
   const legacyFontSize = state.fontSize;
 
@@ -212,6 +220,11 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
   return {
     ...state,
     sidebarPanel: isSidebarPanel(state.sidebarPanel) ? state.sidebarPanel : 'files',
+    workspaceSidebars: {
+      calendar: workspaceSidebars?.calendar !== false,
+      chats: workspaceSidebars?.chats !== false,
+      databases: workspaceSidebars?.databases !== false,
+    },
     interfaceFont,
     interfaceFontSize: normalizeFontSize(
       state.interfaceFontSize ?? legacyFontSize,
@@ -383,6 +396,7 @@ interface UiState {
   fileTreeCollapsedPathsByVault: Record<string, string[]>;
   sidebarWidth: number;
   isSidebarOpen: boolean;
+  workspaceSidebars: Record<WorkspaceSidebarView, boolean>;
   isSettingsOpen: boolean;
   isVaultManagerOpen: boolean;
 
@@ -454,6 +468,7 @@ interface UiState {
   setFileTreeCollapsedPathsForVault: (vaultPath: string, paths: string[]) => void;
   setSidebarWidth: (width: number) => void;
   toggleSidebar: () => void;
+  openVaultSidebar: (panel: SidebarPanel, showEditor?: boolean) => void;
   openSettings: () => void;
   closeSettings: () => void;
   openVaultManager: () => void;
@@ -517,13 +532,14 @@ interface UiState {
 
 export const useUiStore = create<UiState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       activeView: 'editor',
       sidebarPanel: 'files',
       collabTab: 'peers',
       fileTreeCollapsedPathsByVault: {},
       sidebarWidth: 240,
       isSidebarOpen: true,
+      workspaceSidebars: { calendar: true, chats: true, databases: true },
       isSettingsOpen: false,
       isVaultManagerOpen: false,
 
@@ -595,7 +611,26 @@ export const useUiStore = create<UiState>()(
           },
         })),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
-      toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
+      toggleSidebar: () =>
+        set(({ activeView, isSidebarOpen, workspaceSidebars }) =>
+          hasWorkspaceSidebar(activeView)
+            ? {
+                workspaceSidebars: {
+                  ...workspaceSidebars,
+                  [activeView]: !workspaceSidebars[activeView],
+                },
+              }
+            : { isSidebarOpen: !isSidebarOpen },
+        ),
+      openVaultSidebar: (sidebarPanel, showEditor = false) => {
+        if (showEditor || hasWorkspaceSidebar(get().activeView)) {
+          void runDocumentNavigation(() =>
+            set({ activeView: 'editor', sidebarPanel, isSidebarOpen: true }),
+          );
+        } else {
+          set({ sidebarPanel, isSidebarOpen: true });
+        }
+      },
       openSettings: () => set({ isSettingsOpen: true }),
       closeSettings: () => set({ isSettingsOpen: false }),
       openVaultManager: () => set({ isVaultManagerOpen: true }),
@@ -707,6 +742,7 @@ export const useUiStore = create<UiState>()(
         fileTreeCollapsedPathsByVault: s.fileTreeCollapsedPathsByVault,
         sidebarWidth: s.sidebarWidth,
         isSidebarOpen: s.isSidebarOpen,
+        workspaceSidebars: s.workspaceSidebars,
         theme: s.theme,
         accentColor: s.accentColor,
         interfaceFont: s.interfaceFont,

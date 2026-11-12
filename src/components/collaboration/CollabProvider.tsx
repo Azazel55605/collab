@@ -9,7 +9,7 @@ import { getAppVersion } from '../../lib/tauri';
 import { tauriCommands } from '../../lib/tauri';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
-import { useUiStore } from '../../store/uiStore';
+import { hasWorkspaceSidebar, useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { ChatMessage } from '../../types/collab';
 import { vaultKind } from '../../types/vault';
@@ -23,7 +23,9 @@ export function useCollabContext() {
 export function CollabProvider({ children }: { children: ReactNode }) {
   const vault = useVaultStore((state) => state.vault);
   const activeTabPath = useEditorStore((state) => state.activeTabPath);
-  const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const isSidebarOpen = useUiStore(
+    (state) => state.isSidebarOpen && !hasWorkspaceSidebar(state.activeView),
+  );
   const sidebarPanel = useUiStore((state) => state.sidebarPanel);
   const collabTab = useUiStore((state) => state.collabTab);
   const setPeers = useCollabStore((state) => state.setPeers);

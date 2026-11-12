@@ -362,6 +362,14 @@ Rules:
 - Decorative glow is acceptable, but only when it improves readability or focus.
 - Labels must remain legible against the active theme.
 
+## Workspace Sidebars
+
+Use the activity bar sidebar button for the left panel that belongs to the
+active workspace. The label names the panel and changes between Show and Hide.
+Calendar shows its calendar overview, Chats shows chats and teams, and
+Databases shows connections. Document views use the vault sidebar. Place Graph
+beside Filter in the file tree because it opens a document tab.
+
 ## Dialogs, Menus, and Popovers
 
 - Prefer shadcn/ui components first, then Radix primitives, then raw HTML only when necessary.

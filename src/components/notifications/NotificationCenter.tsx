@@ -178,9 +178,8 @@ export default function NotificationCenter() {
       }
       if (targetAvailable) {
         const ui = useUiStore.getState();
-        ui.setSidebarPanel('collab');
         ui.setCollabTab('chat');
-        if (!ui.isSidebarOpen) ui.toggleSidebar();
+        ui.openVaultSidebar('collab');
       }
     } else if (destination.kind === 'settings') {
       openSettings();

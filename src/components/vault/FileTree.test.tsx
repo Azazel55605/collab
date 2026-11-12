@@ -249,6 +249,20 @@ describe('FileTree folder collapse state', () => {
     });
   });
 
+  it('opens Graph as a singleton tab from the file toolbar', () => {
+    render(<FileTree />);
+    const button = screen.getByRole('button', { name: 'Open Graph View' });
+    expect(
+      button.parentElement?.contains(screen.getByRole('button', { name: 'Filter files' })),
+    ).toBe(true);
+    fireEvent.click(button);
+    fireEvent.click(button);
+    const { activeTabPath, openTabs } = useEditorStore.getState();
+    expect(activeTabPath).toBe('__graph__');
+    expect(openTabs.filter((tab) => tab.type === 'graph')).toHaveLength(1);
+    expect(useUiStore.getState().activeView).toBe('editor');
+  });
+
   it('reveals a newly activated document from stale trash and collapsed folders', async () => {
     useUiStore.setState({ fileTreeCollapsedPathsByVault: { '/vault': ['Docs'] } });
     render(<FileTree />);

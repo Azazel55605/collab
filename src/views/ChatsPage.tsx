@@ -10,11 +10,15 @@ function openSettingsTab(tab: 'profile' | 'chats') {
   );
 }
 
-export default function ChatsPage({ standalone = true }: { standalone?: boolean } = {}) {
+export default function ChatsPage({
+  standalone = true,
+  sidebarOpen,
+}: { standalone?: boolean; sidebarOpen?: boolean } = {}) {
   const connections = useServerStore((state) => state.connections);
   return (
     <main className={`desktop-conversations ${standalone ? '' : 'embedded'}`}>
       <ConversationAccounts
+        sidebarOpen={sidebarOpen}
         openAccountSettings={() => openSettingsTab('profile')}
         openChatSettings={() => openSettingsTab('chats')}
         accounts={Object.entries(connections).flatMap(([serverUrl, connection]) =>

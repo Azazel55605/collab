@@ -5,7 +5,7 @@ import { Send } from 'lucide-react';
 import { useCollabIdentity } from '../../../lib/collabIdentity';
 import { createCollabTransport } from '../../../lib/collabTransport';
 import { useCollabStore } from '../../../store/collabStore';
-import { useUiStore } from '../../../store/uiStore';
+import { hasWorkspaceSidebar, useUiStore } from '../../../store/uiStore';
 import { useVaultStore } from '../../../store/vaultStore';
 import type { ChatMessage } from '../../../types/collab';
 import { Button } from '../../ui/button';
@@ -82,7 +82,9 @@ function TypingIndicator({
 
 export function ChatPanel() {
   const vault = useVaultStore((state) => state.vault);
-  const isSidebarOpen = useUiStore((state) => state.isSidebarOpen);
+  const isSidebarOpen = useUiStore(
+    (state) => state.isSidebarOpen && !hasWorkspaceSidebar(state.activeView),
+  );
   const sidebarPanel = useUiStore((state) => state.sidebarPanel);
   const collabTab = useUiStore((state) => state.collabTab);
   const identity = useCollabIdentity();

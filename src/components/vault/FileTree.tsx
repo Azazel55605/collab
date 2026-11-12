@@ -12,6 +12,7 @@ import {
   FolderPlus,
   FolderSearch,
   Funnel,
+  GitFork,
   Image as ImageIcon,
   Layout,
   LayoutDashboard,
@@ -61,6 +62,7 @@ import { VersionHistoryModal } from '../collaboration/history/VersionHistoryModa
 import NewDrawingDialog, { type NewDrawingChoice } from '../ink/NewDrawingDialog';
 import { FileTreeHoverPreviewPopover } from '../previews/FileTreeHoverPreviewPopover';
 import SheetConversionReportDialog from '../sheet/SheetConversionReportDialog';
+import { Button } from '../ui/button';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1111,7 +1113,7 @@ export default function FileTree() {
       />
 
       {/* Toolbar row */}
-      <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border/30">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1.5 border-b border-border/30">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setMode('files')}
@@ -1138,7 +1140,27 @@ export default function FileTree() {
           </button>
         </div>
         {mode === 'files' && (
-          <div className="flex items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Open Graph View"
+                  className="text-muted-foreground transition-colors app-motion-fast hover:text-foreground"
+                  onClick={() => {
+                    openTab('__graph__', 'Graph', 'graph');
+                    setActiveView('editor');
+                  }}
+                >
+                  <GitFork size={12} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs text-foreground">
+                Open Graph View
+              </TooltipContent>
+            </Tooltip>
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
