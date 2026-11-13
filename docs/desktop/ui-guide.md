@@ -440,6 +440,18 @@ secondary actions (remove from list, remove offline copy, server details) live
 in the row's ⋯ menu. Signed-out servers collapse into one dismissible banner.
 New vaults go through one dialog that picks the location first.
 
+## Media Players
+
+Video controls float over the picture on a dark scrim, the same in a tab and in
+fullscreen, and fade while playing. Order is fixed: play, back/forward 10 s,
+volume and time on the left; subtitles, settings, ambiance and fullscreen on
+the right. Choices with several options go into the single settings menu (a
+row only when there is a real choice), never as separate dropdowns in the bar.
+Player states (opening, buffering, errors, the MP4 compatibility switch) are
+shown on the picture, not as text under it. Audio uses a now-playing column
+with one prominent round play button; lyrics take the second column only when
+the track has them.
+
 ## Conversation Workspace
 
 Chats uses the existing app activity rail for navigation back to files. A toolbar

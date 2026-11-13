@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const IDLE_MS = 2200;
 
-export function useFullscreenMediaDock(fullscreen: boolean, hasError: boolean) {
+/**
+ * Shows media controls on activity and hides them after a short idle period.
+ * Hiding only happens while `autoHide` is set (video playing) and no error is
+ * shown; an open menu, keyboard focus or a hovered dock keeps them visible.
+ */
+export function useFullscreenMediaDock(autoHide: boolean, hasError: boolean) {
   const [visible, setVisible] = useState(true);
   const dock = useRef<HTMLDivElement>(null);
   const menuOpen = useRef(false);
@@ -11,7 +16,7 @@ export function useFullscreenMediaDock(fullscreen: boolean, hasError: boolean) {
   const reveal = useCallback(() => {
     setVisible(true);
     clearTimeout(timeout.current);
-    if (!fullscreen || hasError) return;
+    if (!autoHide || hasError) return;
     timeout.current = setTimeout(() => {
       if (
         !menuOpen.current &&
@@ -20,7 +25,7 @@ export function useFullscreenMediaDock(fullscreen: boolean, hasError: boolean) {
       )
         setVisible(false);
     }, IDLE_MS);
-  }, [fullscreen, hasError]);
+  }, [autoHide, hasError]);
 
   useEffect(() => {
     reveal();
@@ -29,7 +34,7 @@ export function useFullscreenMediaDock(fullscreen: boolean, hasError: boolean) {
 
   return {
     dock,
-    show: !fullscreen || hasError || visible,
+    show: !autoHide || hasError || visible,
     reveal,
     onMenuOpenChange(open: boolean) {
       menuOpen.current = open;
