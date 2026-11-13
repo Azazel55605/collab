@@ -1,558 +1,748 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  ArrowRight,
-  Check,
-  ChevronDown,
-  Clock,
+  CircleAlert,
+  CloudOff,
+  Folder,
   FolderOpen,
-  KeyRound,
-  LogIn,
-  LogOut,
+  MoreHorizontal,
   Plus,
-  RefreshCw,
+  Search,
   Server,
-  Trash2,
-  WifiOff,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { type KnownServer, listKnownServers } from '../../lib/hostedServers';
+import { readHostedVaultLastOpened } from '../../lib/hostedVaultActivity';
 import { tauriCommands } from '../../lib/tauri';
+import { cn } from '../../lib/utils';
 import {
   deleteHostedVaultReplica,
   listHostedVaultReplicas,
   type ReplicaSummary,
 } from '../../lib/vaultReplica';
-import { isEffectivelyConnected, useServerStore } from '../../store/serverStore';
-import { useUiStore } from '../../store/uiStore';
+import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
-import {
-  hostedVaultMeta,
-  type HostedVaultMeta,
-  type HostedVaultSummary,
-  type MemberRole,
-  vaultKind,
-} from '../../types/vault';
+import { hostedVaultMeta } from '../../types/vault';
 import { HostedLoginForm } from '../server/HostedLoginForm';
 import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
-import { AppLogo } from '../ui/AppLogo';
 import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
-import { Separator } from '../ui/separator';
 
+import { LauncherRail } from './launcher/LauncherRail';
+import { NewVaultDialog, type NewVaultLocation } from './launcher/NewVaultDialog';
+import { ServerDetailsDialog } from './launcher/ServerDetailsDialog';
+import {
+  buildServerEntries,
+  buildVaultEntries,
+  filterVaultEntries,
+  formatLastOpened,
+  replicaToHostedVaultMeta,
+  type ServerEntry,
+  type VaultEntry,
+  type VaultEntryKind,
+  type VaultKindFilter,
+} from './launcher/vaultEntries';
+
+const KIND_FILTERS: { id: VaultKindFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'local', label: 'This device' },
+  { id: 'hosted', label: 'Hosted' },
+  { id: 'offline', label: 'Offline copies' },
+];
+
+const RECENT_CARD_COUNT = 3;
+
+/**
+ * The start screen shown while no vault is open: a navigation rail (vaults,
+ * chats, databases, servers) beside one searchable list of every vault the user
+ * can open, whatever its kind.
+ */
 export default function VaultPicker() {
-  const { openVault, openHostedVault, loadRecentVaults, recentVaults, isLoading } = useVaultStore();
+  const {
+    openVault,
+    openHostedVault,
+    loadRecentVaults,
+    removeRecentVault,
+    recentVaults,
+    isLoading,
+  } = useVaultStore();
   const connections = useServerStore((state) => state.connections);
   const isServerLoading = useServerStore((state) => state.isLoading);
-  const error = useServerStore((state) => state.error);
+  const serverError = useServerStore((state) => state.error);
   const refreshAll = useServerStore((state) => state.refreshAll);
-  const loadHostedVaults = useServerStore((state) => state.loadHostedVaults);
-  const createHostedVault = useServerStore((state) => state.createHostedVault);
-  const disconnect = useServerStore((state) => state.disconnect);
-  // The server URL whose "new hosted vault" input is open, or null.
-  const [creatingForServer, setCreatingForServer] = useState<string | null>(null);
-  const [hostedName, setHostedName] = useState('');
-  const [hostedBusy, setHostedBusy] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
-  const [reauthServer, setReauthServer] = useState<KnownServer | null>(null);
-  const [offlineReplicas, setOfflineReplicas] = useState<ReplicaSummary[]>([]);
-  const connectedServers = useMemo(
-    () => Object.values(connections).filter((c) => c.status.connected && c.status.serverUrl),
-    [connections],
-  );
-  const disconnectedServers = useMemo(() => {
-    const connectedUrls = new Set(connectedServers.map(({ status }) => status.serverUrl));
-    return listKnownServers().filter((server) => !connectedUrls.has(server.serverUrl));
-  }, [connectedServers]);
-  const localRecentVaults = recentVaults
-    .filter((vault) => vaultKind(vault) === 'local')
-    .slice(0, 5);
 
-  const refreshOfflineReplicas = () => {
+  const [replicas, setReplicas] = useState<ReplicaSummary[]>([]);
+  const [kindFilter, setKindFilter] = useState<VaultKindFilter>('all');
+  const [serverFilter, setServerFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [newVault, setNewVault] = useState<{ open: boolean; location: NewVaultLocation }>({
+    open: false,
+    location: 'local',
+  });
+  const [detailsServerUrl, setDetailsServerUrl] = useState<string | null>(null);
+  const [reauthServer, setReauthServer] = useState<KnownServer | null>(null);
+  const [showAddServer, setShowAddServer] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const refreshReplicas = () => {
     listHostedVaultReplicas()
-      .then(setOfflineReplicas)
-      .catch(() => setOfflineReplicas([]));
+      .then(setReplicas)
+      .catch(() => setReplicas([]));
   };
 
   useEffect(() => {
     loadRecentVaults();
     refreshAll().catch(() => {});
-    refreshOfflineReplicas();
+    refreshReplicas();
   }, []);
 
-  const activeHostedKeys = useMemo(
-    () =>
-      new Set(
-        connectedServers.flatMap((c) =>
-          c.hostedVaults
-            .filter((v) => v.status === 'active')
-            .map((v) => `${c.status.serverUrl}|${v.id}`),
-        ),
-      ),
-    [connectedServers],
-  );
-  const offlineOnlyReplicas = useMemo(
-    () =>
-      offlineReplicas.filter(
-        (replica) => !activeHostedKeys.has(`${replica.serverUrl}|${replica.vaultId}`),
-      ),
-    [offlineReplicas, activeHostedKeys],
-  );
-  const offlineReplicasByServer = useMemo(() => {
-    const groups = new Map<string, ReplicaSummary[]>();
-    for (const replica of offlineOnlyReplicas) {
-      const group = groups.get(replica.serverUrl) ?? [];
-      group.push(replica);
-      groups.set(replica.serverUrl, group);
-    }
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
-  }, [offlineOnlyReplicas]);
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
-  const openHosted = async (serverUrl: string, summary: HostedVaultSummary) => {
+  const entries = useMemo(
+    () =>
+      buildVaultEntries({
+        recentVaults,
+        connections,
+        replicas,
+        // Re-read whenever the inputs change; the record is tiny.
+        hostedLastOpened: readHostedVaultLastOpened(),
+      }),
+    [recentVaults, connections, replicas],
+  );
+  const servers = useMemo(
+    () => buildServerEntries({ connections, knownServers: listKnownServers(), entries }),
+    [connections, entries],
+  );
+  const activeServerFilter =
+    serverFilter && servers.some((server) => server.serverUrl === serverFilter)
+      ? serverFilter
+      : null;
+  const scoped = useMemo(
+    () => filterVaultEntries(entries, { kind: 'all', serverUrl: activeServerFilter, query: '' }),
+    [entries, activeServerFilter],
+  );
+  const visible = useMemo(
+    () => filterVaultEntries(entries, { kind: kindFilter, serverUrl: activeServerFilter, query }),
+    [entries, kindFilter, activeServerFilter, query],
+  );
+  const recent = useMemo(
+    () => entries.filter((entry) => entry.lastOpened !== null).slice(0, RECENT_CARD_COUNT),
+    [entries],
+  );
+  const signedOut = servers.filter((server) => server.state === 'signed-out' && server.known);
+  const detailsServer = servers.find((server) => server.serverUrl === detailsServerUrl) ?? null;
+  const isFirstRun = entries.length === 0 && servers.length === 0;
+  const showRecent =
+    recent.length > 0 && kindFilter === 'all' && !activeServerFilter && !query.trim();
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [kindFilter, activeServerFilter, query]);
+
+  const openEntry = async (entry: VaultEntry) => {
     try {
-      await openHostedVault(hostedVaultMeta(serverUrl, summary));
+      if (entry.kind === 'local' && entry.local) await openVault(entry.local.path);
+      else if (entry.kind === 'hosted' && entry.hosted && entry.serverUrl)
+        await openHostedVault(hostedVaultMeta(entry.serverUrl, entry.hosted));
+      else if (entry.replica) await openHostedVault(replicaToHostedVaultMeta(entry.replica));
     } catch (reason) {
-      toast.error(`Failed to open hosted vault: ${reason}`);
+      toast.error(`Failed to open "${entry.name}": ${reason}`);
     }
   };
 
-  const openOfflineReplica = async (replica: ReplicaSummary) => {
-    try {
-      await openHostedVault(replicaToHostedVaultMeta(replica));
-    } catch (reason) {
-      toast.error(`Failed to open offline copy: ${reason}`);
-    }
-  };
-
-  const removeOfflineReplica = async (replica: ReplicaSummary) => {
+  const removeOfflineCopy = async (replica: ReplicaSummary) => {
     const pendingText =
       replica.pendingCount > 0
         ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
         : '';
-    const confirmed = window.confirm(
-      `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
-    );
-    if (!confirmed) return;
+    if (
+      !window.confirm(
+        `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
+      )
+    )
+      return;
     try {
       await deleteHostedVaultReplica(replica);
-      refreshOfflineReplicas();
+      refreshReplicas();
       toast.success(`Removed offline copy "${replica.vaultName}"`);
     } catch (reason) {
       toast.error(`Could not remove offline copy: ${reason}`);
     }
   };
 
-  const handleCreateHosted = async (serverUrl: string) => {
-    const name = hostedName.trim();
-    if (!name) return;
-    setHostedBusy(true);
+  const removeFromList = async (entry: VaultEntry) => {
+    if (!entry.local) return;
     try {
-      const created = await createHostedVault(serverUrl, name);
-      setHostedName('');
-      setCreatingForServer(null);
-      await openHostedVault(hostedVaultMeta(serverUrl, created));
+      await removeRecentVault(entry.local.path);
     } catch (reason) {
-      toast.error(`Failed to create hosted vault: ${reason}`);
-    } finally {
-      setHostedBusy(false);
+      toast.error(`Could not remove "${entry.name}" from the list: ${reason}`);
     }
   };
 
-  const handleDisconnect = async (serverUrl: string) => {
-    try {
-      await disconnect(serverUrl);
-      toast.success('Disconnected from server');
-    } catch (reason) {
-      toast.error(`Failed to disconnect: ${reason}`);
-    }
-  };
-
-  const handleOpenDialog = async () => {
+  const openFolder = async () => {
     try {
       const path = await tauriCommands.showOpenVaultDialog();
       if (path) await openVault(path);
-    } catch (e) {
-      toast.error('Failed to open vault: ' + e);
+    } catch (reason) {
+      toast.error(`Failed to open vault: ${reason}`);
     }
   };
 
-  const handleCreateVault = async () => {
-    try {
-      const path = await tauriCommands.showOpenVaultDialog();
-      if (!path) return;
-      const name = prompt('Vault name:', 'My Vault');
-      if (!name) return;
-      // Read identity from localStorage — collabStore initialises these on first run
-      const userId = localStorage.getItem('collab-user-id') ?? undefined;
-      const userName = localStorage.getItem('collab-user-name') ?? undefined;
-      await tauriCommands.createVault(path, name, userId, userName);
-      await openVault(path);
-    } catch (e) {
-      toast.error('Failed to create vault: ' + e);
+  const signIn = (server: ServerEntry) => {
+    if (server.known) setReauthServer(server.known);
+  };
+
+  const toggleServerFilter = (serverUrl: string) =>
+    setServerFilter((current) => (current === serverUrl ? null : serverUrl));
+
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((index) => Math.min(index + 1, Math.max(visible.length - 1, 0)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'Enter') {
+      const entry = visible[activeIndex];
+      if (entry) {
+        event.preventDefault();
+        void openEntry(entry);
+      }
+    } else if (event.key === 'Escape' && query) {
+      event.preventDefault();
+      setQuery('');
     }
+  };
+
+  const kindCounts: Record<VaultKindFilter, number> = {
+    all: scoped.length,
+    local: scoped.filter((entry) => entry.kind === 'local').length,
+    hosted: scoped.filter((entry) => entry.kind === 'hosted').length,
+    offline: scoped.filter((entry) => entry.kind === 'offline').length,
   };
 
   return (
-    <div className="vault-bg flex h-screen min-h-0 justify-center overflow-hidden text-foreground">
-      <div className="relative flex h-full min-h-0 w-full max-w-2xl flex-col px-4 py-4 sm:py-6">
-        {/* Logo block */}
-        <div className="mb-4 shrink-0 text-center app-fade-slide-in sm:mb-6">
-          <div className="mb-2.5 inline-flex size-12 items-center justify-center rounded-lg border border-primary/20 bg-primary/15 glow-primary-sm app-fade-scale-in">
-            <AppLogo size={25} className="text-primary" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">collab</h1>
-          <p className="mt-1 text-xs text-muted-foreground">Your collaborative knowledge base</p>
-        </div>
+    <div className="vault-bg flex h-screen min-h-0 flex-col overflow-hidden text-foreground md:flex-row">
+      <LauncherRail
+        current="vaults"
+        serverPanel={{
+          servers,
+          serverFilter: activeServerFilter,
+          onToggleServer: toggleServerFilter,
+          onServerDetails: (server) => setDetailsServerUrl(server.serverUrl),
+          onAddServer: () => setShowAddServer(true),
+        }}
+      />
 
-        {/* Glass card */}
-        <div className="vault-picker-glass glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg shadow-xl shadow-black/10 app-fade-scale-in">
-          <div className="grid shrink-0 gap-2.5 border-b border-border/50 p-4 sm:grid-cols-2">
-            <Button
-              onClick={handleOpenDialog}
-              disabled={isLoading}
-              className="h-11 gap-2 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 transition-all app-motion-base"
-            >
-              <FolderOpen size={16} />
-              Open Existing Vault
-            </Button>
-            <Button
-              onClick={handleCreateVault}
-              variant="outline"
-              disabled={isLoading}
-              className="h-11 gap-2 border-border/60 bg-card/50 text-sm font-medium transition-all hover:bg-accent app-motion-base"
-            >
-              <Plus size={16} />
-              Create New Vault
-            </Button>
-          </div>
-
-          <div
-            role="region"
-            aria-label="Vaults and servers"
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-5 sm:px-6 md:px-9 md:py-7">
+        <header className="flex flex-wrap items-center gap-2.5 app-fade-slide-in">
+          <h1 className="mr-auto text-xl font-semibold tracking-tight">Vaults</h1>
+          {!isFirstRun && (
+            <label className="relative flex min-w-48 flex-[0_1_20rem] items-center">
+              <span className="sr-only">Search vaults</span>
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-2.5 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                ref={searchRef}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={onSearchKeyDown}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                placeholder="Search vaults and servers"
+                className="h-9 pr-14 pl-8"
+                aria-controls="vault-list"
+              />
+              <kbd
+                aria-hidden="true"
+                className="pointer-events-none absolute right-2 rounded border border-border px-1 font-mono text-[10px] text-muted-foreground"
+              >
+                Ctrl K
+              </kbd>
+            </label>
+          )}
+          <Button variant="outline" size="lg" onClick={openFolder} disabled={isLoading}>
+            <FolderOpen />
+            Open folder
+          </Button>
+          <Button
+            size="lg"
+            onClick={() => setNewVault({ open: true, location: 'local' })}
+            disabled={isLoading}
           >
-            <Button
-              className="mb-3 w-full"
-              variant="outline"
-              onClick={() => useUiStore.getState().setActiveView('chats')}
-            >
-              Open chats
-            </Button>
-            <Button
-              className="mb-3 w-full"
-              variant="outline"
-              onClick={() => useUiStore.getState().setActiveView('databases')}
-            >
-              Open databases
-            </Button>
-            <div className="mb-3 flex items-center gap-2">
-              <Separator className="flex-1 bg-border/40" />
-              <span className="flex shrink-0 items-center gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">
-                <Server size={10} />
-                Hosted
-              </span>
-              <Separator className="flex-1 bg-border/40" />
-            </div>
+            <Plus />
+            New vault
+          </Button>
+        </header>
 
-            <div className="space-y-3">
-              {disconnectedServers.map((server) => (
-                <div
-                  key={server.serverUrl}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium">
-                      {server.username || 'Saved server'}
-                    </p>
-                    <p className="truncate text-[10px] text-muted-foreground">
-                      {server.serverUrl} · disconnected
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 gap-1.5 text-xs"
-                    onClick={() => setReauthServer(server)}
-                  >
-                    <KeyRound size={12} />
-                    Sign in again
-                  </Button>
-                </div>
-              ))}
-              {connectedServers.map(({ status, hostedVaults }) => {
-                const serverUrl = status.serverUrl!;
-                const activeHostedVaults = hostedVaults.filter(
-                  (vault) => vault.status === 'active',
-                );
-                const canCreateHosted = isEffectivelyConnected(status);
-                return (
-                  <div key={serverUrl} className="space-y-2">
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-medium">{status.user?.displayName}</p>
-                        <p className="truncate text-[10px] text-muted-foreground">{serverUrl}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {canCreateHosted && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-7"
-                            onClick={() => {
-                              setCreatingForServer((value) =>
-                                value === serverUrl ? null : serverUrl,
-                              );
-                              setHostedName('');
-                            }}
-                            title="New hosted vault"
-                          >
-                            <Plus size={13} />
-                          </Button>
-                        )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-7"
-                          disabled={isServerLoading}
-                          onClick={() =>
-                            loadHostedVaults(serverUrl).catch((reason) =>
-                              toast.error(String(reason)),
-                            )
-                          }
-                          title="Refresh hosted vaults"
-                        >
-                          <RefreshCw
-                            size={12}
-                            className={isServerLoading ? 'animate-spin' : undefined}
-                          />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-7"
-                          onClick={() => handleDisconnect(serverUrl)}
-                          title="Log out of server"
-                        >
-                          <LogOut size={13} />
-                        </Button>
-                      </div>
-                    </div>
-                    {creatingForServer === serverUrl && canCreateHosted && (
-                      <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-card/30 px-2 py-2">
-                        <Input
-                          autoFocus
-                          value={hostedName}
-                          onChange={(e) => setHostedName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleCreateHosted(serverUrl);
-                            if (e.key === 'Escape') {
-                              setCreatingForServer(null);
-                              setHostedName('');
-                            }
-                          }}
-                          placeholder="New hosted vault name"
-                          className="h-7 text-sm"
-                        />
-                        <Button
-                          size="sm"
-                          className="h-7 gap-1 text-xs"
-                          disabled={hostedBusy || !hostedName.trim()}
-                          onClick={() => handleCreateHosted(serverUrl)}
-                        >
-                          <Check size={12} />
-                          {hostedBusy ? 'Creating…' : 'Create'}
-                        </Button>
-                      </div>
-                    )}
-                    {activeHostedVaults.map((vault) => (
-                      <button
-                        key={vault.id}
-                        onClick={() => openHosted(serverUrl, vault)}
-                        disabled={isLoading || isServerLoading}
-                        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all app-motion-base hover:border-primary/25 hover:bg-primary/5"
-                      >
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10">
-                          <Server size={12} className="text-primary" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {vault.name}
-                          </div>
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            {vault.role} · {vault.members} members · {vault.ownerDisplayName}
-                          </div>
-                        </div>
-                        <ArrowRight
-                          size={13}
-                          className="shrink-0 text-muted-foreground opacity-0 transition-all app-motion-base group-hover:translate-x-0.5 group-hover:opacity-60"
-                        />
-                      </button>
-                    ))}
-                    {!isServerLoading && activeHostedVaults.length === 0 && (
-                      <p className="py-2 text-center text-xs text-muted-foreground">
-                        No active hosted vaults on this server.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-              {error && <p className="text-xs text-destructive">{error}</p>}
+        {signedOut.length > 0 && !bannerDismissed && (
+          <SignedOutBanner
+            servers={signedOut}
+            onSignIn={signIn}
+            onDismiss={() => setBannerDismissed(true)}
+          />
+        )}
+        {serverError && <p className="text-xs text-destructive">{serverError}</p>}
 
-              {showLogin ? (
-                <div className="space-y-3 rounded-lg border border-border/40 bg-card/30 p-3">
-                  <HostedLoginForm onConnected={() => setShowLogin(false)} />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 text-xs"
-                    onClick={() => setShowLogin(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowLogin(true)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-dashed border-border/60 px-3 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
-                >
-                  <LogIn size={14} className="text-muted-foreground" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">
-                      {connectedServers.length === 0
-                        ? 'Connect a Collab server'
-                        : 'Add another server'}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Sign in to open hosted vaults.
-                    </p>
-                  </div>
-                  <ChevronDown size={14} className="text-muted-foreground" />
-                </button>
-              )}
-            </div>
-
-            {offlineReplicasByServer.length > 0 && (
-              <div className="mt-3 space-y-3">
-                {offlineReplicasByServer.map(([serverUrl, replicas]) => (
-                  <div key={serverUrl} className="space-y-1">
-                    <div className="flex items-center gap-1.5 px-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                      <WifiOff size={10} />
-                      Offline copies · {serverUrl}
-                    </div>
-                    {replicas.map((replica) => (
-                      <div
-                        key={`${replica.serverUrl}|${replica.vaultId}`}
-                        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all app-motion-base hover:border-amber-500/25 hover:bg-amber-500/5"
-                      >
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-amber-500/20 bg-amber-500/10">
-                          <WifiOff size={12} className="text-amber-400" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {replica.vaultName}
-                          </div>
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            offline copy · {replicaRole(replica)} · {replica.pendingCount} pending
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => openOfflineReplica(replica)}
-                          disabled={isLoading}
-                          className="flex h-7 items-center gap-1 rounded px-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
-                          title="Open offline copy"
-                        >
-                          Open <ArrowRight size={11} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeOfflineReplica(replica)}
-                          disabled={isLoading}
-                          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          title="Remove offline copy"
-                          aria-label={`Remove offline copy ${replica.vaultName}`}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-            <ReauthenticateServerDialog
-              server={reauthServer}
-              onOpenChange={(open) => {
-                if (!open) setReauthServer(null);
-              }}
-            />
-
-            {localRecentVaults.length > 0 && (
-              <>
-                <div className="mb-3 mt-5 flex items-center gap-2">
-                  <Separator className="flex-1 bg-border/40" />
-                  <span className="flex shrink-0 items-center gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">
-                    <Clock size={10} />
-                    Recent
-                  </span>
-                  <Separator className="flex-1 bg-border/40" />
-                </div>
-
-                <div className="space-y-1">
-                  {localRecentVaults.map((v) => (
+        {isFirstRun ? (
+          <FirstRun
+            onCreate={() => setNewVault({ open: true, location: 'local' })}
+            onOpenFolder={openFolder}
+            onConnect={() => setShowAddServer(true)}
+          />
+        ) : (
+          <>
+            {showRecent && (
+              <section aria-labelledby="recent-vaults-heading" className="grid gap-2.5">
+                <SectionHeading id="recent-vaults-heading">Jump back in</SectionHeading>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3">
+                  {recent.map((entry) => (
                     <button
-                      key={v.id}
-                      onClick={() => openVault(v.path)}
+                      key={entry.key}
+                      type="button"
+                      onClick={() => openEntry(entry)}
                       disabled={isLoading}
-                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all hover:border-border/50 hover:bg-accent/60 app-motion-base"
+                      className="flex flex-col items-start gap-3 rounded-xl border border-border/70 bg-card/60 px-4 py-3.5 text-left transition-colors app-motion-base outline-none hover:border-primary/40 hover:bg-primary/5 focus-visible:ring-3 focus-visible:ring-ring/50"
                     >
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-primary/10">
-                        <div className="size-2 rounded-sm bg-primary/70" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-foreground">{v.name}</div>
-                        <div className="truncate text-[11px] text-muted-foreground opacity-70">
-                          {v.path}
-                        </div>
-                      </div>
-                      <ArrowRight
-                        size={13}
-                        className="shrink-0 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-60 app-motion-base"
-                      />
+                      <span className="flex w-full items-center justify-between">
+                        <KindIcon kind={entry.kind} size="lg" />
+                        <span className="text-xs text-muted-foreground">
+                          {formatLastOpened(entry.lastOpened)}
+                        </span>
+                      </span>
+                      <span className="w-full min-w-0">
+                        <span className="block truncate text-[15px] font-semibold">
+                          {entry.name}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {entry.location}
+                        </span>
+                      </span>
                     </button>
                   ))}
                 </div>
-              </>
+              </section>
             )}
-          </div>
-        </div>
 
-        <p className="mt-3 shrink-0 text-center text-[11px] text-muted-foreground/60">
-          Local-first vaults · Optional hosted collaboration
-        </p>
-      </div>
+            <section aria-labelledby="all-vaults-heading" className="flex min-h-0 flex-col gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <SectionHeading id="all-vaults-heading" className="mr-2">
+                  All vaults
+                </SectionHeading>
+                {KIND_FILTERS.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    aria-pressed={kindFilter === filter.id}
+                    onClick={() => setKindFilter(filter.id)}
+                    className={cn(
+                      'h-7 rounded-full border px-3 text-xs transition-colors app-motion-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+                      kindFilter === filter.id
+                        ? 'border-primary/60 bg-primary/15 font-medium text-foreground'
+                        : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    {filter.label}{' '}
+                    <span className="text-muted-foreground">{kindCounts[filter.id]}</span>
+                  </button>
+                ))}
+                {activeServerFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setServerFilter(null)}
+                    className="ml-auto flex h-7 items-center gap-1.5 rounded-full border border-border bg-card/60 pr-2 pl-3 text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+                    aria-label={`Clear server filter ${servers.find((s) => s.serverUrl === activeServerFilter)?.host ?? ''}`}
+                  >
+                    <span className="text-muted-foreground">Server</span>
+                    {servers.find((s) => s.serverUrl === activeServerFilter)?.host}
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-border/70 bg-card/40">
+                <div
+                  aria-hidden="true"
+                  className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_2rem] gap-4 px-5 pt-3 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:grid"
+                >
+                  <span>Name</span>
+                  <span>Location</span>
+                  <span>Access</span>
+                  <span>Opened</span>
+                  <span />
+                </div>
+                <ul id="vault-list" aria-label="Vaults" className="grid gap-0.5 p-1.5">
+                  {visible.map((entry, index) => (
+                    <VaultRow
+                      key={entry.key}
+                      entry={entry}
+                      highlighted={searchFocused && index === activeIndex}
+                      disabled={isLoading || (entry.kind === 'hosted' && isServerLoading)}
+                      onOpen={() => openEntry(entry)}
+                      onRemoveFromList={() => removeFromList(entry)}
+                      onRemoveOfflineCopy={() => entry.replica && removeOfflineCopy(entry.replica)}
+                      onServerDetails={() =>
+                        entry.serverUrl && setDetailsServerUrl(entry.serverUrl)
+                      }
+                    />
+                  ))}
+                </ul>
+                {visible.length === 0 && (
+                  <p className="px-4 py-9 text-center text-sm text-muted-foreground">
+                    {entries.length === 0
+                      ? 'No vaults yet. Create one or open a folder.'
+                      : 'No vaults match these filters.'}
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <footer className="mt-auto hidden flex-wrap gap-4 text-xs text-muted-foreground sm:flex">
+              <span>
+                <kbd className="font-mono">↑ ↓</kbd> move
+              </span>
+              <span>
+                <kbd className="font-mono">Enter</kbd> open
+              </span>
+              <span>
+                <kbd className="font-mono">Ctrl K</kbd> search
+              </span>
+              <span className="ml-auto">Local-first · hosted collaboration is optional</span>
+            </footer>
+          </>
+        )}
+      </main>
+
+      <NewVaultDialog
+        open={newVault.open}
+        initialLocation={newVault.location}
+        servers={servers}
+        onOpenChange={(open) => setNewVault((current) => ({ ...current, open }))}
+        onSignIn={signIn}
+      />
+      <ServerDetailsDialog
+        server={detailsServer}
+        onOpenChange={(open) => !open && setDetailsServerUrl(null)}
+        onSignIn={(server) => {
+          setDetailsServerUrl(null);
+          signIn(server);
+        }}
+        onNewVault={(server) => {
+          setDetailsServerUrl(null);
+          setNewVault({ open: true, location: server.serverUrl });
+        }}
+      />
+      <ReauthenticateServerDialog
+        server={reauthServer}
+        onOpenChange={(open) => {
+          if (!open) setReauthServer(null);
+        }}
+      />
+      <Dialog open={showAddServer} onOpenChange={setShowAddServer}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Connect a Collab server</DialogTitle>
+            <DialogDescription>
+              Sign in to open hosted vaults, chats and databases.
+            </DialogDescription>
+          </DialogHeader>
+          <HostedLoginForm onConnected={() => setShowAddServer(false)} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function replicaRole(replica: ReplicaSummary): MemberRole {
-  return replica.role === 'admin' || replica.role === 'editor' || replica.role === 'viewer'
-    ? replica.role
-    : 'viewer';
+function SectionHeading({
+  id,
+  className,
+  children,
+}: {
+  id: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <h2
+      id={id}
+      className={cn(
+        'text-xs font-semibold tracking-wider text-muted-foreground uppercase',
+        className,
+      )}
+    >
+      {children}
+    </h2>
+  );
 }
 
-function replicaToHostedVaultMeta(replica: ReplicaSummary): HostedVaultMeta {
-  return {
-    kind: 'hosted',
-    id: replica.vaultId,
-    hostedVaultId: replica.vaultId,
-    serverUrl: replica.serverUrl,
-    name: replica.vaultName,
-    path: `hosted://${replica.vaultId}`,
-    lastOpened: Date.parse(replica.updatedAt) || Date.now(),
-    isEncrypted: false,
-    role: replicaRole(replica),
-    capabilities: replica.capabilities ?? [],
-  };
+function KindIcon({ kind, size = 'sm' }: { kind: VaultEntryKind; size?: 'sm' | 'lg' }) {
+  const Icon = kind === 'local' ? Folder : kind === 'hosted' ? Server : CloudOff;
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-md border',
+        size === 'lg' ? 'size-8' : 'size-7',
+        kind === 'local' && 'border-border bg-muted text-muted-foreground',
+        kind === 'hosted' && 'border-primary/20 bg-primary/10 text-primary',
+        kind === 'offline' &&
+          'border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+      )}
+    >
+      <Icon size={size === 'lg' ? 15 : 13} />
+    </span>
+  );
+}
+
+function VaultRow({
+  entry,
+  highlighted,
+  disabled,
+  onOpen,
+  onRemoveFromList,
+  onRemoveOfflineCopy,
+  onServerDetails,
+}: {
+  entry: VaultEntry;
+  highlighted: boolean;
+  disabled: boolean;
+  onOpen: () => void;
+  onRemoveFromList: () => void;
+  onRemoveOfflineCopy: () => void;
+  onServerDetails: () => void;
+}) {
+  return (
+    <li
+      className={cn(
+        'group relative grid grid-cols-[minmax(0,1fr)_auto_2rem] items-center gap-4 rounded-lg px-3.5 py-2 transition-colors app-motion-base hover:bg-muted/60 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_2rem]',
+        highlighted && 'bg-muted/70',
+      )}
+    >
+      {/* The name button stretches over the row so the whole row opens the vault. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled}
+        className="flex min-w-0 items-center gap-3 text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/50"
+      >
+        <KindIcon kind={entry.kind} />
+        <span className="truncate font-medium">{entry.name}</span>
+        {entry.pendingCount > 0 && (
+          <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-px text-[11px] font-medium text-amber-700 dark:text-amber-300">
+            {entry.pendingCount} pending
+          </span>
+        )}
+      </button>
+      <span
+        className="hidden truncate font-mono text-xs text-muted-foreground lg:block"
+        title={entry.location}
+      >
+        {entry.location}
+      </span>
+      <span className="hidden truncate text-[13px] text-muted-foreground lg:block">
+        {entry.detail}
+      </span>
+      <span className="text-[13px] text-muted-foreground">
+        {formatLastOpened(entry.lastOpened)}
+      </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`More actions for ${entry.name}`}
+            className="relative z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+          >
+            <MoreHorizontal />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={onOpen} disabled={disabled}>
+            Open
+          </DropdownMenuItem>
+          {entry.serverUrl && (
+            <DropdownMenuItem onSelect={onServerDetails}>Server details</DropdownMenuItem>
+          )}
+          {entry.kind === 'local' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onRemoveFromList}>Remove from list</DropdownMenuItem>
+            </>
+          )}
+          {entry.kind === 'offline' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={onRemoveOfflineCopy}>
+                Remove offline copy
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </li>
+  );
+}
+
+function SignedOutBanner({
+  servers,
+  onSignIn,
+  onDismiss,
+}: {
+  servers: ServerEntry[];
+  onSignIn: (server: ServerEntry) => void;
+  onDismiss: () => void;
+}) {
+  const [first] = servers;
+  const copies = servers.reduce((sum, server) => sum + server.offlineCount, 0);
+  const copiesText =
+    copies > 0 ? ` ${copies} offline cop${copies === 1 ? 'y is' : 'ies are'} still available.` : '';
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5"
+    >
+      <CircleAlert
+        size={16}
+        className="shrink-0 text-amber-600 dark:text-amber-400"
+        aria-hidden="true"
+      />
+      <p className="min-w-60 flex-1 text-[13px]">
+        {servers.length === 1 ? (
+          <>
+            <strong className="font-semibold">{first.host}</strong> is signed out. Its vaults are
+            hidden.
+          </>
+        ) : (
+          <>{servers.length} servers are signed out. Their vaults are hidden.</>
+        )}
+        {copiesText}
+      </p>
+      {servers.map((server) => (
+        <Button
+          key={server.serverUrl}
+          size="sm"
+          variant="outline"
+          onClick={() => onSignIn(server)}
+          aria-label={`Sign in to ${server.host}`}
+        >
+          {servers.length === 1 ? 'Sign in' : `Sign in to ${server.host}`}
+        </Button>
+      ))}
+      <Button variant="ghost" size="icon-sm" onClick={onDismiss} aria-label="Dismiss">
+        <X />
+      </Button>
+    </div>
+  );
+}
+
+function FirstRun({
+  onCreate,
+  onOpenFolder,
+  onConnect,
+}: {
+  onCreate: () => void;
+  onOpenFolder: () => void;
+  onConnect: () => void;
+}) {
+  const choices = [
+    {
+      title: 'Create a vault',
+      description: 'Start fresh in a new folder on this device.',
+      icon: <Plus size={19} />,
+      onClick: onCreate,
+      primary: true,
+    },
+    {
+      title: 'Open a folder',
+      description: 'Use an existing vault or a folder of Markdown files.',
+      icon: <FolderOpen size={19} />,
+      onClick: onOpenFolder,
+      primary: false,
+    },
+    {
+      title: 'Connect a server',
+      description: 'Sign in to open shared vaults, chats and databases.',
+      icon: <Server size={19} />,
+      onClick: onConnect,
+      primary: false,
+    },
+  ];
+  return (
+    <section
+      aria-labelledby="first-run-heading"
+      className="mx-auto my-auto grid w-full max-w-3xl gap-6 py-8 app-fade-scale-in"
+    >
+      <div>
+        <h2 id="first-run-heading" className="text-2xl font-semibold tracking-tight">
+          Set up your first vault
+        </h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          A vault is a folder of notes, boards and files. Keep it on this device, or put it on a
+          Collab server to work on it together.
+        </p>
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-3.5">
+        {choices.map((choice) => (
+          <button
+            key={choice.title}
+            type="button"
+            onClick={choice.onClick}
+            className={cn(
+              'flex flex-col items-start gap-3.5 rounded-xl border p-5 text-left transition-colors app-motion-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+              choice.primary
+                ? 'border-primary/50 bg-primary/10 hover:bg-primary/15'
+                : 'border-border bg-card/60 hover:border-primary/40 hover:bg-primary/5',
+            )}
+          >
+            <span
+              className={cn(
+                'flex size-10 items-center justify-center rounded-lg',
+                choice.primary
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground',
+              )}
+            >
+              {choice.icon}
+            </span>
+            <span>
+              <span className="block text-base font-semibold">{choice.title}</span>
+              <span className="mt-0.5 block text-[13px] text-muted-foreground">
+                {choice.description}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Everything stays local unless you choose a server.
+      </p>
+    </section>
+  );
 }

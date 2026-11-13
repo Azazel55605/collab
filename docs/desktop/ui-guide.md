@@ -422,6 +422,24 @@ When making UI changes:
 - Agent/project implementation rules: `AGENTS.md`
 - Additional model-facing guidance: `CLAUDE.md`
 
+## Start Screen
+
+The screen shown with no vault open (`components/vault/VaultPicker.tsx`) is a
+rail beside one list. The rail holds the app-level destinations (Vaults, Chats,
+Databases), the servers with a status dot (filled green connected, amber ring
+signed out, grey ring known only from offline copies), and Settings. Clicking a
+server filters the list to it; its (i) button opens the server details dialog,
+which owns sign in, refresh, log out and new hosted vault. Below `md` the rail
+collapses into a top bar with icon buttons and a servers menu. Chats and Databases opened
+without a vault keep the same rail (without the server list) instead of the
+vault ActivityBar, so Vaults is always one click away.
+
+Every vault kind is a row in the same list; kind is an icon plus a filter chip,
+never a section heading. Offline copies carry an amber "N pending" badge, and
+secondary actions (remove from list, remove offline copy, server details) live
+in the row's ⋯ menu. Signed-out servers collapse into one dismissible banner.
+New vaults go through one dialog that picks the location first.
+
 ## Conversation Workspace
 
 Chats uses the existing app activity rail for navigation back to files. A toolbar

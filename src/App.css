@@ -757,12 +757,6 @@
 [data-linux-webkit] .glass-strong {
   background: color-mix(in oklch, var(--popover) 94%, var(--background));
 }
-[data-appimage] .vault-picker-glass,
-[data-linux-webkit] .vault-picker-glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
-}
 [data-linux-webkit] [data-slot='dialog-overlay'] {
   background: oklch(0 0 0 / 0.62);
 }
@@ -822,10 +816,6 @@
 
 .vault-bg {
   background: var(--background);
-}
-
-.vault-picker-glass {
-  border-color: var(--border);
 }
 
 /* ─── Canvas view ──────────────────────────────────────────────────────── */

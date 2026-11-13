@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 
 import './App.css';
 import { MathPlotModalHost } from './components/editor/MathPlotModalHost';
-import ActivityBar from './components/layout/ActivityBar';
 import AppShell from './components/layout/AppShell';
 import {
   LiveDebugPanel,
@@ -14,6 +13,7 @@ import {
 import { SettingsModalHost } from './components/settings/SettingsModalHost';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
+import { VaultlessWorkspace } from './components/vault/launcher/VaultlessWorkspace';
 import VaultPicker from './components/vault/VaultPicker';
 import { subscribeMediaQueryChange } from './lib/browserCompat';
 import { hasDatabaseDrafts } from './lib/databaseLifecycle';
@@ -416,14 +416,13 @@ export default function App() {
     <TooltipProvider delayDuration={300}>
       <div className={activePrintNotePath ? 'app-print-hidden' : undefined}>
         {activeView === 'databases' && (!vault || isVaultLocked) ? (
-          <div className="flex h-screen overflow-hidden bg-background text-foreground">
-            <ActivityBar />
-            <div className="min-w-0 flex-1">
-              <DatabasePage />
-            </div>
-          </div>
+          <VaultlessWorkspace current="databases">
+            <DatabasePage />
+          </VaultlessWorkspace>
         ) : activeView === 'chats' && (!vault || isVaultLocked) ? (
-          <ChatsPage />
+          <VaultlessWorkspace current="chats">
+            <ChatsPage standalone={false} />
+          </VaultlessWorkspace>
         ) : vault ? (
           isVaultLocked ? (
             <VaultUnlockModal />
