@@ -311,3 +311,35 @@ The disposable TLS fixture is available as
 `./scripts/database-mariadb-fixture.sh 11.4` or
 `./scripts/database-mariadb-fixture.sh 10.11`. It uses loopback networking,
 isolated credentials and a temporary CA.
+
+## Edit The Schema
+
+Open **Edit schema…** from an idle database session, or choose **Edit table
+schema** beside a table in **Browse metadata**. A preview shows the native SQL
+and its locking, commit, and data-loss implications. **Apply schema change**
+consumes that preview. Collab rechecks metadata under the engine's lock before
+running DDL. A stale preview requires another review.
+
+| Operation                                                               | SQL Server | MariaDB | SQLite                                     |
+| ----------------------------------------------------------------------- | ---------- | ------- | ------------------------------------------ |
+| Create a table with typed columns and an optional composite primary key | Yes        | Yes     | Yes                                        |
+| Add a nullable column                                                   | Yes        | Yes     | Yes                                        |
+| Create an ordinary or unique index                                      | Yes        | Yes     | Yes                                        |
+| Add a primary key to an existing table                                  | Yes        | Yes     | At table creation                          |
+| Rename a column                                                         | —          | —       | Native rename with dependency validation   |
+| Drop a column                                                           | —          | —       | Bounded rewrite with explicit confirmation |
+
+SQL Server uses a dedicated transaction, a table lock for existing targets, and
+database-level VIEW DEFINITION to detect schema changes. MariaDB uses a dedicated
+connection and requires SELECT and LOCK TABLES on an existing InnoDB target, in
+addition to the relevant DDL permissions. Its DDL commits implicitly. An
+unconfirmed commit or DDL reply is shown as an unknown outcome.
+
+SQLite validates the selected file and schema version under a writer
+transaction. The bounded drop uses SQLite's native table rewrite for
+ordinary nullable columns without defaults or direct index membership, on
+files up to 64 MiB. Views, triggers, target-table CHECK constraints, and incoming
+or outgoing foreign keys block a drop. SQLite revalidates the rest of the
+schema before committing. A column rename uses SQLite's native dependency
+rewrites and rejects ambiguous references. Arbitrary type conversions and
+rebuilds involving unsupported dependencies are outside the structured editor.

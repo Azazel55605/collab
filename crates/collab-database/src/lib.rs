@@ -452,6 +452,8 @@ pub enum ContractError {
     MissingConcurrencyPredicate,
     #[error("The source metadata has changed")]
     SchemaConflict,
+    #[error("Dependencies or table features prevent this schema change")]
+    SchemaDependency,
     #[error("The row changed; the batch was rolled back")]
     RowConflict,
 }

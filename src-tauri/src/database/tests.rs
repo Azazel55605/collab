@@ -443,6 +443,23 @@ async fn phase2_fixture(token: &str, connection: &str) {
     }) else {
         panic!("SQL Server fixture requires a SQL Server connection");
     };
+    let (config, secret) = {
+        let r = registry().lock().await;
+        let connection = r.connections.get(connection).unwrap();
+        (connection.config.clone(), connection.secret.clone())
+    };
+    schema::network::fixture(Engine::SqlServer, "collab_phase0", async || {
+        Network::connect(
+            &config,
+            "collab_phase0",
+            &secret,
+            CancellationToken::new(),
+            slots().try_acquire_owned().unwrap(),
+        )
+        .await
+        .unwrap()
+    })
+    .await;
     edit_fixture_command(
         &observer,
         "CREATE TABLE collab_phase0.dbo.phase2_cancel(id int NOT NULL PRIMARY KEY)",

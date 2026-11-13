@@ -267,14 +267,16 @@ open. See [MariaDB](../desktop/database-queries.md#mariadb).
 
 ### Phase 6 — Schema Editing Across Supported Engines
 
-- [ ] Add table/column creation and supported alterations, keys and indexes.
-- [ ] Preview generated SQL, refresh stale metadata, check dependencies and describe
+- [x] Add table/column creation and supported alterations, keys and indexes.
+- [x] Preview generated SQL, refresh stale metadata, check dependencies and describe
       data-loss/locking/implicit-commit behavior before application.
-- [ ] Implement and validate bounded SQLite rebuilds only for supported cases;
+- [x] Implement and validate bounded SQLite rebuilds only for supported cases;
       preserve dependencies or refuse the operation with an actionable explanation.
 
 Exit: schema changes preserve declared data/dependency guarantees; unsupported
 operations cannot silently degrade to destructive approximations.
+
+Packaged desktop acceptance remains open. See [Edit the schema](../desktop/database-queries.md#edit-the-schema).
 
 ### Phase 7 — Hardening And Product Acceptance
 

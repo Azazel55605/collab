@@ -16,6 +16,7 @@ export default function MetadataExplorer({
   binding,
   onOpen,
   onBrowse,
+  onEditSchema,
   engine = 'sql_server',
 }: {
   token: string;
@@ -23,6 +24,7 @@ export default function MetadataExplorer({
   connectionId: string;
   binding: DatabaseBinding | null;
   onOpen: (database: string) => void;
+  onEditSchema?: (schema: string, table: string) => void;
   onBrowse?: (schema: string, table: string) => void;
 }) {
   const sqlite = engine === 'sqlite';
@@ -141,6 +143,15 @@ export default function MetadataExplorer({
               )}
               {(current.request.kind === 'objects' || current.request.kind === 'maria_tables') && (
                 <>
+                  {onEditSchema && ['USER_TABLE', 'TABLE', 'BASE TABLE'].includes(item.kind) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onEditSchema(current.title, item.name)}
+                    >
+                      Edit table schema
+                    </Button>
+                  )}
                   {onBrowse && (
                     <Button
                       size="sm"

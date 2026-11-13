@@ -32,6 +32,9 @@ import type {
   DatabaseEditChange,
   DatabaseEditPage,
   DatabaseEditResult,
+  DatabaseSchemaOutcome,
+  DatabaseSchemaPreview,
+  DatabaseSchemaRequest,
   DatabaseTransactionAction,
 } from '../types/database';
 import type {
@@ -389,6 +392,17 @@ export const tauriCommands = {
   ) => invoke<string>('database_manual_transaction', { token, binding, action }),
   databaseEditLoad: (token: string, binding: DatabaseBinding, request: DatabaseBrowseRequest) =>
     invoke<DatabaseEditPage>('database_edit_load', { token, binding, request }),
+  databaseSchemaPreview: (
+    token: string,
+    binding: DatabaseBinding,
+    request: DatabaseSchemaRequest,
+  ) => invoke<DatabaseSchemaPreview>('database_schema_preview', { token, binding, request }),
+  databaseSchemaApply: (
+    token: string,
+    binding: DatabaseBinding,
+    id: string,
+    confirmLoss: boolean,
+  ) => invoke<DatabaseSchemaOutcome>('database_schema_apply', { token, binding, id, confirmLoss }),
   databaseEditApply: (
     token: string,
     binding: DatabaseBinding,

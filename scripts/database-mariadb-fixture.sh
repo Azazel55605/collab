@@ -44,7 +44,7 @@ cat > "$work/init/001-fixture.sql" <<SQL
 CREATE DATABASE collab_phase5 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 CREATE USER 'editor'@'%' IDENTIFIED BY '$password' REQUIRE SSL;
 CREATE USER 'limited'@'%' IDENTIFIED BY '$password' REQUIRE SSL;
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, TRIGGER ON collab_phase5.* TO 'editor'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, LOCK TABLES, TRIGGER ON collab_phase5.* TO 'editor'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON collab_phase5.* TO 'limited'@'%';
 USE collab_phase5;
 CREATE TABLE items (

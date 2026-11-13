@@ -4,6 +4,7 @@ pub(crate) mod driver;
 pub(crate) mod edit;
 mod maria;
 pub(crate) mod query;
+pub(crate) mod schema;
 pub(crate) mod sqlite;
 use collab_database::{ContractError as E, Engine, SessionBinding};
 use driver::Live;
@@ -166,6 +167,7 @@ struct Connection {
     live: Network,
 }
 struct Tab {
+    schema_draft: Arc<schema::Draft>,
     binding: SessionBinding,
     live: Network,
     edit: Arc<edit::Runtime>,
@@ -699,6 +701,7 @@ pub async fn open_tab(token: &str, id: &str, database: String) -> Result<Session
     r.tabs.insert(
         binding.tab_id.clone(),
         Tab {
+            schema_draft: Default::default(),
             binding: binding.clone(),
             live,
             edit: Default::default(),
@@ -923,6 +926,9 @@ pub async fn start_query(
     if tab.edit.busy() {
         return Err(E::Busy);
     }
+    if !tab.edit.clean() {
+        return Err(E::UnresolvedSession);
+    }
     match &tab.live {
         Network::SqlServer(live) => query::start(live.clone(), binding, sql, selection, recovery),
         Network::MariaDb(live) => maria::start(live.clone(), binding, sql, selection),
@@ -945,6 +951,9 @@ pub async fn browse_query(
     }
     if tab.edit.busy() {
         return Err(E::Busy);
+    }
+    if !tab.edit.clean() {
+        return Err(E::UnresolvedSession);
     }
     match &tab.live {
         Network::SqlServer(live) => query::browse(live.clone(), binding, request),
@@ -969,6 +978,9 @@ pub async fn manual_transaction(
     if tab.edit.busy() {
         return Err(E::Busy);
     }
+    if !tab.edit.clean() {
+        return Err(E::UnresolvedSession);
+    }
     match &tab.live {
         Network::SqlServer(live) => query::transaction(live.clone(), binding, action),
         Network::MariaDb(live) => maria::transaction(live.clone(), binding, action),
@@ -976,6 +988,7 @@ pub async fn manual_transaction(
 }
 
 struct EditConnection {
+    schema_draft: Arc<schema::Draft>,
     operation: edit::Operation,
     config: SavedConnection,
     secret: Arc<Zeroizing<String>>,
@@ -999,6 +1012,7 @@ async fn edit_connection(token: &str, binding: &SessionBinding) -> Result<EditCo
     let permit = slots().try_acquire_owned().map_err(|_| E::LimitReached)?;
     let operation = tab.edit.reserve()?;
     Ok(EditConnection {
+        schema_draft: tab.schema_draft.clone(),
         operation,
         config: connection.config.clone(),
         secret: connection.secret.clone(),
@@ -1060,6 +1074,52 @@ pub async fn edit_apply(
             Network::SqlServer(live) => edit::apply(operation, live, request).await,
             Network::MariaDb(live) => maria::edit::apply(operation, live, request).await,
         }
+    })
+    .await
+    .map_err(|_| E::UnresolvedSession)?
+}
+
+pub async fn schema_preview(
+    token: &str,
+    binding: SessionBinding,
+    request: schema::Request,
+) -> Result<schema::Preview, edit::Failure> {
+    if let Some((file, reservation)) = sqlite_operation(token, &binding).await? {
+        return tokio::task::spawn_blocking(move || {
+            let _reservation = reservation;
+            schema::preview_sqlite(&file, request)
+        })
+        .await
+        .map_err(|_| E::UnresolvedSession)?;
+    }
+    let connection = edit_connection(token, &binding).await?;
+    let draft = connection.schema_draft.clone();
+    let (reservation, live) = connection.connect(&binding.database).await?;
+    let _reservation = reservation;
+    schema::preview_network(live, draft, request, &binding.database).await
+}
+
+pub async fn schema_apply(
+    token: &str,
+    binding: SessionBinding,
+    id: String,
+    confirm_loss: bool,
+) -> Result<schema::Outcome, edit::Failure> {
+    if let Some((file, reservation)) = sqlite_operation(token, &binding).await? {
+        let pending = file.schema_draft.take(&id, confirm_loss)?;
+        return tokio::task::spawn_blocking(move || {
+            let _reservation = reservation;
+            file.schema_apply(pending)
+        })
+        .await
+        .map_err(|_| E::UnresolvedSession.into());
+    }
+    let connection = edit_connection(token, &binding).await?;
+    let pending = connection.schema_draft.take(&id, confirm_loss)?;
+    // Renderer navigation does not cancel a submitted change or clear its guard.
+    tokio::spawn(async move {
+        let (reservation, live) = connection.connect(&binding.database).await?;
+        Ok(schema::apply_network(live, reservation, pending).await)
     })
     .await
     .map_err(|_| E::UnresolvedSession)?
