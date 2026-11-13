@@ -357,3 +357,26 @@ pub async fn database_sqlite_backup(
     database::backup_sqlite(&token, &binding, path).await?;
     Ok(true)
 }
+
+#[tauri::command]
+pub async fn database_schema_preview(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    request: database::schema::Request,
+) -> Result<database::schema::Preview, database::edit::Failure> {
+    authorize_execution(&window)?;
+    database::schema_preview(&token, binding, request).await
+}
+
+#[tauri::command]
+pub async fn database_schema_apply(
+    window: tauri::WebviewWindow,
+    token: String,
+    binding: SessionBinding,
+    id: String,
+    confirm_loss: bool,
+) -> Result<database::schema::Outcome, database::edit::Failure> {
+    authorize_execution(&window)?;
+    database::schema_apply(&token, binding, id, confirm_loss).await
+}

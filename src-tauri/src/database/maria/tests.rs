@@ -195,6 +195,10 @@ async fn disposable_mariadb_verified_queries_metadata_and_atomic_edits() {
     drain(&live, &id).await;
     assert_eq!(live.query.status().transaction, TransactionState::None);
 
+    crate::database::schema::network::fixture(Engine::MariaDb, "collab_phase5", async || {
+        crate::database::Network::MariaDb(connect(&account, &password).await.unwrap())
+    })
+    .await;
     let edit_runtime = Arc::new(Runtime::default());
     for table in ["nontransactional", "with_trigger", "without_key"] {
         let edit_session = connect(&account, &password).await.unwrap();

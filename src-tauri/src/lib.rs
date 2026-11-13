@@ -213,6 +213,8 @@ pub fn run() {
             commands::database::database_manual_transaction,
             commands::database::database_edit_load,
             commands::database::database_edit_apply,
+            commands::database::database_schema_preview,
+            commands::database::database_schema_apply,
             // user calendar profile store
             commands::calendar::calendar_list,
             commands::calendar::calendar_save,

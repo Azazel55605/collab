@@ -1651,6 +1651,12 @@ the current database and transaction state. Its grid uses short-lived
 connections, table metadata locks, and row locks to verify a trigger-free
 InnoDB target and original values before committing. Older saved connection
 profiles default to SQL Server.
+Phase 6 adds structured DDL in `database/schema.rs`, network apply guards in
+`database/schema/network.rs`, and SQLite validation and bounded rewrites in
+`database/sqlite/schema_changes.rs`. The native tab issues and consumes preview
+IDs. Network DDL uses a dedicated connection. SQLite applies on its pinned file
+with a writer transaction. `components/database/SchemaEditor.tsx` drives preview,
+confirmation and metadata refresh.
 The native SQL Server dependency uses the documented bounded-diagnostics patch in
 `vendor/mssql-tds`. See [Database queries](./database-queries.md).
 See [Database workspace](./database-workspace.md) for ownership and native gaps.

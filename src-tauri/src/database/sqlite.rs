@@ -1,5 +1,6 @@
 //! A picker-owned SQLite connection per local database tab.
 mod edits;
+mod schema_changes;
 #[cfg(test)]
 mod tests;
 
@@ -52,6 +53,7 @@ pub struct FileView {
 
 pub(super) struct Session {
     pub view: FileView,
+    pub(super) schema_draft: super::schema::Draft,
     pub query: Runtime,
     pub cancel: CancellationToken,
     path: PathBuf,
@@ -270,6 +272,7 @@ impl Session {
             maintenance: AtomicBool::new(false),
             edit_unknown: AtomicBool::new(false),
             snapshot: Mutex::new(None),
+            schema_draft: Default::default(),
             _permit: permit,
         }))
     }

@@ -191,3 +191,32 @@ export interface DatabaseEditFailure {
 export type DatabaseEditResult =
   | { outcome: 'committed'; rows: (DatabaseValue[] | null)[] }
   | { outcome: 'rejected' | 'unknown'; failure: DatabaseEditFailure };
+
+export type DatabaseSchemaType =
+  'integer' | 'big_integer' | 'decimal' | 'text' | 'short_text' | 'binary' | 'date_time';
+export interface DatabaseSchemaColumn {
+  name: string;
+  data_type: DatabaseSchemaType;
+  nullable: boolean;
+  primary_key: boolean;
+}
+export type DatabaseSchemaChange =
+  | { kind: 'create_table'; columns: DatabaseSchemaColumn[] }
+  | { kind: 'add_column'; column: DatabaseSchemaColumn }
+  | { kind: 'add_primary_key'; columns: string[] }
+  | { kind: 'create_index'; name: string; columns: string[]; unique: boolean }
+  | { kind: 'rename_column'; column: string; name: string }
+  | { kind: 'drop_column'; column: string };
+export interface DatabaseSchemaRequest {
+  schema: string;
+  table: string;
+  change: DatabaseSchemaChange;
+}
+export interface DatabaseSchemaPreview {
+  id: string;
+  sql: string;
+  warnings: string[];
+  destructive: boolean;
+}
+export type DatabaseSchemaOutcome =
+  { outcome: 'applied' } | { outcome: 'rejected' | 'unknown'; failure: DatabaseEditFailure };

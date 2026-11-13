@@ -22,7 +22,7 @@ fn binding() -> SessionBinding {
     }
 }
 
-fn open(path: &Path, mode: OpenMode) -> Result<Arc<Session>, E> {
+pub(super) fn open(path: &Path, mode: OpenMode) -> Result<Arc<Session>, E> {
     Session::open(
         binding(),
         path.to_owned(),

@@ -67,6 +67,12 @@ impl Operation {
         self.runtime.state.lock().maria_snapshot.take()
     }
 
+    pub(super) fn invalidate_snapshots(&self) {
+        let mut state = self.runtime.state.lock();
+        state.snapshot = None;
+        state.maria_snapshot = None;
+    }
+
     pub(super) fn mark_unresolved(&mut self) {
         self.unresolved = true;
     }
@@ -306,7 +312,7 @@ fn bind(parameters: &mut Parameters, value: SqlType) -> String {
     ));
     marker
 }
-fn unicode(value: &str) -> SqlType {
+pub(super) fn unicode(value: &str) -> SqlType {
     SqlType::NVarcharMax(Some(SqlString::from_utf8_string(value.to_owned())))
 }
 fn binary(value: &DbValue) -> Result<SqlType, E> {
@@ -318,7 +324,7 @@ fn binary(value: &DbValue) -> Result<SqlType, E> {
     }
 }
 
-async fn read(
+pub(super) async fn read(
     client: &mut TdsClient,
     sql: String,
     parameters: Parameters,

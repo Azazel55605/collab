@@ -5,6 +5,7 @@ import { Database, Plug, Plus, X } from 'lucide-react';
 import ConnectionForm from '../components/database/ConnectionForm';
 import MetadataExplorer from '../components/database/MetadataExplorer';
 import QueryPanel from '../components/database/QueryPanel';
+import SchemaEditor from '../components/database/SchemaEditor';
 import { DocumentTopBar, DocumentTopBarButton } from '../components/layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { Badge } from '../components/ui/badge';
@@ -44,6 +45,14 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
   const [selected, setSelected] = useState('');
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [metadata, setMetadata] = useState(false);
+  const [schemaRevision, setSchemaRevision] = useState(0);
+  const [schemaTarget, setSchemaTarget] = useState<{
+    tabId: string;
+    schema: string;
+    table: string;
+  } | null>(null);
+  const editActive = useDatabaseQueries((state) => !!state.tabs[activeTab ?? '']?.edit);
+  const queryReceiving = useDatabaseQueries((state) => !!state.tabs[activeTab ?? '']?.receiving);
   const [closing, setClosing] = useState(false);
   const queryStatus = useDatabaseQueries((state) => state.tabs[activeTab ?? '']?.status);
   const [connectionId, setConnectionId] = useState('');
@@ -120,6 +129,16 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
   );
   const engine = sqlite ? 'sqlite' : (connection?.engine ?? 'sql_server');
   const mariaCapabilities = connection?.maria_capabilities;
+  const canEditSchema =
+    !!tab &&
+    !sqlite?.read_only &&
+    !editActive &&
+    !queryReceiving &&
+    !busy &&
+    (!queryStatus || (queryStatus.phase === 'idle' && queryStatus.transaction === 'none'));
+  const editSchema = (schema: string, table: string) => {
+    if (tab && canEditSchema) setSchemaTarget({ tabId: tab.tab_id, schema, table });
+  };
   const connect = (testOnly: boolean) => {
     if (!workspace || !profile) return;
     const secret = password || undefined;
@@ -447,6 +466,14 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
                   ? 'Changes apply to the selected local SQLite file.'
                   : 'This session stays pinned to its connection and database.'}
               </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!canEditSchema}
+                onClick={() => editSchema(engine === 'sql_server' ? 'dbo' : tab.database, '')}
+              >
+                Edit schema…
+              </Button>
               <Button size="sm" variant="ghost" onClick={() => setMetadata((value) => !value)}>
                 {metadata ? 'SQL editor' : 'Browse metadata'}
               </Button>
@@ -463,7 +490,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           )}
           {workspace && tab && !metadata ? (
             <QueryPanel
-              key={tab.tab_id}
+              key={`${tab.tab_id}:${schemaRevision}`}
               token={workspace.token}
               binding={tab}
               engine={engine}
@@ -471,12 +498,13 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             />
           ) : workspace && (connection || sqlite) ? (
             <MetadataExplorer
-              key={`${sqlite?.binding.connection_id ?? connection?.id}:${tab?.tab_id ?? 'databases'}`}
+              key={`${sqlite?.binding.connection_id ?? connection?.id}:${tab?.tab_id ?? 'databases'}:${schemaRevision}`}
               token={workspace.token}
               connectionId={sqlite?.binding.connection_id ?? connection?.id ?? ''}
               engine={engine}
               binding={tab}
               onOpen={open}
+              onEditSchema={canEditSchema ? editSchema : undefined}
               onBrowse={
                 tab
                   ? (schema, table) => {
@@ -508,6 +536,20 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           )}
         </div>
       </div>
+      {schemaTarget && workspace && tab?.tab_id === schemaTarget.tabId && (
+        <SchemaEditor
+          token={workspace.token}
+          binding={tab}
+          engine={engine}
+          target={schemaTarget}
+          onClose={() => setSchemaTarget(null)}
+          onApplied={() => {
+            setSchemaTarget(null);
+            setSchemaRevision((revision) => revision + 1);
+            setNotice('Schema change applied.');
+          }}
+        />
+      )}
       {closing && workspace && tab && (
         <Dialog open onOpenChange={setClosing}>
           <DialogContent>
