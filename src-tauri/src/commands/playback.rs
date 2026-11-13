@@ -1,3 +1,5 @@
+mod mp4;
+
 use super::{files, vault::read_vault_config_pub};
 use crate::{crypto, models::vault::VaultKind, state::AppState};
 use axum::{
@@ -116,6 +118,7 @@ struct Source {
     cancel: CancellationToken,
     touched: Mutex<tokio::time::Instant>,
     next_read: tokio::sync::Mutex<tokio::time::Instant>,
+    subtitle_overlays: Vec<u64>,
 }
 
 struct Caption {
@@ -125,6 +128,15 @@ struct Caption {
 
 impl Source {
     fn open(root: &str, relative: &str, selected_caption: Option<&str>) -> Result<Self, String> {
+        Self::open_with_mode(root, relative, selected_caption, false)
+    }
+
+    fn open_with_mode(
+        root: &str,
+        relative: &str,
+        selected_caption: Option<&str>,
+        compatibility: bool,
+    ) -> Result<Self, String> {
         // Normalize at the IPC boundary. The directory capability also confines
         // resolution across symlinks and concurrent path substitutions.
         let relative = visible_path(relative)?;
@@ -166,6 +178,16 @@ impl Source {
                 }
             }
         }
+        let subtitle_overlays = if compatibility && mime == "video/mp4" {
+            let positions = mp4::subtitle_headers(&mut file, len)
+                .map_err(|_| "Could not prepare the MP4 subtitle compatibility stream.")?;
+            if positions.is_empty() {
+                return Err("No embedded MP4 subtitle tracks could be bypassed.".into());
+            }
+            positions
+        } else {
+            Vec::new()
+        };
         let now = tokio::time::Instant::now();
         Ok(Self {
             vault,
@@ -180,6 +202,7 @@ impl Source {
             cancel: CancellationToken::new(),
             touched: Mutex::new(now),
             next_read: tokio::sync::Mutex::new(now),
+            subtitle_overlays,
         })
     }
 
@@ -424,6 +447,7 @@ pub async fn open_local_playback(
     vault_path: String,
     relative_path: String,
     caption_path: Option<String>,
+    compatibility: Option<bool>,
 ) -> Result<PlaybackSource, String> {
     if window.label() != "main" {
         return Err("Playback is available from the main window.".into());
@@ -438,6 +462,7 @@ pub async fn open_local_playback(
             &vault_path,
             &relative_path,
             caption_path.as_deref(),
+            compatibility.unwrap_or(false),
         )
     })
     .await
@@ -450,14 +475,16 @@ fn register(
     vault_path: &str,
     relative_path: &str,
     caption_path: Option<&str>,
+    compatibility: bool,
 ) -> Result<PlaybackSource, String> {
     let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     let active = state.active_vault.read();
     authorize_active(state, active.as_ref(), vault_path)?;
-    let source = Arc::new(Source::open(
-        &vault_path,
-        &relative_path,
-        caption_path.as_deref(),
+    let source = Arc::new(Source::open_with_mode(
+        vault_path,
+        relative_path,
+        caption_path,
+        compatibility,
     )?);
     let mut sessions = state.playback.sessions.lock();
     if sessions.len() >= MAX_SESSIONS {
@@ -700,6 +727,7 @@ async fn serve(
                     file.seek(SeekFrom::Start(offset))?;
                     let mut bytes = vec![0; count];
                     file.read_exact(&mut bytes)?;
+                    mp4::apply_overlays(&mut bytes, offset, &read_source.subtitle_overlays);
                     Ok(Bytes::from(bytes))
                 })
                 .await??;

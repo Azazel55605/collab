@@ -99,7 +99,6 @@ function Choice({
 export default function MediaView({ relativePath }: { relativePath: string }) {
   const vault = useVaultStore((state) => state.vault);
   const locked = useVaultStore((state) => state.isVaultLocked);
-  const file = useVaultStore((state) => vaultTreeIndex(state.fileTree).byPath.get(relativePath));
   const kind = mediaKindForPath(relativePath);
   const available = vault && !locked && vault.kind !== 'hosted' && !vault.isEncrypted && kind;
   return (
@@ -111,13 +110,7 @@ export default function MediaView({ relativePath }: { relativePath: string }) {
       />
       {available ? (
         <LocalPlayer
-          key={JSON.stringify([
-            vault.path,
-            relativePath,
-            file?.modifiedAt,
-            file?.size,
-            file?.contentRevision,
-          ])}
+          key={JSON.stringify([vault.path, relativePath])}
           vaultPath={vault.path}
           relativePath={relativePath}
           kind={kind}
@@ -148,6 +141,8 @@ function LocalPlayer({
     () => recent.get(scope)?.captionPath ?? null,
   );
   const [attempt, setAttempt] = useState(0);
+  const [compatibility, setCompatibility] = useState(false);
+  const isMp4 = /\.mp4$/i.test(relativePath);
   const [source, setSource] = useState<LocalPlaybackSource | null>(null);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -176,6 +171,7 @@ function LocalPlayer({
     let disposed = false;
     let id: string | undefined;
     let timer: ReturnType<typeof setInterval> | undefined;
+    let startupTimer: ReturnType<typeof setTimeout> | undefined;
     failed.current = false;
     hydrated.current = false;
     setSource(null);
@@ -186,13 +182,13 @@ function LocalPlayer({
     setPlaying(false);
     setScrub(null);
     pendingSeek.current = null;
-    setStatus('Opening media…');
+    setStatus(compatibility ? 'Opening without embedded subtitles…' : 'Opening media…');
     setCaptionChoices([]);
     setAudioChoices([]);
     const restore = recent.get(scope);
     autoCaption.current = captionPath !== null && captionPath !== restore?.captionPath;
     selection.current = { caption: restore?.caption ?? 'off', audio: restore?.audio ?? '0' };
-    void tauriCommands.openLocalPlayback(vaultPath, relativePath, captionPath).then(
+    void tauriCommands.openLocalPlayback(vaultPath, relativePath, captionPath, compatibility).then(
       (opened) => {
         if (disposed) {
           void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
@@ -205,6 +201,18 @@ function LocalPlayer({
           recent.delete(scope);
         }
         setSource(opened);
+        startupTimer = setTimeout(() => {
+          if (disposed || failed.current || hydrated.current) return;
+          failed.current = true;
+          element.current?.pause();
+          void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+          setSource(null);
+          if (isMp4 && !compatibility) setCompatibility(true);
+          else
+            setError(
+              'The player did not receive media metadata. Reload or open the file externally.',
+            );
+        }, 8000);
         timer = setInterval(() => {
           void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
             if (disposed || failed.current) return;
@@ -216,16 +224,21 @@ function LocalPlayer({
         }, 5000);
       },
       (reason) => {
-        if (!disposed) setError(String(reason));
+        if (!disposed) {
+          setError(
+            compatibility ? `MP4 compatibility retry failed. ${String(reason)}` : String(reason),
+          );
+        }
       },
     );
     return () => {
       disposed = true;
       liveId.current = null;
       clearInterval(timer);
+      clearTimeout(startupTimer);
       if (id) void tauriCommands.closeLocalPlayback(id).catch(() => {});
     };
-  }, [attempt, captionPath, relativePath, scope, vaultPath]);
+  }, [attempt, captionPath, compatibility, isMp4, relativePath, scope, vaultPath]);
 
   function remember(media: HTMLMediaElement) {
     if (
@@ -408,7 +421,12 @@ function LocalPlayer({
         void tauriCommands.closeLocalPlayback(id).catch(() => {});
       };
       void tauriCommands.checkLocalPlayback(id).then(
-        () => reject('This file could not be played. Its codec may be unsupported by this device.'),
+        () => {
+          if (liveId.current !== id || failed.current) return;
+          if (isMp4 && !compatibility && !hydrated.current) setCompatibility(true);
+          else
+            reject('This file could not be played. Its codec may be unsupported by this device.');
+        },
         (reason) => reject(String(reason)),
       );
     },
@@ -618,7 +636,14 @@ function LocalPlayer({
               <span role="alert" className="text-destructive">
                 {error}
               </span>
-              <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setCompatibility(false);
+                  setAttempt((n) => n + 1);
+                }}
+              >
                 <RotateCcw /> Reload
               </Button>
             </div>
@@ -627,6 +652,11 @@ function LocalPlayer({
               {status}
             </div>
           )}
+          {compatibility && ready ? (
+            <p className="text-xs text-muted-foreground">
+              Embedded subtitles are bypassed for this playback. Sidecar captions are available.
+            </p>
+          ) : null}
           {actionError ? (
             <div role="alert" className="text-xs text-destructive">
               {actionError}
