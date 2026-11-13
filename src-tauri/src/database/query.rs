@@ -368,6 +368,7 @@ fn start_inner(
         row_limit,
         (parameters.is_none() && !recovery).then_some(selected),
         recovery,
+        &live.cancel,
     )?;
     let monitor = live.clone();
     let task = tokio::spawn(async move {
@@ -390,6 +391,7 @@ pub(super) fn start_stream(
     row_limit: usize,
     history_sql: Option<&str>,
     recovery: bool,
+    parent: &tokio_util::sync::CancellationToken,
 ) -> Result<(String, Output), E> {
     let mut state = runtime.inner.lock();
     if matches!(
@@ -421,7 +423,7 @@ pub(super) fn start_stream(
     let mut handle = CancelHandle::new();
     handle.set_cancel_timeout_secs(3);
     let cancel = Arc::new(handle);
-    let stop = tokio_util::sync::CancellationToken::new();
+    let stop = parent.child_token();
     state.status = Status {
         query_id: Some(id.clone()),
         phase: "running".into(),
@@ -591,7 +593,7 @@ pub(super) async fn finish_stream(
     }
     // Completion has an independent bounded wait even after user cancellation.
     output.cancel = Arc::new(CancelHandle::new());
-    output.stop = tokio_util::sync::CancellationToken::new();
+    output.stop = cancel.child_token();
     let event = match error {
         Some(error) => ResultEvent::Failed { error },
         None => ResultEvent::Finished { reason },

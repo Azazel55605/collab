@@ -1,6 +1,6 @@
 # Database Editor Plan
 
-Status: **Phase 3 implemented; native release acceptance pending**. Created **2026-11-10**.
+Status: **Testing**. Implementation through Phase 6 is complete. Phase 7 tracks qualification and hardening. Created **2026-11-10**.
 
 [Phase 0 contract and driver evidence](./database-editor-phase0-contract.md) records
 the Linux fixture results and outstanding native platform acceptance.
@@ -14,9 +14,8 @@ into a full database administration suite.
 
 Provide a first-party workspace for connecting to databases, writing queries,
 browsing data, inserting/updating/deleting rows, and making ordinary schema
-changes. Microsoft SQL Server is the first usable target. SQLite and MariaDB are
-required follow-on engines, supported through the same application contracts
-with explicit dialect and capability differences.
+changes. SQL Server, SQLite and MariaDB use the same workspace contracts with
+engine-specific dialects and capabilities.
 
 Initial delivery is desktop only. Browser and Android database execution,
 server-managed database connections, shared credentials, and scheduled queries
@@ -82,14 +81,12 @@ must explicitly resolve session ownership and pending changes.
 
 | Engine     | Connection model                                            | Adapter investigation                                                                                                                                      |
 | ---------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQL Server | Native TCP connection; explicit database and authentication | Evaluate Tiberius and Microsoft mssql-rs against real target servers; SQLx's existing core drivers are not a built-in MSSQL implementation.                |
+| SQL Server | Native TCP connection; explicit database and authentication | Uses the selected Microsoft mssql-tds adapter with SQL login and verified TLS.                                                                             |
 | SQLite     | Native-owned handle to an explicitly selected local file    | Phase 4 uses rusqlite for synchronous stepping, progress cancellation, authorizer hooks and online backup. It shares the bundled SQLite library with SQLx. |
 | MariaDB    | Native TCP connection; explicit database and authentication | Phase 5 uses SQLx MySQL transport for MariaDB 10.11 and newer, with verified TLS and a strict session baseline.                                            |
 
-Driver selection is a Phase 0 gate, not a decision to add dependencies immediately.
-Check released-version maintenance, licensing, packaging, TLS, type coverage,
-authentication and cancellation. Decide the minimum supported server versions and
-OS/authentication matrix before claiming compatibility.
+The [release validation matrix](../build/database-release-validation.md) records
+the driver versions, authentication scope, and packaging acceptance separately.
 
 Keep capability discovery explicit: schema namespaces, transactional DDL,
 `RETURNING`/`OUTPUT`, generated columns, version tokens, identifier quoting,
@@ -280,7 +277,7 @@ Packaged desktop acceptance remains open. See [Edit the schema](../desktop/datab
 
 ### Phase 7 — Hardening And Product Acceptance
 
-- [ ] Run driver-backed suites against disposable SQL Server/MariaDB instances and
+- [x] Run driver-backed suites against disposable SQL Server/MariaDB instances and
       temporary SQLite files; never run mutation fixtures against user databases.
 - [ ] Cover slow networks, dropped connections, cancellation races, unknown commit
       outcomes, expired credentials, permission changes and profile/tab shutdown.
@@ -288,8 +285,11 @@ Packaged desktop acceptance remains open. See [Edit the schema](../desktop/datab
       memory and IPC backpressure on packaged native builds.
 - [ ] Validate keyboard/screen-reader workflows, scaling, Linux/Windows/macOS,
       credential stores, installation and Flatpak file/network integration.
-- [ ] Update user documentation, architecture, driver capability/version matrix,
+- [x] Update user documentation, architecture, driver capability/version matrix,
       security advisory rationale where dependencies require it, and main tracker.
+
+See the [release validation matrix](../build/database-release-validation.md) for
+covered failure modes, fixture commands and installed test cases.
 
 Exit: record native acceptance separately from browser/unit evidence. Run suites
 at each completed batch's end, rerunning only affected checks after corrections.
@@ -304,8 +304,8 @@ query, data-editing and ordinary schema-editing workflows.
 
 ## References And Investigation Inputs
 
-Current driver capabilities must be rechecked during Phase 0; these references do
-not establish compatibility with a particular released dependency or environment.
+These references document the original driver investigation. Use the release
+validation matrix for current fixture and packaging evidence.
 
 - [SQLx supported databases](https://github.com/transact-rs/sqlx)
 - [Tiberius SQL Server driver](https://github.com/tiberius-rs/tiberius)

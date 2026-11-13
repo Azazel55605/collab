@@ -5,7 +5,8 @@
 [![Security Scan](https://github.com/Azazel55605/collab/actions/workflows/security-scan.yml/badge.svg)](https://github.com/Azazel55605/collab/actions/workflows/security-scan.yml)
 
 Local-first vault-based knowledge work for notes, drawings, spreadsheets,
-diagrams, canvases, Kanban boards, calendars, PDFs, images, and collaboration.
+diagrams, canvases, Kanban boards, calendars, PDFs, images, and collaboration,
+with a desktop workspace for SQL Server, SQLite, and MariaDB.
 
 `collab` ships a Tauri 2 desktop app, an Android companion, a self-hosted Rust
 collaboration server, and a browser administration interface. Local vaults
@@ -13,8 +14,8 @@ remain first-class and stay on disk. Hosted vaults add authenticated users,
 server-backed permissions, live co-editing, and offline synchronization without
 replacing the local workflow.
 
-The workspace now includes first-class `.sheet`, `.ink`, and `.logic` document
-editors; desktop and Android calendars; a durable notification and background
+The workspace includes first-class `.sheet`, `.ink`, `.logic`, and `.deck`
+document editors; desktop and Android calendars; a durable notification and background
 work system; and hosted collaboration for supported structured documents.
 Published multi-architecture (AMD64/ARM64) server images are released to GitHub
 Container Registry and run with a single production Compose file.
@@ -25,7 +26,11 @@ Container Registry and run with a single production Compose file.
   wikilinks, backlinks, autosave, optimistic conflict handling, and rich
   insertion tools
 - First-class vault files for `.md`, `.canvas`, `.kanban`, `.sheet`, `.ink`,
-  `.logic`, SVG, raster images, and PDFs in one unified file tree
+  `.logic`, `.deck`, SVG, raster images, PDFs, and SQLite snapshots in one file tree
+- Desktop database workspace with verified TLS for SQL Server and MariaDB,
+  local SQLite files, metadata and SQL completion, typed results, staged row
+  edits, and reviewed schema changes
+- Editable Markdown Pages mode and per-page print preview
 - Native `.sheet` workbooks with formulas, formatting, data tools, charts,
   hosted/offline collaboration, mobile editing, and bounded XLSX/CSV conversion
 - Pressure-aware `.ink` drawings with pages or infinite canvas, layers, rich
@@ -79,6 +84,7 @@ Container Registry and run with a single production Compose file.
 | PDF rendering        | `pdfjs-dist`                          |
 | Spreadsheet engine   | `collab-sheet`, Formualizer           |
 | Diagramming          | React Flow, `collab-circuit`          |
+| Database adapters    | mssql-tds, rusqlite, SQLx MySQL       |
 | Calendar storage     | `collab-calendar`, SQLite             |
 | State                | Zustand                               |
 | Desktop backend      | Rust, Tauri commands                  |
@@ -105,14 +111,16 @@ Container Registry and run with a single production Compose file.
 - Footnotes, callouts, references sections, Nerd Font icons, file links, and
   drag/drop imports
 - Sidebar search and tag browsing
+- Editable Pages mode and per-page print preview
 
 ### Vault Files And Views
 
-- Notes (`.md`)
+- Notes (`.md`) and SQL scripts (`.sql`)
 - Canvases (`.canvas`)
 - Kanban boards (`.kanban`)
 - Workbooks (`.sheet`), drawings (`.ink`), and logic/schematic diagrams
-  (`.logic`)
+  (`.logic`) and presentations (`.deck`)
+- SQLite snapshots as binary attachments
 - Raster images and editable SVG vector scenes
 - PDFs opened in a custom in-app reader
 - Multi-tab editing with dirty-state tracking and drag-reorder
@@ -126,6 +134,18 @@ Container Registry and run with a single production Compose file.
 - Command bar for search, quick actions, note creation, math evaluation, and editor insertions
 - Vault-wide text search and tag browsing in the sidebar
 - Shared document top-bar pattern across note, image, PDF, canvas, and Kanban views
+
+### Databases
+
+- Connect to SQL Server or MariaDB with a SQL login and verified TLS, or open
+  or create a local SQLite database. The desktop workspace can run without a vault.
+- Browse schemas and tables, run SQL, inspect typed results, and export loaded
+  results as CSV or JSON.
+- Stage row changes on eligible tables and preview SQL for supported schema
+  changes. Save SQLite backups or share standalone snapshots as vault attachments.
+- See the [database workspace](./docs/desktop/database-workspace.md) for setup
+  and the [acceptance matrix](./docs/build/database-release-validation.md) for
+  current testing coverage.
 
 ### Spreadsheets
 
@@ -141,6 +161,13 @@ Container Registry and run with a single production Compose file.
   snapshots
 - Hosted live collaboration, offline queues and recovery, plus a windowed touch
   editor on Android
+
+### Presentations
+
+- Author and present native `.deck` files on desktop, including speaker notes,
+  presenter controls, themes, reusable layouts, and reading order.
+- Open hosted presentations in the Android viewer or presenter.
+- Export PDF, handouts, slide images, or PowerPoint copies with a compatibility report.
 
 ### Digital Ink
 
@@ -400,7 +427,7 @@ Dockerfile.server     Cached multi-stage server and admin-web image
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 20.19+ (Node 22 is used by the pinned toolchain and CI)
 - `pnpm` 11.7 (pinned through `packageManager`)
 - Rust stable toolchain
 - Tauri 2 system dependencies for your platform
@@ -521,7 +548,7 @@ exact version in `.env` so upgrades are deliberate:
 
 ```bash
 # .env
-COLLAB_SERVER_IMAGE=ghcr.io/azazel55605/collab-server:0.7.1
+COLLAB_SERVER_IMAGE=ghcr.io/azazel55605/collab-server:0.8.9
 ```
 
 Upgrade later by bumping that tag and re-pulling:
@@ -624,17 +651,15 @@ matching explanation — dependency path, why it is not reachable, why it is
 unfixed, and the condition to drop it — in
 [docs/build/security-advisories.md](./docs/build/security-advisories.md).
 
-Currently accepted: `RUSTSEC-2023-0071` (`rsa`, reachable only through the
-unused MySQL backend). The former `quick-xml` advisories were resolved by the
-Tauri `plist` dependency upgrade and removed from the ignore list. Non-failing
-`unmaintained`/`unsound` warnings are tracked in the doc but are deliberately
-kept out of the ignore list. Keep the tracking doc in sync whenever
-`.cargo/audit.toml` changes.
+The Rust ignore list is empty. SQLx 0.9 removed the vulnerable RSA dependency,
+including from the MariaDB transport. See the advisory tracker for the pnpm
+patch and remaining informational warnings.
 
 ## Useful Documents
 
 ### Project And Contribution Guides
 
+- [Supported file types](./docs/file-types.md) - native formats, attachments, imports, conversions, and exports
 - [Documentation index](./docs/README.md) - plans, archived work, and platform/build documentation
 - [Open development work](./docs/plans/open-development-work.md) - consolidated status and remaining work across active, testing, planned, and deferred projects
 - [Codebase reference](./docs/desktop/codebase.md) - current views, components, stores, IPC commands, crates, and feature map

@@ -325,6 +325,7 @@ fn launch(
         row_limit,
         source.map(|_| sql.as_str()),
         sql == "ROLLBACK",
+        &live.cancel,
     )?;
     let monitor = live.clone();
     let worker = tokio::spawn(run(live, output, sql, parameter, source));

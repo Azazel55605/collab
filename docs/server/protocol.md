@@ -163,11 +163,17 @@ Vault management:
 - `GET|POST /api/v1/vaults/{vaultId}/chat`
 - `GET /api/v1/vaults/{vaultId}/export`
 
-The initial import/export implementation is admin-only. Import accepts a
+Vault ZIP import and export require vault administration access. Import accepts a
 bounded base64-encoded ZIP into an empty active hosted vault, validates the
 entire archive before metadata commit, ignores runtime `.collab/` content, and
 generates stable hosted IDs and initial revisions. Export returns an
 `application/zip` containing active folders and current file content.
+
+SQLite snapshots with `.sqlite`, `.sqlite3`, or `.db` extensions use the binary
+asset path, including ZIP import. The server checks the SQLite header, serves
+`application/vnd.sqlite3`, and applies normal blob hashes and quotas. SQLite
+WAL, shared-memory, and journal sidecars are rejected. The hosted service
+stores snapshots without opening them as databases or text documents.
 
 The viewer-readable storage endpoint reports current active and trash bytes,
 retained revision bytes, unique per-vault blob bytes, and file, revision, and

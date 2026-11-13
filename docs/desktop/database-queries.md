@@ -1,7 +1,8 @@
 # Database Queries And Read-Only Results
 
-Phase 2 extends the [database workspace](./database-workspace.md). The
-[main tracker](../plans/open-development-work.md) owns current acceptance status.
+Use the [database workspace](./database-workspace.md) to connect or open a file.
+The [release validation matrix](../build/database-release-validation.md) records
+current acceptance status.
 Raw SQL runs with the connected account's permissions; it can write or administer
 the server. Query result grids are read-only. Eligible SQL Server base tables have a separate edit mode.
 
@@ -193,59 +194,11 @@ release, while production registry fixtures exercise the patched native adapter.
 
 ## Validation
 
-Run the normal repository suites and the real disposable fixture harness:
-
-```sh
-cargo test -p collab database:: -- --test-threads=1
-COLLAB_DB_SPIKE_ACCEPT_EULA=yes python scripts/database-driver-spike.py \
-  --versions 2019 2022 2025 --skip-build --native-adapter \
-  --output /tmp/database-phase2-evidence.json
-```
-
-Use `--native-only` with `--native-adapter` for focused production adapter runs.
-Prebuild native tests first. The harness records only public image digests,
-versions, assertions and numeric/boolean metrics; raw subprocess diagnostics and
-credentials are withheld. Its Developer instances and credentials are disposable.
-
-Automated/browser evidence and installed native acceptance remain separate.
-Outstanding: packaged Windows/macOS/Linux/Flatpak, real keyring lifecycle,
-suspend/reconnect networks, actual WebView IPC memory and responsiveness, and OS
-save-picker acceptance. Integrated auth, Entra and per-connection CA import retain
-their existing gates. Browser validation uses synthetic IPC, never a database proxy.
-
-### Phase 2 implementation batch — 2026-11-10
-
-- Full desktop/script suite: 2,542 passed, one skipped; two presentation tests
-  timed out under concurrent Rust/container load. The affected presentation file
-  then passed all 50 tests in isolation. The final saved-script regression file
-  passed four tests, including copied-vault version isolation.
-- TypeScript, admin tests (81), admin build, Android tests (258), desktop
-  production bundle/budgets, lint (zero errors; 183 existing warnings), formatting,
-  crate boundaries and version manifests passed.
-- Rust workspace tests/checks passed. The final diagnostic-limit correction is
-  also covered by production-adapter fixtures and a final workspace rerun.
-- Chromium with synthetic IPC loaded 100,000 rows in 7,572 ms while mounting
-  only 18 cells, with no page errors or body overflow. Exact decimal inspection,
-  cancellation, schema completion and compact layout passed. See
-  [browser evidence](../build/database-phase2-browser-evidence.json).
-- CI-equivalent JavaScript security gate passed (three low and six moderate
-  findings remain); Rust audit passed with the existing nine allowed warnings.
-  No audit exception was added.
-- Compose configuration passed. Server smoke remains unverified because the
-  unchanged server image build failed on upstream Debian APT **Hash Sum mismatch**.
-
-The browser run uses simulated IPC; it does not certify native WebView memory,
-installed interaction, keyring behavior or save-picker integration.
-
-The [21-report disposable SQL Server matrix](../build/database-phase2-evidence.json)
-passed for 2019, 2022 and 2025. Each version ran both published driver comparisons
-with verified, wrong-hostname and untrusted-CA TLS cases, plus the patched native
-registry fixture. Native checks cover exact values, multi-batch session state,
-source errors, transaction guards/rollback, cancellation with a server-side
-observer, large-cell and 8 MiB result limits, bound table filters, INFO/ERROR
-floods, killed sessions without replay, and retirement of stalled consumers.
-These are real native driver tests against disposable servers, separate from the
-Chromium synthetic-IPC responsiveness test.
+See the [release validation matrix](../build/database-release-validation.md)
+for the current fixture commands, platform status, and installed test cases.
+Historical Phase 2 evidence remains available for the
+[SQL Server driver fixture](../build/database-phase2-evidence.json) and
+[Chromium with mocked IPC](../build/database-phase2-browser-evidence.json).
 
 ## Local SQLite
 

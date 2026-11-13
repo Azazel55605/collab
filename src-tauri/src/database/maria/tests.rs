@@ -305,6 +305,42 @@ async fn disposable_mariadb_verified_queries_metadata_and_atomic_edits() {
         matches!(&rows[2].as_ref().unwrap()[6], DbValue::Text {value} if value == "ADDED"))
     );
 
+    let lost = connect(&account, &password).await.unwrap();
+    let session_id: u64 = {
+        let mut client = lost.client.lock().await;
+        sqlx::query_scalar("SELECT CONNECTION_ID()")
+            .fetch_one(client.as_mut().unwrap())
+            .await
+            .unwrap()
+    };
+    let id = start(lost.clone(), binding(), "SELECT SLEEP(10)".into(), None).unwrap();
+    let observer = connect(&account, &password).await.unwrap();
+    let mut client = observer.client.lock().await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let active: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE ID=? AND COMMAND<>'Sleep' AND INFO LIKE '%SLEEP(10)%'",
+            )
+            .bind(session_id)
+            .fetch_one(client.as_mut().unwrap()).await.unwrap();
+            if active == 1 { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("fixture query never reached the server");
+    // The numeric ID came from this fixture's own disposable session.
+    sqlx::query(sqlx::AssertSqlSafe(format!("KILL CONNECTION {session_id}")))
+        .execute(client.as_mut().unwrap())
+        .await
+        .unwrap();
+    drop(client);
+    let events = drain(&lost, &id).await;
+    assert!(matches!(events.last(), Some(ResultEvent::Failed { error }) if error.outcome_unknown));
+    assert_eq!(lost.query.status().phase, "outcome_unknown");
+    assert_eq!(
+        start(lost, binding(), "SELECT 1".into(), None),
+        Err(E::UnresolvedSession)
+    );
+
     let id = start(live.clone(), binding(), "SELECT SLEEP(10)".into(), None).unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     live.query.cancel(&id).unwrap();

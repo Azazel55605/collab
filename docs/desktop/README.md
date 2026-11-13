@@ -6,6 +6,8 @@ architecture and visual conventions are documented in
 
 Implementation references:
 
+- [Supported File Types](../file-types.md)
+- [Database Release Validation](../build/database-release-validation.md)
 - [Database Workspace](./database-workspace.md)
 - [Database Queries And Read-Only Results](./database-queries.md)
 - [Codebase Reference](./codebase.md)

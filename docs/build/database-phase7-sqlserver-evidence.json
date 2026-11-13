@@ -1,0 +1,100 @@
+{
+  "run_utc": "2026-11-13T08:13:33.536889+00:00",
+  "host": "linux-x86_64",
+  "complete": true,
+  "reports": [
+    {
+      "edit_fixture_passed": true,
+      "query_metrics": {
+        "bounded_diagnostics": true,
+        "cancel_ms": 3,
+        "no_replay": true,
+        "peak_resident_kib": 43680,
+        "query_checks": true,
+        "result_wire_bytes": 8353098,
+        "server_work_stopped": true,
+        "stalled_consumer_retired": true,
+        "streamed_rows": 15360,
+        "total_query_ms": 11423
+      },
+      "kind": "native_registry",
+      "fixture_version": "2019",
+      "image": "mcr.microsoft.com/mssql/server@sha256:07d7dedecdbfcf6776035dc5eefb5bfd9aa1804b2f6b99f7dedb397d8a599069",
+      "passed": true,
+      "checks": [
+        "test-connect-closes-socket",
+        "independent-connections",
+        "pinned-tabs",
+        "forged-binding-rejected",
+        "paged-metadata",
+        "typed-cursor",
+        "columns-and-indexes",
+        "disconnect-isolation",
+        "connection-budget",
+        "profile-cleanup"
+      ]
+    },
+    {
+      "edit_fixture_passed": true,
+      "query_metrics": {
+        "bounded_diagnostics": true,
+        "cancel_ms": 3,
+        "no_replay": true,
+        "peak_resident_kib": 43488,
+        "query_checks": true,
+        "result_wire_bytes": 8353098,
+        "server_work_stopped": true,
+        "stalled_consumer_retired": true,
+        "streamed_rows": 15360,
+        "total_query_ms": 11215
+      },
+      "kind": "native_registry",
+      "fixture_version": "2022",
+      "image": "mcr.microsoft.com/mssql/server@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718",
+      "passed": true,
+      "checks": [
+        "test-connect-closes-socket",
+        "independent-connections",
+        "pinned-tabs",
+        "forged-binding-rejected",
+        "paged-metadata",
+        "typed-cursor",
+        "columns-and-indexes",
+        "disconnect-isolation",
+        "connection-budget",
+        "profile-cleanup"
+      ]
+    },
+    {
+      "edit_fixture_passed": true,
+      "query_metrics": {
+        "bounded_diagnostics": true,
+        "cancel_ms": 2,
+        "no_replay": true,
+        "peak_resident_kib": 43052,
+        "query_checks": true,
+        "result_wire_bytes": 8353098,
+        "server_work_stopped": true,
+        "stalled_consumer_retired": true,
+        "streamed_rows": 15360,
+        "total_query_ms": 12085
+      },
+      "kind": "native_registry",
+      "fixture_version": "2025",
+      "image": "mcr.microsoft.com/mssql/server@sha256:245f6b1c8903edae52cb20fa31419cefcde1a49938bb8c3447099011fc871ca3",
+      "passed": true,
+      "checks": [
+        "test-connect-closes-socket",
+        "independent-connections",
+        "pinned-tabs",
+        "forged-binding-rejected",
+        "paged-metadata",
+        "typed-cursor",
+        "columns-and-indexes",
+        "disconnect-isolation",
+        "connection-budget",
+        "profile-cleanup"
+      ]
+    }
+  ]
+}

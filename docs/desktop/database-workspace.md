@@ -1,19 +1,17 @@
 # Database Workspace
 
-Phase 1 adds desktop SQL Server connection management and metadata browsing.
-Phase 2 adds [queries and read-only results](./database-queries.md). Phase 3 adds
-[staged row editing](./database-queries.md#edit-table-rows) for eligible SQL Server tables. Phase 4 adds
-[local SQLite files and vault snapshots](./database-queries.md#local-sqlite). Phase 5 adds
-[MariaDB connections and table editing](./database-queries.md#mariadb). [Plan](../plans/database-editor-plan.md),
-[Phase 0 contract](../plans/database-editor-phase0-contract.md).
+The desktop workspace supports SQL Server and MariaDB connections and local
+SQLite files. See [queries, row edits and schema changes](./database-queries.md),
+the [file-type guide](../file-types.md), and the
+[release validation matrix](../build/database-release-validation.md).
 
-## Connect And Browse
+## Connect To SQL Server
 
 Open **Databases** in the activity bar, or **Open databases** on the vault picker.
 A vault is not required; the workspace is also available while a vault is locked.
 It is loaded lazily when opened.
 
-1. Choose **New connection**, enter a connection/environment label, plain hostname
+1. Choose **New connection**, select **SQL Server**, and enter a connection/environment label, plain hostname
    or IP, separate TCP port, initial database and SQL username. Named-instance
    discovery and integrated/Entra authentication are not implemented.
 2. TLS encryption and certificate verification are mandatory. The optional
@@ -37,8 +35,8 @@ alone. Closing a tab closes only its physical session. Editing a saved connectio
 closes its current connections/tabs. Removing it also attempts to delete its saved
 credentials; credential-store failure is explicit and can be retried.
 
-Phase 2 executes SQL and guards running work, dirty scripts and open/unknown
-transactions before disposal. See [queries and read-only results](./database-queries.md).
+Resolve running work, dirty scripts, and open transactions before disposal.
+For an unknown outcome, verify the database before retrying.
 
 ## Connect To MariaDB
 
@@ -54,10 +52,10 @@ lists its tables and views, with columns and indexes available for each object.
 ## Native Ownership And Credentials
 
 `src-tauri/src/database/` owns the registry, native-issued UUID handles, connections,
-credentials, metadata queries, cancellation trees and the global eight-socket
-budget. Commands in `commands/database.rs` accept only the main desktop window.
-Android registers none of these commands and does not depend on the SQL Server
-adapter. The collaboration server remains unrelated.
+credentials, metadata queries, cancellation trees and the global eight-session
+budget shared by network connections and local SQLite sessions. Commands in
+`commands/database.rs` accept only the main desktop window. The desktop owns
+database execution. The hosted server stores SQLite snapshot attachments.
 
 A workspace token binds all commands to the active local application profile.
 Profile changes invalidate the token, cancel pending logins/metadata operations,
@@ -68,9 +66,10 @@ profile switches and process exit do not.
 
 Sockets are never implicitly pooled, replayed or reconnected. Each tab has its own
 client. Root metadata uses the connection's dedicated metadata client; tab metadata
-uses a separate short-lived client in the pinned database, never the tab's client.
+uses a separate short-lived client in the pinned database. SQLite metadata uses
+a bounded reservation on the picker-owned file session.
 All clients, including in-flight handshakes and metadata clients, count against the
-same eight-socket limit. Logins/operations have bounded deadlines. Failed or dropped
+same eight-session limit. Logins/operations have bounded deadlines. Failed or dropped
 metadata responses retire that socket; errors instruct the user to reconnect.
 
 Credentials use `collab-database-v1` and an application-profile-scoped native UUID
@@ -101,8 +100,8 @@ per connection. No query history or result persistence is introduced.
 ## Metadata And Errors
 
 The native API accepts a typed request for databases, schemas, objects, columns or
-indexes plus a cursor; it accepts no SQL from the frontend. Queries are fixed,
-parameterized `sys.*` reads using the connected account's permissions. Each query
+indexes plus a cursor; it accepts no SQL from the frontend. Queries use fixed statements and bound parameters against SQL Server system
+catalogs, MariaDB information schema, or SQLite schema tables and pragmas. Each query
 fetches 101 bounded rows to return 100 plus a continuation cursor. Field casts,
 row/field checks and one-page rendering bound this path; metadata is not collected
 into an unbounded cache. Empty lists explain that permissions may hide objects.
@@ -113,70 +112,10 @@ strings, SQL values and passwords are never forwarded to the renderer or logs.
 Metadata results from closed sessions/previous profiles are rejected; stale React
 responses cannot populate a new profile's view.
 
-## Validation And Remaining Acceptance
+## Testing
 
-The Phase 1 fixture extension uses the same disposable Developer containers as
-Phase 0, with generated certificates and loopback ports:
-
-```sh
-cargo test -p collab database::tests -- --test-threads=1
-COLLAB_DB_SPIKE_ACCEPT_EULA=yes python scripts/database-driver-spike.py \
-  --versions 2019 2022 2025 --skip-build --native-adapter \
-  --output /tmp/database-phase1-evidence.json
-```
-
-Prebuild the native tests and isolated spike before using `--skip-build`.
-[Recorded fixture evidence](../build/database-phase1-evidence.json) includes the
-production registry checks alongside the driver comparison. Native tests cover
-owned pending-login cancellation, token invalidation, forged bindings, independent
-connections/tabs, wrong-password/TLS classification, paged metadata, columns/indexes,
-typed cursor injection rejection, connection budgets and cleanup. Unit fixtures
-never connect to an arbitrary user endpoint.
-
-Browser QA uses Playwright because the Browser plugin is not available. The flow
-is an isolated workspace route → select connection → enter synthetic password →
-connect → open database session → render schemas → open/close connection dialog.
-Chromium at 1440×900 and 900×700 showed meaningful content, no framework overlay,
-no page errors, cleared password input, pinned context and no horizontal overflow.
-This uses synthetic IPC responses; it is not real native IPC certification.
-
-Outstanding installed-platform acceptance remains: Windows/macOS driver linking
-and certificate roots, Linux installed package/Flatpak behavior, real OS credential
-save/read/delete and unlock failures, suspend/network changes, and actual Tauri
-WebView IPC/rendering. Integrated authentication, Entra, additional CA imports,
-SQLite file authority and all query/mutation behavior retain their later-phase gates.
-
-### Batch Check Results
-
-- All 21 recorded fixture cases passed: 18 driver/TLS cases plus the production
-  registry integration test on SQL Server 2019, 2022 and 2025. Fixture containers
-  and generated credentials were cleaned up.
-- Rust workspace tests/checks passed; final native profile-guard changes passed
-  the affected native regressions, workspace check and refreshed real fixture run.
-- The desktop suite passed 384 files with one skipped; three existing
-  deck/spreadsheet tests hit their five-second timeout during concurrent builds.
-  Both affected files passed all 79 tests on a one-worker rerun without timeout
-  or implementation changes. The final database/routing regressions passed
-  separately, including form password separation and session-only storage controls.
-- TypeScript, desktop production build/bundle budgets, admin tests/build, mobile
-  tests (258), crate boundaries, version alignment, lint and formatting passed.
-  Existing lint warnings remain; new database files add none.
-- Dependency audit completed with the same nine allowed workspace warnings.
-  Advisory policy was not changed.
-- Compose configuration passed. Server smoke could not build the unchanged
-  server image because upstream Debian-security APT indexes returned **Hash Sum
-  mismatch**. This is an unverified smoke check, not a passing server acceptance.
-
-Browser QA used the installed Python Playwright CLI and Chromium 1187 against an
-isolated Vite route at `http://127.0.0.1:1422/`. That temporary route and its
-synthetic IPC fixture were removed after screenshot/interaction checks.
-
-| Browser check                                                     | Result                         |
-| ----------------------------------------------------------------- | ------------------------------ |
-| Expected URL/title and meaningful workspace content               | Passed                         |
-| Framework error overlay / uncaught page errors                    | None                           |
-| Connection → cleared password → pinned database session → schemas | Passed                         |
-| Connection dialog, close interaction and accessible field labels  | Passed                         |
-| Desktop/compact screenshot inspection, overflow                   | Passed at 1440×900 and 900×700 |
-
-These browser results do not replace the native and OS acceptance gaps above.
+Follow the [release validation matrix](../build/database-release-validation.md)
+for disposable fixture commands, known coverage gaps, and installed-platform
+acceptance. Historical evidence for driver selection and the initial workspace
+is retained in the [Phase 0 contract](../plans/database-editor-phase0-contract.md)
+and [Phase 1 fixture report](../build/database-phase1-evidence.json).

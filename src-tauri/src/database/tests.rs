@@ -83,44 +83,54 @@ async fn registry_tokens_expire_on_profile_switch_and_saved_fields_are_native_ow
         .unwrap();
     assert_eq!(restored.profiles.len(), 1);
     assert_ne!(first.token, restored.token);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let mut pending_config = restored.profiles[0].clone();
-    pending_config.port = listener.local_addr().unwrap().port();
-    let saved = save(root.path(), &restored.token, pending_config, None)
-        .await
-        .unwrap();
-    let token = restored.token.clone();
-    let id = saved.id.clone();
-    let pending = tokio::spawn(async move {
-        connect(
-            &token,
-            &id,
-            Some("disposable-no-login-handshake".into()),
-            false,
-        )
-        .await
-    });
-    let (_socket, _) = tokio::time::timeout(std::time::Duration::from_secs(3), listener.accept())
-        .await
-        .unwrap()
-        .unwrap();
-    profile_changed("test-profile-a", "test-profile-c")
-        .await
-        .unwrap();
-    assert!(matches!(
-        tokio::time::timeout(std::time::Duration::from_secs(3), pending)
+    // A loopback peer that accepts but never sends a handshake exercises
+    // native cancellation independently of either server's SQL semantics.
+    let mut owner = "test-profile-a";
+    let mut workspace = restored;
+    for (engine, next) in [
+        (Engine::SqlServer, "test-profile-b"),
+        (Engine::MariaDb, "test-profile-c"),
+    ] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut pending_config = config();
+        pending_config.engine = engine;
+        pending_config.port = listener.local_addr().unwrap().port();
+        let saved = save(root.path(), &workspace.token, pending_config, None)
             .await
-            .unwrap()
-            .unwrap(),
-        Err(E::WrongBinding)
-    ));
+            .unwrap();
+        let token = workspace.token.clone();
+        let pending = tokio::spawn(async move {
+            connect(
+                &token,
+                &saved.id,
+                Some("disposable-no-login-handshake".into()),
+                false,
+            )
+            .await
+        });
+        let (_socket, _) =
+            tokio::time::timeout(std::time::Duration::from_secs(3), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+        profile_changed(owner, next).await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(3), pending)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(E::WrongBinding)
+        ));
+        assert!(matches!(
+            deactivate(&workspace.token).await,
+            Err(E::WrongBinding)
+        ));
+        workspace = activate(root.path(), next.into()).await.unwrap();
+        owner = next;
+    }
     assert_eq!(slots().available_permits(), 8);
     assert!(matches!(
         activate(root.path(), "test-profile-a".into()).await,
-        Err(E::WrongBinding)
-    ));
-    assert!(matches!(
-        deactivate(&restored.token).await,
         Err(E::WrongBinding)
     ));
 }
