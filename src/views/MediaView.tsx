@@ -543,6 +543,7 @@ function LocalPlayer({
               ? 'relative my-auto'
               : 'relative my-auto overflow-hidden rounded-xl border border-border/65',
           kind === 'video' ? 'flex-1' : 'max-w-3xl shrink-0 bg-card',
+          !controls.show && 'cursor-none',
         )}
         tabIndex={0}
         role="region"
