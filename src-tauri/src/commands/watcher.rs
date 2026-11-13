@@ -282,6 +282,8 @@ pub fn unwatch_vault(state: State<AppState>) -> Result<(), String> {
     // Runtime watch.stop is the local-vault close/switch boundary. Retire
     // plaintext and cancel indexing/listing even when the next vault is hosted.
     let mut active = state.active_vault.write();
+    #[cfg(not(mobile))]
+    state.playback.clear();
     *state.encryption_key.write() = None;
     state.note_index.write().clear();
     *active = None;

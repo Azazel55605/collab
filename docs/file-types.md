@@ -34,6 +34,9 @@ their dedicated screens.
 | `.apng`                                                           | Recognized by the Android hosted image viewer when supplied as a compatible asset. The separate extension is outside the desktop and Android Add files filters.                                                                     |
 | `.pdf`                                                            | Binary document in the PDF viewer. Annotations and bookmarks are stored separately from the original. PDF exports are independent files.                                                                                            |
 | `.sqlite`, `.sqlite3`, `.db`                                      | Open a local SQLite database in **Databases**. Explicit desktop vault import takes a consistent SQLite snapshot. Hosted storage treats it as a binary attachment. **Save SQLite copy…** produces a separate local file for editing. |
+| `.mp4`, `.webm`                                                   | Native desktop video tabs in unencrypted local vaults. The system WebView supplies decoding.                                                                                                                                        |
+| `.mp3`, `.wav`, `.flac`                                           | Native desktop audio tabs in unencrypted local vaults.                                                                                                                                                                              |
+| `.vtt`, `.srt`                                                    | Desktop caption sidecars for local playback. UTF-8 SubRip is converted to WebVTT for playback only.                                                                                                                                 |
 | Other binary attachments                                          | Hosted vaults can carry generic downloadable assets through supported upload or ZIP workflows. Storage and download do not imply an in-app editor or player.                                                                        |
 
 SQLite WAL, shared-memory and journal sidecars belong with the live database.
@@ -68,5 +71,5 @@ See the [server backup guide](./server/backups.md).
 
 See the [workbook conversion matrix](./desktop/sheet-conversion.md) and the
 [PowerPoint export matrix](./desktop/presentation-pptx-export.md) for fidelity and
-format-specific limits. The [media playback plan](./plans/media-playback-plan.md)
-tracks future audio/video playback.
+format-specific limits. The [local media playback guide](./desktop/media-playback.md)
+describes codecs, captions and tab behavior.

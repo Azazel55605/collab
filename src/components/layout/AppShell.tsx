@@ -11,10 +11,12 @@ import {
 import {
   CircuitBoard,
   FileText,
+  Film,
   GitFork,
   Image as ImageIcon,
   Layout,
   LayoutDashboard,
+  Music2,
   PenLine,
   Presentation,
   Settings as SettingsIcon,
@@ -23,6 +25,7 @@ import {
 
 import { DragProvider } from '../../contexts/DragContext';
 import { DocumentPane } from '../../lib/documentPaneContext';
+import { mediaKindForPath } from '../../lib/mediaFiles';
 import { useSidebarResize } from '../../lib/useSidebarResize';
 import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
@@ -40,6 +43,7 @@ import {
   InkView,
   KanbanPage,
   LogicDiagramView,
+  MediaView,
   NoteView,
   PdfView,
   SettingsPage,
@@ -133,7 +137,7 @@ export default function AppShell() {
     resizing: isResizingSidebar,
   } = useSidebarResize(sidebarWidth, setSidebarWidth);
 
-  const getTabIcon = (type: string, size = 16) => {
+  const getTabIcon = ({ type, relativePath }: (typeof openTabs)[number], size = 16) => {
     if (type === 'canvas') return <Layout size={size} className="shrink-0" />;
     if (type === 'kanban') return <LayoutDashboard size={size} className="shrink-0" />;
     if (type === 'logic') return <CircuitBoard size={size} className="shrink-0" />;
@@ -143,6 +147,12 @@ export default function AppShell() {
     if (type === 'graph') return <GitFork size={size} className="shrink-0" />;
     if (type === 'settings') return <SettingsIcon size={size} className="shrink-0" />;
     if (type === 'image') return <ImageIcon size={size} className="shrink-0" />;
+    if (type === 'media')
+      return mediaKindForPath(relativePath) === 'audio' ? (
+        <Music2 size={size} className="shrink-0" />
+      ) : (
+        <Film size={size} className="shrink-0" />
+      );
     if (type === 'pdf') return <FileText size={size} className="shrink-0" />;
     return <FileText size={size} className="shrink-0" />;
   };
@@ -305,6 +315,8 @@ export default function AppShell() {
         ) : (
           <ImageView key={activeDocumentKey} relativePath={activeTab.relativePath} />
         );
+      if (activeTab.type === 'media')
+        return <MediaView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'pdf')
         return <PdfView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'logic')
@@ -435,7 +447,7 @@ export default function AppShell() {
             <div className="w-[min(560px,calc(100vw-48px))] rounded-2xl border border-border/50 bg-popover/94 px-4 py-4 shadow-2xl shadow-black/30">
               <div className="mb-4 flex items-center gap-3 rounded-xl border border-border/40 bg-background/45 px-4 py-3">
                 <div className="flex size-11 items-center justify-center rounded-xl bg-primary/12 text-primary">
-                  {getTabIcon(switcherTab.type, 18)}
+                  {getTabIcon(switcherTab, 18)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-foreground">
@@ -463,7 +475,7 @@ export default function AppShell() {
                       }
                     >
                       <div className="mb-1 flex items-center gap-2 text-[11px]">
-                        {getTabIcon(tab.type, 13)}
+                        {getTabIcon(tab, 13)}
                         <span className="truncate">{tab.type}</span>
                       </div>
                       <div className="truncate text-xs font-medium">{tab.title}</div>

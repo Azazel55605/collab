@@ -68,6 +68,8 @@ pub(crate) fn shared_background_coordinator() -> Arc<crate::background::Backgrou
 }
 
 pub struct AppState {
+    #[cfg(not(mobile))]
+    pub playback: Arc<crate::commands::playback::Playback>,
     pub active_vault: Arc<RwLock<Option<VaultMeta>>>,
     pub watcher: parking_lot::Mutex<Option<Debouncer<RecommendedWatcher>>>,
     pub note_index: Arc<RwLock<ScopedNoteIndex>>,
@@ -94,6 +96,8 @@ impl AppState {
         let hosted_sessions = shared_hosted_session_runtime();
         let background = shared_background_coordinator();
         Self {
+            #[cfg(not(mobile))]
+            playback: Arc::default(),
             active_vault: Arc::new(RwLock::new(None)),
             watcher: parking_lot::Mutex::new(None),
             note_index: Arc::new(RwLock::new(ScopedNoteIndex::default())),

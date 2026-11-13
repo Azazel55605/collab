@@ -101,6 +101,10 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 }
 
 fn is_allowed_extension(ext: &str) -> bool {
+    #[cfg(not(mobile))]
+    if super::playback::mime(ext).is_some() || matches!(ext, "srt" | "vtt") {
+        return true;
+    }
     collab_documents::classify_path(&format!("document.{ext}")).is_some()
         || collab_documents::sqlite_file::matches_path(&format!("file.{ext}"))
         || matches!(
@@ -1677,9 +1681,6 @@ pub fn import_asset_into_vault(
     }
 
     let folder = target_folder.unwrap_or_else(|| "Pictures".into());
-    let target_dir = resolve_vault_path(&vault_path, &folder)?;
-    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
-
     let source_name = source
         .file_name()
         .and_then(|n| n.to_str())
@@ -1687,6 +1688,19 @@ pub fn import_asset_into_vault(
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "image".into());
 
+    #[cfg(not(mobile))]
+    {
+        let ext = Path::new(&source_name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if super::playback::mime(&ext).is_some() || matches!(ext.as_str(), "vtt" | "srt") {
+            return super::playback::import(&state, &vault_path, source, &folder, &source_name);
+        }
+    }
+    let target_dir = resolve_vault_path(&vault_path, &folder)?;
+    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
     let target_path = unique_target_path(&target_dir, &source_name);
     let source_bytes = if collab_documents::sqlite_file::matches_path(&source_name) {
         read_sqlite_snapshot(source)?

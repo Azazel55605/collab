@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { createDeferredPersistence } from '../lib/deferredPersistence';
 import { runDocumentNavigation } from '../lib/documentNavigation';
 import { documentSessionRetention } from '../lib/documentSessionRetention';
+import { isCaptionPath } from '../lib/mediaFiles';
 import { isSqlitePath } from '../lib/sqliteFiles';
 
 export interface OpenTab {
@@ -22,6 +23,7 @@ export interface OpenTab {
     | 'graph'
     | 'settings'
     | 'image'
+    | 'media'
     | 'pdf';
 }
 
@@ -228,7 +230,7 @@ export const useEditorStore = create<EditorState>()(
       },
 
       openTab: (relativePath, title, type = 'note') => {
-        if (isSqlitePath(relativePath)) return;
+        if (isSqlitePath(relativePath) || isCaptionPath(relativePath)) return;
         void runDocumentNavigation(() => {
           const { openTabs, activeTabPath } = get();
           const exists = openTabs.some((tab) => tab.relativePath === relativePath);

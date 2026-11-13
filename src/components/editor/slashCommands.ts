@@ -1,6 +1,7 @@
 import type { Completion, CompletionSource } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
 
+import { isCaptionPath } from '../../lib/mediaFiles';
 import {
   buildVaultLinkInsertText,
   flattenVaultFiles,
@@ -214,39 +215,43 @@ function snippetToCommand(snippet: NoteSnippet): SlashCommandItem {
 
 function createVaultFileCommands(currentDocumentRelativePath: string): SlashCommandItem[] {
   const fileTree = useVaultStore.getState().fileTree;
-  return flattenVaultFiles(fileTree).map((file) => {
-    const type = getVaultDocumentTabType(file.relativePath);
-    const folder = file.relativePath.includes('/')
-      ? file.relativePath.split('/').slice(0, -1).join('/')
-      : undefined;
-    const detail = [
-      folder,
-      type === 'note'
-        ? 'Note'
-        : type === 'pdf'
-          ? 'PDF'
-          : type === 'canvas'
-            ? 'Canvas'
-            : type === 'kanban'
-              ? 'Kanban'
-              : type === 'logic'
-                ? 'Logic diagram'
-                : 'Image',
-    ]
-      .filter(Boolean)
-      .join(' · ');
-    return {
-      label: `Link: ${type === 'note' ? getVaultDocumentTitle(file.relativePath) : file.name}`,
-      detail,
-      type: 'text',
-      keywords: [file.relativePath, file.name, type, 'vault file'],
-      apply: (view) =>
-        insertSnippetTemplate(
-          view,
-          `${buildVaultLinkInsertText(file.relativePath, currentDocumentRelativePath, fileTree)}<cursor>`,
-        ),
-    };
-  });
+  return flattenVaultFiles(fileTree)
+    .filter((file) => !isCaptionPath(file.relativePath))
+    .map((file) => {
+      const type = getVaultDocumentTabType(file.relativePath);
+      const folder = file.relativePath.includes('/')
+        ? file.relativePath.split('/').slice(0, -1).join('/')
+        : undefined;
+      const detail = [
+        folder,
+        type === 'note'
+          ? 'Note'
+          : type === 'pdf'
+            ? 'PDF'
+            : type === 'canvas'
+              ? 'Canvas'
+              : type === 'kanban'
+                ? 'Kanban'
+                : type === 'logic'
+                  ? 'Logic diagram'
+                  : type === 'media'
+                    ? 'Media'
+                    : 'Image',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return {
+        label: `Link: ${type === 'note' ? getVaultDocumentTitle(file.relativePath) : file.name}`,
+        detail,
+        type: 'text',
+        keywords: [file.relativePath, file.name, type, 'vault file'],
+        apply: (view) =>
+          insertSnippetTemplate(
+            view,
+            `${buildVaultLinkInsertText(file.relativePath, currentDocumentRelativePath, fileTree)}<cursor>`,
+          ),
+      };
+    });
 }
 
 function matchesCommand(item: SlashCommandItem, query: string) {

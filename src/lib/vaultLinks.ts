@@ -1,13 +1,14 @@
 import type { ActiveView } from '../store/uiStore';
 import type { NoteFile } from '../types/vault';
 
+import { isCaptionPath, mediaKindForPath } from './mediaFiles';
 import { vaultTreeIndex } from './vaultTreeIndex';
 
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
 export type VaultDocumentTabType =
-  'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'deck' | 'image' | 'pdf';
+  'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'deck' | 'image' | 'pdf' | 'media';
 
 export interface VaultLinkTarget {
   relativePath: string;
@@ -77,6 +78,7 @@ export function flattenVaultFiles(nodes: NoteFile[]): NoteFile[] {
 export function getVaultDocumentTabType(relativePath: string): VaultDocumentTabType {
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(relativePath)) return 'image';
   if (/\.pdf$/i.test(relativePath)) return 'pdf';
+  if (mediaKindForPath(relativePath)) return 'media';
   if (/\.logic$/i.test(relativePath)) return 'logic';
   if (/\.sheet$/i.test(relativePath)) return 'sheet';
   if (/\.ink$/i.test(relativePath)) return 'ink';
@@ -169,7 +171,7 @@ export function resolveVaultRelativeLinkTarget(
       : normalizeRelativePath(noteDir ? `${noteDir}/${path}` : path),
   );
 
-  const flatFiles = flattenVaultFiles(fileTree);
+  const flatFiles = flattenVaultFiles(fileTree).filter((file) => !isCaptionPath(file.relativePath));
   for (const relativeToVault of candidates) {
     const exactMatch = flatFiles.find(
       (file) => file.relativePath.toLowerCase() === relativeToVault.toLowerCase(),
@@ -195,7 +197,9 @@ export function resolveVaultWikilinkTarget(
   const trimmed = rawLink.trim();
   if (!trimmed) return null;
 
-  const flatFiles = flattenVaultFiles(fileTree).filter((file) => !isImagePath(file.relativePath));
+  const flatFiles = flattenVaultFiles(fileTree).filter(
+    (file) => !isImagePath(file.relativePath) && !isCaptionPath(file.relativePath),
+  );
   const normalized = normalizeRelativePath(stripLinkSuffix(trimmed));
   const normalizedLower = normalized.toLowerCase();
 
@@ -224,7 +228,7 @@ export function resolveVaultWikilinkTarget(
 
 export function getVaultWikilinkAutocompleteItems(fileTree: NoteFile[]) {
   return flattenVaultFiles(fileTree)
-    .filter((file) => !isImagePath(file.relativePath))
+    .filter((file) => !isImagePath(file.relativePath) && !isCaptionPath(file.relativePath))
     .map((file): VaultWikilinkAutocompleteItem => {
       const type = getVaultDocumentTabType(file.relativePath);
       const folder = file.relativePath.includes('/')

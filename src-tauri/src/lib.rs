@@ -88,6 +88,14 @@ pub fn run() {
             Some(vec!["--background"]),
         ));
 
+    #[cfg(not(mobile))]
+    let builder = builder.on_window_event(|window, event| {
+        use tauri::Manager;
+        if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            window.state::<AppState>().playback.clear();
+        }
+    });
+
     builder
         .setup(|app| {
             // The coordinator is process-level and also runs headless, so it
@@ -307,6 +315,14 @@ pub fn run() {
             commands::files::list_vault_paths,
             commands::files::read_note,
             commands::files::read_note_asset_data_url,
+            #[cfg(not(mobile))]
+            commands::playback::open_local_playback,
+            #[cfg(not(mobile))]
+            commands::playback::check_local_playback,
+            #[cfg(not(mobile))]
+            commands::playback::close_local_playback,
+            #[cfg(not(mobile))]
+            commands::playback::open_media_externally,
             commands::media::read_vault_asset_bytes,
             commands::media::write_downloaded_bytes,
             commands::media_jobs::cancel_media_job,

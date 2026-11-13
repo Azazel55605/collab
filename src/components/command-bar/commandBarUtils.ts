@@ -1,5 +1,5 @@
 import { isNerdFontIconQuery } from '../../lib/nerdFontIconQuery';
-import type { ActiveView } from '../../store/uiStore';
+import { getVaultDocumentTabType, getVaultDocumentView } from '../../lib/vaultLinks';
 import type { NoteFile } from '../../types/vault';
 
 export type Mode =
@@ -46,24 +46,8 @@ export function detectMode(raw: string): Mode {
   return { type: 'search', query: s };
 }
 
-export function getTabType(
-  relativePath: string,
-): 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf' {
-  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(relativePath)) return 'image';
-  if (/\.pdf$/i.test(relativePath)) return 'pdf';
-  if (relativePath.endsWith('.logic')) return 'logic';
-  if (relativePath.endsWith('.kanban')) return 'kanban';
-  if (relativePath.endsWith('.canvas')) return 'canvas';
-  return 'note';
-}
-
-export function getViewForType(
-  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf',
-): ActiveView {
-  if (type === 'kanban') return 'kanban';
-  if (type === 'canvas') return 'canvas';
-  return 'editor';
-}
+export const getTabType = getVaultDocumentTabType;
+export const getViewForType = getVaultDocumentView;
 
 export function flattenFiles(nodes: NoteFile[]): NoteFile[] {
   const flat: NoteFile[] = [];

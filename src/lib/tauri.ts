@@ -380,7 +380,20 @@ export async function invokeMedia<T>(
 
 let databaseProfileChange: Promise<void> = Promise.resolve();
 
+export interface LocalPlaybackSource {
+  id: string;
+  url: string;
+  revision: string;
+  captions: { label: string; url: string }[];
+}
+
 export const tauriCommands = {
+  openLocalPlayback: (vaultPath: string, relativePath: string, captionPath: string | null) =>
+    invoke<LocalPlaybackSource>('open_local_playback', { vaultPath, relativePath, captionPath }),
+  checkLocalPlayback: (id: string) => invoke<void>('check_local_playback', { id }),
+  closeLocalPlayback: (id: string) => invoke<void>('close_local_playback', { id }),
+  openMediaExternally: (vaultPath: string, relativePath: string) =>
+    invoke<void>('open_media_externally', { vaultPath, relativePath }),
   databaseSqlitePick: (token: string, mode: SqliteOpenMode) =>
     invoke<DatabaseSqliteFile | null>('database_sqlite_pick', { token, mode }),
   databaseSqliteBackup: (token: string, binding: DatabaseBinding) =>
