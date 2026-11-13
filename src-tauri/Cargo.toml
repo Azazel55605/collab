@@ -103,3 +103,10 @@ ndk-context = "0.1"
 
 [dev-dependencies]
 httpmock = "0.8"
+
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+
+[[example]]
+name = "media-playback"
+path = "examples/media_playback/main.rs"

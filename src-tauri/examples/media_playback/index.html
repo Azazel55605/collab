@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Collab Media Playback Prototype</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 24px; }
+      video { width: 100%; max-height: 360px; background: #171717; }
+      button, select, input { font: inherit; }
+      nav, section, pre { margin-block: 12px; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+      [aria-current="true"] { font-weight: bold; }
+    </style>
+    <script src="probe.js" defer></script>
+  </head>
+  <body>
+    <h1>Media Playback Prototype</h1>
+    <label
+      >Fixture
+      <select id="fixture"></select
+    ></label>
+    <button id="verify">Run verification</button>
+    <nav aria-label="Prototype tabs">
+      <button id="player-tab" aria-current="true">Player</button>
+      <button id="other-tab">Other tab</button>
+    </nav>
+    <section id="player" aria-label="Player">
+      <video id="media" playsinline preload="metadata"></video>
+      <div>
+        <button id="play">Play / pause</button>
+        <button id="seek">Seek to 75%</button>
+        <output id="position" aria-label="Playback position"></output>
+      </div>
+      <label
+        >Captions
+        <select id="captions"></select
+      ></label>
+      <label
+        >Audio track
+        <select id="audio"></select
+      ></label>
+    </section>
+    <section id="other" hidden>Playback is paused while this tab is active.</section>
+    <pre id="report" aria-live="polite"></pre>
+  </body>
+</html>

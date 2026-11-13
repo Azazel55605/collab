@@ -1,6 +1,7 @@
 # Media Playback And Library Plan
 
-Status: **Draft / not started**. This is an editable first proposal.
+Status: **Phase 0 prototype implemented. Native qualification in progress.**
+See the [Phase 0 evidence and decisions](./media-playback-phase0.md).
 [Open Development Work](./open-development-work.md) tracks project status.
 
 ## Product Direction
@@ -69,12 +70,12 @@ before promising large encrypted playback. Do not silently stage plaintext.
 
 ### Phase 0 — Playback Prototype And Decisions
 
-- [ ] Play and seek a large local video without a whole-file copy through IPC.
-- [ ] Switch tabs and back without losing the playback position.
+- [x] Play and seek a large local video without a whole-file copy through IPC.
+- [x] Switch prototype tabs and back without losing the playback position.
 - [ ] Validate sidecar captions, embedded captions and alternate audio on actual
       packaged Windows, macOS and Linux builds, including Flatpak where supported.
-- [ ] Agree on the required format/track baseline, backend, buffering budgets
-      and background-playback defaults.
+- [ ] Confirm the candidate format/track baseline and buffering budget on packaged
+      builds. The prototype records the initial backend and background-playback defaults.
 
 ### Phase 1 — Local Desktop File Tabs
 
