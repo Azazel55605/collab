@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 
 import { runDocumentNavigation } from '../lib/documentNavigation';
 import { reconcileFileTreeIdentity } from '../lib/fileTreeIdentity';
+import { recordHostedVaultOpened } from '../lib/hostedVaultActivity';
 import { clearMediaResources } from '../lib/mediaLifecycle';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient, requireRuntimeCapability } from '../lib/vaultClient';
@@ -196,6 +197,7 @@ export const useVaultStore = create<VaultState>()(
             // handled by the hosted picker rather than the local path restore.
             lastOpenedVaultPath: null,
           });
+          recordHostedVaultOpened(vault.serverUrl, vault.hostedVaultId);
         } catch (error) {
           set({ isLoading: false });
           throw error;
