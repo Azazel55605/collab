@@ -23,7 +23,7 @@
     <color type="primary" scheme_preference="dark">#1f6c9e</color>
   </branding>
   <releases>
-    <release version="0.8.9" date="2026-11-10" />
+    <release version="0.9.0" date="2026-11-13" />
   </releases>
   <content_rating type="oars-1.1" />
 </component>
