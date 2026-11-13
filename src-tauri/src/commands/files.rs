@@ -102,7 +102,7 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 
 fn is_allowed_extension(ext: &str) -> bool {
     #[cfg(not(mobile))]
-    if super::playback::mime(ext).is_some() || matches!(ext, "srt" | "vtt") {
+    if super::playback::mime(ext).is_some() || matches!(ext, "srt" | "vtt" | "lrc") {
         return true;
     }
     collab_documents::classify_path(&format!("document.{ext}")).is_some()
@@ -1695,7 +1695,7 @@ pub fn import_asset_into_vault(
             .and_then(|ext| ext.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if super::playback::mime(&ext).is_some() || matches!(ext.as_str(), "vtt" | "srt") {
+        if super::playback::mime(&ext).is_some() || matches!(ext.as_str(), "vtt" | "srt" | "lrc") {
             return super::playback::import(&state, &vault_path, source, &folder, &source_name);
         }
     }

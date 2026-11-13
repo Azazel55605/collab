@@ -36,7 +36,12 @@ import { documentSessionRetention } from '../../lib/documentSessionRetention';
 import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
-import { isCaptionPath, LOCAL_MEDIA_EXTENSIONS, mediaKind } from '../../lib/mediaFiles';
+import {
+  isLyricsPath,
+  isMediaSidecarPath,
+  LOCAL_MEDIA_EXTENSIONS,
+  mediaKind,
+} from '../../lib/mediaFiles';
 import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 import { isSqlitePath } from '../../lib/sqliteFiles';
@@ -411,8 +416,12 @@ export default function FileTree() {
         void handleDownload(file);
         return;
       }
-      if (isCaptionPath(file.relativePath)) {
-        toast.info('Choose this caption file from a media player tab.');
+      if (isMediaSidecarPath(file.relativePath)) {
+        toast.info(
+          isLyricsPath(file.relativePath)
+            ? 'Open the matching audio file to show these lyrics.'
+            : 'Choose this caption file from a media player tab.',
+        );
         return;
       }
       const type = getVaultDocumentTabType(file.relativePath);
@@ -1662,7 +1671,7 @@ const FileTreeNode = memo(function FileTreeNode({
     const media = mediaKind(node.extension.toLowerCase());
     if (media === 'video') return <Film size={13} className="text-primary/75" />;
     if (media === 'audio') return <Music2 size={13} className="text-primary/75" />;
-    if (isCaptionPath(node.relativePath))
+    if (isMediaSidecarPath(node.relativePath))
       return <Subtitles size={13} className="text-muted-foreground" />;
     if (node.extension === 'canvas') return <Layout size={13} className="text-blue-400/70" />;
     if (node.extension === 'kanban')

@@ -455,6 +455,11 @@ colours at most once a second on playback updates, refreshes on load, seek and
 pause, and crossfades gradients over one second. File-tree refreshes leave existing
 playback sessions mounted. Native
 revision and access checks still detect replacement and removal.
+`commands/playback/audio_metadata.rs` reads audio tags within a fixed byte
+budget and resolves matching LRC files and cover art relative to the vault
+directory. The existing loopback session serves resized cover art. The
+`AudioPlayerContent` view samples the cover once for ambiance and uses
+`lib/mediaLyrics.ts` to synchronize timed lyrics with the media clock.
 
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
 under `src-tauri/examples/media_playback/`. The independent desktop executable

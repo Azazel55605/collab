@@ -87,6 +87,9 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Add sidecar subtitles, capability-aware track controls, resume state and
       clear fallback/error behavior. If the chosen baseline requires a backend
       change for embedded tracks, resolve that before claiming support.
+- [x] Show album artwork and embedded or matching LRC lyrics in the audio
+      player. Apply artwork-based ambiance and synchronize timestamped lines.
+- [ ] Qualify album artwork and lyric sync in installed desktop builds.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
       when closing the player or leaving its vault.
 - [ ] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3

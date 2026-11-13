@@ -241,6 +241,9 @@ current scan.
   direct dependency to `glib` 0.22 does not update GTK's types and cannot clear
   the transitive 0.18 instance. A compatible upstream GTK runtime migration or
   reviewed backport is needed.
+- **RUSTSEC-2024-0436 — `paste` 1.0.15 (`unmaintained`).** Lofty brings in
+  this build-time macro dependency for desktop audio metadata.
+
 - **Tauri tooling (`unmaintained`).** `proc-macro-error` 1.0.4
   (RUSTSEC-2024-0370) remains through upstream dependencies; there is no
   selectable compatible maintained release. `fxhash` is absent from the

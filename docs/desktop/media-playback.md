@@ -4,11 +4,12 @@ Add a video or audio file with **Files → Add files**, drop it onto Files, or
 place it directly in an unencrypted local vault. Select it in Files or follow
 a vault link to open its player tab.
 
-| Type             | Candidate formats                            |
-| ---------------- | -------------------------------------------- |
-| Video            | MP4 with H.264/AAC, WebM with VP9/Opus       |
-| Audio            | MP3, PCM WAV, FLAC                           |
-| Sidecar captions | UTF-8 WebVTT or SubRip, up to 1 MiB per file |
+| Type             | Candidate formats                                                  |
+| ---------------- | ------------------------------------------------------------------ |
+| Video            | MP4 with H.264/AAC, WebM with VP9/Opus                             |
+| Audio            | MP3, PCM WAV, FLAC                                                 |
+| Sidecar captions | UTF-8 WebVTT or SubRip, up to 1 MiB per file                       |
+| Sidecar lyrics   | LRC, up to 128 KiB per file, encoded as UTF-8 or BOM-marked UTF-16 |
 
 Decoding depends on the system WebView and installed codecs. HEVC and E-AC-3
 are outside the qualified baseline. Smooth 4K playback and correct HDR
@@ -22,6 +23,20 @@ A caption with the same basename in the same folder appears in the
 the vault. Embedded captions and alternate audio tracks appear when the
 WebView exposes them. A file with a matching caption still starts with
 captions off unless a previous session selected a track.
+
+Audio shows the title, artist, album and cover from the file’s tags when
+available. Folder artwork can use `cover.jpg`, `cover.jpeg`, `cover.png`,
+`folder.jpg` or `folder.png`. **Ambiance mode** uses the cover colours across the
+audio player and shares the video player’s device preference.
+
+Place a matching LRC file beside the audio, such as `Track.lrc` next to
+`Track.flac`, then open the track. The lyrics panel also reads embedded
+lyrics, including LRC timestamps and ID3 synchronized lyrics with
+millisecond timestamps. It prefers timed lyrics and uses the matching LRC
+first when multiple timed sources are available. Pick a different source in
+**Lyrics** when more than one is available. Timed lyrics scroll and highlight
+with playback, and selecting a line seeks to its timestamp. Untimed lyrics
+appear as plain text.
 
 If an MP4 stalls before reporting its duration, Collab retries once in
 **Compatible subtitles** mode. Supported embedded MP4 timed text is read on

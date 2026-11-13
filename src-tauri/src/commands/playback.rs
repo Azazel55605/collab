@@ -1,4 +1,7 @@
+mod audio_metadata;
 mod mp4;
+
+use audio_metadata::{AudioDetails, AudioMetadata};
 
 use super::{files, vault::read_vault_config_pub};
 use crate::{crypto, models::vault::VaultKind, state::AppState};
@@ -121,6 +124,7 @@ struct Source {
     track_overlays: Vec<u64>,
     embedded: Vec<mp4::Track>,
     audio: Vec<String>,
+    audio_metadata: Option<AudioMetadata>,
 }
 
 struct Caption {
@@ -223,6 +227,7 @@ impl Source {
         } else {
             Vec::new()
         };
+        let audio_metadata = AudioMetadata::read(&vault, &relative, &mut file, mime);
         let now = tokio::time::Instant::now();
         Ok(Self {
             vault,
@@ -240,6 +245,7 @@ impl Source {
             track_overlays,
             embedded,
             audio,
+            audio_metadata,
         })
     }
 
@@ -454,6 +460,7 @@ pub struct PlaybackSource {
     revision: String,
     captions: Vec<PlaybackCaption>,
     audio_tracks: Vec<String>,
+    audio_metadata: Option<AudioDetails>,
 }
 #[derive(Serialize)]
 struct PlaybackCaption {
@@ -541,6 +548,10 @@ fn register(
         url: format!("{base}/media"),
         revision: source.revision.clone(),
         audio_tracks: source.audio.clone(),
+        audio_metadata: source
+            .audio_metadata
+            .as_ref()
+            .map(|metadata| metadata.details(&base)),
         captions: source
             .captions
             .iter()
@@ -740,6 +751,27 @@ async fn serve(
             Some(text) => reply(StatusCode::OK, "text/vtt; charset=utf-8", Body::from(text)),
             None => empty(StatusCode::UNPROCESSABLE_ENTITY),
         };
+    }
+    if asset == "artwork" {
+        return source
+            .audio_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.artwork.as_ref())
+            .map_or_else(
+                || empty(StatusCode::NOT_FOUND),
+                |artwork| {
+                    let body = if method == Method::HEAD {
+                        Body::empty()
+                    } else {
+                        Body::from(artwork.clone())
+                    };
+                    let mut response = reply(StatusCode::OK, "image/png", body);
+                    response
+                        .headers_mut()
+                        .insert(header::CONTENT_LENGTH, artwork.len().into());
+                    response
+                },
+            );
     }
     if asset != "media" {
         return asset
