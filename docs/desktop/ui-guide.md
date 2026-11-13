@@ -430,7 +430,9 @@ Databases), the servers with a status dot (filled green connected, amber ring
 signed out, grey ring known only from offline copies), and Settings. Clicking a
 server filters the list to it; its (i) button opens the server details dialog,
 which owns sign in, refresh, log out and new hosted vault. Below `md` the rail
-collapses into a top bar with icon buttons and a servers menu.
+collapses into a top bar with icon buttons and a servers menu. Chats and Databases opened
+without a vault keep the same rail (without the server list) instead of the
+vault ActivityBar, so Vaults is always one click away.
 
 Every vault kind is a row in the same list; kind is an icon plus a filter chip,
 never a section heading. Offline copies carry an amber "N pending" badge, and
