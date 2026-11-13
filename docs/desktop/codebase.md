@@ -449,8 +449,16 @@ track headers in the response. `commands/playback/mp4.rs` exposes supported
 timed-text tracks as bounded WebVTT on demand, and can isolate one audio
 track if the WebView omits track choices. The native scanner seeks past media
 boxes, bounds header and sample reads, and preserves the original byte offsets.
-Fullscreen uses the existing Tauri window permissions and overlays an
-idle-hiding dock and cursor without resizing the video. Ambiance samples four
+Video controls (`views/MediaControls.tsx`) sit over the picture on a scrim in
+a tab and in fullscreen; `useFullscreenMediaDock` hides them and the cursor
+after 2.2 s of inactivity while video plays. In a tab, `useVideoBox` measures the
+visible (letterboxed) picture so the control bar follows its width and bottom
+edge; fullscreen keeps the bar across the screen. Speed, subtitles, caption file,
+audio track and MP4 subtitle mode share one settings menu whose rows appear
+only when there is a choice. Loading, buffering and errors render on the
+picture, keyboard shortcuts (`?` lists them) work on the player surface, and
+"Open externally" lives in the document top bar. Fullscreen uses the existing
+Tauri window permissions without resizing the video. Ambiance samples four
 colours at most once a second on playback updates, refreshes on load, seek and
 pause, and crossfades gradients over one second. File-tree refreshes leave existing
 playback sessions mounted. Native
@@ -459,7 +467,10 @@ revision and access checks still detect replacement and removal.
 budget and resolves matching LRC files and cover art relative to the vault
 directory. The existing loopback session serves resized cover art. The
 `AudioPlayerContent` view samples the cover once for ambiance and uses
-`lib/mediaLyrics.ts` to synchronize timed lyrics with the media clock.
+`lib/mediaLyrics.ts` to synchronize timed lyrics with the media clock. The
+audio layout is a now-playing column (cover, timeline, transport, secondary
+controls) with a karaoke-style lyrics column beside it only when the track has
+lyrics; manual scrolling pauses lyric auto-follow for three seconds.
 
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
 under `src-tauri/examples/media_playback/`. The independent desktop executable

@@ -3,13 +3,6 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Music2 } from 'lucide-react';
 
 import { Button } from '../components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
 import { lyricIndexAt, parseLyrics } from '../lib/mediaLyrics';
 import { type LocalAudioMetadata } from '../lib/tauri';
 import { cn } from '../lib/utils';
@@ -43,7 +36,7 @@ export const AudioArtwork = memo(function AudioArtwork({
   }, [ambiance, artworkUrl]);
 
   return (
-    <div className="min-w-0 @3xl:col-start-1 @3xl:row-start-1">
+    <div className="min-w-0">
       {ambiance && artworkUrl && !failed ? (
         <div
           aria-hidden="true"
@@ -51,7 +44,7 @@ export const AudioArtwork = memo(function AudioArtwork({
           className="pointer-events-none absolute inset-0 -z-10 mask-[radial-gradient(ellipse_closest-side,#000_55%,transparent)]"
         />
       ) : null}
-      <div className="relative mx-auto aspect-square w-full max-w-72 overflow-hidden rounded-xl bg-muted @3xl:mx-0 @3xl:max-w-none">
+      <div className="relative mx-auto aspect-square w-full max-w-80 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-xl shadow-black/20 @3xl:max-w-none">
         <div aria-hidden="true" className="absolute inset-0 grid place-items-center bg-primary/8">
           <Music2 className="size-1/5 text-primary/50" />
         </div>
@@ -68,11 +61,15 @@ export const AudioArtwork = memo(function AudioArtwork({
           />
         ) : null}
       </div>
-      <h2 className="mt-4 text-xl leading-tight font-semibold break-words">{title}</h2>
+      <h2 className="mt-5 text-2xl leading-tight font-semibold tracking-tight break-words">
+        {title}
+      </h2>
       {details ? <p className="mt-1 text-sm break-words text-muted-foreground">{details}</p> : null}
     </div>
   );
 });
+
+const FOLLOW_PAUSE_MS = 3000;
 
 export function AudioLyrics({
   lyrics,
@@ -100,6 +97,11 @@ export function AudioLyrics({
   const active = source ? lyricIndexAt(source.lines, position) : -1;
   const list = useRef<HTMLDivElement>(null);
   const activeLine = useRef<HTMLButtonElement>(null);
+  // Manual scrolling pauses auto-follow briefly so the reader can look around.
+  const followPausedUntil = useRef(0);
+  const pauseFollow = () => {
+    followPausedUntil.current = Date.now() + FOLLOW_PAUSE_MS;
+  };
 
   useEffect(() => {
     const container = list.current;
@@ -109,7 +111,7 @@ export function AudioLyrics({
       container.scrollTop = 0;
       return;
     }
-    if (!line) return;
+    if (!line || Date.now() < followPausedUntil.current) return;
     const viewport = container.getBoundingClientRect();
     const bounds = line.getBoundingClientRect();
     container.scrollTo({
@@ -122,30 +124,48 @@ export function AudioLyrics({
 
   return (
     <section
-      aria-label="Lyrics"
-      className="relative min-h-0 min-w-0 border-t border-border/50 pt-4 @3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1 @3xl:border-t-0 @3xl:border-l @3xl:pt-0 @3xl:pl-8"
+      aria-labelledby="lyrics-heading"
+      className="relative min-h-0 min-w-0 border-t border-border/50 pt-5 @3xl:border-t-0 @3xl:pt-0"
     >
-      <div className="flex max-h-96 min-h-0 flex-col @3xl:absolute @3xl:inset-y-0 @3xl:right-0 @3xl:left-8 @3xl:max-h-none">
+      <div className="flex max-h-[28rem] min-h-0 flex-col @3xl:absolute @3xl:inset-0 @3xl:max-h-none">
         <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">Lyrics</h3>
+          <h3 id="lyrics-heading" className="font-semibold">
+            Lyrics
+          </h3>
           {sources.length > 1 ? (
-            <Select value={source?.label} onValueChange={setSelected}>
-              <SelectTrigger aria-label="Lyrics source" size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {sources.map(({ label }) => (
-                  <SelectItem key={label} value={label}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div
+              role="group"
+              aria-label="Lyrics source"
+              className="flex rounded-lg border border-border bg-muted/40 p-0.5"
+            >
+              {sources.map(({ label }) => (
+                <Button
+                  key={label}
+                  size="xs"
+                  variant="ghost"
+                  aria-pressed={label === source?.label}
+                  className={cn(
+                    'rounded-md',
+                    label === source?.label
+                      ? 'bg-background text-foreground shadow-sm hover:bg-background'
+                      : 'text-muted-foreground',
+                  )}
+                  onClick={() => setSelected(label)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
           ) : null}
         </div>
-        <div ref={list} className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2">
+        <div
+          ref={list}
+          onWheel={pauseFollow}
+          onTouchMove={pauseFollow}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2 mask-[linear-gradient(to_bottom,transparent,#000_12%,#000_88%,transparent)]"
+        >
           {source?.lines.length ? (
-            <ol className="space-y-1">
+            <ol className="space-y-1 py-[30%]">
               {source.lines.map(({ time, text }, index) =>
                 text ? (
                   <li key={time}>
@@ -153,10 +173,12 @@ export function AudioLyrics({
                       ref={index === active ? activeLine : undefined}
                       variant="ghost"
                       className={cn(
-                        'h-auto w-full justify-start border-0 border-l-2 border-transparent px-3 py-2 text-left text-base leading-snug break-words whitespace-pre-wrap',
+                        'h-auto w-full justify-start px-0 py-1.5 text-left leading-snug break-words whitespace-pre-wrap transition-[color,font-size] duration-200 hover:bg-transparent hover:text-foreground motion-reduce:transition-none dark:hover:bg-transparent',
                         index === active
-                          ? 'border-primary bg-primary/10 font-semibold text-foreground'
-                          : 'text-muted-foreground',
+                          ? 'text-2xl font-semibold tracking-tight text-foreground @5xl:text-3xl'
+                          : index === active + 1
+                            ? 'text-lg font-medium text-foreground/80 @5xl:text-xl'
+                            : 'text-lg font-medium text-muted-foreground @5xl:text-xl',
                       )}
                       aria-current={index === active ? 'true' : undefined}
                       disabled={!ready}
@@ -169,15 +191,16 @@ export function AudioLyrics({
               )}
             </ol>
           ) : source?.text ? (
-            <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{source.text}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {lyrics
-                ? 'No lyrics found. Add a matching .lrc file beside this track.'
-                : 'Lyrics appear when the track opens.'}
+            <p className="text-base leading-relaxed break-words whitespace-pre-wrap">
+              {source.text}
             </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Lyrics appear when the track opens.</p>
           )}
         </div>
+        {source?.lines.length ? (
+          <p className="mt-2 shrink-0 text-xs text-muted-foreground">Click a line to jump there.</p>
+        ) : null}
       </div>
     </section>
   );
