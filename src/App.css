@@ -2893,3 +2893,10 @@ html[data-motion='off'] .deck-playback-animation-scope [data-element] {
 .note-paper-body > [style*='display: contents']:first-child > :first-child {
   margin-top: 0;
 }
+
+/* Fullscreen keeps the live video in its tab and lifts the workspace's
+   animated containing block so the surface can fill the native window. */
+.media-fullscreen [data-slot='workspace-content'] {
+  animation: none;
+  transform: none;
+}

@@ -118,7 +118,9 @@ struct Source {
     cancel: CancellationToken,
     touched: Mutex<tokio::time::Instant>,
     next_read: tokio::sync::Mutex<tokio::time::Instant>,
-    subtitle_overlays: Vec<u64>,
+    track_overlays: Vec<u64>,
+    embedded: Vec<mp4::Track>,
+    audio: Vec<String>,
 }
 
 struct Caption {
@@ -128,7 +130,7 @@ struct Caption {
 
 impl Source {
     fn open(root: &str, relative: &str, selected_caption: Option<&str>) -> Result<Self, String> {
-        Self::open_with_mode(root, relative, selected_caption, false)
+        Self::open_with_mode(root, relative, selected_caption, false, None)
     }
 
     fn open_with_mode(
@@ -136,6 +138,7 @@ impl Source {
         relative: &str,
         selected_caption: Option<&str>,
         compatibility: bool,
+        audio_track: Option<usize>,
     ) -> Result<Self, String> {
         // Normalize at the IPC boundary. The directory capability also confines
         // resolution across symlinks and concurrent path substitutions.
@@ -178,13 +181,45 @@ impl Source {
                 }
             }
         }
-        let subtitle_overlays = if compatibility && mime == "video/mp4" {
-            let positions = mp4::subtitle_headers(&mut file, len)
-                .map_err(|_| "Could not prepare the MP4 subtitle compatibility stream.")?;
-            if positions.is_empty() {
+        let tracks = if mime == "video/mp4" {
+            match mp4::tracks(&mut file, len) {
+                Ok(tracks) => tracks,
+                Err(_) if compatibility || audio_track.is_some() => {
+                    return Err("Could not read MP4 tracks for compatibility playback.".into())
+                }
+                Err(_) => mp4::Tracks::default(),
+            }
+        } else {
+            mp4::Tracks::default()
+        };
+        let mut track_overlays = Vec::new();
+        if compatibility {
+            track_overlays.extend(tracks.subtitles.iter().map(|track| track.header));
+            if track_overlays.is_empty() && audio_track.is_none() {
                 return Err("No embedded MP4 subtitle tracks could be bypassed.".into());
             }
-            positions
+        }
+        if let Some(index) = audio_track {
+            if index >= tracks.audio.len() {
+                return Err("The selected audio track does not exist.".into());
+            }
+            track_overlays.extend(
+                tracks
+                    .audio
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i != index)
+                    .map(|(_, track)| track.header),
+            );
+        }
+        track_overlays.sort_unstable();
+        let audio = tracks
+            .audio
+            .into_iter()
+            .map(|track| track.language)
+            .collect();
+        let embedded = if compatibility {
+            mp4::supported_text_tracks(&mut file, tracks.subtitles)
         } else {
             Vec::new()
         };
@@ -202,7 +237,9 @@ impl Source {
             cancel: CancellationToken::new(),
             touched: Mutex::new(now),
             next_read: tokio::sync::Mutex::new(now),
-            subtitle_overlays,
+            track_overlays,
+            embedded,
+            audio,
         })
     }
 
@@ -416,11 +453,13 @@ pub struct PlaybackSource {
     url: String,
     revision: String,
     captions: Vec<PlaybackCaption>,
+    audio_tracks: Vec<String>,
 }
 #[derive(Serialize)]
 struct PlaybackCaption {
     label: String,
     url: String,
+    language: String,
 }
 
 fn authorize_active(
@@ -448,6 +487,7 @@ pub async fn open_local_playback(
     relative_path: String,
     caption_path: Option<String>,
     compatibility: Option<bool>,
+    audio_track: Option<usize>,
 ) -> Result<PlaybackSource, String> {
     if window.label() != "main" {
         return Err("Playback is available from the main window.".into());
@@ -463,6 +503,7 @@ pub async fn open_local_playback(
             &relative_path,
             caption_path.as_deref(),
             compatibility.unwrap_or(false),
+            audio_track,
         )
     })
     .await
@@ -476,6 +517,7 @@ fn register(
     relative_path: &str,
     caption_path: Option<&str>,
     compatibility: bool,
+    audio_track: Option<usize>,
 ) -> Result<PlaybackSource, String> {
     let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     let active = state.active_vault.read();
@@ -485,6 +527,7 @@ fn register(
         relative_path,
         caption_path,
         compatibility,
+        audio_track,
     )?);
     let mut sessions = state.playback.sessions.lock();
     if sessions.len() >= MAX_SESSIONS {
@@ -497,6 +540,7 @@ fn register(
         id: id.clone(),
         url: format!("{base}/media"),
         revision: source.revision.clone(),
+        audio_tracks: source.audio.clone(),
         captions: source
             .captions
             .iter()
@@ -504,7 +548,19 @@ fn register(
             .map(|(index, caption)| PlaybackCaption {
                 label: caption.label.clone(),
                 url: format!("{base}/{index}.vtt"),
+                language: String::new(),
             })
+            .chain(
+                source
+                    .embedded
+                    .iter()
+                    .enumerate()
+                    .map(|(index, track)| PlaybackCaption {
+                        label: format!("Embedded subtitle {}", index + 1),
+                        language: track.language.clone(),
+                        url: format!("{base}/embedded-{index}.vtt"),
+                    }),
+            )
             .collect(),
     };
     let playback = Arc::downgrade(&state.playback);
@@ -655,6 +711,36 @@ async fn serve(
         return empty(StatusCode::GONE);
     }
     *source.touched.lock() = tokio::time::Instant::now();
+    if let Some(index) = asset
+        .strip_prefix("embedded-")
+        .and_then(|name| name.strip_suffix(".vtt"))
+        .and_then(|index| index.parse::<usize>().ok())
+    {
+        let text = tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            let track = source.embedded.get(index)?;
+            let file = open_regular(&source.vault, &source.relative).ok()?;
+            if source.cancel.is_cancelled()
+                || Handle::from_file(file.try_clone().ok()?).ok()? != source.identity
+            {
+                return None;
+            }
+            let mut file = file;
+            let text = mp4::text_track(&mut file, track, source.len).ok()?;
+            let metadata = file.metadata().ok()?;
+            (!source.cancel.is_cancelled()
+                && metadata.len() == source.len
+                && metadata.modified().ok()? == source.modified)
+                .then_some(text)
+        })
+        .await
+        .ok()
+        .flatten();
+        return match text {
+            Some(text) => reply(StatusCode::OK, "text/vtt; charset=utf-8", Body::from(text)),
+            None => empty(StatusCode::UNPROCESSABLE_ENTITY),
+        };
+    }
     if asset != "media" {
         return asset
             .strip_suffix(".vtt")
@@ -727,7 +813,7 @@ async fn serve(
                     file.seek(SeekFrom::Start(offset))?;
                     let mut bytes = vec![0; count];
                     file.read_exact(&mut bytes)?;
-                    mp4::apply_overlays(&mut bytes, offset, &read_source.subtitle_overlays);
+                    mp4::apply_overlays(&mut bytes, offset, &read_source.track_overlays);
                     Ok(Bytes::from(bytes))
                 })
                 .await??;

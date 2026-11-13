@@ -23,15 +23,31 @@ the vault. Embedded captions and alternate audio tracks appear when the
 WebView exposes them. A file with a matching caption still starts with
 captions off unless a previous session selected a track.
 
-If an MP4 stalls before reporting its duration, Collab retries once with
-embedded subtitle tracks bypassed. This compatibility stream keeps the
-original file, audio tracks and media byte offsets intact. The player shows
-when the retry succeeds. WebVTT and SubRip sidecars remain available in that
-session.
+If an MP4 stalls before reporting its duration, Collab retries once in
+**Compatible subtitles** mode. Supported embedded MP4 timed text is read on
+selection and exposed as plain WebVTT. WebVTT and SubRip sidecars also stay
+available. Styled or bitmap subtitle tracks may require the external player.
+If the WebView exposes fewer audio tracks than the MP4 contains, Collab can
+reopen the stream with the selected track while preserving the playback position.
+These operations leave the original file intact.
 
 Use the timeline to seek. When the player panel has focus, Space toggles
 playback and the Left and Right keys move five seconds. Buttons and sliders
-can also receive focus directly. Video includes fullscreen.
+can also receive focus directly. Video fills the available space while
+preserving its aspect ratio. Use the fullscreen button or F while the player
+has focus. Escape returns to the tab.
+**Ambiance mode** blends a low-resolution sample of the video into the
+background and remembers the preference on this device.
+
+The player uses the WebView's automatic decoder selection. On Linux, WebKitGTK
+can use a GStreamer hardware decoder when the matching codec plugin, driver,
+and GPU device are available to the app. The WebKit compositor setting
+controls rendering. On a hybrid-GPU Linux system, the Tauri probe played a
+4K HEVC Main 10 sample with NVIDIA NVDEC selected automatically. The same
+probe played with AMD VA-API when preferred via GStreamer's
+[feature ranks](https://gstreamer.freedesktop.org/documentation/gstreamer/running.html).
+These checks cover decoder selection and playback startup. Sustained HDR
+playback and packaged runtime support remain part of native qualification.
 
 Leaving the tab pauses playback and releases the native source. Returning
 or reopening the same unchanged file restores position, speed, volume and

@@ -444,10 +444,13 @@ high-bitrate files and seeks. The renderer unloads the decoder when the
 view leaves the tab, keeps bounded revision-scoped resume state, and checks
 the native handle for deletion, replacement or access loss. Native vault
 close/switch and encryption transitions revoke active streams.
-For an MP4 startup failure, a single retry can overlay the embedded subtitle
-track headers in the response. The native scanner seeks past media boxes,
-bounds the number of inspected headers, and leaves the file and range offsets
-intact. File-tree refreshes leave existing playback sessions mounted. Native
+For an MP4 startup failure, a single retry can overlay embedded subtitle
+track headers in the response. `commands/playback/mp4.rs` exposes supported
+timed-text tracks as bounded WebVTT on demand, and can isolate one audio
+track if the WebView omits track choices. The native scanner seeks past media
+boxes, bounds header and sample reads, and preserves the original byte offsets.
+Fullscreen uses the existing Tauri window permissions. Ambiance samples a small
+canvas at most four times per second while enabled. File-tree refreshes leave existing playback sessions mounted. Native
 revision and access checks still detect replacement and removal.
 
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
