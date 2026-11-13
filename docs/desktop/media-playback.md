@@ -23,6 +23,12 @@ the vault. Embedded captions and alternate audio tracks appear when the
 WebView exposes them. A file with a matching caption still starts with
 captions off unless a previous session selected a track.
 
+If an MP4 stalls before reporting its duration, Collab retries once with
+embedded subtitle tracks bypassed. This compatibility stream keeps the
+original file, audio tracks and media byte offsets intact. The player shows
+when the retry succeeds. WebVTT and SubRip sidecars remain available in that
+session.
+
 Use the timeline to seek. When the player panel has focus, Space toggles
 playback and the Left and Right keys move five seconds. Buttons and sliders
 can also receive focus directly. Video includes fullscreen.

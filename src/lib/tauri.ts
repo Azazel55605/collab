@@ -388,8 +388,18 @@ export interface LocalPlaybackSource {
 }
 
 export const tauriCommands = {
-  openLocalPlayback: (vaultPath: string, relativePath: string, captionPath: string | null) =>
-    invoke<LocalPlaybackSource>('open_local_playback', { vaultPath, relativePath, captionPath }),
+  openLocalPlayback: (
+    vaultPath: string,
+    relativePath: string,
+    captionPath: string | null,
+    compatibility = false,
+  ) =>
+    invoke<LocalPlaybackSource>('open_local_playback', {
+      vaultPath,
+      relativePath,
+      captionPath,
+      compatibility,
+    }),
   checkLocalPlayback: (id: string) => invoke<void>('check_local_playback', { id }),
   closeLocalPlayback: (id: string) => invoke<void>('close_local_playback', { id }),
   openMediaExternally: (vaultPath: string, relativePath: string) =>

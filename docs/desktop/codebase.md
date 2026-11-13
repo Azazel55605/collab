@@ -444,6 +444,11 @@ high-bitrate files and seeks. The renderer unloads the decoder when the
 view leaves the tab, keeps bounded revision-scoped resume state, and checks
 the native handle for deletion, replacement or access loss. Native vault
 close/switch and encryption transitions revoke active streams.
+For an MP4 startup failure, a single retry can overlay the embedded subtitle
+track headers in the response. The native scanner seeks past media boxes,
+bounds the number of inspected headers, and leaves the file and range offsets
+intact. File-tree refreshes leave existing playback sessions mounted. Native
+revision and access checks still detect replacement and removal.
 
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
 under `src-tauri/examples/media_playback/`. The independent desktop executable

@@ -91,6 +91,9 @@ before promising large encrypted playback. Do not silently stage plaintext.
       when closing the player or leaving its vault.
 - [ ] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
       movie. Record decoder selection, dropped frames, audio and colour output.
+      Linux WebKitGTK stalled on an MP4 with 39 embedded subtitle tracks.
+      A compatibility stream bypassing those tracks reached metadata and
+      played the original media bytes in a standalone WebKitGTK probe.
 
 ### Phase 2 — Hosted And Offline Sources
 
