@@ -4,10 +4,12 @@ import {
   ExternalLink,
   Film,
   Maximize,
+  Minimize,
   Music2,
   Pause,
   Play,
   RotateCcw,
+  Sparkles,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -30,8 +32,11 @@ import { Slider } from '../components/ui/slider';
 import { isCaptionPath, mediaKindForPath } from '../lib/mediaFiles';
 import { listenSafely } from '../lib/nativeSubscription';
 import { type LocalPlaybackSource, tauriCommands } from '../lib/tauri';
+import { cn } from '../lib/utils';
 import { vaultTreeIndex } from '../lib/vaultTreeIndex';
 import { useVaultStore } from '../store/vaultStore';
+
+import MediaAmbiance from './MediaAmbiance';
 
 interface Resume {
   revision: string;
@@ -42,6 +47,8 @@ interface Resume {
   caption: string;
   captionPath: string | null;
   audio: string;
+  isolatedAudio: number | null;
+  compatibility: boolean;
 }
 interface AudioTrack {
   label: string;
@@ -50,6 +57,7 @@ interface AudioTrack {
 }
 type AudioTrackList = ArrayLike<AudioTrack> & EventTarget;
 
+const AMBIANCE_KEY = 'collab-media-ambiance';
 const recent = new Map<string, Resume>();
 useVaultStore.subscribe((next, previous) => {
   if (next.vault !== previous.vault || next.isVaultLocked) recent.clear();
@@ -141,7 +149,12 @@ function LocalPlayer({
     () => recent.get(scope)?.captionPath ?? null,
   );
   const [attempt, setAttempt] = useState(0);
-  const [compatibility, setCompatibility] = useState(false);
+  const [compatibility, setCompatibility] = useState(
+    () => recent.get(scope)?.compatibility ?? false,
+  );
+  const [isolatedAudio, setIsolatedAudio] = useState<number | null>(
+    () => recent.get(scope)?.isolatedAudio ?? null,
+  );
   const isMp4 = /\.mp4$/i.test(relativePath);
   const [source, setSource] = useState<LocalPlaybackSource | null>(null);
   const [error, setError] = useState('');
@@ -152,6 +165,7 @@ function LocalPlayer({
   const [position, setPosition] = useState(0);
   const [scrub, setScrub] = useState<number | null>(null);
   const pendingSeek = useRef<number | null>(null);
+  const resumePlaying = useRef(false);
   const [rate, setRate] = useState(1);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
@@ -161,6 +175,51 @@ function LocalPlayer({
   const [audioChoices, setAudioChoices] = useState<{ label: string; value: string }[]>([]);
   const element = useRef<HTMLMediaElement | null>(null);
   const surface = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [ambiance, setAmbiance] = useState(() => localStorage.getItem(AMBIANCE_KEY) === 'true');
+  const restoreWindow = useRef<(() => Promise<void>) | null>(null);
+  const fullscreenPending = useRef(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      void restoreWindow.current?.().catch(() => {});
+      restoreWindow.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    document.body.classList.add('media-fullscreen');
+    return () => document.body.classList.remove('media-fullscreen');
+  }, [fullscreen]);
+
+  async function toggleFullscreen() {
+    if (fullscreenPending.current) return;
+    fullscreenPending.current = true;
+    try {
+      if (restoreWindow.current) {
+        await restoreWindow.current();
+        restoreWindow.current = null;
+        if (mounted.current) setFullscreen(false);
+      } else {
+        const restore = await tauriCommands.enterMediaFullscreen();
+        if (!mounted.current) {
+          await restore();
+          return;
+        }
+        restoreWindow.current = restore;
+        setFullscreen(true);
+        surface.current?.focus({ preventScroll: true });
+      }
+    } catch {
+      if (mounted.current) setActionError('Fullscreen is unavailable.');
+    } finally {
+      fullscreenPending.current = false;
+    }
+  }
   const failed = useRef(false);
   const liveId = useRef<string | null>(null);
   const hydrated = useRef(false);
@@ -182,55 +241,62 @@ function LocalPlayer({
     setPlaying(false);
     setScrub(null);
     pendingSeek.current = null;
-    setStatus(compatibility ? 'Opening without embedded subtitles…' : 'Opening media…');
+    setStatus(compatibility ? 'Opening with compatible subtitles…' : 'Opening media…');
     setCaptionChoices([]);
     setAudioChoices([]);
     const restore = recent.get(scope);
     autoCaption.current = captionPath !== null && captionPath !== restore?.captionPath;
     selection.current = { caption: restore?.caption ?? 'off', audio: restore?.audio ?? '0' };
-    void tauriCommands.openLocalPlayback(vaultPath, relativePath, captionPath, compatibility).then(
-      (opened) => {
-        if (disposed) {
-          void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
-          return;
-        }
-        id = opened.id;
-        liveId.current = id;
-        if (restore?.revision !== opened.revision) {
-          selection.current = { caption: 'off', audio: '0' };
-          recent.delete(scope);
-        }
-        setSource(opened);
-        startupTimer = setTimeout(() => {
-          if (disposed || failed.current || hydrated.current) return;
-          failed.current = true;
-          element.current?.pause();
-          void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
-          setSource(null);
-          if (isMp4 && !compatibility) setCompatibility(true);
-          else
-            setError(
-              'The player did not receive media metadata. Reload or open the file externally.',
-            );
-        }, 8000);
-        timer = setInterval(() => {
-          void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
-            if (disposed || failed.current) return;
+    void tauriCommands
+      .openLocalPlayback(vaultPath, relativePath, captionPath, compatibility, isolatedAudio)
+      .then(
+        (opened) => {
+          if (disposed) {
+            void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+            return;
+          }
+          id = opened.id;
+          liveId.current = id;
+          if (restore?.revision !== opened.revision) {
+            selection.current = { caption: 'off', audio: '0' };
+            recent.delete(scope);
+            if (restore && isolatedAudio !== null) {
+              void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+              setIsolatedAudio(null);
+              return;
+            }
+          }
+          setSource(opened);
+          startupTimer = setTimeout(() => {
+            if (disposed || failed.current || hydrated.current) return;
             failed.current = true;
             element.current?.pause();
-            setError(String(reason));
+            void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
             setSource(null);
-          });
-        }, 5000);
-      },
-      (reason) => {
-        if (!disposed) {
-          setError(
-            compatibility ? `MP4 compatibility retry failed. ${String(reason)}` : String(reason),
-          );
-        }
-      },
-    );
+            if (isMp4 && !compatibility) setCompatibility(true);
+            else
+              setError(
+                'The player did not receive media metadata. Reload or open the file externally.',
+              );
+          }, 8000);
+          timer = setInterval(() => {
+            void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
+              if (disposed || failed.current) return;
+              failed.current = true;
+              element.current?.pause();
+              setError(String(reason));
+              setSource(null);
+            });
+          }, 5000);
+        },
+        (reason) => {
+          if (!disposed) {
+            setError(
+              compatibility ? `MP4 compatibility retry failed. ${String(reason)}` : String(reason),
+            );
+          }
+        },
+      );
     return () => {
       disposed = true;
       liveId.current = null;
@@ -238,7 +304,7 @@ function LocalPlayer({
       clearTimeout(startupTimer);
       if (id) void tauriCommands.closeLocalPlayback(id).catch(() => {});
     };
-  }, [attempt, captionPath, compatibility, isMp4, relativePath, scope, vaultPath]);
+  }, [attempt, captionPath, compatibility, isMp4, isolatedAudio, relativePath, scope, vaultPath]);
 
   function remember(media: HTMLMediaElement) {
     if (
@@ -258,6 +324,8 @@ function LocalPlayer({
       muted: media.muted,
       ...selection.current,
       captionPath,
+      isolatedAudio,
+      compatibility,
     });
     if (recent.size > 64) recent.delete(recent.keys().next().value!);
   }
@@ -285,13 +353,13 @@ function LocalPlayer({
     const audio = Array.from(audioTracks(media) ?? []);
     setCaptionChoices(
       text.map((track, index) => ({
-        label: track.label || track.language || `Caption ${index + 1}`,
+        label: track.label || [track.language, `Caption ${index + 1}`].filter(Boolean).join(' · '),
         value: String(index),
       })),
     );
     setAudioChoices(
       audio.map((track, index) => ({
-        label: track.label || track.language || `Track ${index + 1}`,
+        label: [track.label || track.language, `Track ${index + 1}`].filter(Boolean).join(' · '),
         value: String(index),
       })),
     );
@@ -307,7 +375,9 @@ function LocalPlayer({
     } else if (selected.caption === 'off' || text[Number(selected.caption)]) {
       chooseCaption(media, selected.caption);
     }
-    if (audio[Number(selected.audio)]) chooseAudio(media, selected.audio);
+    if (isolatedAudio !== null) {
+      if (audio.length === 1 && !audio[0].enabled) audio[0].enabled = true;
+    } else if (audio[Number(selected.audio)]) chooseAudio(media, selected.audio);
   }
 
   useEffect(() => {
@@ -357,6 +427,10 @@ function LocalPlayer({
     setStatus('Paused');
     hydrated.current = true;
     refreshTracks(media);
+    if (resumePlaying.current) {
+      resumePlaying.current = false;
+      void media.play().catch(() => setActionError('Press Play to resume.'));
+    }
   }
 
   function seek(target: number) {
@@ -435,26 +509,50 @@ function LocalPlayer({
     <track
       key={track.url}
       kind="subtitles"
-      label={track.label}
-      srcLang="und"
+      label={[track.label, track.language].filter(Boolean).join(' · ')}
+      srcLang={track.language || 'und'}
       src={track.url}
       onError={() => setActionError(`Could not load captions from ${track.label}.`)}
     />
   ));
   const canPlay = source !== null && !error;
   const ready = duration > 0 && !error;
+  const nativeAudio = source?.audioTracks ?? [];
+  const useIsolatedAudio = isolatedAudio !== null || audioChoices.length < nativeAudio.length;
+  const availableAudio = useIsolatedAudio
+    ? nativeAudio.map((language, index) => ({
+        label: [language, `Track ${index + 1}`].filter(Boolean).join(' · '),
+        value: String(index),
+      }))
+    : audioChoices;
   const filename = getDocumentBaseName(relativePath, 'Media');
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-auto p-4">
       <div
         ref={surface}
-        className="my-auto w-full max-w-5xl shrink-0 overflow-hidden rounded-xl border border-border/65 bg-card text-card-foreground focus-visible:outline-ring"
+        className={cn(
+          'isolate flex min-h-0 w-full flex-col text-card-foreground focus-visible:outline-ring',
+          fullscreen
+            ? 'fixed inset-0 z-50 bg-background'
+            : 'relative my-auto rounded-xl border border-border/65',
+          kind === 'video' ? 'flex-1' : 'max-w-3xl shrink-0 bg-card',
+        )}
         tabIndex={0}
         role="region"
         aria-label={kind === 'video' ? 'Video player' : 'Audio player'}
         onKeyDown={(event) => {
+          if (event.key === 'Escape' && fullscreen && !event.defaultPrevented) {
+            event.preventDefault();
+            void toggleFullscreen();
+            return;
+          }
           if (event.target !== event.currentTarget || !canPlay) return;
+          if (event.key.toLowerCase() === 'f' && kind === 'video') {
+            event.preventDefault();
+            void toggleFullscreen();
+            return;
+          }
           if (event.key === ' ') toggle();
           else if (!ready) return;
           else if (event.key === 'ArrowLeft') seek(position - 5);
@@ -464,15 +562,23 @@ function LocalPlayer({
         }}
       >
         {kind === 'video' ? (
-          <div className="flex aspect-video max-h-[58vh] items-center justify-center bg-black">
+          <div
+            className={cn(
+              'relative flex min-h-0 flex-1 items-center justify-center',
+              !fullscreen && 'min-h-32',
+              !ambiance && 'bg-black',
+            )}
+          >
+            <MediaAmbiance media={element} active={ambiance && !!source} key={source?.id} />
             {source ? (
               <video
+                key={source.id}
                 {...mediaProps}
                 ref={(node) => {
                   element.current = node;
                 }}
                 playsInline
-                className="size-full object-contain"
+                className="absolute inset-0 size-full object-contain"
                 aria-label={filename}
               >
                 {tracks}
@@ -490,6 +596,7 @@ function LocalPlayer({
             <div className="truncate text-sm font-medium">{filename}</div>
             {source ? (
               <audio
+                key={source.id}
                 {...mediaProps}
                 ref={(node) => {
                   element.current = node;
@@ -501,7 +608,7 @@ function LocalPlayer({
             ) : null}
           </div>
         )}
-        <div className="space-y-3 p-4">
+        <div className="z-0 shrink-0 space-y-3 bg-card/90 p-4">
           <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
             <span>{formatTime(scrub ?? position)}</span>
             <Slider
@@ -593,15 +700,40 @@ function LocalPlayer({
                 label="Captions"
                 value={caption}
                 choices={[{ label: 'Captions off', value: 'off' }, ...captionChoices]}
-                onChange={(value) => element.current && chooseCaption(element.current, value)}
+                onChange={(value) => {
+                  setActionError('');
+                  if (element.current) chooseCaption(element.current, value);
+                }}
               />
             ) : null}
-            {audioChoices.length > 1 ? (
+            {availableAudio.length > 1 ? (
               <Choice
                 label="Audio track"
-                value={audio}
-                choices={audioChoices}
-                onChange={(value) => element.current && chooseAudio(element.current, value)}
+                value={useIsolatedAudio ? String(isolatedAudio ?? 0) : audio}
+                choices={availableAudio}
+                onChange={(value) => {
+                  const media = element.current;
+                  if (!media) return;
+                  if (useIsolatedAudio) {
+                    resumePlaying.current = !media.paused;
+                    remember(media);
+                    setIsolatedAudio(Number(value));
+                  } else chooseAudio(media, value);
+                }}
+              />
+            ) : null}
+            {isMp4 && (compatibility || error) ? (
+              <Choice
+                label="MP4 subtitle mode"
+                value={compatibility ? 'compatibility' : 'auto'}
+                choices={[
+                  { label: 'Automatic subtitles', value: 'auto' },
+                  { label: 'Compatible subtitles', value: 'compatibility' },
+                ]}
+                onChange={(value) => {
+                  setCompatibility(value !== 'auto');
+                  setAttempt((n) => n + 1);
+                }}
               />
             ) : null}
             <CaptionPicker
@@ -612,20 +744,31 @@ function LocalPlayer({
               }}
             />
             {kind === 'video' ? (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Toggle fullscreen"
-                disabled={!ready}
-                onClick={() => {
-                  const action = document.fullscreenElement
-                    ? document.exitFullscreen()
-                    : surface.current?.requestFullscreen();
-                  void action?.catch(() => setActionError('Fullscreen is unavailable.'));
-                }}
-              >
-                <Maximize />
-              </Button>
+              <>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Ambiance mode"
+                  aria-pressed={ambiance}
+                  title="Ambiance mode"
+                  onClick={() => {
+                    const next = !ambiance;
+                    setAmbiance(next);
+                    localStorage.setItem(AMBIANCE_KEY, String(next));
+                  }}
+                >
+                  <Sparkles />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  onClick={() => void toggleFullscreen()}
+                >
+                  {fullscreen ? <Minimize /> : <Maximize />}
+                </Button>
+              </>
             ) : null}
             <DocumentTopBarButton onClick={openExternal}>
               <ExternalLink /> Open externally
@@ -654,7 +797,8 @@ function LocalPlayer({
           )}
           {compatibility && ready ? (
             <p className="text-xs text-muted-foreground">
-              Embedded subtitles are bypassed for this playback. Sidecar captions are available.
+              Compatible subtitle mode. Supported embedded text tracks and sidecar captions are
+              available.
             </p>
           ) : null}
           {actionError ? (

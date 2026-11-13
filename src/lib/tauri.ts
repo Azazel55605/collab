@@ -1,5 +1,6 @@
 import { getVersion } from '@tauri-apps/api/app';
 import { Channel, invoke as nativeInvoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 
@@ -384,21 +385,32 @@ export interface LocalPlaybackSource {
   id: string;
   url: string;
   revision: string;
-  captions: { label: string; url: string }[];
+  captions: { label: string; url: string; language?: string }[];
+  audioTracks?: string[];
 }
 
 export const tauriCommands = {
+  async enterMediaFullscreen() {
+    const window = getCurrentWindow();
+    const previous = await window.isFullscreen();
+    if (!previous) await window.setFullscreen(true);
+    return async () => {
+      if (!previous) await window.setFullscreen(false);
+    };
+  },
   openLocalPlayback: (
     vaultPath: string,
     relativePath: string,
     captionPath: string | null,
     compatibility = false,
+    audioTrack: number | null = null,
   ) =>
     invoke<LocalPlaybackSource>('open_local_playback', {
       vaultPath,
       relativePath,
       captionPath,
       compatibility,
+      audioTrack,
     }),
   checkLocalPlayback: (id: string) => invoke<void>('check_local_playback', { id }),
   closeLocalPlayback: (id: string) => invoke<void>('close_local_playback', { id }),
