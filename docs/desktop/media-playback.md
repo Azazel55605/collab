@@ -36,8 +36,13 @@ playback and the Left and Right keys move five seconds. Buttons and sliders
 can also receive focus directly. Video fills the available space while
 preserving its aspect ratio. Use the fullscreen button or F while the player
 has focus. Escape returns to the tab.
-**Ambiance mode** blends a low-resolution sample of the video into the
-background and remembers the preference on this device.
+Fullscreen controls float over the video and hide after about two seconds of
+inactivity. Move the pointer or use the keyboard to reveal them. The dock stays
+visible while you use the controls or an open menu.
+
+**Ambiance mode** blends colours from the video into the background and removes
+the player outline. It samples a frame when the video loads, after seeks and on
+pause. Collab remembers the preference on this device.
 
 The player uses the WebView's automatic decoder selection. On Linux, WebKitGTK
 can use a GStreamer hardware decoder when the matching codec plugin, driver,

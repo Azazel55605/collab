@@ -1,49 +1,57 @@
 import { type RefObject, useEffect, useRef } from 'react';
 
-export default function MediaAmbiance({
-  media,
-  active,
-}: {
-  media: RefObject<HTMLMediaElement | null>;
-  active: boolean;
-}) {
-  const canvas = useRef<HTMLCanvasElement>(null);
+export default function MediaAmbiance({ media }: { media: RefObject<HTMLMediaElement | null> }) {
+  const background = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const video = media.current;
-    const target = canvas.current;
-    if (!active || !(video instanceof HTMLVideoElement) || !target) return;
-    const context = target.getContext('2d');
+    const layer = background.current;
+    if (!(video instanceof HTMLVideoElement) || !layer) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) return;
-    let lastTime = -1;
+
+    let frame = 0;
     let blocked = false;
     const paint = () => {
-      if (blocked || document.hidden || video.readyState < 2 || video.currentTime === lastTime)
-        return;
-      lastTime = video.currentTime;
+      if (blocked || document.hidden || video.seeking || video.readyState < 2) return;
       try {
-        context.drawImage(video, 0, 0, target.width, target.height);
+        context.drawImage(video, 0, 0, 2, 2);
+        const { data } = context.getImageData(0, 0, 2, 2);
+        const corners = ['20% 25%', '80% 25%', '20% 75%', '80% 75%'];
+        layer.style.backgroundImage = corners
+          .map((corner, index) => {
+            const offset = index * 4;
+            const color = `${data[offset]} ${data[offset + 1]} ${data[offset + 2]}`;
+            return `radial-gradient(ellipse at ${corner}, rgb(${color} / 0.38), transparent 68%)`;
+          })
+          .join(', ');
       } catch {
         blocked = true;
       }
     };
-    paint();
-    video.addEventListener('loadeddata', paint);
-    video.addEventListener('seeked', paint);
-    const timer = setInterval(paint, 250);
-    return () => {
-      clearInterval(timer);
-      video.removeEventListener('loadeddata', paint);
-      video.removeEventListener('seeked', paint);
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(paint);
     };
-  }, [active, media]);
+    schedule();
+    video.addEventListener('loadeddata', schedule);
+    video.addEventListener('seeked', schedule);
+    video.addEventListener('pause', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      video.removeEventListener('loadeddata', schedule);
+      video.removeEventListener('seeked', schedule);
+      video.removeEventListener('pause', schedule);
+    };
+  }, [media]);
 
-  return active ? (
-    <canvas
-      ref={canvas}
-      width={32}
-      height={18}
+  return (
+    <div
+      ref={background}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-[3%] -z-10 h-[94%] w-[94%] scale-110 opacity-45 blur-[64px]"
+      className="pointer-events-none absolute inset-0 -z-10"
     />
-  ) : null;
+  );
 }
