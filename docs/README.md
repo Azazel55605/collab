@@ -16,6 +16,8 @@ documentation.
 
 ## Categories
 
+- [Supported File Types](./file-types.md) - editable documents, assets, imports, and exports
+
 - [Desktop](./desktop/README.md) - desktop architecture and relevant plans
 - [Mobile](./mobile/README.md) - Android capabilities, standalone-app roadmap, builds, releases, and
   launcher-widget release validation

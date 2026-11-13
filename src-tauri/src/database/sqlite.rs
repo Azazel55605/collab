@@ -596,8 +596,14 @@ fn launch(
         return Err(E::UnresolvedSession);
     }
     let history = source.as_ref().map(|_| sql.as_str());
-    let (id, mut output) =
-        query::start_stream(&session.query, binding, row_limit, history, recovery)?;
+    let (id, mut output) = query::start_stream(
+        &session.query,
+        binding,
+        row_limit,
+        history,
+        recovery,
+        &session.cancel,
+    )?;
     let worker = session.clone();
     let runtime = tokio::runtime::Handle::current();
     let task = tokio::task::spawn_blocking(move || {

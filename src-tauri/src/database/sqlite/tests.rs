@@ -426,3 +426,53 @@ fn deferred_constraint_failure_is_a_confirmed_rollback() {
     assert!(file.clean());
     assert!(file.edit_load(request("children")).unwrap().rows.is_empty());
 }
+
+#[tokio::test]
+async fn closing_a_backpressured_session_releases_the_file_and_rolls_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("closing.sqlite");
+    let file = open(&path, OpenMode::Create).unwrap();
+    file.inspect(|client| {
+        client
+            .execute_batch("CREATE TABLE items(id INTEGER)")
+            .map_err(classify)
+    })
+    .unwrap();
+    let id = start(
+        file.clone(),
+        binding(),
+        "BEGIN IMMEDIATE; INSERT INTO items VALUES (1); SELECT id FROM items".into(),
+        None,
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            // Acknowledge the BEGIN frame to let the worker produce the
+            // INSERT count and column frame, then stop consuming altogether.
+            if let Some(frame) = file.query.poll(&id, None).await.unwrap().frame {
+                assert!(matches!(frame.event, ResultEvent::AffectedRows { .. }));
+                file.query.poll(&id, Some(frame.sequence)).await.unwrap();
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(75)).await;
+    file.cancel.cancel();
+    let weak = Arc::downgrade(&file);
+    drop(file);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while weak.upgrade().is_some() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the result worker kept the closed file alive");
+    let client = Connection::open(path).unwrap();
+    let count: i64 = client
+        .query_row("SELECT count(*) FROM items", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}

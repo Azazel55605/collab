@@ -31,7 +31,7 @@ The collaboration server is a separate Rust service that becomes authoritative f
 
 Hosted vault synchronization has two independent authorities:
 
-1. Document content for notes, Kanban boards, and canvases is synchronized through CRDT documents.
+1. Live document content for notes, Kanban boards, canvases, sheets, ink drawings, and presentations uses CRDT documents.
 2. Vault structure is synchronized through an ordered server manifest and idempotent structural operations.
 
 Binary assets are immutable blobs referenced by file revisions. Presence and rich awareness are ephemeral and never become canonical vault content.
@@ -47,10 +47,10 @@ Live CRDT collaboration is implemented for supported structured documents.
 Vault structure remains outside document CRDTs and is synchronized through the
 ordered server manifest plus idempotent structural operations.
 
-The server API and WebSocket modules remain the current adapters. Their internal
-modularization and the proposed shared domain crates are planned, not yet
-implemented. Follow the crate-boundary plan without changing routes, wire
-formats, database semantics, or authorization boundaries as a side effect.
+The server API and WebSocket modules are adapters around shared document,
+vault, archive and live-collaboration crates. See the
+[completed crate-boundary refactor](../archive/rust-crate-boundary-refactor-plan.md)
+and the [file-type guide](../file-types.md) for storage and client boundaries.
 
 ## Self-Service Accounts And Content Previews
 
@@ -69,7 +69,7 @@ live in PostgreSQL and its backups, not the content-addressed blob store or file
 revision storage totals. The cache adds at most 64 KiB per previewed file.
 
 See [the account/preview contract](../archive/accounts-and-previews-plan.md) and
-[the teams, chat, and library draft](../plans/teams-chat-and-file-sharing-plan.md)
+[the teams, chat, and library plan](../plans/teams-chat-and-file-sharing-plan.md)
 for current fidelity limits, validation, and future scope.
 
 ## Vault Chat Contract

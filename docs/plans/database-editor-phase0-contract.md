@@ -1,10 +1,10 @@
 # Database Editor Phase 0 Contract
 
 Status: **Implemented**, 2026-11-10. This record freezes the original portable
-contract and Linux driver spike. Phase 1 now implements the
-[desktop database workspace](../desktop/database-workspace.md); query execution
-remains Phase 2. The [main tracker](./open-development-work.md) owns delivery
-status. [Plan](./database-editor-plan.md).
+contract and Linux driver spike. For current engine behavior and acceptance, see
+the [database workspace](../desktop/database-workspace.md), the
+[release validation matrix](../build/database-release-validation.md), and the
+[main tracker](./open-development-work.md).
 
 ## Scope And Driver Decision
 

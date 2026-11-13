@@ -54,7 +54,9 @@ patched, the patch and a regression test must be committed alongside it.
   the `micromatch` dependency range resolves to it.
 
 There are currently no Rust advisory ignores. The RSA dependency was removed
-from the resolved graph by the SQLx upgrade described below.
+from the resolved graph by the SQLx upgrade described below. The desktop
+MariaDB adapter uses that SQLx 0.9 transport. The local SQLite editor shares the
+fixed bundled SQLite library with SQLx.
 
 ## Dependency updates for PR #116 (2026-11-10)
 
@@ -185,8 +187,9 @@ this follow-up; the failing check was the Rust dependency audit.
   respectively. No parent dependency range is overridden with an unsupported
   major version.
 - **RUSTSEC-2023-0071 — `rsa` (Marvin timing side-channel).** SQLx **0.9.0**
-  makes RSA authentication optional in `sqlx-mysql`. Collab uses PostgreSQL
-  and SQLite, so `rsa` is no longer in `Cargo.lock`. The corresponding audit
+  makes RSA authentication optional in `sqlx-mysql`. The desktop MariaDB
+  adapter uses verified TLS without that optional RSA feature. `rsa` is absent
+  from `Cargo.lock`. The corresponding audit
   ignore was removed. The upgrade replaces the old combined
   `runtime-tokio-rustls` feature with `runtime-tokio` and `tls-rustls-ring`.
   SQLx 0.9 also requires literal SQL or a reviewed builder: calendar cleanup
@@ -195,8 +198,8 @@ this follow-up; the failing check was the Rust dependency audit.
   This is dependency removal, not a claim that RSA itself has been patched:
   [RustSec](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) still lists
   no patched version, including the prerelease line. The previous statement
-  that `0.10.0-rc.*` fixed the advisory was incorrect. If MySQL/RSA features
-  are ever enabled, reassess the advisory rather than restoring the ignore.
+  that `0.10.0-rc.*` fixed the advisory was incorrect. If the optional SQLx RSA feature
+  is ever enabled, reassess the advisory rather than restoring the ignore.
 
 ## Informational warnings (non-failing)
 

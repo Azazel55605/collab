@@ -624,7 +624,7 @@ Separate finding from this batch (outside R03's mutation-ordering scope):
       extensionless `[[Target]]` reference unchanged in the native rewrite path.
       Reference discovery and rewriting need the same unambiguous target resolver,
       including aliases, headings and duplicate basenames. The concurrency
-      regression uses an explicit `[Target](Target.md)` target; it does not assert
+      regression uses an explicit Markdown link to `Target.md`; it does not assert
       shorthand-wikilink rename coverage. Preserve the historical audit IDs/counts.
 
 PR security follow-up: migrated ZIP to 9.0.5, including a manifest-only updater

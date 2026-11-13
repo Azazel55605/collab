@@ -179,6 +179,9 @@ def main():
         parser.error('--image requires exactly one version')
     if not args.skip_build and not args.native_only:
         subprocess.run(['cargo', 'build', '--locked', '--manifest-path', str(MANIFEST)], check=True)
+    if args.native_adapter:
+        # Compile outside the fixture's TLS environment and execution deadline.
+        subprocess.run(['cargo', 'test', '--locked', '-p', 'collab', '--no-run'], check=True)
     reports = []
     def save(complete):
         args.output.parent.mkdir(parents=True, exist_ok=True)
