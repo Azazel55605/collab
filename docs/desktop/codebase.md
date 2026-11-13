@@ -434,6 +434,11 @@ EXIF orientation. `lib/imagePreview.ts` retains only bounded small thumbnails.
 `commands/media_jobs.rs` tracks cancellation, including cancellation before
 registration, for binary reads, previews, HTTP and OCR commands.
 
+The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
+under `src-tauri/examples/media_playback/`. The independent desktop executable
+serves generated fixtures to the native WebView using loopback HTTP byte
+ranges. It measures seek and track behavior separately from the app's asset IPC.
+
 `lib/pdfResourceCache.ts` shares unchanged PDF loading resources (two idle
 entries/64 MiB source bytes, reference counted), cleans idle documents and retires
 unused workers after 30 seconds. Mounted consumers are not cache-evicted; PDF.js
