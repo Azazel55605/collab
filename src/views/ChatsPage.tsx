@@ -18,6 +18,7 @@ export default function ChatsPage({
   return (
     <main className={`desktop-conversations ${standalone ? '' : 'embedded'}`}>
       <ConversationAccounts
+        desktopHeader
         sidebarOpen={sidebarOpen}
         openAccountSettings={() => openSettingsTab('profile')}
         openChatSettings={() => openSettingsTab('chats')}

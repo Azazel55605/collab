@@ -50,6 +50,19 @@ import SettingsProfileSection from './SettingsProfileSection';
 import SettingsServerSection from './SettingsServerSection';
 import ShortcutsTab from './ShortcutsTab';
 
+// ─── Section groups ───────────────────────────────────────────────────────────
+
+const TAB_GROUPS: { label: string; ids: string[] }[] = [
+  { label: 'You', ids: ['profile', 'notifications'] },
+  { label: 'App', ids: ['general', 'appearance', 'display', 'background', 'shortcuts'] },
+  {
+    label: 'Documents',
+    ids: ['editor', 'canvas', 'ink', 'logic', 'presentations', 'calendar', 'chats', 'ocr'],
+  },
+  { label: 'Sync', ids: ['server'] },
+  { label: '', ids: ['about'] },
+];
+
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -312,14 +325,17 @@ export default function SettingsModal({
 
   return (
     <Dialog open onOpenChange={(open) => !open && closeSettings()}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 sm:max-w-3xl glass-strong">
-        <DialogHeader className="px-5 pt-5 pb-0">
-          <DialogTitle className="text-base font-semibold">Settings</DialogTitle>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 sm:max-w-[880px] glass-strong">
+        <DialogHeader className="flex h-12 shrink-0 justify-center border-b border-border/40 px-5">
+          <DialogTitle className="text-sm font-semibold">Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="flex h-[520px] min-h-0 max-h-[calc(100vh-8rem)]">
+        <div className="flex h-[600px] min-h-0 max-h-[calc(100vh-6rem)]">
           {/* Sidebar nav */}
-          <nav className="flex min-h-0 w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border/40 p-2">
+          <nav
+            aria-label="Settings sections"
+            className="flex min-h-0 w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border/40 p-2.5"
+          >
             <div className="relative mb-2">
               <Search
                 size={14}
@@ -333,24 +349,37 @@ export default function SettingsModal({
               />
             </div>
 
-            {filteredTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  'relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left app-motion-base',
-                  activeTab === tab.id
-                    ? 'bg-primary/15 text-primary font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
-                )}
-              >
-                {tab.icon}
-                {tab.label}
-                {tab.id === 'about' && updateStatus === 'available' && (
-                  <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-orange-400" />
-                )}
-              </button>
-            ))}
+            {TAB_GROUPS.map((group) => {
+              const tabs = filteredTabs.filter((tab) => group.ids.includes(tab.id));
+              if (!tabs.length) return null;
+              return (
+                <div key={group.label || 'more'} className="mb-2 flex flex-col gap-0.5">
+                  {group.label && (
+                    <p className="px-3 pt-1 pb-1 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">
+                      {group.label}
+                    </p>
+                  )}
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={cn(
+                        'relative flex h-8 items-center gap-2.5 rounded-md px-3 text-left text-[13px] transition-all app-motion-base',
+                        activeTab === tab.id
+                          ? 'bg-primary/15 text-primary font-medium'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                      )}
+                    >
+                      {tab.icon}
+                      {tab.label}
+                      {tab.id === 'about' && updateStatus === 'available' && (
+                        <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-orange-400" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
 
             {filteredTabs.length === 0 && (
               <div className="rounded-md border border-dashed border-border/50 px-3 py-4 text-xs text-muted-foreground">
@@ -360,7 +389,10 @@ export default function SettingsModal({
           </nav>
 
           {/* Content */}
-          <div key={activeTab} className="min-w-0 flex-1 space-y-1 overflow-y-auto p-5">
+          <div key={activeTab} className="min-w-0 flex-1 space-y-1 overflow-y-auto px-7 py-6">
+            <h2 className="mb-4 text-lg font-semibold">
+              {TABS.find((tab) => tab.id === activeTab)?.label}
+            </h2>
             {/* ── General ── */}
             {activeTab === 'general' && (
               <SettingsGeneralSection

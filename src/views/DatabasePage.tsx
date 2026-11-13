@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Database, Plug, Plus, X } from 'lucide-react';
+import { Database, Download, Plug, Plus, Unplug, X } from 'lucide-react';
 
 import ConnectionForm from '../components/database/ConnectionForm';
 import MetadataExplorer from '../components/database/MetadataExplorer';
 import QueryPanel from '../components/database/QueryPanel';
 import SchemaEditor from '../components/database/SchemaEditor';
-import { DocumentTopBar, DocumentTopBarButton } from '../components/layout/DocumentTopBar';
+import {
+  DocumentMoreMenu,
+  DocumentTopBar,
+  DocumentTopBarButton,
+  DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
+} from '../components/layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -17,6 +23,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import { Field, FieldLabel } from '../components/ui/field';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -29,9 +42,11 @@ import {
 } from '../lib/database/queryStore';
 import { databaseError } from '../lib/databaseErrors';
 import { tauriCommands } from '../lib/tauri';
+import { cn } from '../lib/utils';
 import { useCollabStore } from '../store/collabStore';
-import { useUiStore } from '../store/uiStore';
 import type { DatabaseConnection, DatabaseWorkspace, SqliteOpenMode } from '../types/database';
+
+const SECTION_HEADING = 'text-[11px] font-semibold tracking-widest text-muted-foreground uppercase';
 
 export default function DatabasePage({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const owner = useCollabStore((state) => state.myUserId);
@@ -200,7 +215,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
     <main className="flex h-full min-h-0 flex-col" aria-label="Databases workspace">
       <DocumentTopBar
         title="Databases"
-        icon={<Database size={18} />}
+        icon={<Database />}
         subtitle={
           sqlite
             ? `${sqlite.label} · SQLite`
@@ -208,40 +223,14 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
               ? `${connection.label} · ${tab?.database ?? connection.database} · ${connection.environment}`
               : 'SQL Server, MariaDB and local SQLite files'
         }
-        meta={
-          <>
-            <DocumentTopBarButton onClick={() => useUiStore.getState().setActiveView('editor')}>
-              Back to files
-            </DocumentTopBarButton>
-            <DocumentTopBarButton disabled={!workspace || busy} onClick={() => setForm(null)}>
-              <Plus />
-              New connection
-            </DocumentTopBarButton>
-          </>
-        }
-        secondary={
+        status={
           sqlite && workspace ? (
-            <>
+            <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="outline">{sqlite.read_only ? 'Read-only' : 'Read/write'}</Badge>
               <Badge variant="secondary">Transaction {queryStatus?.transaction ?? 'none'}</Badge>
-              <DocumentTopBarButton
-                disabled={
-                  busy || queryStatus?.phase !== 'idle' || queryStatus.transaction !== 'none'
-                }
-                onClick={() =>
-                  void perform(
-                    () => tauriCommands.databaseSqliteBackup(workspace.token, sqlite.binding),
-                    (saved) => {
-                      if (saved) setNotice('SQLite backup saved.');
-                    },
-                  )
-                }
-              >
-                Save backup…
-              </DocumentTopBarButton>
-            </>
+            </div>
           ) : connection ? (
-            <>
+            <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="outline">TLS verified</Badge>
               {mariaCapabilities && (
                 <Badge
@@ -257,26 +246,61 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
                   ? `Session pinned · Transaction ${queryStatus?.transaction ?? 'none'}`
                   : 'Metadata session'}
               </Badge>
-              <DocumentTopBarButton
-                disabled={busy}
-                onClick={() => {
-                  if (workspace)
-                    void perform(async () => {
-                      if (
-                        Object.values(useDatabaseQueries.getState().tabs).some(
-                          (t) => t.binding.connection_id === connection.id && hasQueryDraft(t),
-                        )
-                      )
-                        throw 'unresolved_session';
-                      await tauriCommands.databaseDisconnect(workspace.token, connection.id);
-                      return reload();
-                    }, setWorkspace);
-                }}
-              >
-                Disconnect {connection.label}
-              </DocumentTopBarButton>
-            </>
+            </div>
           ) : undefined
+        }
+        meta={
+          <>
+            <DocumentTopBarButton
+              variant="default"
+              disabled={!workspace || busy}
+              onClick={() => setForm(null)}
+            >
+              <Plus />
+              New connection
+            </DocumentTopBarButton>
+            {(sqlite && workspace) || connection ? (
+              <DocumentMoreMenu label="More database actions">
+                {sqlite && workspace ? (
+                  <DropdownMenuItem
+                    disabled={
+                      busy || queryStatus?.phase !== 'idle' || queryStatus.transaction !== 'none'
+                    }
+                    onSelect={() =>
+                      void perform(
+                        () => tauriCommands.databaseSqliteBackup(workspace.token, sqlite.binding),
+                        (saved) => {
+                          if (saved) setNotice('SQLite backup saved.');
+                        },
+                      )
+                    }
+                  >
+                    <Download /> Save SQLite backup…
+                  </DropdownMenuItem>
+                ) : null}
+                {connection ? (
+                  <DropdownMenuItem
+                    disabled={busy}
+                    onSelect={() => {
+                      if (workspace)
+                        void perform(async () => {
+                          if (
+                            Object.values(useDatabaseQueries.getState().tabs).some(
+                              (t) => t.binding.connection_id === connection.id && hasQueryDraft(t),
+                            )
+                          )
+                            throw 'unresolved_session';
+                          await tauriCommands.databaseDisconnect(workspace.token, connection.id);
+                          return reload();
+                        }, setWorkspace);
+                    }}
+                  >
+                    <Unplug /> Disconnect {connection.label}
+                  </DropdownMenuItem>
+                ) : null}
+              </DocumentMoreMenu>
+            ) : null}
+          </>
         }
       />
       <div className="flex min-h-0 flex-1">
@@ -286,38 +310,50 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
           className="flex flex-col gap-3 overflow-auto border-r border-border/50 bg-sidebar p-3"
           aria-label="Database connections and files"
         >
-          <h2 className="text-xs font-semibold text-muted-foreground">SQLite files</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!workspace || busy}
-            onClick={() => pickSqlite('read_write')}
-          >
-            Open SQLite…
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!workspace || busy}
-            onClick={() => pickSqlite('read_only')}
-          >
-            Open SQLite read-only…
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!workspace || busy}
-            onClick={() => pickSqlite('create')}
-          >
-            Create SQLite…
-          </Button>
           <Input
             aria-label="Search connections"
-            placeholder="Search connections…"
+            placeholder="Filter connections…"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <h2 className="text-xs font-semibold text-muted-foreground">Saved connections</h2>
+          <div className="flex items-center justify-between">
+            <h2 className={SECTION_HEADING}>SQLite files</h2>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <DocumentTopBarMenuButton
+                  className="h-7 px-2 text-xs"
+                  disabled={!workspace || busy}
+                  aria-label="Open SQLite file"
+                >
+                  Open
+                </DocumentTopBarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => pickSqlite('read_write')}>
+                  Open SQLite…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => pickSqlite('read_only')}>
+                  Open SQLite read-only…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => pickSqlite('create')}>
+                  Create SQLite…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="flex items-center justify-between">
+            <h2 className={SECTION_HEADING}>Connections</h2>
+            <DocumentTopBarIconButton
+              aria-label="New connection"
+              title="New connection"
+              className="size-7"
+              disabled={!workspace || busy}
+              onClick={() => setForm(null)}
+            >
+              <Plus />
+            </DocumentTopBarIconButton>
+          </div>
           {workspace?.profiles
             .filter((p) =>
               `${p.label} ${p.host} ${p.environment}`.toLowerCase().includes(search.toLowerCase()),
@@ -325,7 +361,8 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             .map((p) => (
               <Button
                 key={p.id}
-                className="justify-start truncate"
+                aria-label={p.label}
+                className="h-auto justify-start gap-2.5 py-1.5"
                 variant={selected === p.id ? 'secondary' : 'ghost'}
                 disabled={busy}
                 onClick={() => {
@@ -333,7 +370,21 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
                   setPassword('');
                 }}
               >
-                {p.label}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'size-2 shrink-0 rounded-full',
+                    workspace.connections.some((c) => c.saved_id === p.id)
+                      ? 'bg-emerald-500'
+                      : 'border-2 border-muted-foreground/50',
+                  )}
+                />
+                <span className="flex min-w-0 flex-col items-start leading-tight">
+                  <span className="max-w-full truncate">{p.label}</span>
+                  <span className="max-w-full truncate text-[11px] font-normal text-muted-foreground">
+                    {p.environment}
+                  </span>
+                </span>
               </Button>
             ))}
           {workspace?.profiles.length === 0 && (
@@ -405,12 +456,14 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
               </div>
             </>
           )}
-          <h2 className="mt-3 text-xs font-semibold text-muted-foreground">Active connections</h2>
+          {(workspace?.connections.length ?? 0) > 0 && (
+            <h2 className={cn(SECTION_HEADING, 'mt-2')}>Connected</h2>
+          )}
           {workspace?.connections.map((c) => (
             <Button
               key={c.id}
               variant={connectionId === c.id ? 'secondary' : 'ghost'}
-              className="h-auto flex-col items-start gap-1 py-2"
+              className="h-auto justify-start gap-2.5 py-1.5"
               aria-label={`${c.label} · Browse databases`}
               disabled={busy}
               onClick={() => {
@@ -418,8 +471,13 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
                 setActiveTab(null);
               }}
             >
-              <span className="max-w-full truncate">{c.label}</span>
-              <span className="text-[11px] text-muted-foreground">Browse databases</span>
+              <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-emerald-500" />
+              <span className="flex min-w-0 flex-col items-start leading-tight">
+                <span className="max-w-full truncate">{c.label}</span>
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  Browse databases
+                </span>
+              </span>
             </Button>
           ))}
         </WorkspaceSidebar>

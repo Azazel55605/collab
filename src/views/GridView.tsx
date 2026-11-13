@@ -9,11 +9,12 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, LayoutGrid } from 'lucide-react';
 
 import GridCell from '../components/grid/GridCell';
 import GridLayoutPicker from '../components/grid/GridLayoutPicker';
 import WorkspaceBar from '../components/grid/WorkspaceBar';
+import { DocumentTopBar } from '../components/layout/DocumentTopBar';
 import { runDocumentNavigation } from '../lib/documentNavigation';
 import {
   GRID_LAYOUTS,
@@ -255,14 +256,21 @@ export default function GridView() {
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div ref={containerRef} className="flex flex-col h-full overflow-hidden bg-background">
-        {/* Workspace tabs */}
-        <WorkspaceBar />
-
-        {/* Layout picker */}
-        <GridLayoutPicker
-          currentLayout={activeWs.layoutId}
-          containerWidth={containerWidth}
-          onChange={handleLayoutChange}
+        <DocumentTopBar
+          title="Grid"
+          subtitle={activeWs.name}
+          icon={<LayoutGrid />}
+          secondary={
+            <>
+              <WorkspaceBar />
+              <div className="flex-1" />
+              <GridLayoutPicker
+                currentLayout={activeWs.layoutId}
+                containerWidth={containerWidth}
+                onChange={handleLayoutChange}
+              />
+            </>
+          }
         />
 
         {/* Grid */}
@@ -271,8 +279,8 @@ export default function GridView() {
           style={{
             gridTemplateColumns: effectiveLayout.colTemplate,
             gridTemplateRows: effectiveLayout.rowTemplate,
-            gap: '1px',
-            background: 'var(--border)',
+            gap: '8px',
+            padding: '8px',
             opacity: fading ? 0.94 : 1,
           }}
         >

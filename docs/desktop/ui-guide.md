@@ -134,7 +134,13 @@ Bad density:
 
 ### Document headers
 
-Every document and workspace view uses `DocumentTopBar`, including Calendar.
+Every document and workspace view uses `DocumentTopBar`, including Calendar,
+Databases, Graph (standalone only; inside a grid cell the cell header names it),
+Grid and desktop Chats (`ConversationAccounts desktopHeader`; mobile keeps its
+compact toolbar). Workspace sidebars use uppercase 11 px section headings with
+an icon action on the right, and list rows carry a status dot instead of
+stacked buttons. Settings groups its sections (You, App, Documents, Sync) and
+titles the open section.
 
 The header is one 48 px row, in a fixed order:
 

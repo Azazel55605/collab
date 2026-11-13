@@ -178,7 +178,7 @@ export default function GridCell({ cell, onContainerRef }: Props) {
       onFocusCapture={() => activateDocumentPane(cell.id)}
       onPointerDownCapture={() => activateDocumentPane(cell.id)}
       className={cn(
-        'relative flex flex-col bg-background overflow-hidden',
+        'relative flex flex-col overflow-hidden rounded-xl border border-border/70 bg-background',
         'transition-shadow duration-150',
         isDragging && 'opacity-40 ring-2 ring-primary/30 ring-inset',
         isOver && !isDragging && 'ring-2 ring-primary ring-inset bg-primary/5',
@@ -193,7 +193,7 @@ export default function GridCell({ cell, onContainerRef }: Props) {
       )}
 
       {/* Cell header */}
-      <div className="flex items-center gap-1 px-1.5 h-7 border-b border-border/40 bg-sidebar/40 shrink-0 group/header">
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/60 bg-sidebar/50 px-2 group/header">
         {/* Drag handle — listeners attached only here */}
         <div
           {...attributes}

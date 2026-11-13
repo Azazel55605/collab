@@ -162,3 +162,35 @@ export function createGraphDataBuilder() {
 export function buildGraphData(notes: NoteMetadata[]) {
   return createGraphDataBuilder()(notes);
 }
+
+/**
+ * The part of a graph within `depth` links of `centerId`, following links in
+ * either direction. Returns an empty graph when the note is not in the graph.
+ */
+export function graphNeighbourhood(
+  graph: { nodes: GraphNode[]; links: GraphLink[] },
+  centerId: string,
+  depth = 1,
+): { nodes: GraphNode[]; links: GraphLink[] } {
+  if (!graph.nodes.some((node) => node.id === centerId)) return { nodes: [], links: [] };
+  const endpoint = (value: string | GraphNode) => (typeof value === 'string' ? value : value.id);
+  const keep = new Set([centerId]);
+  let frontier = new Set([centerId]);
+  for (let step = 0; step < depth; step += 1) {
+    const next = new Set<string>();
+    for (const link of graph.links) {
+      const source = endpoint(link.source);
+      const target = endpoint(link.target);
+      if (frontier.has(source) && !keep.has(target)) next.add(target);
+      if (frontier.has(target) && !keep.has(source)) next.add(source);
+    }
+    next.forEach((id) => keep.add(id));
+    frontier = next;
+  }
+  return {
+    nodes: graph.nodes.filter((node) => keep.has(node.id)),
+    links: graph.links.filter(
+      (link) => keep.has(endpoint(link.source)) && keep.has(endpoint(link.target)),
+    ),
+  };
+}

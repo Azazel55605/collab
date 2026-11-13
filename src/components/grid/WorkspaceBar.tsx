@@ -4,6 +4,7 @@ import { Plus, X } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import { useGridStore } from '../../store/gridStore';
+import { documentTopBarGroupClass } from '../layout/DocumentTopBar';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -34,7 +35,7 @@ export default function WorkspaceBar() {
   };
 
   return (
-    <div className="flex items-center h-7 border-b border-border/50 bg-sidebar/60 shrink-0 overflow-x-auto scrollbar-none">
+    <div className={documentTopBarGroupClass} role="tablist" aria-label="Grid workspaces">
       {workspaces.map((ws) => {
         const isActive = ws.id === activeWorkspaceId;
         const isEditing = editingId === ws.id;
@@ -42,21 +43,18 @@ export default function WorkspaceBar() {
         return (
           <div
             key={ws.id}
+            role="tab"
+            aria-selected={isActive}
+            title="Double-click to rename"
             onClick={() => setActiveWorkspace(ws.id)}
             onDoubleClick={() => startRename(ws.id, ws.name)}
             className={cn(
-              'relative flex items-center gap-1 px-2.5 h-full text-xs cursor-pointer whitespace-nowrap select-none group shrink-0',
-              'border-r border-border/30 transition-colors duration-100 app-motion-fast',
+              'group flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2.5 text-[13px] whitespace-nowrap select-none transition-colors app-motion-fast',
               isActive
-                ? 'bg-background text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
+                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
             )}
           >
-            {/* Active indicator line */}
-            {isActive && (
-              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t app-fade-slide-in" />
-            )}
-
             {isEditing ? (
               <Input
                 ref={inputRef}
@@ -102,7 +100,8 @@ export default function WorkspaceBar() {
             onClick={() => createWorkspace()}
             variant="ghost"
             size="icon"
-            className="h-full w-7 rounded-none text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 shrink-0"
+            aria-label="New workspace"
+            className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
           >
             <Plus size={12} />
           </Button>
@@ -111,13 +110,6 @@ export default function WorkspaceBar() {
           New workspace
         </TooltipContent>
       </Tooltip>
-
-      <div className="flex-1" />
-
-      {/* Hint: double-click to rename */}
-      <span className="text-[10px] text-muted-foreground/30 pr-2 shrink-0 select-none hidden sm:block">
-        dbl-click to rename
-      </span>
     </div>
   );
 }

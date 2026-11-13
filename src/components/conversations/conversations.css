@@ -1860,3 +1860,12 @@
     visibility: hidden;
   }
 }
+
+/* Desktop chats use the shared document header; size the people search for it. */
+.conversation-document-header .conversation-search {
+  width: min(22rem, 40vw);
+}
+.conversation-workspace .conversation-document-header .conversation-search > input {
+  height: 32px;
+  font-size: 13px;
+}

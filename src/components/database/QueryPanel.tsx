@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { FolderOpen, History, Play, Save, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -22,6 +23,12 @@ import type {
   DatabaseHistoryEntry,
   DatabaseSqliteFile,
 } from '../../types/database';
+import {
+  DocumentToolStrip,
+  DocumentTopBarButton,
+  documentTopBarGroupClass,
+  DocumentTopBarIconButton,
+} from '../layout/DocumentTopBar';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -171,110 +178,112 @@ export default function QueryPanel({
       className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       aria-label="SQL query workspace"
     >
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto p-2">
-        <Button
-          size="sm"
-          disabled={running || retired || editingBusy || !tab.sql.trim()}
-          onClick={() => run(false)}
-        >
-          {maria ? 'Run statement' : 'Run batch'}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={running || retired || editingBusy || !tab.sql.trim()}
-          onClick={() => run(true)}
-        >
-          Run selection
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!running || !status.query_id}
-          onClick={() => {
-            if (status.query_id)
-              void job(() => tauriCommands.databaseQueryCancel(token, binding, status.query_id!));
-          }}
-        >
-          Cancel query
-        </Button>
-        <Badge variant="outline">
-          {status.phase} · Transaction {status.transaction}
-        </Badge>
-        {tab.dirty && <Badge variant="secondary">Unsaved SQL</Badge>}
-        {status.transaction === 'none' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canControlTransaction}
-            onClick={() => void executeQuery(token, binding, undefined, 'begin')}
+      <DocumentToolStrip className="shrink-0 border-b border-border/50">
+        <div className={documentTopBarGroupClass}>
+          <DocumentTopBarButton
+            variant="default"
+            disabled={running || retired || editingBusy || !tab.sql.trim()}
+            onClick={() => run(false)}
+            title="Run (Ctrl+Enter)"
           >
-            Begin transaction
-          </Button>
-        )}
-        {status.transaction === 'open' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canControlTransaction}
-            onClick={() => setConfirmCommit(true)}
+            <Play />
+            {maria ? 'Run statement' : 'Run batch'}
+          </DocumentTopBarButton>
+          <DocumentTopBarButton
+            disabled={running || retired || editingBusy || !tab.sql.trim()}
+            onClick={() => run(true)}
           >
-            Commit transaction
-          </Button>
-        )}
-        {['open', 'failed'].includes(status.transaction) && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canControlTransaction}
-            onClick={() => void executeQuery(token, binding, undefined, 'rollback')}
+            Run selection
+          </DocumentTopBarButton>
+          {running && (
+            <DocumentTopBarButton
+              disabled={!status.query_id}
+              onClick={() => {
+                if (status.query_id)
+                  void job(() =>
+                    tauriCommands.databaseQueryCancel(token, binding, status.query_id!),
+                  );
+              }}
+            >
+              <Square /> Cancel query
+            </DocumentTopBarButton>
+          )}
+        </div>
+        <div className={documentTopBarGroupClass}>
+          <Badge variant="outline">
+            {status.phase} · Transaction {status.transaction}
+          </Badge>
+          {tab.dirty && <Badge variant="secondary">Unsaved SQL</Badge>}
+          {status.transaction === 'none' && (
+            <DocumentTopBarButton
+              disabled={!canControlTransaction}
+              onClick={() => void executeQuery(token, binding, undefined, 'begin')}
+            >
+              Begin transaction
+            </DocumentTopBarButton>
+          )}
+          {status.transaction === 'open' && (
+            <DocumentTopBarButton
+              disabled={!canControlTransaction}
+              onClick={() => setConfirmCommit(true)}
+            >
+              Commit transaction
+            </DocumentTopBarButton>
+          )}
+          {['open', 'failed'].includes(status.transaction) && (
+            <DocumentTopBarButton
+              disabled={!canControlTransaction}
+              onClick={() => void executeQuery(token, binding, undefined, 'rollback')}
+            >
+              Roll back transaction
+            </DocumentTopBarButton>
+          )}
+        </div>
+        <div className="flex-1" />
+        <div className={documentTopBarGroupClass}>
+          <DocumentTopBarIconButton
+            aria-label="Session history"
+            title="Session history"
+            disabled={working || running}
+            onClick={() =>
+              void job(async () =>
+                setHistory(await tauriCommands.databaseQueryHistory(token, binding)),
+              )
+            }
           >
-            Roll back transaction
-          </Button>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || running}
-          onClick={() =>
-            void job(async () =>
-              setHistory(await tauriCommands.databaseQueryHistory(token, binding)),
-            )
-          }
-        >
-          Session history
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || !vault || locked || running}
-          onClick={() => {
-            setPath(script?.path ?? 'query.sql');
-            setFileAction('open');
-          }}
-        >
-          Open .sql
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || !vault || locked}
-          onClick={() => {
-            setPath(script?.path ?? 'query.sql');
-            setFileAction('save');
-          }}
-        >
-          Save .sql
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || running || !cursor || schemaCount >= 1000}
-          onClick={completion}
-        >
-          Load completion schema ({schemaCount})
-        </Button>
-      </div>
+            <History />
+          </DocumentTopBarIconButton>
+          <DocumentTopBarIconButton
+            aria-label="Open .sql"
+            title="Open .sql file"
+            disabled={working || !vault || locked || running}
+            onClick={() => {
+              setPath(script?.path ?? 'query.sql');
+              setFileAction('open');
+            }}
+          >
+            <FolderOpen />
+          </DocumentTopBarIconButton>
+          <DocumentTopBarIconButton
+            aria-label="Save .sql"
+            title="Save as .sql file"
+            disabled={working || !vault || locked}
+            onClick={() => {
+              setPath(script?.path ?? 'query.sql');
+              setFileAction('save');
+            }}
+          >
+            <Save />
+          </DocumentTopBarIconButton>
+          <DocumentTopBarButton
+            disabled={working || running || !cursor || schemaCount >= 1000}
+            onClick={completion}
+            title="Load table and column names for autocompletion"
+          >
+            Completion schema ({schemaCount})
+          </DocumentTopBarButton>
+        </div>
+      </DocumentToolStrip>
       <div
         className="flex shrink-0 items-center gap-2 overflow-x-auto px-2 pb-2"
         aria-label="Browse table or view"
