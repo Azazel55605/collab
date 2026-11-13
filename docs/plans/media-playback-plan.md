@@ -89,6 +89,8 @@ before promising large encrypted playback. Do not silently stage plaintext.
       change for embedded tracks, resolve that before claiming support.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
       when closing the player or leaving its vault.
+- [ ] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
+      movie. Record decoder selection, dropped frames, audio and colour output.
 
 ### Phase 2 — Hosted And Offline Sources
 

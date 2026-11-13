@@ -26,7 +26,9 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::{OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-const CHUNK: usize = 64 * 1024;
+// Read ahead with enough headroom for high-bitrate 4K sources while retaining
+// a fixed allocation per read and the shared four-stream limit.
+const CHUNK: usize = 256 * 1024;
 const MAX_STREAMS: usize = 4;
 const MAX_SESSIONS: usize = 4;
 const MAX_CAPTION_BYTES: u64 = 1024 * 1024;
@@ -784,8 +786,16 @@ mod tests {
     #[tokio::test]
     async fn streams_a_large_file_range_and_revokes_the_handle() {
         let root = tempfile::tempdir().unwrap();
-        let file = File::create(root.path().join("video.mp4")).unwrap();
-        file.set_len(600 * 1024 * 1024).unwrap();
+        let mut file = File::create(root.path().join("video.mp4")).unwrap();
+        // Windows may reserve physical storage when extending a regular file.
+        let size = if cfg!(unix) {
+            36_100_000_000
+        } else {
+            600 * 1024 * 1024
+        };
+        file.seek(SeekFrom::Start(size - 4)).unwrap();
+        std::io::Write::write_all(&mut file, b"tail").unwrap();
+        drop(file);
         std::fs::write(root.path().join("video.vtt"), b"WEBVTT\n\n").unwrap();
         let playback = Arc::new(Playback::default());
         let source =
@@ -798,19 +808,39 @@ mod tests {
         let base = format!("http://{address}/test");
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let request = client.get(format!("{base}/media"));
+        let start = size - 4;
+        let end = size - 1;
         let range = request
             .try_clone()
             .unwrap()
-            .header(header::RANGE, "bytes=620000000-620000003")
+            .header(header::RANGE, format!("bytes={start}-{end}"))
             .send()
             .await
             .unwrap();
         assert_eq!(range.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(
             range.headers()[header::CONTENT_RANGE],
-            "bytes 620000000-620000003/629145600"
+            format!("bytes {start}-{end}/{size}").as_str()
         );
-        assert_eq!(range.bytes().await.unwrap().len(), 4);
+        assert_eq!(&range.bytes().await.unwrap()[..], b"tail");
+        let mut read_ahead = request
+            .try_clone()
+            .unwrap()
+            .header(header::RANGE, "bytes=0-16777215")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(read_ahead.status(), StatusCode::PARTIAL_CONTENT);
+        let started = std::time::Instant::now();
+        let mut bytes = 0;
+        while let Some(chunk) = read_ahead.chunk().await.unwrap() {
+            bytes += chunk.len();
+        }
+        assert_eq!(bytes, 16 * 1024 * 1024);
+        eprintln!(
+            "16 MiB local range body streamed in {:?}",
+            started.elapsed()
+        );
         let caption = client.get(format!("{base}/0.vtt")).send().await.unwrap();
         assert_eq!(caption.text().await.unwrap(), "WEBVTT\n\n");
         let mut live = request.try_clone().unwrap().send().await.unwrap();

@@ -10,7 +10,9 @@ a vault link to open its player tab.
 | Audio            | MP3, PCM WAV, FLAC                           |
 | Sidecar captions | UTF-8 WebVTT or SubRip, up to 1 MiB per file |
 
-Decoding depends on the system WebView and installed codecs. When Collab
+Decoding depends on the system WebView and installed codecs. HEVC and E-AC-3
+are outside the qualified baseline. Smooth 4K playback and correct HDR
+presentation depend on the decoder, WebView and display pipeline. When Collab
 cannot decode a local file, **Open externally** hands the file to the
 system's default app. Hosted attachments can be downloaded separately.
 Playback from hosted vaults and encrypted vaults is outside the local player.
@@ -41,8 +43,8 @@ Confirm that the next vault cannot reuse the old source and that a replaced
 file starts from the beginning. Open `tracks.mp4` and exercise the sidecar,
 embedded caption and both tones wherever the runtime exposes the tracks.
 
-The Rust tests exercise a range near the end of a 600 MiB fixture, revoke
-an active stream, and cover replacement, missing files, path confinement,
+The Rust tests exercise a range near the end of a sparse 36.1 GB fixture on
+Unix, revoke an active stream, and cover replacement, missing files, path confinement,
 encrypted source rejection and SubRip conversion. The Chromium UI test with
 mocked IPC exercised Files routing, audio/video layouts, native source
 release calls, paused resume, caption selection and keyboard seeking.
