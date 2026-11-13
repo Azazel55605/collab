@@ -812,6 +812,17 @@
   box-shadow: 0 0 6px var(--glow-primary-sm);
 }
 
+/* ─── Document tool strip ──────────────────────────────────────────────── */
+
+/* Flat tool groups split by a thin divider; groups never shrink, they fold into "More". */
+.doc-toolstrip > [data-strip-item] > * {
+  flex-shrink: 0;
+}
+
+.doc-toolstrip > [data-strip-item] + [data-strip-item] > .doc-strip-group {
+  border-left: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
+}
+
 /* ─── Vault picker background ───────────────────────────────────────────── */
 
 .vault-bg {

@@ -134,26 +134,39 @@ Bad density:
 
 ### Document headers
 
-All document-style views should follow `DocumentTopBar`.
+Every document and workspace view uses `DocumentTopBar`, including Calendar.
 
-Rules:
+The header is one 48 px row, in a fixed order:
 
-- row 1 contains icon, title, path/subtitle, and compact metadata
-- row 2 contains grouped controls when needed
-- row 2 controls should use the shared `DocumentTopBar` control primitives instead of bespoke per-view button sizing
-- controls in the secondary row should be horizontally scrollable rather than wrapping into chaos
-- do not create bespoke document headers unless the shared pattern is being evolved for everyone
+- kind icon, title, folder, then the `status` slot (save/sync pill, or a Save
+  button while the document has unsaved changes)
+- `meta` on the right: people on the document, a view switch when the view has
+  modes (Board / Calendar / Timeline, Day / Week / Month, Digital / Electronic),
+  at most one primary action (`variant="default"`), then the ⋯ `DocumentMoreMenu`
+- export, print, insert-elsewhere and other rare document actions belong in ⋯
+- do not create bespoke document headers unless the shared pattern is being
+  evolved for everyone
 
-### Tool groups
+### Tool strip and tool groups
 
-Toolbar controls should be visually chunked into small groups.
+The `secondary` slot is the single tool strip (`DocumentToolStrip`). Each child
+group uses `documentTopBarGroupClass`:
 
-Use:
+- groups are flat and separated by a thin divider, never boxed
+- the strip never scrolls sideways: groups that do not fit fold, whole and in
+  order, into a "More" popover
+- undo / redo first and find last, where the view has them; a `flex-1` spacer
+  pushes trailing groups right
+- labels only on menu buttons (`DocumentTopBarMenuButton`: Paragraph ▾,
+  Insert ▾, Data ▾); everything else is a 32 px icon button with a tooltip
+- rare actions go into named menus, not into an ever-longer row of icons
+- no hidden modifier-click features: visual editors get their own menu items
+- menus whose items open dialogs are non-modal (`modal={false}`)
 
-- rounded group containers
-- compact icon buttons sized through shared toolbar primitives when they live inside `DocumentTopBar`
-- consistent hover/focus treatment
-- tooltips for icon-only buttons
+Canvas-style editors (Logic, and later Canvas, Ink, Deck) keep tools on the
+canvas instead: an add/tool rail floating on the left, a selection bar that
+appears while something is selected, a status chip bottom-left and a zoom pill
+bottom-right.
 
 Avoid:
 

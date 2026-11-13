@@ -1,4 +1,4 @@
-import { type MouseEvent, type RefObject, useEffect, useState } from 'react';
+import { type RefObject, useEffect, useState } from 'react';
 
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -37,8 +37,11 @@ import {
 import { requestNotePdfExport } from '../../lib/notePdfExport';
 import { DocumentStatusPill } from '../layout/DocumentStatusPill';
 import {
+  DocumentMoreMenu,
   DocumentTopBar,
   documentTopBarGroupClass,
+  DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
@@ -51,6 +54,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
@@ -161,17 +173,20 @@ const INLINE: InlineBtn[] = [
   },
 ];
 
-const BLOCK: BlockBtn[] = [
-  { icon: <Heading1 size={13} />, label: 'Heading 1', prefix: '# ' },
-  { icon: <Heading2 size={13} />, label: 'Heading 2', prefix: '## ' },
-  { icon: <Heading3 size={13} />, label: 'Heading 3', prefix: '### ' },
-  { icon: <Quote size={13} />, label: 'Blockquote', prefix: '> ' },
-  { icon: <List size={13} />, label: 'Bullet List', prefix: '- ' },
-  { icon: <ListOrdered size={13} />, label: 'Ordered List', prefix: '1. ' },
-  { icon: <CheckSquare size={13} />, label: 'Task List', prefix: '- [ ] ' },
+const HEADINGS: BlockBtn[] = [
+  { icon: <Heading1 />, label: 'Heading 1', prefix: '# ' },
+  { icon: <Heading2 />, label: 'Heading 2', prefix: '## ' },
+  { icon: <Heading3 />, label: 'Heading 3', prefix: '### ' },
+  { icon: <Quote />, label: 'Quote', prefix: '> ' },
 ];
 
-const INSERT: InsertBtn[] = [
+const LISTS: BlockBtn[] = [
+  { icon: <List size={13} />, label: 'Bullet list', prefix: '- ' },
+  { icon: <ListOrdered size={13} />, label: 'Numbered list', prefix: '1. ' },
+  { icon: <CheckSquare size={13} />, label: 'Task list', prefix: '- [ ] ' },
+];
+
+const QUICK_INSERT: InsertBtn[] = [
   { icon: <Link2 size={13} />, label: 'Link', text: '[link text](url)' },
   { icon: <Image size={13} />, label: 'Image', text: '![alt text](url)' },
   {
@@ -179,27 +194,7 @@ const INSERT: InsertBtn[] = [
     label: 'Table',
     text: '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |',
   },
-  { icon: <Minus size={13} />, label: 'Horizontal Rule', text: '\n---\n' },
-  { icon: <Hash size={13} />, label: 'Math Block', text: '$$\n<cursor>\n$$' },
-  { icon: <FileCode size={13} />, label: 'Code Block', text: '```\n<cursor>\n```' },
 ];
-
-function TagsBtn() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          <Tags size={13} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">Add tags line</TooltipContent>
-    </Tooltip>
-  );
-}
 
 function TBtn({
   icon,
@@ -213,38 +208,13 @@ function TBtn({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <DocumentTopBarIconButton
+          aria-label={label.replace(/ \(.*\)$/, '')}
           onClick={onClick}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="text-muted-foreground"
         >
           {icon}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function ToolBtn({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          {icon}
-        </button>
+        </DocumentTopBarIconButton>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
@@ -570,10 +540,39 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Note')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<FileText size={15} />}
-        meta={documentStatus ? <DocumentStatusPill status={documentStatus} compact /> : undefined}
+        icon={<FileText />}
+        status={documentStatus ? <DocumentStatusPill status={documentStatus} compact /> : undefined}
+        meta={
+          <DocumentMoreMenu label="More note actions">
+            <DropdownMenuItem
+              onSelect={() => requestNotePdfExport(relativePath, ed()?.getContent?.())}
+            >
+              <Printer /> Export as PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
+            >
+              <Tags /> Add tags line
+            </DropdownMenuItem>
+          </DocumentMoreMenu>
+        }
         secondary={
           <>
+            <div className={documentTopBarGroupClass}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton>Paragraph</DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-44">
+                  {HEADINGS.map((b) => (
+                    <DropdownMenuItem key={b.label} onSelect={() => ed()?.insertLine(b.prefix)}>
+                      {b.icon} {b.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
             <div className={documentTopBarGroupClass}>
               {INLINE.map((b) => (
                 <TBtn
@@ -586,134 +585,78 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
             </div>
 
             <div className={documentTopBarGroupClass}>
-              {BLOCK.map((b) =>
-                b.label === 'Task List' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Task List (Shift-click for visual editor, Ctrl+Alt+K)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openTaskListDialog();
-                        return;
-                      }
-                      ed()?.insertLine(b.prefix);
-                    }}
-                  />
-                ) : (
-                  <TBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label={b.label}
-                    onClick={() => ed()?.insertLine(b.prefix)}
-                  />
-                ),
-              )}
+              {LISTS.map((b) => (
+                <TBtn
+                  key={b.label}
+                  icon={b.icon}
+                  label={b.label}
+                  onClick={() => ed()?.insertLine(b.prefix)}
+                />
+              ))}
             </div>
 
             <div className={documentTopBarGroupClass}>
-              {INSERT.map((b) =>
-                b.label === 'Table' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Table (Shift-click for visual editor, Ctrl+Alt+T)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openVisualTableEditor();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Link' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Link (Shift-click for visual editor, Ctrl+Alt+L)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openLinkDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Image' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Image (Shift-click for visual editor, Ctrl+Alt+I)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openImageDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Math Block' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Math Block (Shift-click for visual editor, Ctrl+Alt+M)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openMathDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Code Block' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Code Block (Shift-click for visual editor, Ctrl+Alt+C)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openCodeDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : (
-                  <TBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label={b.label}
-                    onClick={() => ed()?.insertSnippet(b.text)}
-                  />
-                ),
-              )}
+              {QUICK_INSERT.map((b) => (
+                <TBtn
+                  key={b.label}
+                  icon={b.icon}
+                  label={b.label}
+                  onClick={() => ed()?.insertSnippet(b.text)}
+                />
+              ))}
+            </div>
+
+            <div className={documentTopBarGroupClass}>
+              {/* Non-modal: its items open dialogs, which must own focus afterwards. */}
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton>Insert</DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-60">
+                  <DropdownMenuLabel>Visual editors</DropdownMenuLabel>
+                  <DropdownMenuItem onSelect={openVisualTableEditor}>
+                    <Table /> Table…
+                    <DropdownMenuShortcut>Ctrl+Alt+T</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openLinkDialog}>
+                    <Link2 /> Link…
+                    <DropdownMenuShortcut>Ctrl+Alt+L</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openImageDialog}>
+                    <Image /> Image…
+                    <DropdownMenuShortcut>Ctrl+Alt+I</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openTaskListDialog}>
+                    <CheckSquare /> Task list…
+                    <DropdownMenuShortcut>Ctrl+Alt+K</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openMathDialog}>
+                    <Hash /> Math block…
+                    <DropdownMenuShortcut>Ctrl+Alt+M</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openCodeDialog}>
+                    <FileCode /> Code block…
+                    <DropdownMenuShortcut>Ctrl+Alt+C</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => ed()?.insertSnippet('\n---\n')}>
+                    <Minus /> Horizontal rule
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
+                  >
+                    <MessageSquareQuote /> Callout
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => ed()?.insertFootnote()}>
+                    <ScrollText /> Footnote
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setSnippetsDialogOpen(true)}>
+                    <NotebookPen /> Note snippets…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              <TBtn
-                icon={<MessageSquareQuote size={13} />}
-                label="Callout block"
-                onClick={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
-              />
-              <TBtn
-                icon={<ScrollText size={13} />}
-                label="Footnote"
-                onClick={() => ed()?.insertFootnote()}
-              />
-              <TBtn
-                icon={<NotebookPen size={13} />}
-                label="Note snippets"
-                onClick={() => setSnippetsDialogOpen(true)}
-              />
-              <TBtn
-                icon={<Printer size={13} />}
-                label="Export note as PDF"
-                onClick={() => {
-                  requestNotePdfExport(relativePath, ed()?.getContent?.());
-                }}
-              />
-              <TagsBtn />
             </div>
           </>
         }

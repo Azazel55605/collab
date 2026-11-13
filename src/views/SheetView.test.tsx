@@ -166,8 +166,23 @@ afterEach(cleanup);
  * afterwards, and that assertion fails if nothing was written at all.
  */
 async function clickSave(): Promise<void> {
-  const control = await screen.findByRole('button', { name: /^saved?$/i }, { timeout: 10_000 });
-  if (!(control as HTMLButtonElement).disabled) fireEvent.click(control);
+  // The header shows a Save button while the workbook is dirty and a "Saved"
+  // status pill otherwise.
+  const control = await screen.findByText(/^(save|saved)$/i, {}, { timeout: 10_000 });
+  const button = control.closest('button');
+  if (button && !button.disabled) fireEvent.click(button);
+}
+
+/** Opens a tool-strip menu ("Insert", "Data", ⋯) and picks one of its items. */
+async function chooseMenuItem(menu: string | RegExp, item: string | RegExp) {
+  fireEvent.keyDown(screen.getByRole('button', { name: menu }), { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+}
+
+/** Opens a tool-strip menu and returns one of its items without choosing it. */
+async function findMenuItem(menu: string | RegExp, item: string | RegExp) {
+  fireEvent.keyDown(screen.getByRole('button', { name: menu }), { key: 'Enter' });
+  return screen.findByRole('menuitem', { name: item });
 }
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -239,7 +254,7 @@ describe('SheetView editor', () => {
   it('stores a vault link without replacing the cell value', async () => {
     await openWorkbook();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cell links and attachments' }));
+    await chooseMenuItem('Data', /Cell links and attachments/);
     fireEvent.change(screen.getByRole('textbox', { name: 'Cell link target' }), {
       target: { value: 'Notes/Budget.md' },
     });
@@ -330,11 +345,7 @@ describe('SheetView editor', () => {
 
   it('exports the active range as a self-contained SVG', async () => {
     await openWorkbook();
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Export selection' }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    fireEvent.click(await screen.findByText('Export selection as SVG'));
+    await chooseMenuItem('More workbook actions', /Export selection as SVG/);
 
     await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalled());
     expect(tauriMocks.showDownloadDialog).toHaveBeenCalledWith('Budget-A1-A1.svg');
@@ -460,7 +471,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
     fireEvent.pointerMove(surface, pointFor(1, 0));
     fireEvent.pointerUp(surface, pointFor(1, 0));
-    fireEvent.click(screen.getByRole('button', { name: 'Create table' }));
+    await chooseMenuItem('Insert', /Create table/);
 
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Table name'), {
@@ -469,13 +480,12 @@ describe('SheetView editor', () => {
     fireEvent.click(within(dialog).getByRole('checkbox'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create table' }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Manage table Values' })).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Sort active table column descending' }));
+    await chooseMenuItem('Data', /Z → A/);
     await clickSave();
 
     const written = await writtenDocument();
+    // The new table is now offered for editing in the Insert menu.
+    expect(await findMenuItem('Insert', /Manage table Values/)).toBeTruthy();
     const worksheet = written.worksheets[0];
     expect(worksheet.tables).toHaveLength(1);
     expect(worksheet.tables[0]).toMatchObject({
@@ -496,7 +506,7 @@ describe('SheetView editor', () => {
   it('applies validation rules and rejects invalid cell edits', async () => {
     await openWorkbook();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add data validation' }));
+    await chooseMenuItem('Data', /Data validation/);
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Allowed values'), {
       target: { value: '10, 20' },
@@ -526,7 +536,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerMove(surface, pointFor(1, 0));
     fireEvent.pointerUp(surface, pointFor(1, 0));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Conditional formatting' }));
+    await chooseMenuItem('Data', /Conditional formatting/);
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Comparison value'), {
       target: { value: '15' },
@@ -559,7 +569,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerMove(surface, pointFor(1, 0));
     fireEvent.pointerUp(surface, pointFor(1, 0));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Named ranges' }));
+    await chooseMenuItem('Data', /Named ranges/);
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Named range name'), {
       target: { value: 'Revenue' },
@@ -604,7 +614,7 @@ describe('SheetView editor', () => {
   it('inserts and deletes rows through the toolbar', async () => {
     await openWorkbook();
 
-    fireEvent.click(screen.getByRole('button', { name: /insert rows/i }));
+    await chooseMenuItem('Insert', /insert rows/i);
     await clickSave();
     let written = await writtenDocument();
     expect(written.worksheets[0].rowOrder).toHaveLength(21);
@@ -612,7 +622,7 @@ describe('SheetView editor', () => {
     expect(Object.keys(written.worksheets[0].cells)).toHaveLength(2);
 
     clientMocks.writeDocument.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: /delete rows/i }));
+    await chooseMenuItem('Insert', /delete rows/i);
     await clickSave();
     written = await writtenDocument();
     expect(written.worksheets[0].rowOrder).toHaveLength(20);
@@ -623,7 +633,7 @@ describe('SheetView editor', () => {
 
     const surface = screen.getByTestId('sheet-cell-surface');
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(2, 1) });
-    fireEvent.click(screen.getByRole('button', { name: /freeze here/i }));
+    await chooseMenuItem('Insert', /freeze panes here/i);
 
     await clickSave();
     const written = await writtenDocument();
@@ -640,7 +650,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
     fireEvent.pointerMove(surface, pointFor(1, 1));
     fireEvent.pointerUp(surface, pointFor(1, 1));
-    fireEvent.click(screen.getByRole('button', { name: /^merge$/i }));
+    await chooseMenuItem('Insert', /^merge cells$/i);
 
     await clickSave();
     const written = await writtenDocument();
@@ -648,7 +658,7 @@ describe('SheetView editor', () => {
 
     // A single cell cannot merge: the user gets a message, not a crash.
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(5, 5) });
-    fireEvent.click(screen.getByRole('button', { name: /^merge$/i }));
+    await chooseMenuItem('Insert', /^merge cells$/i);
     expect(toastMocks.error).toHaveBeenCalledWith(expect.stringContaining('more than one cell'));
   });
 
@@ -735,9 +745,7 @@ describe('SheetView editor', () => {
     // The grid still renders: a workbook from a newer client is readable, it
     // just may not be rewritten by this build.
     expect(screen.getByTestId('sheet-grid')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /insert rows/i }).hasAttribute('disabled')).toBe(
-      true,
-    );
+    expect((await findMenuItem('Insert', /insert rows/i)).hasAttribute('data-disabled')).toBe(true);
 
     fireEvent.keyDown(screen.getByTestId('sheet-grid'), { key: '5' });
     expect(screen.queryByRole('textbox', { name: 'Cell editor' })).toBeNull();
@@ -767,10 +775,10 @@ describe('SheetView editor', () => {
     await openWorkbook();
 
     expect(screen.getByText(/viewer access/i)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /insert rows/i }).hasAttribute('disabled')).toBe(
-      true,
-    );
-    expect(screen.getByRole('button', { name: /^merge$/i }).hasAttribute('disabled')).toBe(true);
+    expect((await findMenuItem('Insert', /insert rows/i)).hasAttribute('data-disabled')).toBe(true);
+    expect(
+      screen.getByRole('menuitem', { name: /^merge cells$/i }).hasAttribute('data-disabled'),
+    ).toBe(true);
 
     fireEvent.keyDown(screen.getByTestId('sheet-grid'), { key: '5' });
     expect(screen.queryByRole('textbox', { name: 'Cell editor' })).toBeNull();

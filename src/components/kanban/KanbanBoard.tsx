@@ -26,7 +26,6 @@ import {
   Calendar,
   CalendarDays,
   Check,
-  ChevronDown,
   Clock3,
   Filter,
   Flag,
@@ -76,9 +75,11 @@ import { useKanbanContext } from '../../views/KanbanPage';
 import LivePeers from '../collaboration/LivePeers';
 import { DocumentStatusPill } from '../layout/DocumentStatusPill';
 import {
+  DocumentMoreMenu,
   DocumentTopBar,
   DocumentTopBarButton,
   documentTopBarGroupClass,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
@@ -1240,22 +1241,17 @@ export default function KanbanBoardView() {
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Board')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<LayoutDashboard size={15} />}
+        icon={<LayoutDashboard />}
+        status={<DocumentStatusPill status={sessionStatus} compact />}
         meta={
           <>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {totalCards} {totalCards === 1 ? 'card' : 'cards'} across {board.columns.length}{' '}
-              columns
-            </span>
-            <span className="shrink-0 text-xs text-muted-foreground">{archivedCount} archived</span>
-            <DocumentStatusPill status={sessionStatus} compact />
             {boardPeers.length > 0 && (
-              <div className="flex items-center gap-1" title="Also viewing this board">
+              <div className="flex items-center -space-x-1.5" title="Also viewing this board">
                 {boardPeers.map((p) => (
                   <div
                     key={p.userId}
                     title={p.userName}
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-background"
+                    className="flex size-6 items-center justify-center rounded-full border-2 border-background text-[10px] font-bold text-white"
                     style={{ backgroundColor: p.userColor }}
                   >
                     {p.userName[0]?.toUpperCase()}
@@ -1264,170 +1260,163 @@ export default function KanbanBoardView() {
               </div>
             )}
             <LivePeers peers={livePeers} />
+            <div
+              role="group"
+              aria-label="Board view"
+              className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+            >
+              {(
+                [
+                  ['board', 'Board', LayoutDashboard],
+                  ['calendar', 'Calendar', CalendarDays],
+                  ['timeline', 'Timeline', GanttChart],
+                  ['archive', 'Archive', Archive],
+                ] as const
+              ).map(([value, label, Icon]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={view === value}
+                  onClick={() => setView(value)}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition-colors app-motion-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+                    view === value
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                  {label}
+                  {value === 'archive' && archivedCount > 0 && (
+                    <span className="rounded-full bg-muted px-1.5 text-[10px] leading-4">
+                      {archivedCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {view === 'board' && (
+              <DocumentTopBarButton variant="default" onClick={() => setAddingColumn(true)}>
+                <Plus /> Add column
+              </DocumentTopBarButton>
+            )}
+            <DocumentMoreMenu label="More board actions">
+              <DropdownMenuLabel className="font-normal text-muted-foreground">
+                {totalCards} {totalCards === 1 ? 'card' : 'cards'} in {board.columns.length} columns
+                · {archivedCount} archived
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setAutomationDialogOpen(true)}>
+                <Bot /> Automations…
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={runAutomationsNow}>
+                <Play /> Run automations now
+              </DropdownMenuItem>
+            </DocumentMoreMenu>
           </>
         }
         secondary={
-          <>
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton
-                onClick={() => setView('board')}
-                className={cn(
-                  view === 'board'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <LayoutDashboard size={14} />
-                Board
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setView('calendar')}
-                className={cn(
-                  view === 'calendar'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <CalendarDays size={14} />
-                Calendar
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setView('timeline')}
-                className={cn(
-                  view === 'timeline'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <GanttChart size={14} />
-                Timeline
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setView('archive')}
-                className={cn(
-                  view === 'archive'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Archive size={14} />
-                Archive
-                {archivedCount > 0 && (
-                  <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] leading-none">
-                    {archivedCount}
-                  </span>
-                )}
-              </DocumentTopBarButton>
-            </div>
-
-            {view === 'board' && (
-              <>
-                <div className={documentTopBarGroupClass}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <DocumentTopBarButton>
-                        <span className="truncate">Swimlanes: {activeSwimlaneLabel}</span>
-                        <ChevronDown size={13} />
-                      </DocumentTopBarButton>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="min-w-[180px]">
-                      <DropdownMenuLabel>Swimlanes</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuRadioGroup
-                        value={swimlaneMode}
-                        onValueChange={(value) =>
-                          updateBoard((prev) => ({
-                            ...prev,
-                            viewSettings: {
-                              ...(prev.viewSettings ?? {}),
-                              swimlaneMode: value as KanbanSwimlaneMode,
-                            },
-                          }))
+          view === 'board' ? (
+            <>
+              <div className={documentTopBarGroupClass}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton>
+                      <span className="text-muted-foreground">Swimlanes</span>
+                      {activeSwimlaneLabel}
+                    </DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[180px]">
+                    <DropdownMenuLabel>Swimlanes</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioGroup
+                      value={swimlaneMode}
+                      onValueChange={(value) =>
+                        updateBoard((prev) => ({
+                          ...prev,
+                          viewSettings: {
+                            ...(prev.viewSettings ?? {}),
+                            swimlaneMode: value as KanbanSwimlaneMode,
+                          },
+                        }))
+                      }
+                    >
+                      {SWIMLANE_OPTIONS.map((option) => (
+                        <DropdownMenuRadioItem key={option.value} value={option.value}>
+                          {option.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className={documentTopBarGroupClass}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton
+                      className={cn(
+                        board.activeFilterId && 'bg-primary/10 text-foreground hover:bg-primary/15',
+                      )}
+                    >
+                      <Filter />
+                      {activeFilterLabel}
+                    </DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[200px]">
+                    <DropdownMenuLabel>Saved filters</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioGroup
+                      value={board.activeFilterId ?? '__all__'}
+                      onValueChange={(value) => {
+                        if (value === '__all__') {
+                          updateBoard((prev) => ({ ...prev, activeFilterId: null }));
+                          return;
                         }
-                      >
-                        {SWIMLANE_OPTIONS.map((option) => (
-                          <DropdownMenuRadioItem key={option.value} value={option.value}>
-                            {option.label}
-                          </DropdownMenuRadioItem>
-                        ))}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <DocumentTopBarButton>
-                        <span className="truncate">Filter: {activeFilterLabel}</span>
-                        <ChevronDown size={13} />
-                      </DocumentTopBarButton>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="min-w-[180px]">
-                      <DropdownMenuLabel>Filters</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuRadioGroup
-                        value={board.activeFilterId ?? '__all__'}
-                        onValueChange={(value) => {
-                          if (value === '__all__') {
-                            updateBoard((prev) => ({ ...prev, activeFilterId: null }));
-                            return;
-                          }
-                          updateBoard((prev) => ({ ...prev, activeFilterId: value }));
-                        }}
-                      >
-                        <DropdownMenuRadioItem value="__all__">All cards</DropdownMenuRadioItem>
-                        {(board.savedFilters ?? []).length > 0 ? <DropdownMenuSeparator /> : null}
-                        {(board.savedFilters ?? []).map((filter) => (
-                          <DropdownMenuRadioItem key={filter.id} value={filter.id}>
-                            {filter.name}
-                          </DropdownMenuRadioItem>
-                        ))}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <DocumentTopBarButton
-                    onClick={() => {
-                      setWorkingFilter(activeFilter?.spec ?? workingFilter);
-                      setFilterDialogOpen(true);
-                    }}
-                  >
-                    <Filter size={12} />
-                    Filter
-                  </DocumentTopBarButton>
-                </div>
-
-                <div className={documentTopBarGroupClass}>
-                  <DocumentTopBarButton
-                    onClick={() =>
-                      updateBoard((prev) => ({
-                        ...prev,
-                        viewSettings: {
-                          ...(prev.viewSettings ?? {}),
-                          statsPanelOpen: !(prev.viewSettings?.statsPanelOpen ?? false),
-                        },
-                      }))
-                    }
-                  >
-                    <BarChart3 size={14} />
-                    Stats
-                  </DocumentTopBarButton>
-                  <DocumentTopBarButton onClick={() => setAutomationDialogOpen(true)}>
-                    <Bot size={14} />
-                    Automations
-                  </DocumentTopBarButton>
-                  <DocumentTopBarButton onClick={runAutomationsNow}>
-                    <Play size={14} />
-                    Run automations
-                  </DocumentTopBarButton>
-                </div>
-
-                <div className={documentTopBarGroupClass}>
-                  <DocumentTopBarButton onClick={() => setAddingColumn(true)}>
-                    <Plus size={14} />
-                    Add column
-                  </DocumentTopBarButton>
-                </div>
-              </>
-            )}
-          </>
+                        updateBoard((prev) => ({ ...prev, activeFilterId: value }));
+                      }}
+                    >
+                      <DropdownMenuRadioItem value="__all__">All cards</DropdownMenuRadioItem>
+                      {(board.savedFilters ?? []).length > 0 ? <DropdownMenuSeparator /> : null}
+                      {(board.savedFilters ?? []).map((filter) => (
+                        <DropdownMenuRadioItem key={filter.id} value={filter.id}>
+                          {filter.name}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setWorkingFilter(activeFilter?.spec ?? workingFilter);
+                        setFilterDialogOpen(true);
+                      }}
+                    >
+                      Edit filters…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="flex-1" />
+              <div className={documentTopBarGroupClass}>
+                <DocumentTopBarButton
+                  aria-pressed={board.viewSettings?.statsPanelOpen ?? false}
+                  className={cn(
+                    board.viewSettings?.statsPanelOpen && 'bg-primary/10 text-foreground',
+                  )}
+                  onClick={() =>
+                    updateBoard((prev) => ({
+                      ...prev,
+                      viewSettings: {
+                        ...(prev.viewSettings ?? {}),
+                        statsPanelOpen: !(prev.viewSettings?.statsPanelOpen ?? false),
+                      },
+                    }))
+                  }
+                >
+                  <BarChart3 /> Stats
+                </DocumentTopBarButton>
+              </div>
+            </>
+          ) : undefined
         }
       />
 

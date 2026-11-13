@@ -27,6 +27,7 @@ import {
   Palette,
   Printer,
   Redo2,
+  RefreshCw,
   Rows3,
   Save,
   Search,
@@ -41,10 +42,14 @@ import {
 import { toast } from 'sonner';
 
 import LivePeers from '../components/collaboration/LivePeers';
+import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
+  DocumentMoreMenu,
   DocumentTopBar,
   DocumentTopBarButton,
   documentTopBarGroupClass,
+  DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
@@ -69,6 +74,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { utf8ToBase64 } from '../lib/circuitSweepExport';
@@ -1170,15 +1179,6 @@ export default function SheetView({ relativePath }: Props) {
     return highlights;
   }, [document, selection.active, worksheet]);
 
-  const meta = document ? (
-    <>
-      <span>
-        {document.worksheets.length} worksheet{document.worksheets.length === 1 ? '' : 's'}
-      </span>
-      <LivePeers peers={livePeers} />
-    </>
-  ) : undefined;
-
   const frozen = worksheet?.frozen ?? { rows: 0, columns: 0 };
   const isFrozen = frozen.rows > 0 || frozen.columns > 0;
   const validationIssues = useMemo(
@@ -1191,86 +1191,280 @@ export default function SheetView({ relativePath }: Props) {
       {isVaultReadOnly(vault) && <ReadOnlyBanner />}
 
       <DocumentTopBar
-        icon={<Table2 size={15} className="text-violet-400/80" />}
+        icon={<Table2 />}
         title={getDocumentBaseName(relativePath, 'Workbook')}
         subtitle={getDocumentFolderPath(relativePath)}
-        meta={meta}
+        status={
+          document ? (
+            session.saving ? (
+              <DocumentStatusPill status="saving" compact />
+            ) : session.dirty && !session.readOnly ? (
+              <DocumentTopBarButton
+                variant="outline"
+                onClick={() =>
+                  session.save().catch((error) => toast.error(`Failed to save workbook: ${error}`))
+                }
+              >
+                <Save /> Save
+              </DocumentTopBarButton>
+            ) : session.readOnly ? null : (
+              <DocumentStatusPill status="saved" compact />
+            )
+          ) : undefined
+        }
+        meta={
+          <>
+            <LivePeers peers={livePeers} />
+            <DocumentMoreMenu label="More workbook actions">
+              <DropdownMenuItem
+                disabled={!document}
+                onSelect={() => {
+                  void exportWorkbookAs('xlsx');
+                }}
+              >
+                <FileSpreadsheet /> Export workbook as .xlsx
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!document} onSelect={() => setCsvExportOpen(true)}>
+                <FileSpreadsheet /> Export as .csv…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
+                  void exportSelection('svg');
+                }}
+              >
+                <Download /> Export selection as SVG
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  void exportSelection('png');
+                }}
+              >
+                <Download /> Export selection as PNG
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={printSelection}>
+                <Printer /> Print selection
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  void insertSelectionInNote();
+                }}
+              >
+                <FileOutput /> Insert selection in open note
+              </DropdownMenuItem>
+            </DocumentMoreMenu>
+          </>
+        }
         secondary={
           <>
             <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton onClick={insertRows} disabled={session.readOnly || !document}>
-                <Rows3 size={13} />
-                Insert rows
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={insertColumns}
-                disabled={session.readOnly || !document}
+              <DocumentTopBarIconButton
+                onClick={undo}
+                disabled={session.readOnly || historyCounts.past === 0}
+                aria-label="Undo"
+                title="Undo (Ctrl+Z)"
               >
-                <Columns3 size={13} />
-                Insert columns
-              </DocumentTopBarButton>
-              <DocumentTopBarButton onClick={deleteRows} disabled={session.readOnly || !document}>
-                <Trash2 size={13} />
-                Delete rows
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={deleteColumns}
-                disabled={session.readOnly || !document}
+                <Undo2 />
+              </DocumentTopBarIconButton>
+              <DocumentTopBarIconButton
+                onClick={redo}
+                disabled={session.readOnly || historyCounts.future === 0}
+                aria-label="Redo"
+                title="Redo (Ctrl+Shift+Z)"
               >
-                <Trash2 size={13} />
-                Delete columns
-              </DocumentTopBarButton>
+                <Redo2 />
+              </DocumentTopBarIconButton>
             </div>
 
+            {document && worksheet ? (
+              <SheetFormattingToolbar
+                style={activeStyle}
+                note={getCell(worksheet, selection.active)?.note}
+                disabled={session.readOnly}
+                onPatch={(patch) =>
+                  mutate((current, id) => applyStyleToSelection(current, id, selection, patch))
+                }
+                onClear={() =>
+                  mutate((current, id) => clearStylesFromSelection(current, id, selection))
+                }
+                onCopy={() => {
+                  void writeSystemClipboard();
+                }}
+                onCut={() => {
+                  void writeSystemClipboard().then((copied) => {
+                    if (copied) mutate((current, id) => clearCells(current, id, selection));
+                  });
+                }}
+                onPaste={(mode) => {
+                  void pasteFromSystemClipboard(mode);
+                }}
+                onNoteChange={(note) =>
+                  mutate((current, id) => setCellNote(current, id, selection.active, note))
+                }
+              />
+            ) : null}
+
             <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton
-                onClick={() => setTableDialogOpen(true)}
-                disabled={!document}
-                aria-label={activeTable ? `Manage table ${activeTable.name}` : 'Create table'}
-              >
-                <TableProperties size={13} />
-                {activeTable?.name ?? 'Table'}
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() =>
-                  activeTableColumn &&
-                  activeTable &&
-                  mutate((current, id) =>
-                    sortSheetTable(
-                      current,
-                      id,
-                      activeTable.id,
-                      [{ columnId: activeTableColumn.columnId, direction: 'ascending' }],
-                      formulaState.values,
-                    ),
-                  )
-                }
-                disabled={session.readOnly || !activeTableColumn}
-                aria-label="Sort active table column ascending"
-                title="Sort ascending"
-              >
-                <ArrowDownAZ size={13} />
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() =>
-                  activeTableColumn &&
-                  activeTable &&
-                  mutate((current, id) =>
-                    sortSheetTable(
-                      current,
-                      id,
-                      activeTable.id,
-                      [{ columnId: activeTableColumn.columnId, direction: 'descending' }],
-                      formulaState.values,
-                    ),
-                  )
-                }
-                disabled={session.readOnly || !activeTableColumn}
-                aria-label="Sort active table column descending"
-                title="Sort descending"
-              >
-                <ArrowUpZA size={13} />
-              </DocumentTopBarButton>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton disabled={!document}>Insert</DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-56">
+                  <DropdownMenuItem disabled={session.readOnly} onSelect={insertRows}>
+                    <Rows3 /> Insert rows
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={session.readOnly} onSelect={insertColumns}>
+                    <Columns3 /> Insert columns
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={session.readOnly} onSelect={deleteRows}>
+                    <Trash2 /> Delete rows
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={session.readOnly} onSelect={deleteColumns}>
+                    <Trash2 /> Delete columns
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={session.readOnly}
+                    onSelect={() =>
+                      mutate((current, id) =>
+                        insertTracks(current, id, 'row', bounds.rowCount, 100),
+                      )
+                    }
+                  >
+                    <ArrowDownToLine /> Add 100 rows
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={session.readOnly}
+                    onSelect={() =>
+                      mutate((current, id) =>
+                        insertTracks(current, id, 'column', bounds.columnCount, 10),
+                      )
+                    }
+                  >
+                    <ArrowRightToLine /> Add 10 columns
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setTableDialogOpen(true)}>
+                    <TableProperties />
+                    {activeTable ? `Manage table ${activeTable.name}…` : 'Create table…'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={session.readOnly}
+                    onSelect={() => mutate((current, id) => mergeSelection(current, id, selection))}
+                  >
+                    <Combine /> Merge cells
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={session.readOnly}
+                    onSelect={() =>
+                      mutate((current, id) => unmergeSelection(current, id, selection))
+                    }
+                  >
+                    <Split /> Unmerge cells
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={session.readOnly} onSelect={toggleFreeze}>
+                    <Snowflake /> {isFrozen ? 'Unfreeze panes' : 'Freeze panes here'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton disabled={!document}>Data</DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-60">
+                  <DropdownMenuItem
+                    disabled={session.readOnly || !activeTableColumn}
+                    onSelect={() =>
+                      activeTableColumn &&
+                      activeTable &&
+                      mutate((current, id) =>
+                        sortSheetTable(
+                          current,
+                          id,
+                          activeTable.id,
+                          [{ columnId: activeTableColumn.columnId, direction: 'ascending' }],
+                          formulaState.values,
+                        ),
+                      )
+                    }
+                  >
+                    <ArrowDownAZ /> Sort table column A → Z
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={session.readOnly || !activeTableColumn}
+                    onSelect={() =>
+                      activeTableColumn &&
+                      activeTable &&
+                      mutate((current, id) =>
+                        sortSheetTable(
+                          current,
+                          id,
+                          activeTable.id,
+                          [{ columnId: activeTableColumn.columnId, direction: 'descending' }],
+                          formulaState.values,
+                        ),
+                      )
+                    }
+                  >
+                    <ArrowUpZA /> Sort table column Z → A
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setValidationDialogOpen(true)}>
+                    <BadgeCheck /> {activeValidation ? 'Edit data validation…' : 'Data validation…'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setConditionalFormatDialogOpen(true)}>
+                    <Palette /> Conditional formatting…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setNamedRangeDialogOpen(true)}>
+                    <Bookmark /> Named ranges…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setProtectionDialogOpen(true)}>
+                    <LockKeyhole /> Protected ranges…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setLinksDialogOpen(true)}>
+                    <Link2 /> Cell links and attachments…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <WandSparkles /> Data cleanup
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          mutate((current, id) => trimSheetText(current, id, selection))
+                        }
+                      >
+                        Trim whitespace
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          mutate((current, id) => splitSheetTextToColumns(current, id, selection))
+                        }
+                      >
+                        Split text by comma
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          mutate((current, id) => removeDuplicateSheetRows(current, id, selection))
+                        }
+                      >
+                        Remove duplicate rows
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuItem onSelect={() => setDataConnectionsDialogOpen(true)}>
+                    <Database /> Data snapshots…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={formulaState.calculating}
+                    onSelect={formulaState.recalculate}
+                  >
+                    <RefreshCw /> Recalculate formulas
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {activeTable && activeTableColumn && (
                 <SheetFilterPopover
                   disabled={session.readOnly}
@@ -1292,232 +1486,25 @@ export default function SheetView({ relativePath }: Props) {
                   }
                 />
               )}
-              <DocumentTopBarButton
-                onClick={() => setValidationDialogOpen(true)}
-                disabled={!document}
-                aria-label={activeValidation ? 'Edit data validation' : 'Add data validation'}
-              >
-                <BadgeCheck size={13} />
-                Validate
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setConditionalFormatDialogOpen(true)}
-                disabled={!document}
-                aria-label="Conditional formatting"
-              >
-                <Palette size={13} />
-                Conditions
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setNamedRangeDialogOpen(true)}
-                disabled={!document}
-                aria-label="Named ranges"
-              >
-                <Bookmark size={13} />
-                Names
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setProtectionDialogOpen(true)}
-                disabled={!document}
-                aria-label="Protected ranges"
-              >
-                <LockKeyhole size={13} />
-                Protect
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setLinksDialogOpen(true)}
-                disabled={!document}
-                aria-label="Cell links and attachments"
-              >
-                <Link2 size={13} />
-                Links
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
+              <DocumentTopBarIconButton
                 onClick={() => setAnalysisDialogOpen(true)}
                 disabled={!document}
                 aria-label="Charts and analysis"
+                title="Charts and analysis"
               >
-                <BarChart3 size={13} />
-                Analyze
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => setDataConnectionsDialogOpen(true)}
-                disabled={!document}
-                aria-label="Data snapshots"
-              >
-                <Database size={13} />
-                Data
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={formulaState.recalculate}
-                disabled={!document || formulaState.calculating}
-                aria-label="Recalculate formulas"
-                title="Recalculate formulas, including time and random functions"
-              >
-                Recalculate
-              </DocumentTopBarButton>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <DocumentTopBarButton aria-label="Data cleanup">
-                    <WandSparkles size={13} />
-                    Cleanup
-                  </DocumentTopBarButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem
-                    onSelect={() => mutate((current, id) => trimSheetText(current, id, selection))}
-                  >
-                    Trim whitespace
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      mutate((current, id) => splitSheetTextToColumns(current, id, selection))
-                    }
-                  >
-                    Split text by comma
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      mutate((current, id) => removeDuplicateSheetRows(current, id, selection))
-                    }
-                  >
-                    Remove duplicate rows
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                <BarChart3 />
+              </DocumentTopBarIconButton>
             </div>
 
+            <div className="flex-1" />
             <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton
-                onClick={undo}
-                disabled={session.readOnly || historyCounts.past === 0}
-                aria-label="Undo"
-                title="Undo"
-              >
-                <Undo2 size={13} />
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={redo}
-                disabled={session.readOnly || historyCounts.future === 0}
-                aria-label="Redo"
-                title="Redo"
-              >
-                <Redo2 size={13} />
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
+              <DocumentTopBarIconButton
                 onClick={() => setFindOpen(true)}
                 aria-label="Find and replace"
-                title="Find and replace"
+                title="Find and replace (Ctrl+F)"
               >
-                <Search size={13} />
-              </DocumentTopBarButton>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <DocumentTopBarButton aria-label="Export selection" title="Export selection">
-                    <Download size={13} />
-                    Export
-                  </DocumentTopBarButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem
-                    disabled={!document}
-                    onSelect={() => {
-                      void exportWorkbookAs('xlsx');
-                    }}
-                  >
-                    <FileSpreadsheet />
-                    Export workbook as .xlsx
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!document} onSelect={() => setCsvExportOpen(true)}>
-                    <FileSpreadsheet />
-                    Export as .csv…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      void exportSelection('svg');
-                    }}
-                  >
-                    Export selection as SVG
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      void exportSelection('png');
-                    }}
-                  >
-                    Export selection as PNG
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={printSelection}>
-                    <Printer />
-                    Print selection
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      void insertSelectionInNote();
-                    }}
-                  >
-                    <FileOutput />
-                    Insert selection in open note
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DocumentTopBarButton
-                onClick={() => mutate((current, id) => mergeSelection(current, id, selection))}
-                disabled={session.readOnly || !document}
-              >
-                <Combine size={13} />
-                Merge
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() => mutate((current, id) => unmergeSelection(current, id, selection))}
-                disabled={session.readOnly || !document}
-              >
-                <Split size={13} />
-                Unmerge
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={toggleFreeze}
-                disabled={session.readOnly || !document}
-                aria-pressed={isFrozen}
-              >
-                <Snowflake size={13} />
-                {isFrozen ? 'Unfreeze' : 'Freeze here'}
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() =>
-                  mutate((current, id) => insertTracks(current, id, 'row', bounds.rowCount, 100))
-                }
-                disabled={session.readOnly || !document}
-              >
-                <ArrowDownToLine size={13} />
-                +100 rows
-              </DocumentTopBarButton>
-              <DocumentTopBarButton
-                onClick={() =>
-                  mutate((current, id) =>
-                    insertTracks(current, id, 'column', bounds.columnCount, 10),
-                  )
-                }
-                disabled={session.readOnly || !document}
-              >
-                <ArrowRightToLine size={13} />
-                +10 columns
-              </DocumentTopBarButton>
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton
-                onClick={() =>
-                  session.save().catch((error) => toast.error(`Failed to save workbook: ${error}`))
-                }
-                disabled={session.readOnly || !session.dirty || session.saving}
-              >
-                {session.saving ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Save size={13} />
-                )}
-                {session.saving ? 'Saving…' : session.dirty ? 'Save' : 'Saved'}
-              </DocumentTopBarButton>
+                <Search />
+              </DocumentTopBarIconButton>
             </div>
           </>
         }
@@ -1558,31 +1545,6 @@ export default function SheetView({ relativePath }: Props) {
 
       {!session.loading && !session.error && document && worksheet && (
         <>
-          <SheetFormattingToolbar
-            style={activeStyle}
-            note={getCell(worksheet, selection.active)?.note}
-            disabled={session.readOnly}
-            onPatch={(patch) =>
-              mutate((current, id) => applyStyleToSelection(current, id, selection, patch))
-            }
-            onClear={() =>
-              mutate((current, id) => clearStylesFromSelection(current, id, selection))
-            }
-            onCopy={() => {
-              void writeSystemClipboard();
-            }}
-            onCut={() => {
-              void writeSystemClipboard().then((copied) => {
-                if (copied) mutate((current, id) => clearCells(current, id, selection));
-              });
-            }}
-            onPaste={(mode) => {
-              void pasteFromSystemClipboard(mode);
-            }}
-            onNoteChange={(note) =>
-              mutate((current, id) => setCellNote(current, id, selection.active, note))
-            }
-          />
           <SheetFormulaBar
             selection={selection}
             value={activeCellText}

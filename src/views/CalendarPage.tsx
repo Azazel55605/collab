@@ -34,6 +34,12 @@ import {
   CalendarAttendeeEditor,
   CalendarInvitations,
 } from '../components/calendar/CalendarRelations';
+import {
+  DocumentMoreMenu,
+  DocumentTopBar,
+  DocumentTopBarButton,
+  DocumentTopBarIconButton,
+} from '../components/layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
@@ -619,110 +625,98 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
       data-time-format={timeFormat}
       className="flex h-full min-h-0 flex-col bg-background"
     >
-      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-        <CalendarDays className="size-4 text-primary" />
-        <h1 className="mr-1 text-sm font-semibold">Calendar</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const today = new Date();
-            setAnchor(today);
-            setSelectedDate(calendarDateKey(today));
-          }}
-        >
-          Today
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Previous period"
-          onClick={() => movePeriod(-1)}
-        >
-          <ChevronLeft />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Next period"
-          onClick={() => movePeriod(1)}
-        >
-          <ChevronRight />
-        </Button>
-        <div className="min-w-28 flex-1 truncate text-center text-sm font-medium">
-          {viewTitle(viewMode, anchor, selectedDay, weekDays)}
-        </div>
-        <CalendarSearch
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
-          query={searchQuery}
-          onQueryChange={setSearchQuery}
-          results={searchResults}
-          searching={searching}
-          calendarById={calendarById}
-          onOpenItem={(item) => {
-            setSearchOpen(false);
-            editItem(item);
-          }}
-        />
-        <div
-          role="group"
-          aria-label="Calendar view"
-          className="flex rounded-md border border-border bg-muted/30 p-0.5"
-        >
-          {VIEW_MODES.map((mode) => (
-            <button
-              key={mode.value}
-              type="button"
-              aria-pressed={viewMode === mode.value}
-              onClick={() => setViewMode(mode.value)}
-              className={cn(
-                'h-6 rounded px-2 text-[11px] text-muted-foreground',
-                viewMode === mode.value && 'bg-background text-foreground shadow-sm',
-              )}
+      <DocumentTopBar
+        icon={<CalendarDays />}
+        title="Calendar"
+        subtitle={viewTitle(viewMode, anchor, selectedDay, weekDays)}
+        status={
+          store.loading || store.syncing ? (
+            <LoaderCircle
+              className="size-4 animate-spin text-muted-foreground"
+              aria-label={store.syncing ? 'Syncing calendars' : 'Loading calendars'}
+            />
+          ) : undefined
+        }
+        meta={
+          <>
+            <CalendarSearch
+              open={searchOpen}
+              onOpenChange={setSearchOpen}
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              results={searchResults}
+              searching={searching}
+              calendarById={calendarById}
+              onOpenItem={(item) => {
+                setSearchOpen(false);
+                editItem(item);
+              }}
+            />
+            {hostedOrigins.length > 0 && (
+              <CalendarInvitations
+                origins={hostedOrigins}
+                onChanged={() => void store.syncHosted(hostedOrigins)}
+              />
+            )}
+            <DocumentTopBarButton
+              variant="outline"
+              onClick={() => {
+                const today = new Date();
+                setAnchor(today);
+                setSelectedDate(calendarDateKey(today));
+              }}
             >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-        {store.loading && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}
-        {hostedOrigins.length > 0 && (
-          <CalendarInvitations
-            origins={hostedOrigins}
-            onChanged={() => void store.syncHosted(hostedOrigins)}
-          />
-        )}
-        {hostedOrigins.length > 0 && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Manage CalDAV access"
-            title="Manage CalDAV access"
-            onClick={() => setCaldavDialogOpen(true)}
-          >
-            <KeyRound />
-          </Button>
-        )}
-        {hostedOrigins.length > 0 && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Sync hosted calendars"
-            title="Sync hosted calendars"
-            disabled={store.syncing}
-            onClick={() => void store.syncHosted(hostedOrigins)}
-          >
-            <RefreshCw className={cn(store.syncing && 'animate-spin')} />
-          </Button>
-        )}
-        <Button
-          size="sm"
-          onClick={() => openEditor({ date: selectedDate, kind: 'event' })}
-          disabled={store.calendars.length === 0}
-        >
-          <Plus /> New
-        </Button>
-      </header>
+              Today
+            </DocumentTopBarButton>
+            <DocumentTopBarIconButton aria-label="Previous period" onClick={() => movePeriod(-1)}>
+              <ChevronLeft />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton aria-label="Next period" onClick={() => movePeriod(1)}>
+              <ChevronRight />
+            </DocumentTopBarIconButton>
+            <div
+              role="group"
+              aria-label="Calendar view"
+              className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+            >
+              {VIEW_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  aria-pressed={viewMode === mode.value}
+                  onClick={() => setViewMode(mode.value)}
+                  className={cn(
+                    'h-7 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors app-motion-base outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50',
+                    viewMode === mode.value && 'bg-background text-foreground shadow-sm',
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <DocumentTopBarButton
+              variant="default"
+              onClick={() => openEditor({ date: selectedDate, kind: 'event' })}
+              disabled={store.calendars.length === 0}
+            >
+              <Plus /> New event
+            </DocumentTopBarButton>
+            {hostedOrigins.length > 0 && (
+              <DocumentMoreMenu label="More calendar actions">
+                <DropdownMenuItem
+                  disabled={store.syncing}
+                  onSelect={() => void store.syncHosted(hostedOrigins)}
+                >
+                  <RefreshCw /> Sync hosted calendars
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setCaldavDialogOpen(true)}>
+                  <KeyRound /> Manage CalDAV access…
+                </DropdownMenuItem>
+              </DocumentMoreMenu>
+            )}
+          </>
+        }
+      />
 
       {(store.error || interopError) && (
         <button

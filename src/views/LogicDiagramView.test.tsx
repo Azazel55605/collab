@@ -187,6 +187,12 @@ function seedVault() {
   } as never);
 }
 
+/** Adds a gate through the canvas rail's "Add gate" menu. */
+async function addGateFromRail(label: string) {
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Add gate' }), { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name: label }));
+}
+
 describe('LogicDiagramView safe reload policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -261,7 +267,7 @@ describe('LogicDiagramView safe reload policy', () => {
     expect(await screen.findByText(/0 gates/)).toBeTruthy();
 
     // Add a gate → the document is now dirty locally.
-    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+    await addGateFromRail('AND');
     await waitFor(() => expect(screen.getByText(/1 gates/)).toBeTruthy());
 
     // A remote change (2 gates) arrives while dirty: it must be queued, not applied.
@@ -313,7 +319,7 @@ describe('LogicDiagramView safe reload policy', () => {
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/0 gates/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+    await addGateFromRail('AND');
 
     await waitFor(() => expect(liveJsonMocks.writeJson).toHaveBeenCalled());
     expect(tauriMocks.writeNote).not.toHaveBeenCalled();
@@ -605,7 +611,7 @@ describe('LogicDiagramView safe reload policy', () => {
 
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/2 symbols/)).toBeTruthy();
-    fireEvent.click(screen.getByTitle('Configure DC sweep'));
+    fireEvent.click(screen.getByRole('button', { name: 'Configure DC sweep' }));
     fireEvent.change(screen.getByLabelText('Stop (V)'), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText('Samples'), { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save sweep' }));
@@ -696,7 +702,7 @@ describe('LogicDiagramView safe reload policy', () => {
 
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/2 symbols/)).toBeTruthy();
-    fireEvent.click(screen.getByTitle('Configure transient analysis'));
+    fireEvent.click(screen.getByRole('button', { name: 'Configure transient analysis' }));
     fireEvent.change(screen.getByLabelText('Duration (s)'), { target: { value: '0.002' } });
     fireEvent.change(screen.getByLabelText('Maximum timestep (s)'), { target: { value: '0.001' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save transient' }));
@@ -1204,7 +1210,7 @@ describe('LogicDiagramView safe reload policy', () => {
     fireEvent.click(await screen.findByRole('button', { name: /edit saved component/i }));
     expect(await screen.findByText(/reusable component editor/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await addGateFromRail('AND');
     fireEvent.click(screen.getByRole('button', { name: /update component/i }));
 
     await waitFor(() =>
@@ -1352,7 +1358,7 @@ describe('LogicDiagramView safe reload policy', () => {
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/0 gates/)).toBeTruthy();
 
-    const addButton = screen.getByRole('button', { name: /^add$/i });
+    const addButton = screen.getByRole('button', { name: 'Add gate' });
     expect((addButton as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(addButton);
