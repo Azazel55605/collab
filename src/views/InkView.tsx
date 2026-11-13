@@ -1513,23 +1513,22 @@ export default function InkView({ relativePath }: InkViewProps) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {!focusMode && (
-          <InkToolRail
-            tool={tool}
-            readOnly={session.readOnly}
-            onSelectTool={(next) => setTool((current) => ({ ...current, tool: next }))}
-            onSelectBrush={(kind: InkBrushKind) =>
-              setTool((current) => ({
-                ...current,
-                tool: 'pen',
-                brushId: kind,
-                brush: { ...(INK_DEFAULT_BRUSHES[kind] ?? current.brush) },
-              }))
-            }
-          />
-        )}
-
         <div className="relative min-w-0 flex-1 overflow-hidden">
+          {!focusMode && (
+            <InkToolRail
+              tool={tool}
+              readOnly={session.readOnly}
+              onSelectTool={(next) => setTool((current) => ({ ...current, tool: next }))}
+              onSelectBrush={(kind: InkBrushKind) =>
+                setTool((current) => ({
+                  ...current,
+                  tool: 'pen',
+                  brushId: kind,
+                  brush: { ...(INK_DEFAULT_BRUSHES[kind] ?? current.brush) },
+                }))
+              }
+            />
+          )}
           <InkCanvas
             page={page}
             originX={viewport.originX}

@@ -44,7 +44,6 @@ import { toast } from 'sonner';
 import LivePeers from '../components/collaboration/LivePeers';
 import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
-  DocumentMoreMenu,
   DocumentTopBar,
   DocumentTopBarButton,
   documentTopBarGroupClass,
@@ -1215,44 +1214,6 @@ export default function SheetView({ relativePath }: Props) {
         meta={
           <>
             <LivePeers peers={livePeers} />
-            <DocumentMoreMenu label="More workbook actions">
-              <DropdownMenuItem
-                disabled={!document}
-                onSelect={() => {
-                  void exportWorkbookAs('xlsx');
-                }}
-              >
-                <FileSpreadsheet /> Export workbook as .xlsx
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!document} onSelect={() => setCsvExportOpen(true)}>
-                <FileSpreadsheet /> Export as .csv…
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => {
-                  void exportSelection('svg');
-                }}
-              >
-                <Download /> Export selection as SVG
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => {
-                  void exportSelection('png');
-                }}
-              >
-                <Download /> Export selection as PNG
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={printSelection}>
-                <Printer /> Print selection
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => {
-                  void insertSelectionInNote();
-                }}
-              >
-                <FileOutput /> Insert selection in open note
-              </DropdownMenuItem>
-            </DocumentMoreMenu>
           </>
         }
         secondary={
@@ -1498,6 +1459,51 @@ export default function SheetView({ relativePath }: Props) {
 
             <div className="flex-1" />
             <div className={documentTopBarGroupClass}>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton>
+                    <Download /> Export
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-60">
+                  <DropdownMenuItem
+                    disabled={!document}
+                    onSelect={() => {
+                      void exportWorkbookAs('xlsx');
+                    }}
+                  >
+                    <FileSpreadsheet /> Export workbook as .xlsx
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!document} onSelect={() => setCsvExportOpen(true)}>
+                    <FileSpreadsheet /> Export as .csv…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void exportSelection('svg');
+                    }}
+                  >
+                    <Download /> Export selection as SVG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void exportSelection('png');
+                    }}
+                  >
+                    <Download /> Export selection as PNG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={printSelection}>
+                    <Printer /> Print selection
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void insertSelectionInNote();
+                    }}
+                  >
+                    <FileOutput /> Insert selection in open note
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <DocumentTopBarIconButton
                 onClick={() => setFindOpen(true)}
                 aria-label="Find and replace"

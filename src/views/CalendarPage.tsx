@@ -1346,11 +1346,13 @@ export function CalendarRail({
     <WorkspaceSidebar
       aria-label="Calendar overview"
       open={open}
-      frameClassName="[--workspace-sidebar-width:min(11rem,40vw)]"
-      className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
+      frameClassName="[--workspace-sidebar-width:min(14rem,40vw)]"
+      className="flex w-56 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
     >
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span>
+        <span className="text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
+          Calendars
+        </span>
         <span className="flex items-center">
           <Button
             variant="ghost"
@@ -1386,7 +1388,7 @@ export function CalendarRail({
           return (
             <div
               key={calendar.id}
-              className="group flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60"
+              className="group flex items-center gap-1 rounded-md px-2 py-1.5 text-[13px] hover:bg-accent/60"
             >
               <Checkbox
                 id={checkboxId}
@@ -1399,7 +1401,7 @@ export function CalendarRail({
                 title={subscription?.lastError || undefined}
               >
                 <span
-                  className="relative size-2.5 shrink-0 rounded-full"
+                  className="relative size-3 shrink-0 rounded-[4px]"
                   style={{ backgroundColor: calendar.color }}
                 >
                   {subscription?.lastError && (
@@ -1425,7 +1427,7 @@ export function CalendarRail({
         })}
         {archivedCalendars.length > 0 && (
           <>
-            <div className="mb-1 mt-3 px-1 text-[9px] font-semibold uppercase text-muted-foreground">
+            <div className="mb-1 mt-3 px-1 text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
               Archived
             </div>
             {archivedCalendars.map((calendar) => (
@@ -1704,7 +1706,7 @@ function MonthView({
         {labels.map((label) => (
           <div
             key={label}
-            className="px-2 py-1 text-right text-[10px] font-medium uppercase text-muted-foreground"
+            className="px-2.5 py-1.5 text-right text-[11px] font-medium tracking-wide uppercase text-muted-foreground"
           >
             {label}
           </div>
@@ -1741,15 +1743,18 @@ function MonthView({
                       }
                     }}
                     className={cn(
-                      'min-h-0 overflow-hidden border-b border-r border-border/50 p-1 text-left hover:bg-accent/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary',
+                      'min-h-0 overflow-hidden border-b border-r border-border/50 p-1.5 text-left hover:bg-accent/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary',
                       day.getMonth() !== anchor.getMonth() &&
                         'bg-muted/10 text-muted-foreground/60',
+                      (day.getDay() === 0 || day.getDay() === 6) &&
+                        day.getMonth() === anchor.getMonth() &&
+                        'bg-muted/25',
                       key === selectedDate && 'bg-primary/5 ring-1 ring-inset ring-primary/40',
                     )}
                   >
                     <span
                       className={cn(
-                        'ml-auto flex size-5 items-center justify-center rounded-full text-[11px]',
+                        'ml-auto flex size-6 items-center justify-center rounded-full text-xs font-medium tabular-nums',
                         key === calendarDateKey(new Date()) &&
                           'bg-primary font-semibold text-primary-foreground',
                       )}
@@ -1767,8 +1772,8 @@ function MonthView({
                         />
                       ))}
                       {dayItems.length > 4 && (
-                        <div className="px-1 text-[9px] text-muted-foreground">
-                          +{dayItems.length - 4}
+                        <div className="px-1.5 text-[11px] text-muted-foreground">
+                          +{dayItems.length - 4} more
                         </div>
                       )}
                     </div>
@@ -1834,17 +1839,23 @@ function WeekView({
               type="button"
               onClick={() => onSelect(key)}
               className={cn(
-                'border-r border-border/60 py-1.5 text-center hover:bg-accent/40',
+                'flex flex-col items-center gap-1 border-r border-border/60 py-2 text-center hover:bg-accent/40',
+                (day.getDay() === 0 || day.getDay() === 6) && 'bg-muted/30',
                 selectedDate === key && 'bg-primary/5',
               )}
             >
-              <span className="block text-[10px] uppercase text-muted-foreground">
+              <span
+                className={cn(
+                  'block text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
+                  key === todayKey && 'text-primary',
+                )}
+              >
                 {new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day)}
               </span>
               <span
                 className={cn(
-                  'mx-auto mt-0.5 flex size-7 items-center justify-center rounded-full text-sm',
-                  key === todayKey && 'bg-primary text-primary-foreground',
+                  'mx-auto flex size-8 items-center justify-center rounded-full text-base font-semibold tabular-nums',
+                  key === todayKey && 'bg-primary text-primary-foreground shadow-sm',
                 )}
               >
                 {day.getDate()}
@@ -1853,7 +1864,7 @@ function WeekView({
           );
         })}
         <div
-          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[9px] uppercase text-muted-foreground"
+          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[10px] font-medium uppercase text-muted-foreground"
           style={{ height: allDayHeight }}
         >
           All day
@@ -1940,21 +1951,26 @@ function DayView({
     <section ref={rootRef} className="mx-auto min-w-[520px] max-w-5xl">
       <div className="sticky top-0 z-20 grid grid-cols-[52px_minmax(0,1fr)] border-b border-border bg-background">
         <div className="border-r border-border/60" />
-        <div className="border-r border-border/60 py-1.5 text-center">
-          <span className="block text-[10px] uppercase text-muted-foreground">
+        <div className="flex flex-col items-center gap-1 border-r border-border/60 py-2 text-center">
+          <span
+            className={cn(
+              'block text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
+              key === todayKey && 'text-primary',
+            )}
+          >
             {new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(day)}
           </span>
           <span
             className={cn(
-              'mx-auto mt-0.5 flex size-7 items-center justify-center rounded-full text-sm',
-              key === todayKey && 'bg-primary text-primary-foreground',
+              'mx-auto flex size-8 items-center justify-center rounded-full text-base font-semibold tabular-nums',
+              key === todayKey && 'bg-primary text-primary-foreground shadow-sm',
             )}
           >
             {day.getDate()}
           </span>
         </div>
         <div
-          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[9px] uppercase text-muted-foreground"
+          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[10px] font-medium uppercase text-muted-foreground"
           style={{ height: allDayHeight }}
         >
           All day
@@ -2013,13 +2029,19 @@ function useInitialTimedScroll(
   }, [allDayHeight, dateKeys, rootRef, workingHoursStart]);
 }
 
+function isWeekendKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const weekday = new Date(year, month - 1, day).getDay();
+  return weekday === 0 || weekday === 6;
+}
+
 function TimeGutter({ hourLabel }: { hourLabel: (hour: number) => string }) {
   return (
     <div className="relative border-r border-border/60" style={{ height: WEEK_HOUR_HEIGHT * 24 }}>
       {Array.from({ length: 24 }, (_, hour) => (
         <span
           key={hour}
-          className="absolute right-2 -translate-y-1/2 text-[9px] text-muted-foreground"
+          className="absolute right-2 -translate-y-1/2 text-[11px] text-muted-foreground tabular-nums first:hidden"
           style={{ top: hour * WEEK_HOUR_HEIGHT }}
         >
           {hourLabel(hour)}
@@ -2104,7 +2126,9 @@ function AllDayDropLane({
             />
           ))}
           {dayItems.length > 3 && (
-            <div className="px-1 text-[9px] text-muted-foreground">+{dayItems.length - 3} more</div>
+            <div className="px-1.5 text-[11px] text-muted-foreground">
+              +{dayItems.length - 3} more
+            </div>
           )}
         </div>
       </div>
@@ -2195,7 +2219,11 @@ function TimedDayColumn({
     <DateContextMenu date={dateKey} onAdd={onAdd}>
       <div
         ref={columnRef}
-        className={cn('relative border-r border-border/60', selected && 'bg-primary/[0.025]')}
+        className={cn(
+          'relative border-r border-border/60',
+          isWeekendKey(dateKey) && 'bg-muted/20',
+          selected && 'bg-primary/[0.025]',
+        )}
         style={{ height: WEEK_HOUR_HEIGHT * 24 }}
         onDragOver={(event) => {
           if (!Array.from(event.dataTransfer.types).includes(CALENDAR_TIMED_ITEM_DRAG_TYPE)) return;
@@ -2279,7 +2307,7 @@ function TimedDayColumn({
               onDelete={onDelete}
             >
               <div
-                className="group absolute z-[2] overflow-hidden rounded border-l-2 bg-background/95 shadow-sm hover:z-[3] hover:bg-accent focus-within:z-[4]"
+                className="group absolute z-[2] overflow-hidden rounded-md border-l-[3px] bg-background shadow-sm ring-1 ring-black/5 transition-[filter] hover:z-[3] hover:brightness-110 focus-within:z-[4] dark:ring-white/5"
                 style={{
                   top: (entry.startMinute / 60) * WEEK_HOUR_HEIGHT,
                   height: Math.max(
@@ -2289,6 +2317,9 @@ function TimedDayColumn({
                   left: `calc(${entry.column * width}% + 2px)`,
                   width: `calc(${width}% - 4px)`,
                   borderLeftColor: color,
+                  backgroundImage: color
+                    ? `linear-gradient(color-mix(in srgb, ${color} 22%, transparent), color-mix(in srgb, ${color} 22%, transparent))`
+                    : undefined,
                 }}
               >
                 <button
@@ -2305,13 +2336,13 @@ function TimedDayColumn({
                     onSelect(dateKey);
                     onEdit(entry.item);
                   }}
-                  className="h-full w-full cursor-grab overflow-hidden px-1 py-0.5 text-left active:cursor-grabbing"
+                  className="h-full w-full cursor-grab overflow-hidden px-1.5 py-1 text-left active:cursor-grabbing"
                 >
-                  <span className="flex min-w-0 items-center gap-1 text-[10px] font-medium">
-                    <ItemTypeIcon item={entry.item} className="size-2.5 shrink-0" />
+                  <span className="flex min-w-0 items-center gap-1 text-xs leading-tight font-semibold">
+                    <ItemTypeIcon item={entry.item} className="size-3 shrink-0" />
                     <span className="truncate">{entry.item.title}</span>
                   </span>
-                  <span className="block truncate text-[9px] text-muted-foreground">
+                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground tabular-nums">
                     {itemTime(entry.item)}
                   </span>
                 </button>
@@ -2618,12 +2649,15 @@ function ItemChip({
           onEdit(item);
         }}
         className={cn(
-          'flex w-full min-w-0 items-center gap-1 truncate rounded-sm bg-muted/75 px-1 py-0.5 text-left text-[10px] hover:bg-accent',
+          'flex w-full min-w-0 items-center gap-1.5 truncate rounded-md bg-muted/60 px-1.5 py-0.5 text-left text-[11px] leading-5 hover:brightness-110',
           draggable && 'cursor-grab active:cursor-grabbing',
         )}
+        style={
+          color ? { backgroundColor: `color-mix(in srgb, ${color} 18%, transparent)` } : undefined
+        }
       >
-        <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-        <ItemTypeIcon item={item} className="size-2.5 shrink-0" />
+        <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        <ItemTypeIcon item={item} className="size-3 shrink-0 text-muted-foreground" />
         <span className="truncate">
           {showTime && `${itemTime(item)} `}
           {item.title}

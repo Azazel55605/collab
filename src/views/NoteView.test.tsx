@@ -72,7 +72,9 @@ vi.mock('y-codemirror.next', () => ({
 }));
 
 vi.mock('../components/editor/EditorToolbar', () => ({
-  EditorToolbar: () => <div data-testid="toolbar" />,
+  EditorToolbar: ({ readOnly }: { readOnly?: boolean }) => (
+    <div data-testid="toolbar" data-readonly={String(Boolean(readOnly))} />
+  ),
 }));
 
 vi.mock('../components/editor/MarkdownEditor', () => ({
@@ -424,8 +426,8 @@ describe('NoteView external reload behavior', () => {
     render(<NoteView relativePath="Notes/a.md" />);
 
     expect((await screen.findByTestId('editor-content')).textContent).toBe('hosted note');
-    // The read-only banner replaces the editing toolbar and the editor is non-editable.
-    expect(screen.queryByTestId('toolbar')).toBeNull();
+    // Read-only notes keep the header (pages, print) but the toolbar drops its formatting strip.
+    expect(screen.getByTestId('toolbar').dataset.readonly).toBe('true');
     expect(screen.getByText(/Read-only/)).toBeTruthy();
     expect(screen.getByTestId('editor-readonly').textContent).toBe('true');
 

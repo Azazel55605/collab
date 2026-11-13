@@ -9,11 +9,7 @@ import { yCollab } from 'y-codemirror.next';
 import LivePeers from '../components/collaboration/LivePeers';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
-import { NotePageControls } from '../components/editor/NotePageControls';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import { Button } from '../components/ui/button';
-import { Checkbox } from '../components/ui/checkbox';
-import { Label } from '../components/ui/label';
 import { useCollabIdentity } from '../lib/collabIdentity';
 import { saveConflictedCopy } from '../lib/conflictedCopy';
 import { useDocumentPaneIsActive, useDocumentViewKey } from '../lib/documentPaneContext';
@@ -65,7 +61,6 @@ function sanitizeFilename(name: string): string {
 export default function NoteView({ relativePath }: { relativePath: string }) {
   const viewKey = useDocumentViewKey(relativePath);
   const paged = useNotePageStore((state) => state.paged);
-  const setPaged = useNotePageStore((state) => state.setPaged);
   const pageSettings = useNotePageStore((state) => state.settings);
   const isActivePane = useDocumentPaneIsActive();
   const vault = useVaultStore((state) => state.vault);
@@ -558,36 +553,17 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     <div
       className={`flex flex-col h-full overflow-hidden ${refreshPulse ? 'app-refresh-pulse' : ''}`}
     >
-      {readOnly ? (
-        <ReadOnlyBanner />
-      ) : (
-        <EditorToolbar
-          relativePath={relativePath}
-          editorRef={editorRef}
-          documentStatus={snapshot.status}
-        />
-      )}
-      <div className="note-page-toolbar">
-        <Label className="flex items-center gap-2">
-          <Checkbox
-            checked={paged}
-            onCheckedChange={(checked) => setPaged(checked === true)}
-            aria-label="Pages view"
-          />
-          Pages
-        </Label>
-        {paged && <NotePageControls />}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            flushDocument();
-            requestNotePdfExport(relativePath, editorRef.current?.getContent?.() ?? editorContent);
-          }}
-        >
-          Print preview
-        </Button>
-      </div>
+      {readOnly && <ReadOnlyBanner />}
+      <EditorToolbar
+        relativePath={relativePath}
+        editorRef={editorRef}
+        documentStatus={snapshot.status}
+        readOnly={readOnly}
+        onPrint={() => {
+          flushDocument();
+          requestNotePdfExport(relativePath, editorRef.current?.getContent?.() ?? editorContent);
+        }}
+      />
       {/* position:relative establishes the containing block for the absolutely-positioned
           CodeMirror container. This avoids flex % height resolution bugs in WebKitGTK
           where height:100% on a flex-1 child resolves to 0 (the flex-basis) rather than

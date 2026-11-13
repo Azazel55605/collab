@@ -22,7 +22,7 @@ import { vaultCan, vaultKind } from '../types/vault';
 
 import { documentVaultIdentity } from './documentPaneContext';
 import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
-import { shareDocumentRead } from './sharedDocumentResources';
+import { shareAbortableDocumentRead, shareDocumentRead } from './sharedDocumentResources';
 import { tauriCommands } from './tauri';
 import {
   emitReplicaMutated,
@@ -2412,6 +2412,17 @@ export function createVaultClient(vault: VaultMeta): VaultClient {
       const value = Reflect.get(target, property, receiver);
       if (typeof value !== 'function') return value;
       if (!shared.has(String(property))) return value.bind(target);
+      if (property === 'readAssetBytes') {
+        // Concurrent callers share the native read, but each keeps its own signal: a
+        // viewer that remounts (or a preview that scrolls away) must not cancel the
+        // bytes another viewer is still waiting for.
+        return (path: string, signal?: AbortSignal, ...rest: unknown[]) =>
+          shareAbortableDocumentRead(
+            JSON.stringify([scope, access, property, path, ...rest]),
+            signal,
+            (sharedSignal) => value.call(target, path, sharedSignal, ...rest),
+          );
+      }
       return (...args: unknown[]) =>
         shareDocumentRead(JSON.stringify([scope, access, property, args]), () =>
           value.apply(target, args),

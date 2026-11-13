@@ -170,6 +170,12 @@ async function openMoreMenuItem(name: string) {
   return screen.findByRole('menuitem', { name });
 }
 
+/** Opens a tool group's menu on the rail and picks one of its tools. */
+async function chooseTool(group: string, name: string) {
+  fireEvent.keyDown(screen.getByRole('button', { name: group }), { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name }));
+}
+
 describe('InkView', () => {
   it('opens a drawing and reports its page and stroke counts', async () => {
     await openDrawing();
@@ -374,7 +380,7 @@ describe('InkView drawing', () => {
 
   it('stores the brush the stroke was drawn with, not a preset pointer', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('button', { name: 'Fountain pen' }));
+    await chooseTool('Brushes', 'Fountain pen');
     fireEvent.click(screen.getByRole('radio', { name: 'Theme red' }));
 
     drawStroke(screen.getByTestId('ink-canvas-host'), [
@@ -431,7 +437,7 @@ describe('InkView drawing', () => {
 
   it('creates sticky text as an editable scene object', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('button', { name: 'Sticky note' }));
+    await chooseTool('Text tools', 'Sticky note');
 
     const host = screen.getByTestId('ink-canvas-host');
     host.setPointerCapture = vi.fn();
@@ -520,19 +526,19 @@ describe('InkView drawing', () => {
       fireEvent.pointerUp(host, { pointerId, pointerType: 'mouse', clientX: 150, clientY: 90 });
     };
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stamp (K)' }));
+    await chooseTool('Insert tools', 'Stamp (K)');
     drag(10);
-    fireEvent.click(screen.getByRole('button', { name: 'Equation (Q)' }));
+    await chooseTool('Text tools', 'Equation (Q)');
     drag(11);
     fireEvent.change(await screen.findByLabelText('Equation LaTeX'), {
       target: { value: 'x^2+y^2' },
     });
     fireEvent.click(screen.getByText('Add to drawing'));
-    fireEvent.click(screen.getByRole('button', { name: 'Protractor (O)' }));
+    await chooseTool('Measure tools', 'Protractor (O)');
     drag(12);
-    fireEvent.click(screen.getByRole('button', { name: 'Compass (M)' }));
+    await chooseTool('Measure tools', 'Compass (M)');
     drag(13);
-    fireEvent.click(screen.getByRole('button', { name: 'Guide (G)' }));
+    await chooseTool('Measure tools', 'Guide (G)');
     drag(14);
     fireEvent.click(screen.getByText('Save'));
 

@@ -85,7 +85,7 @@ export function CardDialogSidebar({
     'mt-1 h-6 px-0 text-[10px] text-muted-foreground/60 hover:text-muted-foreground';
 
   return (
-    <div className="w-52 shrink-0 border-l border-border/30 overflow-y-auto px-4 py-3 flex flex-col gap-4">
+    <div className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border/50 bg-muted/15 px-4 py-5">
       {caps.editContent && (
         <>
           <section>

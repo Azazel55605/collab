@@ -161,7 +161,7 @@ export default function SheetFormattingToolbar({
           disabled={disabled}
           onValueChange={(fontFamily) => onPatch({ fontFamily })}
         >
-          <SelectTrigger size="sm" className="w-32" aria-label="Font family">
+          <SelectTrigger variant="ghost" size="sm" className="w-32" aria-label="Font family">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -175,7 +175,7 @@ export default function SheetFormattingToolbar({
           disabled={disabled}
           onValueChange={(fontSize) => onPatch({ fontSize: Number(fontSize) })}
         >
-          <SelectTrigger size="sm" className="w-16" aria-label="Font size">
+          <SelectTrigger variant="ghost" size="sm" className="w-16" aria-label="Font size">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -329,7 +329,7 @@ export default function SheetFormattingToolbar({
           disabled={disabled}
           onValueChange={(kind) => updateNumberFormat({ kind: kind as SheetNumberFormatKind })}
         >
-          <SelectTrigger size="sm" className="w-32" aria-label="Number format">
+          <SelectTrigger variant="ghost" size="sm" className="w-32" aria-label="Number format">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -346,7 +346,7 @@ export default function SheetFormattingToolbar({
             disabled={disabled}
             onValueChange={(currencyCode) => updateNumberFormat({ currencyCode })}
           >
-            <SelectTrigger size="sm" className="w-20" aria-label="Currency">
+            <SelectTrigger variant="ghost" size="sm" className="w-20" aria-label="Currency">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

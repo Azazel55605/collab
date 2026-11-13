@@ -290,7 +290,7 @@ export function CardDialogChecklistComments({
             >
               {myUserName[0]?.toUpperCase()}
             </div>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <Textarea
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
@@ -302,7 +302,7 @@ export function CardDialogChecklistComments({
                 }}
                 placeholder="Add comment… (Enter to post)"
                 rows={2}
-                className={cn('min-h-16 resize-none text-xs', secondaryFieldClass)}
+                className={cn('min-h-16 w-full max-w-full resize-none text-sm', secondaryFieldClass)}
               />
               {commentInput.trim() && (
                 <Button

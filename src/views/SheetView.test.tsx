@@ -345,7 +345,7 @@ describe('SheetView editor', () => {
 
   it('exports the active range as a self-contained SVG', async () => {
     await openWorkbook();
-    await chooseMenuItem('More workbook actions', /Export selection as SVG/);
+    await chooseMenuItem('Export', /Export selection as SVG/);
 
     await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalled());
     expect(tauriMocks.showDownloadDialog).toHaveBeenCalledWith('Budget-A1-A1.svg');

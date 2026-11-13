@@ -255,14 +255,14 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
+      <DialogContent className="flex max-h-[88vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
         {/* ── Title row ─────────────────────────────────────────────────── */}
-        <div className="flex items-start gap-2.5 px-5 pt-5 pb-2 pr-12 shrink-0">
+        <div className="flex shrink-0 items-start gap-3 border-b border-border/50 py-4 pr-14 pl-6">
           {/* Done toggle */}
           <button
             onClick={toggleDone}
             disabled={!caps.editContent}
-            className="shrink-0 mt-0 transition-colors disabled:cursor-default"
+            className="mt-1 shrink-0 transition-colors disabled:cursor-default"
             title={draft.isDone ? 'Mark incomplete' : 'Mark done'}
           >
             {draft.isDone ? (
@@ -280,7 +280,8 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
             rows={1}
             placeholder="Card title"
             className={cn(
-              'flex-1 bg-transparent text-lg font-semibold text-foreground resize-none focus:outline-none leading-tight overflow-hidden min-w-0 p-0',
+              // Reset the shared field look: the title reads as a heading, not an input box.
+              'min-h-0 min-w-0 flex-1 resize-none overflow-hidden rounded-md border-0 bg-transparent px-1 py-0.5 text-lg leading-snug font-semibold text-foreground shadow-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:bg-transparent',
               draft.isDone && 'line-through text-muted-foreground',
             )}
           />
@@ -289,7 +290,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
         {/* ── Body ──────────────────────────────────────────────────────── */}
         <div className="flex flex-1 min-h-0">
           {/* Main column */}
-          <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-4 min-w-0">
+          <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-x-hidden overflow-y-auto px-6 py-5">
             {/* Description */}
             <section>
               <label className="section-label">Description</label>
@@ -298,8 +299,8 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                 onChange={(e) => patchDraft({ description: e.target.value || undefined })}
                 readOnly={!caps.editContent}
                 rows={6}
-                placeholder="Add a description..."
-                className="w-full bg-muted/25 border border-border/30 rounded-md text-sm text-foreground p-2.5 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+                placeholder="Add a description…"
+                className="min-h-28 w-full resize-y text-sm"
               />
             </section>
 

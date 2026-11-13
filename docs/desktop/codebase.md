@@ -746,18 +746,18 @@ are presentation and dialogs only.
 Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 `renderer.ts`).
 
-| File                                    | Purpose                                                                                                                                                          | shadcn used          |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `components/ink/InkCanvas.tsx`          | Stroke capture and tiled rendering surface; owns bounded HiDPI backing stores, pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | —                    |
-| `components/ink/InkToolRail.tsx`        | Tool selection rail (pen, highlighter, eraser, lasso, hand)                                                                                                      | Button, Tooltip      |
-| `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                                                             | Button, Select, Tabs |
-| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                                                                   | —                    |
-| `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                                                         | Dialog               |
-| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                                                       | Dialog, Select       |
-| `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                                                       | Dialog, Select       |
-| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages; empty overlays mount only when annotation mode starts                                        | —                    |
-| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                                                       | Button, DropdownMenu |
-| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets; empty overlays mount only when annotation mode starts                                          | —                    |
+| File                                    | Purpose                                                                                                                                                          | shadcn used                           |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `components/ink/InkCanvas.tsx`          | Stroke capture and tiled rendering surface; owns bounded HiDPI backing stores, pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | —                                     |
+| `components/ink/InkToolRail.tsx`        | Floating tool rail; related tools grouped behind one button with a menu (brushes, selection, shape, text, insert, measure, inspect)                              | FloatingBar, RailButton, DropdownMenu |
+| `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                                                             | Button, Select, Tabs                  |
+| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                                                                   | —                                     |
+| `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                                                         | Dialog                                |
+| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                                                       | Dialog, Select                        |
+| `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                                                       | Dialog, Select                        |
+| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages; empty overlays mount only when annotation mode starts                                        | —                                     |
+| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                                                       | Button, DropdownMenu                  |
+| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets; empty overlays mount only when annotation mode starts                                          | —                                     |
 
 `lib/ink/tiles.ts` sizes cache tiles as a pyramid (`tileSizeForScale`): tiles
 halve in ink units as zoom rises so every tile is painted at exact screen
@@ -2078,7 +2078,10 @@ lock and authorization boundaries. Mounted holders retain save/leave ownership
 until final release; retired handles cannot be reused by new sessions.
 
 `sharedDocumentResources.ts` coalesces in-flight VaultClient reads without a
-settled-result cache. Its refcounted resource pool backs shared live Yjs providers;
+settled-result cache. Asset byte reads use `shareAbortableDocumentRead`: callers share one
+native read but keep their own abort signal, and the shared read is cancelled
+only when every caller has aborted (a StrictMode remount must not fail the
+viewer that is still waiting). Its refcounted resource pool backs shared live Yjs providers;
 structured sessions use pane-specific transaction origins. Note/sheet/ink/deck
 view maps use `path\0pane` keys for grid geometry and retain 128 closed entries
 per format plus open-file state. Rename migrates those keys; deletion prunes them.

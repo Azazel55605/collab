@@ -351,7 +351,10 @@ export default function VaultPicker() {
               </section>
             )}
 
-            <section aria-labelledby="all-vaults-heading" className="flex min-h-0 flex-col gap-2.5">
+            <section
+              aria-labelledby="all-vaults-heading"
+              className="flex min-h-48 flex-1 flex-col gap-2.5"
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <SectionHeading id="all-vaults-heading" className="mr-2">
                   All vaults
@@ -387,7 +390,8 @@ export default function VaultPicker() {
                 )}
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-border/70 bg-card/40">
+              {/* The list scrolls inside its card so the header and recent cards stay in view. */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/40">
                 <div
                   aria-hidden="true"
                   className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_2rem] gap-4 px-5 pt-3 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:grid"
@@ -398,7 +402,11 @@ export default function VaultPicker() {
                   <span>Opened</span>
                   <span />
                 </div>
-                <ul id="vault-list" aria-label="Vaults" className="grid gap-0.5 p-1.5">
+                <ul
+                  id="vault-list"
+                  aria-label="Vaults"
+                  className="grid min-h-0 flex-1 content-start gap-0.5 overflow-y-auto overscroll-contain p-1.5"
+                >
                   {visible.map((entry, index) => (
                     <VaultRow
                       key={entry.key}

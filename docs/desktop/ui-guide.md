@@ -73,6 +73,11 @@ Animations should support orientation, state change, and spatial continuity. Avo
   surfaces use their app-owned counterpart over the same shared colour math in
   `src/lib/color.ts`; do not reintroduce a native colour input or a fixed-only
   palette as the sole way to choose a colour.
+- Pick-one-of-a-list controls use `ui/select.tsx`. Its menu opens as a popper
+  list under the trigger, styled like every other dropdown menu. In toolbars
+  and header strips use `<SelectTrigger variant="ghost">`, so the picker reads
+  as a toolbar button (font, size, number format) rather than a form field;
+  forms and inspectors keep the default bordered field.
 
 ### Surfaces
 
@@ -176,6 +181,12 @@ appears only while something is selected, a status chip bottom-left, a page pill
 bottom-centre and a `ZoomPill` bottom-right. Formatting for the current
 selection (Deck text and object formatting) floats above the stage and appears
 only when there is something to format.
+
+Keep rails short. Related tools share one button with a corner arrow that opens
+the rest of the group (Ink: Selection, Shape, Text, Insert, Measure, Inspect,
+plus brushes under Pen); the button shows the tool last used from its group.
+Insert actions in header strips are split by category (Deck: Text box, Media ▾,
+Shape ▾, Chart ▾, Placeholder ▾) rather than one long scrolling menu.
 
 Viewers (PDF, Image) read by default. Annotate and Edit are modes switched in
 the header; only then does a tool rail (PDF/image ink, vertical

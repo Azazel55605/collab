@@ -4,6 +4,7 @@ import { DocumentSessionController } from './documentSessionController';
 import {
   clearDocumentReads,
   DocumentResourcePool,
+  shareAbortableDocumentRead,
   shareDocumentRead,
 } from './sharedDocumentResources';
 
@@ -122,4 +123,49 @@ it('retires lookup identity without destroying a mounted sibling and never reuse
   expect(old.destroy).toHaveBeenCalledTimes(1);
   expect(next.destroy).not.toHaveBeenCalled();
   fresh!.release();
+});
+
+it('keeps a shared abortable read alive while another caller still wants it', async () => {
+  let release!: (value: string) => void;
+  const read = vi.fn(
+    (signal: AbortSignal) =>
+      new Promise<string>((resolve, reject) => {
+        release = resolve;
+        signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')));
+      }),
+  );
+  const first = new AbortController();
+  const second = new AbortController();
+  const firstRead = shareAbortableDocumentRead('asset', first.signal, read);
+  const secondRead = shareAbortableDocumentRead('asset', second.signal, read);
+  // A remount aborts the first load; the second one must not inherit that.
+  first.abort();
+  await expect(firstRead).rejects.toMatchObject({ name: 'AbortError' });
+  await Promise.resolve();
+  release('bytes');
+  await expect(secondRead).resolves.toBe('bytes');
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it('cancels the shared read once every caller aborted, and starts fresh afterwards', async () => {
+  const signals: AbortSignal[] = [];
+  const read = vi.fn(
+    (signal: AbortSignal) =>
+      new Promise<string>((resolve) => {
+        signals.push(signal);
+        setTimeout(() => resolve('late'), 0);
+      }),
+  );
+  const first = new AbortController();
+  const second = new AbortController();
+  const a = shareAbortableDocumentRead('asset-2', first.signal, read);
+  const b = shareAbortableDocumentRead('asset-2', second.signal, read);
+  first.abort();
+  second.abort();
+  await expect(a).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(b).rejects.toMatchObject({ name: 'AbortError' });
+  await Promise.resolve();
+  expect(signals[0]?.aborted).toBe(true);
+  await expect(shareAbortableDocumentRead('asset-2', undefined, read)).resolves.toBe('late');
+  expect(read).toHaveBeenCalledTimes(2);
 });

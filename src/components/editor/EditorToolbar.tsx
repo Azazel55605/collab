@@ -3,6 +3,7 @@ import { type RefObject, useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   Bold,
+  BookOpen,
   Calculator,
   CheckSquare,
   Code,
@@ -34,11 +35,14 @@ import {
   EDITOR_TOOLBAR_ACTION_EVENT,
   type EditorToolbarAction,
 } from '../../lib/editorToolbarActions';
+import type { NotePageSettings } from '../../lib/notePageLayout';
 import { requestNotePdfExport } from '../../lib/notePdfExport';
+import { useNotePageStore } from '../../store/notePageStore';
 import { DocumentStatusPill } from '../layout/DocumentStatusPill';
 import {
   DocumentMoreMenu,
   DocumentTopBar,
+  DocumentTopBarButton,
   documentTopBarGroupClass,
   DocumentTopBarIconButton,
   DocumentTopBarMenuButton,
@@ -59,6 +63,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
@@ -91,6 +97,10 @@ interface EditorToolbarProps {
   relativePath: string;
   editorRef: RefObject<MarkdownEditorHandle | null>;
   documentStatus?: DocumentStatus;
+  /** Read-only notes keep the header (pages, print) but get no formatting strip. */
+  readOnly?: boolean;
+  /** Flushes pending edits, then opens the print / PDF export view. */
+  onPrint?: () => void;
 }
 
 interface InlineBtn {
@@ -325,8 +335,20 @@ function ImageInsertDialog({
   );
 }
 
-export function EditorToolbar({ relativePath, editorRef, documentStatus }: EditorToolbarProps) {
+export function EditorToolbar({
+  relativePath,
+  editorRef,
+  documentStatus,
+  readOnly = false,
+  onPrint,
+}: EditorToolbarProps) {
   const ed = () => editorRef.current;
+  const paged = useNotePageStore((state) => state.paged);
+  const setPaged = useNotePageStore((state) => state.setPaged);
+  const pageSettings = useNotePageStore((state) => state.settings);
+  const setPageSettings = useNotePageStore((state) => state.setSettings);
+  const print = () =>
+    onPrint ? onPrint() : requestNotePdfExport(relativePath, ed()?.getContent?.());
   const restoreEditorFocus = () => {
     window.requestAnimationFrame(() => {
       ed()?.focus();
@@ -543,122 +565,181 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
         icon={<FileText />}
         status={documentStatus ? <DocumentStatusPill status={documentStatus} compact /> : undefined}
         meta={
-          <DocumentMoreMenu label="More note actions">
-            <DropdownMenuItem
-              onSelect={() => requestNotePdfExport(relativePath, ed()?.getContent?.())}
-            >
-              <Printer /> Export as PDF
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
-            >
-              <Tags /> Add tags line
-            </DropdownMenuItem>
-          </DocumentMoreMenu>
-        }
-        secondary={
           <>
-            <div className={documentTopBarGroupClass}>
+            <DocumentTopBarButton
+              aria-pressed={paged}
+              aria-label="Pages view"
+              title="Show the note as printed pages"
+              className={paged ? 'bg-primary/15 text-foreground hover:bg-primary/20' : undefined}
+              onClick={() => setPaged(!paged)}
+            >
+              <BookOpen /> Pages
+            </DocumentTopBarButton>
+            {paged && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <DocumentTopBarMenuButton>Paragraph</DocumentTopBarMenuButton>
+                  <DocumentTopBarMenuButton aria-label="Page setup">
+                    Page setup
+                  </DocumentTopBarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-44">
-                  {HEADINGS.map((b) => (
-                    <DropdownMenuItem key={b.label} onSelect={() => ed()?.insertLine(b.prefix)}>
-                      {b.icon} {b.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              {INLINE.map((b) => (
-                <TBtn
-                  key={b.label}
-                  icon={b.icon}
-                  label={b.label}
-                  onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
-                />
-              ))}
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              {LISTS.map((b) => (
-                <TBtn
-                  key={b.label}
-                  icon={b.icon}
-                  label={b.label}
-                  onClick={() => ed()?.insertLine(b.prefix)}
-                />
-              ))}
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              {QUICK_INSERT.map((b) => (
-                <TBtn
-                  key={b.label}
-                  icon={b.icon}
-                  label={b.label}
-                  onClick={() => ed()?.insertSnippet(b.text)}
-                />
-              ))}
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              {/* Non-modal: its items open dialogs, which must own focus afterwards. */}
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <DocumentTopBarMenuButton>Insert</DocumentTopBarMenuButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-60">
-                  <DropdownMenuLabel>Visual editors</DropdownMenuLabel>
-                  <DropdownMenuItem onSelect={openVisualTableEditor}>
-                    <Table /> Table…
-                    <DropdownMenuShortcut>Ctrl+Alt+T</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openLinkDialog}>
-                    <Link2 /> Link…
-                    <DropdownMenuShortcut>Ctrl+Alt+L</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openImageDialog}>
-                    <Image /> Image…
-                    <DropdownMenuShortcut>Ctrl+Alt+I</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openTaskListDialog}>
-                    <CheckSquare /> Task list…
-                    <DropdownMenuShortcut>Ctrl+Alt+K</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openMathDialog}>
-                    <Hash /> Math block…
-                    <DropdownMenuShortcut>Ctrl+Alt+M</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openCodeDialog}>
-                    <FileCode /> Code block…
-                    <DropdownMenuShortcut>Ctrl+Alt+C</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => ed()?.insertSnippet('\n---\n')}>
-                    <Minus /> Horizontal rule
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
+                <DropdownMenuContent align="end" className="min-w-44">
+                  <DropdownMenuLabel>Paper</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={pageSettings.paper}
+                    onValueChange={(paper) =>
+                      setPageSettings({ paper: paper as NotePageSettings['paper'] })
+                    }
                   >
-                    <MessageSquareQuote /> Callout
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => ed()?.insertFootnote()}>
-                    <ScrollText /> Footnote
-                  </DropdownMenuItem>
+                    <DropdownMenuRadioItem value="a4">A4</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="letter">Letter</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setSnippetsDialogOpen(true)}>
-                    <NotebookPen /> Note snippets…
-                  </DropdownMenuItem>
+                  <DropdownMenuLabel>Orientation</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={pageSettings.orientation}
+                    onValueChange={(orientation) =>
+                      setPageSettings({
+                        orientation: orientation as NotePageSettings['orientation'],
+                      })
+                    }
+                  >
+                    <DropdownMenuRadioItem value="portrait">Portrait</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="landscape">Landscape</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Margins</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={pageSettings.margins}
+                    onValueChange={(margins) =>
+                      setPageSettings({ margins: margins as NotePageSettings['margins'] })
+                    }
+                  >
+                    <DropdownMenuRadioItem value="narrow">Narrow</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="normal">Normal</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
-            </div>
+            )}
+            <DocumentTopBarButton onClick={print} title="Print preview and PDF export">
+              <Printer /> Print / PDF
+            </DocumentTopBarButton>
+            {!readOnly && (
+              <DocumentMoreMenu label="More note actions">
+                <DropdownMenuItem
+                  onSelect={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
+                >
+                  <Tags /> Add tags line
+                </DropdownMenuItem>
+              </DocumentMoreMenu>
+            )}
           </>
+        }
+        secondary={
+          readOnly ? undefined : (
+            <>
+              <div className={documentTopBarGroupClass}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton>Paragraph</DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-44">
+                    {HEADINGS.map((b) => (
+                      <DropdownMenuItem key={b.label} onSelect={() => ed()?.insertLine(b.prefix)}>
+                        {b.icon} {b.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className={documentTopBarGroupClass}>
+                {INLINE.map((b) => (
+                  <TBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label={b.label}
+                    onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
+                  />
+                ))}
+              </div>
+
+              <div className={documentTopBarGroupClass}>
+                {LISTS.map((b) => (
+                  <TBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label={b.label}
+                    onClick={() => ed()?.insertLine(b.prefix)}
+                  />
+                ))}
+              </div>
+
+              <div className={documentTopBarGroupClass}>
+                {QUICK_INSERT.map((b) => (
+                  <TBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label={b.label}
+                    onClick={() => ed()?.insertSnippet(b.text)}
+                  />
+                ))}
+              </div>
+
+              <div className={documentTopBarGroupClass}>
+                {/* Non-modal: its items open dialogs, which must own focus afterwards. */}
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton>Insert</DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-60">
+                    <DropdownMenuLabel>Visual editors</DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={openVisualTableEditor}>
+                      <Table /> Table…
+                      <DropdownMenuShortcut>Ctrl+Alt+T</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openLinkDialog}>
+                      <Link2 /> Link…
+                      <DropdownMenuShortcut>Ctrl+Alt+L</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openImageDialog}>
+                      <Image /> Image…
+                      <DropdownMenuShortcut>Ctrl+Alt+I</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openTaskListDialog}>
+                      <CheckSquare /> Task list…
+                      <DropdownMenuShortcut>Ctrl+Alt+K</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openMathDialog}>
+                      <Hash /> Math block…
+                      <DropdownMenuShortcut>Ctrl+Alt+M</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openCodeDialog}>
+                      <FileCode /> Code block…
+                      <DropdownMenuShortcut>Ctrl+Alt+C</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => ed()?.insertSnippet('\n---\n')}>
+                      <Minus /> Horizontal rule
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
+                    >
+                      <MessageSquareQuote /> Callout
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => ed()?.insertFootnote()}>
+                      <ScrollText /> Footnote
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setSnippetsDialogOpen(true)}>
+                      <NotebookPen /> Note snippets…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
+              </div>
+            </>
+          )
         }
       />
 

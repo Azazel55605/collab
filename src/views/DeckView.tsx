@@ -2891,6 +2891,11 @@ export default function DeckView({ relativePath }: DeckViewProps) {
 
   const [stageRef, stageSize, stageElement] = useElementSize<HTMLDivElement>();
   const focusCanvas = () => stageElement?.focus({ preventScroll: true });
+  // Keys after an insert act on the new object, not on the menu button that inserted it.
+  const keepCanvasFocus = (event: Event) => {
+    event.preventDefault();
+    focusCanvas();
+  };
   const rulerPx = viewState.showRulers ? 20 : 0;
   const fitZoom =
     document && supported
@@ -3264,25 +3269,24 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              <DropdownMenu>
+              <DocumentTopBarButton
+                disabled={!editable || !stageTarget}
+                onClick={() => {
+                  insert('text');
+                  focusCanvas();
+                }}
+              >
+                <Type size={14} />
+                Text box
+              </DocumentTopBarButton>
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
-                  <DocumentTopBarButton disabled={!editable || !stageTarget}>
-                    <Shapes size={14} />
-                    Insert
-                  </DocumentTopBarButton>
+                  <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                    <ImageIcon size={14} />
+                    Media
+                  </DocumentTopBarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="max-h-[70vh] overflow-y-auto"
-                  // Keys after an insert act on the new object, not on this menu's button.
-                  onCloseAutoFocus={(event) => {
-                    event.preventDefault();
-                    focusCanvas();
-                  }}
-                >
-                  <DropdownMenuItem onClick={() => insert('text')}>
-                    <Type size={13} /> Text box
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="start" onCloseAutoFocus={keepCanvasFocus}>
                   <DropdownMenuItem onClick={() => setPicker({ kind: 'image' })}>
                     <ImageIcon size={13} /> Image…
                   </DropdownMenuItem>
@@ -3292,22 +3296,20 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                   <DropdownMenuItem onClick={() => setPicker({ kind: 'embed' })}>
                     <FileText size={13} /> Linked document…
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px]">Chart</DropdownMenuLabel>
-                  {(
-                    [
-                      ['column', 'Column chart'],
-                      ['bar', 'Bar chart'],
-                      ['line', 'Line chart'],
-                      ['area', 'Area chart'],
-                      ['pie', 'Pie chart'],
-                    ] as const
-                  ).map(([kind, label]) => (
-                    <DropdownMenuItem key={kind} onClick={() => insertChart(kind)}>
-                      <BarChart3 size={13} /> {label}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                    <Shapes size={14} />
+                    Shape
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="max-h-[70vh] w-52 overflow-y-auto"
+                  onCloseAutoFocus={keepCanvasFocus}
+                >
                   <DropdownMenuLabel className="text-[11px]">Lines</DropdownMenuLabel>
                   <DropdownMenuItem onClick={() => insert('line')}>
                     <Minus size={13} /> Line
@@ -3323,19 +3325,48 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                       {SHAPE_NAMES[geometry]}
                     </DropdownMenuItem>
                   ))}
-                  {designTarget && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-[11px]">Placeholder</DropdownMenuLabel>
-                      {PLACEHOLDER_INSERTS.map((type) => (
-                        <DropdownMenuItem key={type} onClick={() => insertDesignPlaceholder(type)}>
-                          {placeholderName(type)} placeholder
-                        </DropdownMenuItem>
-                      ))}
-                    </>
-                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                    <BarChart3 size={14} />
+                    Chart
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" onCloseAutoFocus={keepCanvasFocus}>
+                  {(
+                    [
+                      ['column', 'Column chart'],
+                      ['bar', 'Bar chart'],
+                      ['line', 'Line chart'],
+                      ['area', 'Area chart'],
+                      ['pie', 'Pie chart'],
+                    ] as const
+                  ).map(([kind, label]) => (
+                    <DropdownMenuItem key={kind} onClick={() => insertChart(kind)}>
+                      <BarChart3 size={13} /> {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {designTarget && (
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                      <LayoutTemplate size={14} />
+                      Placeholder
+                    </DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" onCloseAutoFocus={keepCanvasFocus}>
+                    {PLACEHOLDER_INSERTS.map((type) => (
+                      <DropdownMenuItem key={type} onClick={() => insertDesignPlaceholder(type)}>
+                        {placeholderName(type)} placeholder
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <DocumentTopBarButton disabled={!editable || !hasSelection}>

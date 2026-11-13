@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import {
   Brush,
+  Check,
   CircleDot,
   Eraser,
   Gauge,
@@ -31,72 +32,163 @@ import { INK_BRUSH_ORDER, INK_SHORTCUTS } from '../../lib/ink/tools';
 import type { InkToolId, InkToolState } from '../../lib/ink/tools';
 import { cn } from '../../lib/utils';
 import type { InkBrushKind } from '../../types/ink';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { FloatingBar, FloatingSeparator, RailButton } from '../layout/CanvasChrome';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 
 /**
- * The tool rail.
+ * The tool rail: a floating, icon-only bar on the left of the page.
  *
- * Deliberately narrow and icon-only: on a tablet this sits beside the drawing
- * hand, and every pixel it takes is page the user cannot see. Labels live in
- * tooltips, and each carries its keyboard shortcut so the rail teaches the
- * shortcuts rather than competing with them.
+ * Related tools share one button (selection, shapes, text, inserts, measuring,
+ * inspecting). The button shows the tool last used from its group, a click
+ * picks that tool again, and the small corner arrow opens the rest of the group.
+ * Labels live in tooltips and menus, each with its keyboard shortcut, so the
+ * rail teaches the shortcuts rather than competing with them.
  */
 
 const BRUSH_ICONS: Record<InkBrushKind, ReactNode> = {
-  ballpoint: <PenLine size={16} />,
-  fountain: <PenTool size={16} />,
-  technical: <Minus size={16} />,
-  pencil: <Pencil size={16} />,
-  marker: <Brush size={16} />,
-  brush: <Brush size={16} />,
-  highlighter: <Highlighter size={16} />,
+  ballpoint: <PenLine />,
+  fountain: <PenTool />,
+  technical: <Minus />,
+  pencil: <Pencil />,
+  marker: <Brush />,
+  brush: <Brush />,
+  highlighter: <Highlighter />,
 };
 
-function shortcutFor(command: string): string {
+function shortcutKey(command: string): string {
   const shortcut = INK_SHORTCUTS.find((entry) => entry.command === command);
   if (!shortcut) return '';
-  const parts = [
+  return [
     shortcut.ctrl ? 'Ctrl' : '',
     shortcut.shift ? 'Shift' : '',
     shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key,
-  ].filter(Boolean);
-  return ` (${parts.join('+')})`;
+  ]
+    .filter(Boolean)
+    .join('+');
 }
 
-interface RailButtonProps {
+interface ToolEntry {
+  id: InkToolId;
+  name: string;
+  icon: ReactNode;
+  /** Changes the drawing, so it is unavailable when read-only. */
+  edits: boolean;
+}
+
+function tool(id: InkToolId, name: string, icon: ReactNode, edits = true): ToolEntry {
+  return { id, name, icon, edits };
+}
+
+function toolLabel(entry: ToolEntry): string {
+  const key = shortcutKey(`tool.${entry.id}`);
+  return key ? `${entry.name} (${key})` : entry.name;
+}
+
+const TOOL_GROUPS: { id: string; name: string; tools: ToolEntry[] }[] = [
+  {
+    id: 'select',
+    name: 'Selection',
+    tools: [
+      tool('select', 'Select', <MousePointer2 />, false),
+      tool('lasso', 'Lasso', <Lasso />, false),
+    ],
+  },
+  {
+    id: 'shape',
+    name: 'Shape',
+    tools: [tool('shape', 'Shape', <Shapes />), tool('connector', 'Connector', <Workflow />)],
+  },
+  {
+    id: 'text',
+    name: 'Text',
+    tools: [
+      tool('text', 'Text', <Type />),
+      tool('sticky', 'Sticky note', <StickyNote />),
+      tool('equation', 'Equation', <Sigma />),
+    ],
+  },
+  {
+    id: 'insert',
+    name: 'Insert',
+    tools: [tool('image', 'Image', <Image />), tool('stamp', 'Stamp', <Stamp />)],
+  },
+  {
+    id: 'measure',
+    name: 'Measure',
+    tools: [
+      tool('ruler', 'Ruler', <Ruler />),
+      tool('protractor', 'Protractor', <Gauge />),
+      tool('compass', 'Compass', <CircleDot />),
+      tool('guide', 'Guide', <MoveHorizontal />),
+    ],
+  },
+  {
+    id: 'inspect',
+    name: 'Inspect',
+    tools: [
+      tool('loupe', 'Loupe', <Search />, false),
+      tool('eyedropper', 'Eyedropper', <Pipette />, false),
+    ],
+  },
+];
+
+/** Corner arrow that opens a group's menu; sits over the button's bottom-right. */
+function GroupMenuTrigger({ label, disabled }: { label: string; disabled?: boolean }) {
+  return (
+    <DropdownMenuTrigger asChild disabled={disabled}>
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        className="absolute right-0 bottom-0 flex size-3.5 items-end justify-end rounded-br-md p-px text-muted-foreground hover:text-foreground disabled:opacity-40"
+      >
+        <svg viewBox="0 0 6 6" className="size-1.5 fill-current" aria-hidden="true">
+          <path d="M6 0V6H0Z" />
+        </svg>
+      </button>
+    </DropdownMenuTrigger>
+  );
+}
+
+function MenuEntry({
+  label,
+  shortcut,
+  icon,
+  active,
+  disabled,
+  onSelect,
+}: {
   label: string;
+  shortcut?: string;
+  icon: ReactNode;
   active: boolean;
   disabled?: boolean;
-  onClick: () => void;
-  children: ReactNode;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      aria-label={shortcut ? `${label} (${shortcut})` : label}
+      disabled={disabled}
+      onSelect={onSelect}
+    >
+      {icon}
+      <span className="flex-1">{label}</span>
+      {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
+      <Check className={cn('size-3.5', !active && 'invisible')} />
+    </DropdownMenuItem>
+  );
 }
 
-function RailButton({ label, active, disabled, onClick, children }: RailButtonProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          aria-pressed={active}
-          disabled={disabled}
-          onClick={onClick}
-          className={cn(
-            'flex size-9 items-center justify-center rounded-lg border transition-colors app-motion-fast',
-            active
-              ? 'border-primary bg-primary/15 text-foreground'
-              : 'border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-            disabled && 'pointer-events-none opacity-40',
-          )}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right" className="text-xs text-foreground">
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  );
+/** Picking a tool should leave focus with the page, not hand it back to the rail. */
+function keepFocusOnPage(event: Event) {
+  event.preventDefault();
 }
 
 export interface InkToolRailProps {
@@ -104,177 +196,124 @@ export interface InkToolRailProps {
   readOnly: boolean;
   onSelectTool: (tool: InkToolId) => void;
   onSelectBrush: (kind: InkBrushKind) => void;
+  className?: string;
 }
 
 export default function InkToolRail({
-  tool,
+  tool: current,
   readOnly,
   onSelectTool,
   onSelectBrush,
+  className,
 }: InkToolRailProps) {
+  const [lastUsed, setLastUsed] = useState<Record<string, InkToolId>>({});
+
+  const pick = (groupId: string, id: InkToolId) => {
+    setLastUsed((previous) => ({ ...previous, [groupId]: id }));
+    onSelectTool(id);
+  };
+
+  const groupButton = (group: (typeof TOOL_GROUPS)[number]) => {
+    const active = group.tools.find((entry) => entry.id === current.tool);
+    const shown =
+      active ??
+      group.tools.find((entry) => entry.id === lastUsed[group.id]) ??
+      group.tools.find((entry) => !readOnly || !entry.edits) ??
+      group.tools[0];
+    const allDisabled = readOnly && group.tools.every((entry) => entry.edits);
+    return (
+      <div key={group.id} className="relative">
+        <RailButton
+          label={toolLabel(shown)}
+          pressed={Boolean(active)}
+          disabled={readOnly && shown.edits}
+          onClick={() => pick(group.id, shown.id)}
+        >
+          {shown.icon}
+        </RailButton>
+        <DropdownMenu modal={false}>
+          <GroupMenuTrigger label={`${group.name} tools`} disabled={allDisabled} />
+          <DropdownMenuContent
+            side="right"
+            align="start"
+            sideOffset={8}
+            className="w-52"
+            onCloseAutoFocus={keepFocusOnPage}
+          >
+            <DropdownMenuLabel className="text-[11px]">{group.name}</DropdownMenuLabel>
+            {group.tools.map((entry) => (
+              <MenuEntry
+                key={entry.id}
+                label={entry.name}
+                shortcut={shortcutKey(`tool.${entry.id}`)}
+                icon={entry.icon}
+                active={entry.id === current.tool}
+                disabled={readOnly && entry.edits}
+                onSelect={() => pick(group.id, entry.id)}
+              />
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  };
+
   return (
-    <div
-      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border/60 bg-card/40 py-2"
+    <FloatingBar
+      orientation="vertical"
       role="toolbar"
-      aria-orientation="vertical"
       aria-label="Drawing tools"
+      className={cn('top-1/2 left-3 -translate-y-1/2', className)}
     >
+      <div className="relative">
+        <RailButton
+          label={`Pen (${shortcutKey('tool.pen')})`}
+          pressed={current.tool === 'pen'}
+          disabled={readOnly}
+          onClick={() => onSelectTool('pen')}
+        >
+          {BRUSH_ICONS[current.brush.kind] ?? <PenLine />}
+        </RailButton>
+        <DropdownMenu modal={false}>
+          <GroupMenuTrigger label="Brushes" disabled={readOnly} />
+          <DropdownMenuContent
+            side="right"
+            align="start"
+            sideOffset={8}
+            className="w-52"
+            onCloseAutoFocus={keepFocusOnPage}
+          >
+            <DropdownMenuLabel className="text-[11px]">Brushes</DropdownMenuLabel>
+            {INK_BRUSH_ORDER.map((kind) => (
+              <MenuEntry
+                key={kind}
+                label={INK_DEFAULT_BRUSHES[kind]?.name ?? kind}
+                icon={BRUSH_ICONS[kind]}
+                active={current.tool === 'pen' && current.brush.kind === kind}
+                onSelect={() => onSelectBrush(kind)}
+              />
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <RailButton
-        label={`Pen${shortcutFor('tool.pen')}`}
-        active={tool.tool === 'pen'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('pen')}
-      >
-        {BRUSH_ICONS[tool.brush.kind] ?? <PenLine size={16} />}
-      </RailButton>
-      <RailButton
-        label={`Eraser${shortcutFor('tool.eraser')}`}
-        active={tool.tool === 'eraser'}
+        label={`Eraser (${shortcutKey('tool.eraser')})`}
+        pressed={current.tool === 'eraser'}
         disabled={readOnly}
         onClick={() => onSelectTool('eraser')}
       >
-        <Eraser size={16} />
+        <Eraser />
       </RailButton>
+      <FloatingSeparator vertical />
+      {TOOL_GROUPS.map(groupButton)}
+      <FloatingSeparator vertical />
       <RailButton
-        label={`Select${shortcutFor('tool.select')}`}
-        active={tool.tool === 'select'}
-        onClick={() => onSelectTool('select')}
-      >
-        <MousePointer2 size={16} />
-      </RailButton>
-      <RailButton
-        label={`Lasso${shortcutFor('tool.lasso')}`}
-        active={tool.tool === 'lasso'}
-        onClick={() => onSelectTool('lasso')}
-      >
-        <Lasso size={16} />
-      </RailButton>
-      <RailButton
-        label={`Shape${shortcutFor('tool.shape')}`}
-        active={tool.tool === 'shape'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('shape')}
-      >
-        <Shapes size={16} />
-      </RailButton>
-      <RailButton
-        label={`Connector${shortcutFor('tool.connector')}`}
-        active={tool.tool === 'connector'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('connector')}
-      >
-        <Workflow size={16} />
-      </RailButton>
-      <RailButton
-        label={`Text${shortcutFor('tool.text')}`}
-        active={tool.tool === 'text'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('text')}
-      >
-        <Type size={16} />
-      </RailButton>
-      <RailButton
-        label="Sticky note"
-        active={tool.tool === 'sticky'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('sticky')}
-      >
-        <StickyNote size={16} />
-      </RailButton>
-      <RailButton
-        label={`Image${shortcutFor('tool.image')}`}
-        active={tool.tool === 'image'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('image')}
-      >
-        <Image size={16} />
-      </RailButton>
-      <RailButton
-        label={`Stamp${shortcutFor('tool.stamp')}`}
-        active={tool.tool === 'stamp'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('stamp')}
-      >
-        <Stamp size={16} />
-      </RailButton>
-      <RailButton
-        label={`Equation${shortcutFor('tool.equation')}`}
-        active={tool.tool === 'equation'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('equation')}
-      >
-        <Sigma size={16} />
-      </RailButton>
-
-      <div className="my-1 h-px w-6 bg-border/60" />
-
-      <RailButton
-        label={`Ruler${shortcutFor('tool.ruler')}`}
-        active={tool.tool === 'ruler'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('ruler')}
-      >
-        <Ruler size={16} />
-      </RailButton>
-      <RailButton
-        label={`Protractor${shortcutFor('tool.protractor')}`}
-        active={tool.tool === 'protractor'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('protractor')}
-      >
-        <Gauge size={16} />
-      </RailButton>
-      <RailButton
-        label={`Compass${shortcutFor('tool.compass')}`}
-        active={tool.tool === 'compass'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('compass')}
-      >
-        <CircleDot size={16} />
-      </RailButton>
-      <RailButton
-        label={`Guide${shortcutFor('tool.guide')}`}
-        active={tool.tool === 'guide'}
-        disabled={readOnly}
-        onClick={() => onSelectTool('guide')}
-      >
-        <MoveHorizontal size={16} />
-      </RailButton>
-      <RailButton
-        label={`Loupe${shortcutFor('tool.loupe')}`}
-        active={tool.tool === 'loupe'}
-        onClick={() => onSelectTool('loupe')}
-      >
-        <Search size={16} />
-      </RailButton>
-      <RailButton
-        label={`Eyedropper${shortcutFor('tool.eyedropper')}`}
-        active={tool.tool === 'eyedropper'}
-        onClick={() => onSelectTool('eyedropper')}
-      >
-        <Pipette size={16} />
-      </RailButton>
-      <RailButton
-        label={`Pan${shortcutFor('tool.pan')}`}
-        active={tool.tool === 'pan'}
+        label={`Pan (${shortcutKey('tool.pan')})`}
+        pressed={current.tool === 'pan'}
         onClick={() => onSelectTool('pan')}
       >
-        <Hand size={16} />
+        <Hand />
       </RailButton>
-
-      <div className="my-1 h-px w-6 bg-border/60" />
-
-      {INK_BRUSH_ORDER.map((kind) => (
-        <RailButton
-          key={kind}
-          label={INK_DEFAULT_BRUSHES[kind]?.name ?? kind}
-          active={tool.tool === 'pen' && tool.brush.kind === kind}
-          disabled={readOnly}
-          onClick={() => onSelectBrush(kind)}
-        >
-          {BRUSH_ICONS[kind]}
-        </RailButton>
-      ))}
-    </div>
+    </FloatingBar>
   );
 }

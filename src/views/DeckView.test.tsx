@@ -452,7 +452,7 @@ describe('DeckView: viewing', () => {
   it('is read-only for hosted viewers', async () => {
     useVaultStore.setState({ vault: HOSTED_VIEWER_VAULT } as never);
     await openDeck();
-    expect((screen.getByRole('button', { name: /Insert/ }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole('button', { name: /Media/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
     key(canvas(), 'a', { ctrlKey: true });
