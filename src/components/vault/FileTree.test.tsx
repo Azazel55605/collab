@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { startFileDragOut } from '../../lib/dragOut';
+import { LOCAL_MEDIA_EXTENSIONS } from '../../lib/mediaFiles';
 import { tauriCommands } from '../../lib/tauri';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -828,6 +829,7 @@ describe('FileTree folder collapse state', () => {
         'md',
         'canvas',
         'kanban',
+        ...LOCAL_MEDIA_EXTENSIONS,
       ]),
     );
     await waitFor(() => expect(importExternalFilesIntoVault).toHaveBeenCalled());

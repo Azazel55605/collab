@@ -1,7 +1,8 @@
 # Media Playback And Library Plan
 
-Status: **Phase 0 prototype implemented. Native qualification in progress.**
-See the [Phase 0 evidence and decisions](./media-playback-phase0.md).
+Status: **Phase 1 local desktop implementation. Native qualification in progress.**
+See the [Phase 0 evidence and decisions](./media-playback-phase0.md) and
+[local player guide](../desktop/media-playback.md).
 [Open Development Work](./open-development-work.md) tracks project status.
 
 ## Product Direction
@@ -79,11 +80,11 @@ before promising large encrypted playback. Do not silently stage plaintext.
 
 ### Phase 1 — Local Desktop File Tabs
 
-- [ ] Add media detection, file icons and tab routing with the existing file
+- [x] Add media detection, file icons and tab routing with the existing file
       navigation and tab lifecycle.
-- [ ] Implement bounded local playback, shared player controls, separate audio
+- [x] Implement bounded local playback, shared player controls, separate audio
       and video layouts, keyboard access and accessible playback status.
-- [ ] Add sidecar subtitles, capability-aware track controls, resume state and
+- [x] Add sidecar subtitles, capability-aware track controls, resume state and
       clear fallback/error behavior. If the chosen baseline requires a backend
       change for embedded tracks, resolve that before claiming support.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup

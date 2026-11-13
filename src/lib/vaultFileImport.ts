@@ -5,6 +5,7 @@ import type { NoteFile } from '../types/vault';
 
 import { parseDeckDocument } from './deck/document';
 import { parseInkDocument } from './ink/document';
+import { isCaptionPath, mediaKindForPath } from './mediaFiles';
 import { importWorkbookFile } from './sheet/conversion';
 import { inspectSheetDocumentText } from './sheet/document';
 import { isSqlitePath, SQLITE_EXTENSIONS } from './sqliteFiles';
@@ -57,6 +58,8 @@ export type ImportableCategory =
   | 'svg'
   | 'pdf'
   | 'sqlite'
+  | 'media'
+  | 'caption'
   | 'markdown'
   | 'canvas'
   | 'kanban'
@@ -79,6 +82,8 @@ function extensionOf(name: string): string {
 export function importCategoryForName(name: string): ImportableCategory | null {
   const ext = extensionOf(name);
   if (isSqlitePath(name)) return 'sqlite';
+  if (mediaKindForPath(name)) return 'media';
+  if (isCaptionPath(name)) return 'caption';
   if (IMPORT_SVG_EXTENSIONS.includes(ext)) return 'svg';
   if (IMPORT_IMAGE_EXTENSIONS.includes(ext)) return 'image';
   if (IMPORT_PDF_EXTENSIONS.includes(ext)) return 'pdf';
@@ -236,10 +241,12 @@ export async function importExternalFilesIntoVault(
       if (!category) {
         result.failed.push({
           name,
-          error:
-            'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, spreadsheet, SQLite, and .xlsx/.csv files can be imported.',
+          error: 'Unsupported file type. Choose a supported vault document or attachment.',
         });
         continue;
+      }
+      if ((category === 'media' || category === 'caption') && client.kind !== 'local') {
+        throw new Error('Media and captions can only be imported into local vaults.');
       }
       if (category === 'workbookConversion') {
         // Converted natively into a brand-new `.sheet` document. The source

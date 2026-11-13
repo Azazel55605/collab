@@ -24,7 +24,7 @@ import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 import { createVaultClient } from '../../lib/vaultClient';
-import type { PendingSearchJump } from '../../store/editorStore';
+import type { OpenTab, PendingSearchJump } from '../../store/editorStore';
 import type { ActiveView, DateFormat } from '../../store/uiStore';
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
 import type { NoteMetadata, SearchResult } from '../../types/note';
@@ -37,22 +37,7 @@ export interface RenderCtx {
   activeView: ActiveView;
   vault: VaultMeta | null;
   dateFormat: DateFormat;
-  openTab: (
-    relativePath: string,
-    title: string,
-    type?:
-      | 'note'
-      | 'canvas'
-      | 'kanban'
-      | 'logic'
-      | 'sheet'
-      | 'ink'
-      | 'deck'
-      | 'graph'
-      | 'settings'
-      | 'image'
-      | 'pdf',
-  ) => void;
+  openTab: (relativePath: string, title: string, type?: OpenTab['type']) => void;
   setActiveView: (v: ActiveView) => void;
   openSettings: () => void;
   refreshFileTree: () => Promise<void>;

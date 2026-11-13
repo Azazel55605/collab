@@ -46,6 +46,9 @@ pub async fn enable_vault_encryption(
     }
     state.note_index.write().clear();
 
+    #[cfg(not(mobile))]
+    state.playback.clear();
+
     // Encrypt all note files.
     crypto::encrypt_vault_files(&vault_path, &key)?;
 

@@ -3,13 +3,16 @@ import {
   CircuitBoard,
   Copy,
   FileText,
+  Film,
   Hash,
   Layers,
   LayoutDashboard,
+  Music2,
   Settings,
   Type,
 } from 'lucide-react';
 
+import { isCaptionPath, mediaKindForPath } from '../../lib/mediaFiles';
 import {
   formatNerdFontHexCode,
   groupNerdFontIcons,
@@ -38,6 +41,9 @@ function FileTypeIcon({
 }) {
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(path))
     return <FileText className={className} />;
+  const media = mediaKindForPath(path);
+  if (media === 'video') return <Film className={className} />;
+  if (media === 'audio') return <Music2 className={className} />;
   if (/\.pdf$/i.test(path)) return <FileText className={className} />;
   if (path.endsWith('.logic')) return <CircuitBoard className={className} />;
   if (path.endsWith('.kanban')) return <LayoutDashboard className={className} />;
@@ -46,7 +52,8 @@ function FileTypeIcon({
 }
 
 function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
-  const { files, searchResults } = ctx;
+  const { searchResults } = ctx;
+  const files = ctx.files.filter((file) => !isCaptionPath(file.relativePath));
 
   if (!mode.query) {
     const recent = [...files].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 8);

@@ -3,15 +3,18 @@ import { useEffect, useRef, useState } from 'react';
 import {
   CircuitBoard,
   FileText,
+  Film,
   GitFork,
   Image as ImageIcon,
   Layout,
   LayoutDashboard,
+  Music2,
   Settings,
   X,
 } from 'lucide-react';
 
 import { type DragPoint, useDragContext } from '../../contexts/DragContext';
+import { mediaKindForPath } from '../../lib/mediaFiles';
 import { cn } from '../../lib/utils';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
@@ -106,13 +109,19 @@ export default function TabBar() {
     closeTab(relativePath);
   };
 
-  const getTabIcon = (type: string) => {
+  const getTabIcon = ({ type, relativePath }: (typeof openTabs)[number]) => {
     if (type === 'canvas') return <Layout size={11} className="shrink-0" />;
     if (type === 'kanban') return <LayoutDashboard size={11} className="shrink-0" />;
     if (type === 'logic') return <CircuitBoard size={11} className="shrink-0" />;
     if (type === 'graph') return <GitFork size={11} className="shrink-0" />;
     if (type === 'settings') return <Settings size={11} className="shrink-0" />;
     if (type === 'image') return <ImageIcon size={11} className="shrink-0" />;
+    if (type === 'media')
+      return mediaKindForPath(relativePath) === 'audio' ? (
+        <Music2 size={11} className="shrink-0" />
+      ) : (
+        <Film size={11} className="shrink-0" />
+      );
     if (type === 'pdf') return <FileText size={11} className="shrink-0" />;
     return <FileText size={11} className="shrink-0" />;
   };
@@ -153,7 +162,7 @@ export default function TabBar() {
                   />
                 )}
                 <span className={cn(isActive ? 'text-primary' : 'text-muted-foreground')}>
-                  {getTabIcon(tab.type)}
+                  {getTabIcon(tab)}
                 </span>
                 <span className="truncate">{tab.title}</span>
 

@@ -14,6 +14,8 @@ pub mod media_jobs;
 pub mod mobile;
 pub mod notifications;
 pub mod ocr;
+#[cfg(not(mobile))]
+pub mod playback;
 pub mod replica;
 pub mod server;
 pub mod sheet;

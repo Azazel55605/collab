@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   FileUp,
+  Film,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -17,10 +18,12 @@ import {
   Image as ImageIcon,
   Layout,
   LayoutDashboard,
+  Music2,
   Paperclip,
   PenLine,
   Plus,
   Presentation,
+  Subtitles,
   Table2,
   Trash2,
 } from 'lucide-react';
@@ -33,6 +36,7 @@ import { documentSessionRetention } from '../../lib/documentSessionRetention';
 import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
+import { isCaptionPath, LOCAL_MEDIA_EXTENSIONS, mediaKind } from '../../lib/mediaFiles';
 import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 import { isSqlitePath } from '../../lib/sqliteFiles';
@@ -346,9 +350,13 @@ export default function FileTree() {
   );
 
   const handleImportButton = useCallback(async () => {
-    const selected = await tauriCommands.showOpenFilesDialog(IMPORTABLE_EXTENSIONS);
+    const selected = await tauriCommands.showOpenFilesDialog(
+      vault && vault.kind !== 'hosted' && !vault.isEncrypted
+        ? [...IMPORTABLE_EXTENSIONS, ...LOCAL_MEDIA_EXTENSIONS]
+        : IMPORTABLE_EXTENSIONS,
+    );
     if (selected) await importFiles(selected);
-  }, [importFiles]);
+  }, [importFiles, vault]);
 
   // Resolve the folder under the drop point so a file dropped onto a folder lands
   // inside it; anywhere else imports to the vault root.
@@ -401,6 +409,10 @@ export default function FileTree() {
     (file: NoteFile) => {
       if (isSqlitePath(file.relativePath)) {
         void handleDownload(file);
+        return;
+      }
+      if (isCaptionPath(file.relativePath)) {
+        toast.info('Choose this caption file from a media player tab.');
         return;
       }
       const type = getVaultDocumentTabType(file.relativePath);
@@ -1647,6 +1659,11 @@ const FileTreeNode = memo(function FileTreeNode({
     }
     if (isSqlitePath(node.relativePath)) return <Database size={13} className="text-primary/70" />;
     if (isImageAsset) return <ImageIcon size={13} className="text-sky-400/80" />;
+    const media = mediaKind(node.extension.toLowerCase());
+    if (media === 'video') return <Film size={13} className="text-primary/75" />;
+    if (media === 'audio') return <Music2 size={13} className="text-primary/75" />;
+    if (isCaptionPath(node.relativePath))
+      return <Subtitles size={13} className="text-muted-foreground" />;
     if (node.extension === 'canvas') return <Layout size={13} className="text-blue-400/70" />;
     if (node.extension === 'kanban')
       return <LayoutDashboard size={13} className="text-emerald-400/70" />;
