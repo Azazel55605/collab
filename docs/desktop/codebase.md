@@ -438,8 +438,9 @@ Local video and audio use the lazy `views/MediaView.tsx` document view and
 `commands/playback.rs`. The native session registry starts a loopback HTTP
 listener on demand and serves only opaque playback handles. A directory
 capability confines file opens to the active plaintext vault. Range bodies
-read 64 KiB at a time, with four concurrent reads globally and per-source
-pacing to limit prefetch bursts. The renderer unloads the decoder when the
+read up to 256 KiB at a time, with four concurrent reads globally. An 8 ms
+per-source interval bounds read-ahead throughput while leaving headroom for
+high-bitrate files and seeks. The renderer unloads the decoder when the
 view leaves the tab, keeps bounded revision-scoped resume state, and checks
 the native handle for deletion, replacement or access loss. Native vault
 close/switch and encryption transitions revoke active streams.
