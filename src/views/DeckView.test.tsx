@@ -442,7 +442,8 @@ describe('DeckView: viewing', () => {
     serve(JSON.stringify({ kind: 'collab-deck', schemaVersion: 7, future: true }));
     renderView();
     expect(await screen.findByText(/written by a newer version of Collab/)).toBeTruthy();
-    expect((screen.getByRole('button', { name: /Save/ }) as HTMLButtonElement).disabled).toBe(true);
+    // Read-only presentations never offer Save.
+    expect(screen.queryByRole('button', { name: /Save/ })).toBeNull();
     expect((screen.getByRole('button', { name: /New slide/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
@@ -461,17 +462,19 @@ describe('DeckView: viewing', () => {
 });
 
 describe('DeckView: editing', () => {
-  it('keeps one formatting row mounted while selection changes', async () => {
+  it('shows the formatting bar only with a selection and keeps it mounted across selections', async () => {
     await openDeck();
-    const row = screen.getByTestId('deck-formatting-row');
-    const font = screen.getByRole('combobox', { name: 'Font' }) as HTMLButtonElement;
-    expect(font.disabled).toBe(true);
+    expect(screen.queryByTestId('deck-formatting-row')).toBeNull();
 
     key(canvas(), 'Tab');
-    expect(screen.getByTestId('deck-formatting-row')).toBe(row);
+    const row = screen.getByTestId('deck-formatting-row');
+    const font = within(row).getByRole('combobox', { name: 'Font' }) as HTMLButtonElement;
     expect(font.disabled).toBe(false);
     expect(within(row).getByRole('toolbar', { name: 'Text formatting' })).toBeTruthy();
     expect(within(row).getByRole('toolbar', { name: 'Object formatting' })).toBeTruthy();
+
+    key(canvas(), 'Tab');
+    expect(screen.getByTestId('deck-formatting-row')).toBe(row);
   });
 
   it('focuses the canvas on a blank click and uses arrows to change slides', async () => {

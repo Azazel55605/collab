@@ -124,9 +124,10 @@ describe('CanvasToolbar', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle(/zoom out/i));
-    fireEvent.click(screen.getByRole('button', { name: '125%' }));
-    fireEvent.click(screen.getByTitle(/zoom in/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' }).textContent).toBe('125%');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset zoom to 100%' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
     fireEvent.click(screen.getByRole('button', { name: /fit view/i }));
 
     expect(onZoomOut).toHaveBeenCalled();

@@ -3,15 +3,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Copy,
   Crop as CropIcon,
+  Download,
   Eye,
   EyeOff,
-  FileText,
   Image as ImageIcon,
   Loader2,
-  Minus,
   PanelRightClose,
-  Plus,
   RefreshCw,
+  ScanText,
 } from 'lucide-react';
 
 import type { SelectableImageOcrWord } from '../components/image/ImageAdditiveStage';
@@ -39,9 +38,12 @@ import {
   type ImageCropInteraction,
   useImageInteractions,
 } from '../components/image/useImageInteractions';
+import { FloatingBar, ZoomPill } from '../components/layout/CanvasChrome';
 import {
+  DocumentMoreMenu,
   DocumentTopBar,
-  documentTopBarGroupClass,
+  DocumentTopBarButton,
+  DocumentTopBarIconButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
@@ -55,6 +57,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import { DropdownMenuItem } from '../components/ui/dropdown-menu';
 import { Textarea } from '../components/ui/textarea';
 import { renderEditedImage as buildPermanentCanvas } from '../lib/imageProcessing';
 import { sceneToSvg } from '../lib/ink/svg';
@@ -444,161 +447,75 @@ export default function ImageView({ relativePath }: Props) {
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Image')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<ImageIcon size={15} className="text-sky-400/80" />}
+        icon={<ImageIcon />}
+        status={
+          dimensions ? (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {dimensions.width} × {dimensions.height}
+              {hasAdditiveItems && ` · ${imageAnnotationObjectCount(annotationDoc)} annotations`}
+            </span>
+          ) : undefined
+        }
         meta={
           <>
-            {dimensions && (
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {dimensions.width} x {dimensions.height}
-              </span>
-            )}
-            {hasAdditiveItems && (
-              <span className="text-xs text-muted-foreground">
-                {imageAnnotationObjectCount(annotationDoc)} annotations
-              </span>
-            )}
-          </>
-        }
-        secondary={
-          <>
-            <div className={documentTopBarGroupClass}>
-              {(['view', 'additive', 'permanent'] as const).map((nextMode) => (
-                <Button
+            <div
+              role="group"
+              aria-label="Image mode"
+              className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+            >
+              {(
+                [
+                  ['view', 'View'],
+                  ['additive', 'Annotate'],
+                  ['permanent', 'Edit'],
+                ] as const
+              ).map(([nextMode, label]) => (
+                <button
                   key={nextMode}
-                  size="sm"
-                  variant="ghost"
-                  className={cn(
-                    'h-8 px-2.5 text-xs app-motion-fast',
-                    mode === nextMode && 'bg-accent text-accent-foreground',
-                  )}
+                  type="button"
+                  aria-pressed={mode === nextMode}
                   onClick={() => setMode(nextMode)}
+                  className={cn(
+                    'h-7 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors app-motion-base outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50',
+                    mode === nextMode && 'bg-background text-foreground shadow-sm',
+                  )}
                 >
-                  {nextMode === 'view'
-                    ? 'View'
-                    : nextMode === 'additive'
-                      ? 'Additive'
-                      : 'Permanent'}
-                </Button>
+                  {label}
+                </button>
               ))}
             </div>
-
-            {mode === 'additive' && (
-              <div className={documentTopBarGroupClass}>
-                <PdfInkToolbar tool={inkTool} readOnly={!canAnnotate} onChange={setInkTool} />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2.5 text-xs"
-                  disabled={!hasAdditiveItems}
-                  onClick={() => setSaveIntent('flatten')}
-                >
-                  Export baked copy
-                </Button>
-              </div>
+            <DocumentTopBarIconButton
+              aria-label="Recognized text (OCR)"
+              title="Recognized text (OCR)"
+              aria-pressed={ocrOpen}
+              className={cn(ocrOpen && 'bg-primary/15 text-foreground')}
+              onClick={() => {
+                if (ocrText) {
+                  setOcrOpen((current) => !current);
+                  return;
+                }
+                void runImageOcr();
+              }}
+              disabled={!src || ocrLoading}
+            >
+              {ocrLoading ? <Loader2 className="animate-spin" /> : <ScanText />}
+            </DocumentTopBarIconButton>
+            {cropDraft && (
+              <DocumentTopBarButton
+                onClick={() => void runImageOcr(false, cropDraft)}
+                disabled={!src || !image || ocrLoading}
+              >
+                <CropIcon /> OCR crop
+              </DocumentTopBarButton>
             )}
-
-            {mode === 'permanent' && (
-              <>
-                <ImagePermanentToolbar
-                  cropMode={cropMode}
-                  resizeWidth={permanentEdits.resizeWidth}
-                  resizeHeight={permanentEdits.resizeHeight}
-                  widthPlaceholder={String(getCropBounds(currentDimensions, permanentEdits).width)}
-                  heightPlaceholder={String(
-                    getCropBounds(currentDimensions, permanentEdits).height,
-                  )}
-                  lockAspectRatio={permanentEdits.lockAspectRatio}
-                  permanentDirty={permanentDirty}
-                  onRotate={() =>
-                    setPermanentEdits((current) => ({
-                      ...current,
-                      rotation: ((current.rotation + 90) % 360) as PermanentImageEdits['rotation'],
-                    }))
-                  }
-                  onBeginCrop={beginCrop}
-                  onResizeWidthChange={(value) => handleResizeChange('width', value)}
-                  onResizeHeightChange={(value) => handleResizeChange('height', value)}
-                  onToggleLockRatio={() =>
-                    setPermanentEdits((current) => ({
-                      ...current,
-                      lockAspectRatio: !current.lockAspectRatio,
-                    }))
-                  }
-                  onReset={resetPermanentEdits}
-                  onSaveChanges={() => setSaveIntent('permanent')}
-                />
-              </>
-            )}
-
-            <div className={documentTopBarGroupClass}>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                  'h-8 gap-1.5 px-2.5 text-xs',
-                  ocrOpen && 'bg-accent text-accent-foreground',
-                )}
-                onClick={() => {
-                  if (ocrText) {
-                    setOcrOpen((current) => !current);
-                    return;
-                  }
-                  void runImageOcr();
-                }}
-                disabled={!src || ocrLoading}
+            <DocumentMoreMenu label="More image actions">
+              <DropdownMenuItem
+                disabled={!hasAdditiveItems}
+                onSelect={() => setSaveIntent('flatten')}
               >
-                {ocrLoading ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <FileText size={14} />
-                )}
-                OCR
-              </Button>
-              {cropDraft && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 gap-1.5 px-2.5 text-xs"
-                  onClick={() => void runImageOcr(false, cropDraft)}
-                  disabled={!src || !image || ocrLoading}
-                >
-                  {ocrLoading ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <CropIcon size={14} />
-                  )}
-                  OCR crop
-                </Button>
-              )}
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => setZoomPercent((current) => Math.max(25, current - 25))}
-                disabled={zoomPercent <= 25}
-                title="Zoom out"
-              >
-                <Minus size={14} />
-              </Button>
-              <button
-                type="button"
-                onClick={() => setZoomPercent(100)}
-                className="min-w-[86px] rounded-md px-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                title="Reset zoom to 100%"
-              >
-                {zoomPercent}%
-              </button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => setZoomPercent((current) => Math.min(400, current + 25))}
-                disabled={zoomPercent >= 400}
-                title="Zoom in"
-              >
-                <Plus size={14} />
-              </Button>
-            </div>
+                <Download /> Export baked copy
+              </DropdownMenuItem>
+            </DocumentMoreMenu>
           </>
         }
       />
@@ -611,222 +528,277 @@ export default function ImageView({ relativePath }: Props) {
         </div>
       )}
 
-      <div
-        ref={viewportRef}
-        className="relative flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.08)_1px,transparent_0)] [background-size:18px_18px]"
-      >
-        {ocrOpen && (
-          <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] rounded-xl border border-border/60 bg-popover/95 p-3 shadow-2xl shadow-black/25 backdrop-blur-sm-webkit app-panel-enter">
-            <div className="mb-2 flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium">Recognized text</div>
-                <div className="text-xs text-muted-foreground">
-                  {ocrLoading && ocrProgress
-                    ? `${ocrProgress.status} · ${Math.round(ocrProgress.progress * 100)}%`
-                    : ocrError
-                      ? 'OCR failed'
-                      : ocrConfidence != null
-                        ? `${ocrCached ? 'Cached · ' : ''}Confidence ${Math.round(ocrConfidence)}%`
-                        : 'Image OCR'}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={viewportRef}
+          className="relative h-full overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.08)_1px,transparent_0)] [background-size:18px_18px]"
+        >
+          {ocrOpen && (
+            <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] rounded-xl border border-border/60 bg-popover/95 p-3 shadow-2xl shadow-black/25 backdrop-blur-sm-webkit app-panel-enter">
+              <div className="mb-2 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">Recognized text</div>
+                  <div className="text-xs text-muted-foreground">
+                    {ocrLoading && ocrProgress
+                      ? `${ocrProgress.status} · ${Math.round(ocrProgress.progress * 100)}%`
+                      : ocrError
+                        ? 'OCR failed'
+                        : ocrConfidence != null
+                          ? `${ocrCached ? 'Cached · ' : ''}Confidence ${Math.round(ocrConfidence)}%`
+                          : 'Image OCR'}
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1">
-                {(ocrOverlay?.words.length ?? 0) > 0 && (
+                <div className="flex items-center gap-1">
+                  {(ocrOverlay?.words.length ?? 0) > 0 && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={cn('size-8', ocrOverlayVisible && 'text-primary')}
+                      onClick={() => setOcrOverlayVisible(!ocrOverlayVisible)}
+                      title={
+                        ocrOverlayVisible ? 'Hide text boxes on image' : 'Show text boxes on image'
+                      }
+                    >
+                      {ocrOverlayVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </Button>
+                  )}
                   <Button
                     size="icon"
                     variant="ghost"
-                    className={cn('size-8', ocrOverlayVisible && 'text-primary')}
-                    onClick={() => setOcrOverlayVisible(!ocrOverlayVisible)}
-                    title={
-                      ocrOverlayVisible ? 'Hide text boxes on image' : 'Show text boxes on image'
-                    }
+                    className="size-8"
+                    disabled={!src || ocrLoading}
+                    onClick={() => void runImageOcr(true, lastOcrRegion)}
+                    title="Regenerate OCR"
                   >
-                    {ocrOverlayVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                    <RefreshCw size={14} />
                   </Button>
-                )}
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  disabled={!src || ocrLoading}
-                  onClick={() => void runImageOcr(true, lastOcrRegion)}
-                  title="Regenerate OCR"
-                >
-                  <RefreshCw size={14} />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  disabled={!ocrText}
-                  onClick={() => void copyOcrText()}
-                  title="Copy recognized text"
-                >
-                  <Copy size={14} />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  onClick={() => setOcrOpen(false)}
-                  title="Close OCR panel"
-                >
-                  <PanelRightClose size={14} />
-                </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    disabled={!ocrText}
+                    onClick={() => void copyOcrText()}
+                    title="Copy recognized text"
+                  >
+                    <Copy size={14} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    onClick={() => setOcrOpen(false)}
+                    title="Close OCR panel"
+                  >
+                    <PanelRightClose size={14} />
+                  </Button>
+                </div>
               </div>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className={cn(
-                'mb-2 h-8 w-full gap-1.5 text-xs',
-                (cropMode || !!cropDraft) && 'border-primary text-primary',
-              )}
-              disabled={!src || !image || ocrLoading}
-              onClick={() => {
-                if (cropDraft) {
-                  void runImageOcr(false, cropDraft);
-                } else {
-                  beginCrop();
-                }
-              }}
-              title="OCR a selected region of the image"
-            >
-              <CropIcon size={14} />
-              {cropDraft
-                ? 'OCR selected region'
-                : cropMode
-                  ? 'Drag to select a region…'
-                  : 'Region OCR'}
-            </Button>
-            {ocrLoading && (
-              <div className="h-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full bg-primary transition-all"
-                  style={{ width: `${Math.round((ocrProgress?.progress ?? 0) * 100)}%` }}
-                />
-              </div>
-            )}
-            {!ocrLoading && (
-              <Textarea
-                readOnly
-                value={ocrError ?? (ocrText || 'No text recognized.')}
+              <Button
+                size="sm"
+                variant="outline"
                 className={cn(
-                  'mt-2 h-48 w-full resize-none rounded-lg border border-input bg-background/70 px-3 py-2 text-xs leading-relaxed outline-none',
-                  ocrError && 'border-destructive/40 text-destructive',
+                  'mb-2 h-8 w-full gap-1.5 text-xs',
+                  (cropMode || !!cropDraft) && 'border-primary text-primary',
                 )}
-              />
-            )}
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading image…
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-            <ImageIcon size={28} className="opacity-35" />
-            <p>Failed to load image.</p>
-            <p className="text-xs opacity-70">{error}</p>
-          </div>
-        )}
-
-        {!loading && src && image && mode !== 'permanent' && (
-          <div
-            className="flex items-center justify-center p-6"
-            style={{
-              width: workspaceDimensions.width,
-              height: workspaceDimensions.height,
-              minWidth: workspaceDimensions.width,
-              minHeight: workspaceDimensions.height,
-            }}
-          >
-            <div
-              className="relative overflow-hidden rounded-sm bg-black/20 shadow-2xl"
-              style={{
-                width: additiveDisplayDimensions.width,
-                height: additiveDisplayDimensions.height,
-              }}
-              data-image-stage="additive"
-            >
-              <img
-                src={src}
-                alt={relativePath ?? 'Image'}
-                draggable={false}
-                className="absolute inset-0 size-full select-none object-fill"
-              />
-              {annotationDoc && (
-                <ImageInkOverlay
-                  document={annotationDoc}
-                  width={image.naturalWidth}
-                  height={image.naturalHeight}
-                  displayWidth={additiveDisplayDimensions.width}
-                  displayHeight={additiveDisplayDimensions.height}
-                  enabled={mode === 'additive'}
-                  readOnly={!canAnnotate}
-                  tool={inkTool}
-                  onChange={setAnnotationDoc}
-                />
-              )}
-              {ocrOverlayVisible && ocrOverlay?.surface === 'additive' && (
-                <div className="pointer-events-none absolute inset-0 z-20">
-                  {ocrOverlay.words.map((word, index) => (
-                    <span
-                      key={`${word.text}-${index}`}
-                      className="absolute border border-sky-400/70 bg-sky-400/10 text-transparent"
-                      style={{
-                        left: `${word.left * 100}%`,
-                        top: `${word.top * 100}%`,
-                        width: `${word.width * 100}%`,
-                        height: `${word.height * 100}%`,
-                      }}
-                    >
-                      {word.text}
-                    </span>
-                  ))}
+                disabled={!src || !image || ocrLoading}
+                onClick={() => {
+                  if (cropDraft) {
+                    void runImageOcr(false, cropDraft);
+                  } else {
+                    beginCrop();
+                  }
+                }}
+                title="OCR a selected region of the image"
+              >
+                <CropIcon size={14} />
+                {cropDraft
+                  ? 'OCR selected region'
+                  : cropMode
+                    ? 'Drag to select a region…'
+                    : 'Region OCR'}
+              </Button>
+              {ocrLoading && (
+                <div className="h-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.round((ocrProgress?.progress ?? 0) * 100)}%` }}
+                  />
                 </div>
               )}
+              {!ocrLoading && (
+                <Textarea
+                  readOnly
+                  value={ocrError ?? (ocrText || 'No text recognized.')}
+                  className={cn(
+                    'mt-2 h-48 w-full resize-none rounded-lg border border-input bg-background/70 px-3 py-2 text-xs leading-relaxed outline-none',
+                    ocrError && 'border-destructive/40 text-destructive',
+                  )}
+                />
+              )}
             </div>
-          </div>
-        )}
+          )}
 
-        {!loading && src && image && mode === 'permanent' && (
-          <div
-            className="flex items-center justify-center p-6"
-            style={{
-              width: workspaceDimensions.width,
-              height: workspaceDimensions.height,
-              minWidth: workspaceDimensions.width,
-              minHeight: workspaceDimensions.height,
-            }}
-          >
-            <ImagePermanentStage
-              previewCanvasRef={previewCanvasRef}
-              displayWidth={permanentDisplayDimensions.width}
-              displayHeight={permanentDisplayDimensions.height}
-              cropMode={cropMode}
-              cropDraft={cropDraft}
-              cropRectStyle={cropRectStyle}
-              onCropPointerDown={handleCropPointerDown}
-              onCropPointerMove={handleCropPointerMove}
-              onCropPointerEnd={() => setCropDragStart(null)}
-              onCropResizeStart={({ edges, startPointer, startRect }) => {
-                setCropInteraction({
-                  mode: 'resize',
-                  edges,
-                  startPointer,
-                  startRect,
-                });
+          {loading && (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Loading image…
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+              <ImageIcon size={28} className="opacity-35" />
+              <p>Failed to load image.</p>
+              <p className="text-xs opacity-70">{error}</p>
+            </div>
+          )}
+
+          {!loading && src && image && mode !== 'permanent' && (
+            <div
+              className="flex items-center justify-center p-6"
+              style={{
+                width: workspaceDimensions.width,
+                height: workspaceDimensions.height,
+                minWidth: workspaceDimensions.width,
+                minHeight: workspaceDimensions.height,
               }}
-              ocrWords={
-                ocrOverlayVisible && ocrOverlay?.surface === 'permanent' ? ocrOverlay.words : []
-              }
+            >
+              <div
+                className="relative overflow-hidden rounded-sm bg-black/20 shadow-2xl"
+                style={{
+                  width: additiveDisplayDimensions.width,
+                  height: additiveDisplayDimensions.height,
+                }}
+                data-image-stage="additive"
+              >
+                <img
+                  src={src}
+                  alt={relativePath ?? 'Image'}
+                  draggable={false}
+                  className="absolute inset-0 size-full select-none object-fill"
+                />
+                {annotationDoc && (
+                  <ImageInkOverlay
+                    document={annotationDoc}
+                    width={image.naturalWidth}
+                    height={image.naturalHeight}
+                    displayWidth={additiveDisplayDimensions.width}
+                    displayHeight={additiveDisplayDimensions.height}
+                    enabled={mode === 'additive'}
+                    readOnly={!canAnnotate}
+                    tool={inkTool}
+                    onChange={setAnnotationDoc}
+                  />
+                )}
+                {ocrOverlayVisible && ocrOverlay?.surface === 'additive' && (
+                  <div className="pointer-events-none absolute inset-0 z-20">
+                    {ocrOverlay.words.map((word, index) => (
+                      <span
+                        key={`${word.text}-${index}`}
+                        className="absolute border border-sky-400/70 bg-sky-400/10 text-transparent"
+                        style={{
+                          left: `${word.left * 100}%`,
+                          top: `${word.top * 100}%`,
+                          width: `${word.width * 100}%`,
+                          height: `${word.height * 100}%`,
+                        }}
+                      >
+                        {word.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!loading && src && image && mode === 'permanent' && (
+            <div
+              className="flex items-center justify-center p-6"
+              style={{
+                width: workspaceDimensions.width,
+                height: workspaceDimensions.height,
+                minWidth: workspaceDimensions.width,
+                minHeight: workspaceDimensions.height,
+              }}
+            >
+              <ImagePermanentStage
+                previewCanvasRef={previewCanvasRef}
+                displayWidth={permanentDisplayDimensions.width}
+                displayHeight={permanentDisplayDimensions.height}
+                cropMode={cropMode}
+                cropDraft={cropDraft}
+                cropRectStyle={cropRectStyle}
+                onCropPointerDown={handleCropPointerDown}
+                onCropPointerMove={handleCropPointerMove}
+                onCropPointerEnd={() => setCropDragStart(null)}
+                onCropResizeStart={({ edges, startPointer, startRect }) => {
+                  setCropInteraction({
+                    mode: 'resize',
+                    edges,
+                    startPointer,
+                    startRect,
+                  });
+                }}
+                ocrWords={
+                  ocrOverlayVisible && ocrOverlay?.surface === 'permanent' ? ocrOverlay.words : []
+                }
+              />
+            </div>
+          )}
+        </div>
+        {mode === 'additive' && (
+          <div className="pointer-events-none absolute top-1/2 left-3 z-30 -translate-y-1/2">
+            <PdfInkToolbar
+              tool={inkTool}
+              readOnly={!canAnnotate}
+              onChange={setInkTool}
+              orientation="vertical"
             />
           </div>
         )}
+        {mode === 'permanent' && (
+          <FloatingBar
+            role="toolbar"
+            aria-label="Edit image"
+            className="bottom-3 left-1/2 z-30 -translate-x-1/2"
+          >
+            <ImagePermanentToolbar
+              cropMode={cropMode}
+              resizeWidth={permanentEdits.resizeWidth}
+              resizeHeight={permanentEdits.resizeHeight}
+              widthPlaceholder={String(getCropBounds(currentDimensions, permanentEdits).width)}
+              heightPlaceholder={String(getCropBounds(currentDimensions, permanentEdits).height)}
+              lockAspectRatio={permanentEdits.lockAspectRatio}
+              permanentDirty={permanentDirty}
+              onRotate={() =>
+                setPermanentEdits((current) => ({
+                  ...current,
+                  rotation: ((current.rotation + 90) % 360) as PermanentImageEdits['rotation'],
+                }))
+              }
+              onBeginCrop={beginCrop}
+              onResizeWidthChange={(value) => handleResizeChange('width', value)}
+              onResizeHeightChange={(value) => handleResizeChange('height', value)}
+              onToggleLockRatio={() =>
+                setPermanentEdits((current) => ({
+                  ...current,
+                  lockAspectRatio: !current.lockAspectRatio,
+                }))
+              }
+              onReset={resetPermanentEdits}
+              onSaveChanges={() => setSaveIntent('permanent')}
+            />
+          </FloatingBar>
+        )}
+        <ZoomPill
+          label={`${zoomPercent}%`}
+          onZoomOut={() => setZoomPercent((current) => Math.max(25, current - 25))}
+          onZoomIn={() => setZoomPercent((current) => Math.min(400, current + 25))}
+          onReset={() => setZoomPercent(100)}
+          zoomOutDisabled={zoomPercent <= 25}
+          zoomInDisabled={zoomPercent >= 400}
+          className="z-30"
+        />
       </div>
 
       <ImageCropFooter

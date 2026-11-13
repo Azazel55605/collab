@@ -1,5 +1,4 @@
 import {
-  type ComponentProps,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -44,6 +43,7 @@ import {
 import { toast } from 'sonner';
 
 import LivePeers from '../components/collaboration/LivePeers';
+import { RailButton } from '../components/layout/CanvasChrome';
 import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentTopBar,
@@ -6307,34 +6307,4 @@ function LogicDiagramEditor({ relativePath }: Props) {
 
 export default function LogicDiagramView(props: Props) {
   return <LogicDiagramEditor {...props} />;
-}
-
-/** Icon button for the floating canvas toolbars, labelled for screen readers and tooltips. */
-function RailButton({
-  label,
-  hint,
-  pressed,
-  className,
-  children,
-  ...props
-}: Omit<ComponentProps<typeof DocumentTopBarIconButton>, 'aria-label'> & {
-  label: string;
-  hint?: string;
-  pressed?: boolean;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <DocumentTopBarIconButton
-          aria-label={label}
-          aria-pressed={pressed}
-          className={cn(pressed && 'bg-primary/15 text-foreground', className)}
-          {...props}
-        >
-          {children}
-        </DocumentTopBarIconButton>
-      </TooltipTrigger>
-      <TooltipContent side="right">{hint ?? label}</TooltipContent>
-    </Tooltip>
-  );
 }

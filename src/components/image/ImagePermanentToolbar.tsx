@@ -38,7 +38,6 @@ export function ImagePermanentToolbar({
 }: ImagePermanentToolbarProps) {
   return (
     <>
-      <div className="mx-1 h-6 w-px bg-border/50" />
       <Button size="sm" variant="outline" className="h-8" onClick={onRotate}>
         <RotateCw size={14} className="mr-1.5" />
         Rotate
@@ -80,7 +79,7 @@ export function ImagePermanentToolbar({
         className="h-8"
         onClick={onToggleLockRatio}
       >
-        Lock Ratio
+        Lock ratio
       </Button>
       <Button size="sm" variant="ghost" className="h-8" onClick={onReset}>
         Reset
@@ -92,7 +91,7 @@ export function ImagePermanentToolbar({
         disabled={!permanentDirty}
         onClick={onSaveChanges}
       >
-        Save Changes
+        Save changes
       </Button>
     </>
   );

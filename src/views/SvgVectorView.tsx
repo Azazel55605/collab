@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Minus, PenTool, Plus } from 'lucide-react';
+import { PenTool, Save } from 'lucide-react';
 
 import {
   type Dimensions,
@@ -13,14 +13,15 @@ import { SvgEditStage, type SvgTool } from '../components/image/SvgEditStage';
 import { SvgPropertiesPanel } from '../components/image/SvgPropertiesPanel';
 import { SvgToolbar } from '../components/image/SvgToolbar';
 import { useSvgSession } from '../components/image/useSvgSession';
+import { ZoomPill } from '../components/layout/CanvasChrome';
+import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentTopBar,
-  documentTopBarGroupClass,
+  DocumentTopBarButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import { Button } from '../components/ui/button';
 import { findNode, removeNode, reorderNode, serializeScene, updateNode } from '../lib/svgDocument';
 import { cn } from '../lib/utils';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
@@ -156,74 +157,49 @@ export default function SvgVectorView({ relativePath }: Props) {
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Image')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<PenTool size={15} className="text-sky-400/80" />}
-        meta={
-          scene ? (
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {Math.round(scene.viewBox.width)} x {Math.round(scene.viewBox.height)}
+        icon={<PenTool />}
+        status={
+          mode === 'edit' && dirty ? (
+            <DocumentStatusPill status="dirty" compact />
+          ) : scene ? (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {Math.round(scene.viewBox.width)} × {Math.round(scene.viewBox.height)}
             </span>
-          ) : null
+          ) : undefined
         }
-        secondary={
+        meta={
           <>
-            <div className={documentTopBarGroupClass}>
+            <div
+              role="group"
+              aria-label="SVG mode"
+              className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+            >
               {(['view', 'edit'] as const).map((next) => (
-                <Button
+                <button
                   key={next}
-                  size="sm"
-                  variant="ghost"
-                  className={cn(
-                    'h-8 px-2.5 text-xs app-motion-fast',
-                    mode === next && 'bg-accent text-accent-foreground',
-                  )}
+                  type="button"
+                  aria-pressed={mode === next}
                   disabled={next === 'edit' && readOnly}
                   onClick={() => setMode(next)}
+                  className={cn(
+                    'h-7 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors app-motion-base outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
+                    mode === next && 'bg-background text-foreground shadow-sm',
+                  )}
                 >
                   {next === 'view' ? 'View' : 'Edit'}
-                </Button>
+                </button>
               ))}
             </div>
-
             {mode === 'edit' && !readOnly && (
-              <SvgToolbar
-                tool={tool}
-                onToolChange={setTool}
-                dirty={dirty}
-                saving={saving}
-                onSave={() => void save()}
-              />
+              <DocumentTopBarButton
+                variant={dirty ? 'default' : 'ghost'}
+                disabled={!dirty || saving}
+                onClick={() => void save()}
+              >
+                <Save />
+                {saving ? 'Saving…' : 'Save'}
+              </DocumentTopBarButton>
             )}
-
-            <div className={documentTopBarGroupClass}>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => setZoomPercent((c) => Math.max(25, c - 25))}
-                disabled={zoomPercent <= 25}
-                title="Zoom out"
-              >
-                <Minus size={14} />
-              </Button>
-              <button
-                type="button"
-                onClick={() => setZoomPercent(100)}
-                className="min-w-[86px] rounded-md px-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                title="Reset zoom to 100%"
-              >
-                {zoomPercent}%
-              </button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => setZoomPercent((c) => Math.min(400, c + 25))}
-                disabled={zoomPercent >= 400}
-                title="Zoom in"
-              >
-                <Plus size={14} />
-              </Button>
-            </div>
           </>
         }
       />
@@ -237,65 +213,77 @@ export default function SvgVectorView({ relativePath }: Props) {
         </div>
       )}
 
-      <div
-        ref={viewportRef}
-        className="relative flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.08)_1px,transparent_0)] [background-size:18px_18px]"
-      >
-        {mode === 'edit' && selectedNode && !readOnly && (
-          <SvgPropertiesPanel
-            node={selectedNode}
-            onChange={changeSelected}
-            onReorder={reorderSelected}
-            onDelete={deleteSelected}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={viewportRef}
+          className="relative h-full overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.08)_1px,transparent_0)] [background-size:18px_18px]"
+        >
+          {mode === 'edit' && selectedNode && !readOnly && (
+            <SvgPropertiesPanel
+              node={selectedNode}
+              onChange={changeSelected}
+              onReorder={reorderSelected}
+              onDelete={deleteSelected}
+              onClose={() => setSelectedId(null)}
+            />
+          )}
 
-        {loading && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading SVG…
-          </div>
-        )}
+          {loading && (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Loading SVG…
+            </div>
+          )}
 
-        {!loading && error && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-            <PenTool size={28} className="opacity-35" />
-            <p>Could not open this SVG for editing.</p>
-            <p className="text-xs opacity-70">{error}</p>
-          </div>
-        )}
+          {!loading && error && (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+              <PenTool size={28} className="opacity-35" />
+              <p>Could not open this SVG for editing.</p>
+              <p className="text-xs opacity-70">{error}</p>
+            </div>
+          )}
 
-        {!loading && !error && scene && (
-          <div
-            className="flex items-center justify-center p-6"
-            style={{
-              width: workspaceDimensions.width,
-              height: workspaceDimensions.height,
-              minWidth: workspaceDimensions.width,
-              minHeight: workspaceDimensions.height,
-            }}
-          >
-            {mode === 'edit' && !readOnly ? (
-              <SvgEditStage
-                scene={scene}
-                displayDimensions={displayDimensions}
-                tool={tool}
-                selectedId={selectedId}
-                readOnly={readOnly}
-                onSelect={setSelectedId}
-                onSceneChange={(updater) =>
-                  setScene((current) => (current ? updater(current) : current))
-                }
-                onCreated={(id) => {
-                  setSelectedId(id);
-                  setTool('select');
-                }}
-              />
-            ) : (
-              <SvgPreview scene={scene} displayDimensions={displayDimensions} />
-            )}
-          </div>
-        )}
+          {!loading && !error && scene && (
+            <div
+              className="flex items-center justify-center p-6"
+              style={{
+                width: workspaceDimensions.width,
+                height: workspaceDimensions.height,
+                minWidth: workspaceDimensions.width,
+                minHeight: workspaceDimensions.height,
+              }}
+            >
+              {mode === 'edit' && !readOnly ? (
+                <SvgEditStage
+                  scene={scene}
+                  displayDimensions={displayDimensions}
+                  tool={tool}
+                  selectedId={selectedId}
+                  readOnly={readOnly}
+                  onSelect={setSelectedId}
+                  onSceneChange={(updater) =>
+                    setScene((current) => (current ? updater(current) : current))
+                  }
+                  onCreated={(id) => {
+                    setSelectedId(id);
+                    setTool('select');
+                  }}
+                />
+              ) : (
+                <SvgPreview scene={scene} displayDimensions={displayDimensions} />
+              )}
+            </div>
+          )}
+        </div>
+        {mode === 'edit' && !readOnly && <SvgToolbar tool={tool} onToolChange={setTool} />}
+        <ZoomPill
+          label={`${zoomPercent}%`}
+          onZoomOut={() => setZoomPercent((c) => Math.max(25, c - 25))}
+          onZoomIn={() => setZoomPercent((c) => Math.min(400, c + 25))}
+          onReset={() => setZoomPercent(100)}
+          zoomOutDisabled={zoomPercent <= 25}
+          zoomInDisabled={zoomPercent >= 400}
+          className="z-30"
+        />
       </div>
     </div>
   );

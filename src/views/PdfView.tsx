@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
   BookmarkPlus,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Columns2,
@@ -27,13 +26,18 @@ import {
   RefreshCw,
   RotateCw,
   Rows3,
+  ScanText,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { FloatingBar, FloatingSeparator, RailButton } from '../components/layout/CanvasChrome';
 import {
+  DocumentMoreMenu,
   DocumentTopBar,
-  documentTopBarGroupClass,
+  DocumentTopBarButton,
+  DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
@@ -48,9 +52,6 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { Input } from '../components/ui/input';
@@ -2851,307 +2852,235 @@ export default function PdfView({ relativePath }: Props) {
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'PDF')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<FileText size={15} />}
-        secondary={
+        icon={<FileText />}
+        status={
+          pageCount > 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {pageCount} {pageCount === 1 ? 'page' : 'pages'}
+            </span>
+          ) : undefined
+        }
+        meta={
           <>
-            <div className={documentTopBarGroupClass}>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => goToPage(pageNumber - 1)}
-                disabled={pageNumber <= 1}
-                title="Previous page"
-              >
-                <ChevronLeft size={15} />
-              </Button>
-              <Input
-                value={pageInput}
-                onChange={(event) => setPageInput(event.target.value.replace(/[^\d]/g, ''))}
-                onBlur={() => goToPage(Number.parseInt(pageInput || '1', 10) || 1)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    goToPage(Number.parseInt(pageInput || '1', 10) || 1);
-                  }
-                }}
-                className="h-8 w-14 border-0 bg-transparent px-2 text-center text-sm shadow-none focus-visible:ring-0"
-              />
-              <span className="px-1 text-xs text-muted-foreground">/ {pageCount}</span>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => goToPage(pageNumber + 1)}
-                disabled={pageNumber >= pageCount}
-                title="Next page"
-              >
-                <ChevronRight size={15} />
-              </Button>
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => adjustCustomZoom(-ZOOM_STEP)}
-                disabled={zoomMode === 'custom' && zoom <= ZOOM_MIN}
-                title="Zoom out"
-              >
-                <Minus size={15} />
-              </Button>
-              <button
-                type="button"
-                onClick={() => setCustomZoom(1)}
-                className="min-w-[86px] rounded-md px-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                title="Reset zoom to 100%"
-              >
-                {zoomLabel}
-              </button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8"
-                onClick={() => adjustCustomZoom(ZOOM_STEP)}
-                disabled={zoomMode === 'custom' && zoom >= ZOOM_MAX}
-                title="Zoom in"
-              >
-                <Plus size={15} />
-              </Button>
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs">
-                    <Maximize2 size={14} />
-                    View
-                    <ChevronDown size={13} className="opacity-60" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Maximize2 size={14} className="mr-2" />
-                      Fit
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={zoomMode}
-                        onValueChange={(value) => setZoomMode(value as ZoomMode)}
-                      >
-                        <DropdownMenuRadioItem value="fit-width">
-                          <Rows3 size={14} className="mr-2" />
-                          Fit width
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="fit-height">
-                          <Columns2 size={14} className="mr-2" />
-                          Fit height
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="fit-page">
-                          <Maximize2 size={14} className="mr-2" />
-                          Fit page
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setRotation((current) => (current + 90) % 360)}>
-                    <RotateCw size={14} className="mr-2" />
-                    Rotate 90°
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className={documentTopBarGroupClass}>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                  'h-8 gap-1.5 px-2.5 text-xs',
-                  inkEnabled && 'bg-accent text-accent-foreground',
-                )}
-                onClick={() => {
-                  setInkEnabled((current) => !current);
-                  setInteractionMode('none');
-                  setRegionSelection(null);
-                }}
-                title={canAnnotate ? 'Draw on the PDF' : 'View PDF ink (read-only)'}
-              >
-                <PenLine size={14} />
-                Ink
-                {(pdfState.ink ? pdfInkObjectCount(pdfState.ink) : 0) > 0 && (
-                  <span className="rounded-full bg-primary/15 px-1.5 text-[10px] text-primary">
-                    {pdfInkObjectCount(pdfState.ink!)}
-                  </span>
-                )}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => void exportFlattenedPdf()}
-                title={
-                  annotatedExportProgress
-                    ? 'Cancel annotated PDF export'
-                    : 'Export annotated PDF copy'
+            <DocumentTopBarButton
+              aria-pressed={inkEnabled}
+              className={cn(inkEnabled && 'bg-primary/15 text-foreground hover:bg-primary/20')}
+              onClick={() => {
+                setInkEnabled((current) => !current);
+                setInteractionMode('none');
+                setRegionSelection(null);
+              }}
+              title={canAnnotate ? 'Draw on the PDF' : 'View PDF ink (read-only)'}
+            >
+              <PenLine />
+              Annotate
+              {(pdfState.ink ? pdfInkObjectCount(pdfState.ink) : 0) > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 text-[10px] text-primary">
+                  {pdfInkObjectCount(pdfState.ink!)}
+                </span>
+              )}
+            </DocumentTopBarButton>
+            <DocumentTopBarIconButton
+              aria-label="Text box"
+              title="Add a text box annotation"
+              aria-pressed={interactionMode === 'annotation'}
+              className={cn(interactionMode === 'annotation' && 'bg-primary/15 text-foreground')}
+              onClick={() => {
+                setInteractionMode((current) => (current === 'annotation' ? 'none' : 'annotation'));
+                setRegionSelection(null);
+              }}
+            >
+              <MessageSquare />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton
+              aria-label="Bookmarks"
+              title="Bookmarks"
+              aria-pressed={bookmarksOpen}
+              className={cn(bookmarksOpen && 'bg-primary/15 text-foreground')}
+              onClick={() => setBookmarksOpen((current) => !current)}
+            >
+              {bookmarksOpen ? <PanelRightClose /> : <PanelRightOpen />}
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton
+              aria-label="Recognized text (OCR page)"
+              title="Recognized text (OCR page)"
+              aria-pressed={ocrOpen}
+              className={cn(ocrOpen && 'bg-primary/15 text-foreground')}
+              disabled={ocrLoading}
+              onClick={() => {
+                if (ocrText && ocrPage === pageNumber) {
+                  setOcrOpen((current) => !current);
+                  return;
                 }
-              >
-                {annotatedExportProgress ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Download size={14} />
-                )}
-                {annotatedExportProgress ? 'Cancel export' : 'Export annotated'}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={addBookmarkForCurrentPage}
-              >
-                <BookmarkPlus size={14} />
-                Bookmark
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                  'h-8 gap-1.5 px-2.5 text-xs',
-                  interactionMode === 'snapshot' && 'bg-accent text-accent-foreground',
-                )}
-                onClick={() => {
+                void runPageOcr(pageNumber);
+              }}
+            >
+              {ocrLoading ? <Loader2 className="animate-spin" /> : <ScanText />}
+            </DocumentTopBarIconButton>
+            <DocumentMoreMenu label="More PDF actions">
+              <DropdownMenuItem onSelect={addBookmarkForCurrentPage}>
+                <BookmarkPlus /> Bookmark this page
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={addPageCommentForCurrentPage}>
+                <MessageSquare /> Comment on this page
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
                   setInteractionMode((current) => (current === 'snapshot' ? 'none' : 'snapshot'));
                   setRegionSelection(null);
                 }}
               >
-                <Crop size={14} />
-                Region snapshot
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                  'h-8 gap-1.5 px-2.5 text-xs',
-                  interactionMode === 'annotation' && 'bg-accent text-accent-foreground',
-                )}
-                onClick={() => {
-                  setInteractionMode((current) =>
-                    current === 'annotation' ? 'none' : 'annotation',
-                  );
-                  setRegionSelection(null);
-                }}
-              >
-                <MessageSquare size={14} />
-                Text box
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => captureFullPageSnapshot(pageNumber)}
-              >
-                <ImagePlus size={14} />
-                Snapshot page
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                  'h-8 gap-1.5 px-2.5 text-xs',
-                  ocrOpen && 'bg-accent text-accent-foreground',
-                )}
-                disabled={ocrLoading}
-                onClick={() => {
-                  if (ocrText && ocrPage === pageNumber) {
-                    setOcrOpen((current) => !current);
-                    return;
-                  }
-                  void runPageOcr(pageNumber);
-                }}
-              >
-                {ocrLoading ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <FileText size={14} />
-                )}
-                OCR page
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={addPageCommentForCurrentPage}
-              >
-                <MessageSquare size={14} />
-                Page comment
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setBookmarksOpen((current) => !current)}
-              >
-                {bookmarksOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-                Bookmarks
-              </Button>
-            </div>
-
-            {pageCount > 1 && (
-              <div className={documentTopBarGroupClass}>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs">
-                      {layoutMode === 'scroll' ? (
-                        <Rows3 size={14} />
-                      ) : layoutMode === 'spread' ? (
-                        <Columns2 size={14} />
-                      ) : (
-                        <FileText size={14} />
-                      )}
-                      {layoutMode === 'scroll'
-                        ? 'Long scroll'
-                        : layoutMode === 'spread'
-                          ? 'Side by side'
-                          : 'Single page'}
-                      <ChevronDown size={13} className="opacity-60" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-44">
-                    <DropdownMenuRadioGroup
-                      value={layoutMode}
-                      onValueChange={(value) => setLayoutMode(value as LayoutMode)}
-                    >
-                      <DropdownMenuRadioItem value="single">
-                        <FileText size={14} className="mr-2" />
-                        Single page
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="scroll">
-                        <Rows3 size={14} className="mr-2" />
-                        Long scroll
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="spread">
-                        <Columns2 size={14} className="mr-2" />
-                        Side by side
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            )}
+                <Crop />{' '}
+                {interactionMode === 'snapshot' ? 'Stop region snapshot' : 'Region snapshot'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => captureFullPageSnapshot(pageNumber)}>
+                <ImagePlus /> Snapshot page
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setRotation((current) => (current + 90) % 360)}>
+                <RotateCw /> Rotate 90°
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => void exportFlattenedPdf()}>
+                {annotatedExportProgress ? <Loader2 className="animate-spin" /> : <Download />}
+                {annotatedExportProgress ? 'Cancel annotated export' : 'Export annotated copy'}
+              </DropdownMenuItem>
+            </DocumentMoreMenu>
           </>
         }
       />
 
       <div className="relative min-h-0 flex-1">
         {inkEnabled && (
-          <div className="pointer-events-none absolute left-1/2 top-5 z-30 -translate-x-1/2">
-            <PdfInkToolbar tool={inkTool} readOnly={!canAnnotate} onChange={setInkTool} />
+          <div className="pointer-events-none absolute top-1/2 left-3 z-30 -translate-y-1/2">
+            <PdfInkToolbar
+              tool={inkTool}
+              readOnly={!canAnnotate}
+              onChange={setInkTool}
+              orientation="vertical"
+            />
           </div>
         )}
+        <FloatingBar
+          role="group"
+          aria-label="Pages and zoom"
+          className="bottom-3 left-1/2 z-30 -translate-x-1/2"
+        >
+          <RailButton
+            label="Previous page"
+            side="top"
+            onClick={() => goToPage(pageNumber - 1)}
+            disabled={pageNumber <= 1}
+          >
+            <ChevronLeft />
+          </RailButton>
+          <Input
+            aria-label="Page number"
+            value={pageInput}
+            onChange={(event) => setPageInput(event.target.value.replace(/[^\d]/g, ''))}
+            onBlur={() => goToPage(Number.parseInt(pageInput || '1', 10) || 1)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                goToPage(Number.parseInt(pageInput || '1', 10) || 1);
+              }
+            }}
+            className="h-7 w-11 px-1 text-center text-sm"
+          />
+          <span className="px-1 text-xs text-muted-foreground">/ {pageCount}</span>
+          <RailButton
+            label="Next page"
+            side="top"
+            onClick={() => goToPage(pageNumber + 1)}
+            disabled={pageNumber >= pageCount}
+          >
+            <ChevronRight />
+          </RailButton>
+          <FloatingSeparator />
+          <RailButton
+            label="Zoom out"
+            side="top"
+            onClick={() => adjustCustomZoom(-ZOOM_STEP)}
+            disabled={zoomMode === 'custom' && zoom <= ZOOM_MIN}
+          >
+            <Minus />
+          </RailButton>
+          <DocumentTopBarButton
+            onClick={() => setCustomZoom(1)}
+            className="min-w-14 justify-center px-1 font-mono text-xs text-muted-foreground"
+            title="Reset zoom to 100%"
+          >
+            {zoomLabel}
+          </DocumentTopBarButton>
+          <RailButton
+            label="Zoom in"
+            side="top"
+            onClick={() => adjustCustomZoom(ZOOM_STEP)}
+            disabled={zoomMode === 'custom' && zoom >= ZOOM_MAX}
+          >
+            <Plus />
+          </RailButton>
+          <FloatingSeparator />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <DocumentTopBarMenuButton>
+                {zoomMode === 'fit-height'
+                  ? 'Fit height'
+                  : zoomMode === 'fit-page'
+                    ? 'Fit page'
+                    : zoomMode === 'fit-width'
+                      ? 'Fit width'
+                      : 'Fit'}
+              </DocumentTopBarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="center" className="w-44">
+              <DropdownMenuRadioGroup
+                value={zoomMode}
+                onValueChange={(value) => setZoomMode(value as ZoomMode)}
+              >
+                <DropdownMenuRadioItem value="fit-width">
+                  <Rows3 /> Fit width
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="fit-height">
+                  <Columns2 /> Fit height
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="fit-page">
+                  <Maximize2 /> Fit page
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {pageCount > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <DocumentTopBarMenuButton>
+                  {layoutMode === 'scroll'
+                    ? 'Scroll'
+                    : layoutMode === 'spread'
+                      ? 'Side by side'
+                      : 'Single page'}
+                </DocumentTopBarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="center" className="w-44">
+                <DropdownMenuRadioGroup
+                  value={layoutMode}
+                  onValueChange={(value) => setLayoutMode(value as LayoutMode)}
+                >
+                  <DropdownMenuRadioItem value="single">
+                    <FileText /> Single page
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="scroll">
+                    <Rows3 /> Long scroll
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="spread">
+                    <Columns2 /> Side by side
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </FloatingBar>
         {annotatedExportProgress && (
-          <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/60 bg-popover/95 px-4 py-2 text-xs text-muted-foreground shadow-xl">
+          <div className="absolute bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/60 bg-popover/95 px-4 py-2 text-xs text-muted-foreground shadow-xl">
             {annotatedExportProgress.label} · {annotatedExportProgress.completed}/
             {annotatedExportProgress.total}
           </div>

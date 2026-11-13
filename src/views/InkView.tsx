@@ -17,8 +17,6 @@ import {
   Trash2,
   Undo2,
   Ungroup,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -30,14 +28,22 @@ import InkTextDialog from '../components/ink/InkTextDialog';
 import type { InkTextDraft } from '../components/ink/InkTextDialog';
 import InkToolRail from '../components/ink/InkToolRail';
 import {
+  FloatingBar,
+  FloatingSeparator,
+  RailButton,
+  ZoomPill,
+} from '../components/layout/CanvasChrome';
+import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
+import {
+  DocumentMoreMenu,
   DocumentTopBar,
   DocumentTopBarButton,
-  documentTopBarGroupClass,
   DocumentTopBarIconButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import { DropdownMenuItem, DropdownMenuSeparator } from '../components/ui/dropdown-menu';
 import { useCollabIdentity } from '../lib/collabIdentity';
 import { useDocumentViewKey } from '../lib/documentPaneContext';
 import type {
@@ -1415,15 +1421,73 @@ export default function InkView({ relativePath }: InkViewProps) {
     );
   }
 
+  const status = document ? (
+    session.readOnly ? null : session.dirty || session.saving ? (
+      <DocumentTopBarButton
+        variant="outline"
+        onClick={() => void session.save()}
+        disabled={session.saving}
+      >
+        {session.saving ? <Loader2 className="animate-spin" /> : <Save />}
+        Save
+      </DocumentTopBarButton>
+    ) : (
+      <DocumentStatusPill status="saved" compact />
+    )
+  ) : undefined;
+
   const meta = document ? (
     <>
-      <span>
-        Page {pageIndex + 1} of {document.pageOrder.length}
-      </span>
-      {stats ? <span>{stats.strokes.toLocaleString()} strokes</span> : null}
-      {selectedIds.length > 0 ? <span>{selectedIds.length} selected</span> : null}
-      <span>{Math.round(viewport.zoom * 100)}%</span>
+      {stats ? (
+        <span className="text-xs text-muted-foreground">
+          {stats.strokes.toLocaleString()} strokes
+        </span>
+      ) : null}
       <LivePeers peers={livePeers} />
+      <DocumentTopBarIconButton
+        onClick={undo}
+        disabled={session.readOnly || !history.canUndo}
+        aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'}
+        title="Undo (Ctrl+Z)"
+      >
+        <Undo2 />
+      </DocumentTopBarIconButton>
+      <DocumentTopBarIconButton
+        onClick={redo}
+        disabled={session.readOnly || !history.canRedo}
+        aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'}
+        title="Redo (Ctrl+Shift+Z)"
+      >
+        <Redo2 />
+      </DocumentTopBarIconButton>
+      <DocumentTopBarButton
+        variant="outline"
+        onClick={() => void insertPageInNote()}
+        disabled={!document || exporting || !noteTarget}
+        title={noteTarget ? `Insert into ${noteTarget.title}` : 'Open a note first'}
+      >
+        <ImagePlus /> Insert in note
+      </DocumentTopBarButton>
+      <DocumentTopBarIconButton
+        onClick={() => setFocusMode(true)}
+        aria-label="Focus mode"
+        title="Focus mode"
+      >
+        <Minimize2 />
+      </DocumentTopBarIconButton>
+      <DocumentMoreMenu label="More drawing actions">
+        <DropdownMenuItem disabled={!document || exporting} onSelect={() => setExportOpen(true)}>
+          {exporting ? <Loader2 className="animate-spin" /> : <FileDown />} Export
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={session.readOnly || !document || document.pageOrder.length <= 1}
+          onSelect={deleteCurrentPage}
+        >
+          <Trash2 /> Delete page
+        </DropdownMenuItem>
+      </DocumentMoreMenu>
     </>
   ) : undefined;
 
@@ -1440,139 +1504,11 @@ export default function InkView({ relativePath }: InkViewProps) {
 
       {!focusMode && (
         <DocumentTopBar
-          icon={<PenLine size={15} className="text-violet-400/80" />}
+          icon={<PenLine />}
           title={getDocumentBaseName(relativePath, 'Drawing')}
           subtitle={getDocumentFolderPath(relativePath)}
+          status={status}
           meta={meta}
-          secondary={
-            <>
-              <div className={documentTopBarGroupClass}>
-                <DocumentTopBarIconButton
-                  onClick={undo}
-                  disabled={session.readOnly || !history.canUndo}
-                  aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'}
-                >
-                  <Undo2 size={14} />
-                </DocumentTopBarIconButton>
-                <DocumentTopBarIconButton
-                  onClick={redo}
-                  disabled={session.readOnly || !history.canRedo}
-                  aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'}
-                >
-                  <Redo2 size={14} />
-                </DocumentTopBarIconButton>
-              </div>
-
-              <div className={documentTopBarGroupClass}>
-                <DocumentTopBarButton
-                  onClick={duplicate}
-                  disabled={session.readOnly || selectedIds.length === 0}
-                >
-                  <Copy size={13} />
-                  Duplicate
-                </DocumentTopBarButton>
-                <DocumentTopBarButton
-                  onClick={() => runCommand('edit.group')}
-                  disabled={session.readOnly || selectedIds.length < 2}
-                >
-                  <Group size={13} />
-                  Group
-                </DocumentTopBarButton>
-                <DocumentTopBarButton
-                  onClick={() => runCommand('edit.ungroup')}
-                  disabled={session.readOnly || selectedIds.length === 0}
-                >
-                  <Ungroup size={13} />
-                  Ungroup
-                </DocumentTopBarButton>
-                <DocumentTopBarButton
-                  onClick={deleteSelection}
-                  disabled={session.readOnly || selectedIds.length === 0}
-                >
-                  <Trash2 size={13} />
-                  Delete
-                </DocumentTopBarButton>
-              </div>
-
-              <div className={documentTopBarGroupClass}>
-                <DocumentTopBarIconButton
-                  onClick={() => goToPage(pageIndex - 1)}
-                  disabled={pageIndex <= 0}
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft size={14} />
-                </DocumentTopBarIconButton>
-                <DocumentTopBarIconButton
-                  onClick={() => goToPage(pageIndex + 1)}
-                  disabled={!document || pageIndex >= document.pageOrder.length - 1}
-                  aria-label="Next page"
-                >
-                  <ChevronRight size={14} />
-                </DocumentTopBarIconButton>
-                <DocumentTopBarButton onClick={addNewPage} disabled={session.readOnly || !document}>
-                  <Plus size={13} />
-                  Add page
-                </DocumentTopBarButton>
-                <DocumentTopBarButton
-                  onClick={deleteCurrentPage}
-                  disabled={session.readOnly || !document || document.pageOrder.length <= 1}
-                >
-                  <Trash2 size={13} />
-                  Delete page
-                </DocumentTopBarButton>
-              </div>
-
-              <div className={documentTopBarGroupClass}>
-                <DocumentTopBarIconButton onClick={() => zoomBy(-1)} aria-label="Zoom out">
-                  <ZoomOut size={14} />
-                </DocumentTopBarIconButton>
-                <DocumentTopBarIconButton onClick={() => zoomBy(1)} aria-label="Zoom in">
-                  <ZoomIn size={14} />
-                </DocumentTopBarIconButton>
-                <DocumentTopBarButton onClick={fitPage}>
-                  <Maximize2 size={13} />
-                  Fit page
-                </DocumentTopBarButton>
-                <DocumentTopBarButton onClick={() => setFocusMode(true)} aria-label="Focus mode">
-                  <Minimize2 size={13} />
-                  Focus
-                </DocumentTopBarButton>
-              </div>
-
-              <div className={documentTopBarGroupClass}>
-                <DocumentTopBarButton
-                  onClick={() => setExportOpen(true)}
-                  disabled={!document || exporting}
-                >
-                  {exporting ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <FileDown size={13} />
-                  )}
-                  Export
-                </DocumentTopBarButton>
-                <DocumentTopBarButton
-                  onClick={() => void insertPageInNote()}
-                  disabled={!document || exporting || !noteTarget}
-                  title={noteTarget ? `Insert into ${noteTarget.title}` : 'Open a note first'}
-                >
-                  <ImagePlus size={13} />
-                  Insert in note
-                </DocumentTopBarButton>
-                <DocumentTopBarButton
-                  onClick={() => void session.save()}
-                  disabled={session.readOnly || !session.dirty}
-                >
-                  {session.saving ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <Save size={13} />
-                  )}
-                  Save
-                </DocumentTopBarButton>
-              </div>
-            </>
-          }
         />
       )}
 
@@ -1619,6 +1555,83 @@ export default function InkView({ relativePath }: InkViewProps) {
             onInkAwareness={publishInkAwareness}
             className="absolute inset-0"
           />
+          {!focusMode && document && (
+            <>
+              {selectedIds.length > 0 && !session.readOnly && (
+                <FloatingBar
+                  role="toolbar"
+                  aria-label="Selection"
+                  className="top-3 left-1/2 -translate-x-1/2"
+                >
+                  <span className="px-2 text-xs text-muted-foreground">
+                    {selectedIds.length} selected
+                  </span>
+                  <RailButton label="Duplicate" side="bottom" onClick={duplicate}>
+                    <Copy />
+                  </RailButton>
+                  <RailButton
+                    label="Group"
+                    side="bottom"
+                    onClick={() => runCommand('edit.group')}
+                    disabled={selectedIds.length < 2}
+                  >
+                    <Group />
+                  </RailButton>
+                  <RailButton
+                    label="Ungroup"
+                    side="bottom"
+                    onClick={() => runCommand('edit.ungroup')}
+                  >
+                    <Ungroup />
+                  </RailButton>
+                  <RailButton
+                    label="Delete"
+                    side="bottom"
+                    onClick={deleteSelection}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 />
+                  </RailButton>
+                </FloatingBar>
+              )}
+              <FloatingBar
+                role="group"
+                aria-label="Pages"
+                className="bottom-3 left-1/2 -translate-x-1/2"
+              >
+                <RailButton
+                  label="Previous page"
+                  side="top"
+                  onClick={() => goToPage(pageIndex - 1)}
+                  disabled={pageIndex <= 0}
+                >
+                  <ChevronLeft />
+                </RailButton>
+                <span className="px-1.5 text-xs text-muted-foreground tabular-nums">
+                  Page {pageIndex + 1} of {document.pageOrder.length}
+                </span>
+                <RailButton
+                  label="Next page"
+                  side="top"
+                  onClick={() => goToPage(pageIndex + 1)}
+                  disabled={pageIndex >= document.pageOrder.length - 1}
+                >
+                  <ChevronRight />
+                </RailButton>
+                <FloatingSeparator />
+                <DocumentTopBarButton onClick={addNewPage} disabled={session.readOnly}>
+                  <Plus /> Add page
+                </DocumentTopBarButton>
+              </FloatingBar>
+              <ZoomPill
+                label={`${Math.round(viewport.zoom * 100)}%`}
+                onZoomOut={() => zoomBy(-1)}
+                onZoomIn={() => zoomBy(1)}
+                onReset={fitPage}
+                onFit={fitPage}
+              />
+            </>
+          )}
           {focusMode && (
             <button
               type="button"

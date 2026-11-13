@@ -163,10 +163,20 @@ group uses `documentTopBarGroupClass`:
 - no hidden modifier-click features: visual editors get their own menu items
 - menus whose items open dialogs are non-modal (`modal={false}`)
 
-Canvas-style editors (Logic, and later Canvas, Ink, Deck) keep tools on the
-canvas instead: an add/tool rail floating on the left, a selection bar that
-appears while something is selected, a status chip bottom-left and a zoom pill
-bottom-right.
+Canvas-style editors (Logic, Canvas, Ink, Deck, SVG) keep tools on the canvas
+instead, built from `components/layout/CanvasChrome.tsx`: a tool rail
+(`FloatingBar` + `RailButton`) floating on the left, a selection bar that
+appears only while something is selected, a status chip bottom-left, a page pill
+bottom-centre and a `ZoomPill` bottom-right. Formatting for the current
+selection (Deck text and object formatting) floats above the stage and appears
+only when there is something to format.
+
+Viewers (PDF, Image) read by default. Annotate and Edit are modes switched in
+the header; only then does a tool rail (PDF/image ink, vertical
+`PdfInkToolbar`) or the image edit bar appear. Page navigation, zoom, fit and
+page layout share one pill at the bottom centre. Rare page actions (bookmark,
+comment, snapshots, rotate, export annotated copy) live in ⋯. Undo / redo sit
+in the header, before the primary action, in every canvas editor.
 
 Avoid:
 

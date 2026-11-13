@@ -28,7 +28,6 @@ import {
   PanelLeft,
   PanelRight,
   Play,
-  Plus,
   Presentation,
   Redo2,
   Save,
@@ -77,11 +76,14 @@ import { DeckTextToolbar } from '../components/deck/DeckTextToolbar';
 import type { DeckFontChoice, TextBoxSettings } from '../components/deck/DeckTextToolbar';
 import { DeckVaultPicker } from '../components/deck/DeckVaultPicker';
 import { useDeckExport } from '../components/deck/useDeckExport';
+import { FloatingBar, ZoomPill } from '../components/layout/CanvasChrome';
+import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentTopBar,
   DocumentTopBarButton,
   documentTopBarGroupClass,
   DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
@@ -3139,53 +3141,106 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       )}
 
       <DocumentTopBar
-        icon={<Presentation size={15} className="text-orange-400/80" />}
+        icon={<Presentation />}
         title={getDocumentBaseName(relativePath, 'Presentation')}
         subtitle={getDocumentFolderPath(relativePath)}
+        status={
+          session.readOnly ? undefined : session.dirty || session.saving ? (
+            <DocumentTopBarButton
+              variant="outline"
+              onClick={() => {
+                flushText();
+                void session.save();
+              }}
+              disabled={session.saving}
+            >
+              <Save />
+              Save
+            </DocumentTopBarButton>
+          ) : (
+            <DocumentStatusPill status="saved" compact />
+          )
+        }
         meta={
-          designTarget && document ? (
-            <span>
-              Editing{' '}
-              {designTarget.kind === 'master'
-                ? `master “${document.masters[designTarget.id]?.name ?? ''}”`
-                : `layout “${document.layouts[designTarget.id]?.name ?? ''}”`}
+          <>
+            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              {designTarget && document ? (
+                <span>
+                  Editing{' '}
+                  {designTarget.kind === 'master'
+                    ? `master “${document.masters[designTarget.id]?.name ?? ''}”`
+                    : `layout “${document.layouts[designTarget.id]?.name ?? ''}”`}
+                </span>
+              ) : slideOrder.length > 0 ? (
+                <>
+                  <span>
+                    Slide {activeIndex + 1} of {slideOrder.length}
+                  </span>
+                  {hasSelection && <span>{selectedIds.length} selected</span>}
+                  {presentingPeer && <span>{presentingPeer.user!.name} is presenting</span>}
+                  <LivePeers peers={livePeers} />
+                </>
+              ) : undefined}
             </span>
-          ) : slideOrder.length > 0 ? (
-            <>
-              <span>
-                Slide {activeIndex + 1} of {slideOrder.length}
-              </span>
-              {hasSelection && <span>{selectedIds.length} selected</span>}
-              {presentingPeer && <span>{presentingPeer.user!.name} is presenting</span>}
-              <LivePeers peers={livePeers} />
-            </>
-          ) : undefined
+            <DocumentTopBarIconButton
+              onClick={() => {
+                endTextSession();
+                undoOrRedo('undo');
+              }}
+              disabled={!editable || !history.canUndo}
+              aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'}
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton
+              onClick={() => {
+                endTextSession();
+                undoOrRedo('redo');
+              }}
+              disabled={!editable || !history.canRedo}
+              aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'}
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton
+              onClick={() => setExportOpen(true)}
+              disabled={!supported || slideOrder.length === 0}
+              aria-label="Export or print"
+              title="Export or print"
+            >
+              <Download />
+            </DocumentTopBarIconButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <DocumentTopBarMenuButton
+                  variant="default"
+                  disabled={!supported || slideOrder.length === 0}
+                >
+                  <Play size={14} />
+                  Present
+                </DocumentTopBarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => present('slideshow', 'start')}>
+                  From the beginning
+                  <DropdownMenuShortcut>F5</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => present('slideshow', 'current')}>
+                  From this slide
+                  <DropdownMenuShortcut>Shift+F5</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => present('presenter', 'start')}>
+                  <MonitorPlay size={13} /> Presenter view
+                  <DropdownMenuShortcut>Alt+F5</DropdownMenuShortcut>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
         secondary={
           <>
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarIconButton
-                onClick={() => {
-                  endTextSession();
-                  undoOrRedo('undo');
-                }}
-                disabled={!editable || !history.canUndo}
-                aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'}
-              >
-                <Undo2 size={14} />
-              </DocumentTopBarIconButton>
-              <DocumentTopBarIconButton
-                onClick={() => {
-                  endTextSession();
-                  undoOrRedo('redo');
-                }}
-                disabled={!editable || !history.canRedo}
-                aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'}
-              >
-                <Redo2 size={14} />
-              </DocumentTopBarIconButton>
-            </div>
-
             <div className={documentTopBarGroupClass}>
               {designTarget ? (
                 <DocumentTopBarButton onClick={leaveDesign} aria-label="Close master view">
@@ -3353,22 +3408,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               </DropdownMenu>
             </div>
 
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarIconButton onClick={() => stepZoom(-1)} aria-label="Zoom out">
-                <Minus size={14} />
-              </DocumentTopBarIconButton>
-              <DocumentTopBarButton
-                onClick={() => setZoom('fit')}
-                aria-label="Fit slide"
-                className="min-w-14 justify-center tabular-nums"
-              >
-                {viewState.zoom === 'fit' ? 'Fit' : `${Math.round(zoom * 100)}%`}
-              </DocumentTopBarButton>
-              <DocumentTopBarIconButton onClick={() => stepZoom(1)} aria-label="Zoom in">
-                <Plus size={14} />
-              </DocumentTopBarIconButton>
-            </div>
-
+            <div className="flex-1" />
             <div className={documentTopBarGroupClass}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -3460,109 +3500,9 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                 <ListTree size={14} />
               </DocumentTopBarIconButton>
             </div>
-            <div className={documentTopBarGroupClass}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <DocumentTopBarButton disabled={!supported || slideOrder.length === 0}>
-                    <Play size={14} />
-                    Present
-                  </DocumentTopBarButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => present('slideshow', 'start')}>
-                    From the beginning
-                    <DropdownMenuShortcut>F5</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => present('slideshow', 'current')}>
-                    From this slide
-                    <DropdownMenuShortcut>Shift+F5</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => present('presenter', 'start')}>
-                    <MonitorPlay size={13} /> Presenter view
-                    <DropdownMenuShortcut>Alt+F5</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DocumentTopBarIconButton
-                onClick={() => setExportOpen(true)}
-                disabled={!supported || slideOrder.length === 0}
-                aria-label="Export or print"
-              >
-                <Download size={14} />
-              </DocumentTopBarIconButton>
-            </div>
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton
-                onClick={() => {
-                  flushText();
-                  void session.save();
-                }}
-                disabled={session.readOnly || !session.dirty || session.saving}
-              >
-                <Save size={14} />
-                Save
-              </DocumentTopBarButton>
-            </div>
           </>
         }
       />
-
-      {theme && (
-        <div
-          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none"
-          data-testid="deck-formatting-row"
-        >
-          <DeckTextToolbar
-            state={toolbarState}
-            theme={theme}
-            box={textSession?.kind === 'notes' ? null : box}
-            disabled={!editable || !hasTextFormattingTarget}
-            embedded
-            canResetPlaceholder={placeholderToReset.length > 0}
-            onCommand={runCommand}
-            onFont={setFont}
-            onColor={(color) => setColor(color)}
-            onBox={setBox}
-            onLink={openLinkDialog}
-            onResetPlaceholder={resetSelectedPlaceholders}
-          />
-
-          {editable && !textSession && formatElements.length > 0 && (
-            <DeckObjectToolbar
-              elements={formatElements}
-              theme={theme}
-              embedded
-              hasActiveCell={Boolean(tableCellHere)}
-              cropping={cropping}
-              onFill={onFill}
-              onOutline={onOutline}
-              onArrow={onArrow}
-              onGeometry={onGeometry}
-              onOpacity={onOpacity}
-              onFlip={onFlip}
-              onRotate={onRotateQuarter}
-              onCrop={() => setCropping(!cropping)}
-              onResetCrop={() =>
-                updateEach('Reset crop', (element) => {
-                  if (element.type !== 'image') return element;
-                  const next = { ...element };
-                  delete next.crop;
-                  return next;
-                })
-              }
-              onReplaceImage={() =>
-                selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
-              }
-              onTable={onTableAction}
-              onCellFill={onCellFill}
-              onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
-              onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
-              onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
-              onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
-            />
-          )}
-        </div>
-      )}
 
       <div className="flex min-h-0 flex-1" role="application" aria-label="Presentation editor">
         {viewState.slideRailOpen && designTarget && document && (
@@ -3622,7 +3562,75 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           />
         )}
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {theme &&
+            editable &&
+            (hasTextFormattingTarget || (!textSession && formatElements.length > 0)) && (
+              <FloatingBar
+                role="group"
+                aria-label="Formatting"
+                data-testid="deck-formatting-row"
+                className="top-3 left-1/2 z-30 max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap justify-center"
+              >
+                <DeckTextToolbar
+                  state={toolbarState}
+                  theme={theme}
+                  box={textSession?.kind === 'notes' ? null : box}
+                  disabled={!hasTextFormattingTarget}
+                  embedded
+                  canResetPlaceholder={placeholderToReset.length > 0}
+                  onCommand={runCommand}
+                  onFont={setFont}
+                  onColor={(color) => setColor(color)}
+                  onBox={setBox}
+                  onLink={openLinkDialog}
+                  onResetPlaceholder={resetSelectedPlaceholders}
+                />
+
+                {editable && !textSession && formatElements.length > 0 && (
+                  <DeckObjectToolbar
+                    elements={formatElements}
+                    theme={theme}
+                    embedded
+                    hasActiveCell={Boolean(tableCellHere)}
+                    cropping={cropping}
+                    onFill={onFill}
+                    onOutline={onOutline}
+                    onArrow={onArrow}
+                    onGeometry={onGeometry}
+                    onOpacity={onOpacity}
+                    onFlip={onFlip}
+                    onRotate={onRotateQuarter}
+                    onCrop={() => setCropping(!cropping)}
+                    onResetCrop={() =>
+                      updateEach('Reset crop', (element) => {
+                        if (element.type !== 'image') return element;
+                        const next = { ...element };
+                        delete next.crop;
+                        return next;
+                      })
+                    }
+                    onReplaceImage={() =>
+                      selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
+                    }
+                    onTable={onTableAction}
+                    onCellFill={onCellFill}
+                    onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
+                    onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
+                    onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
+                    onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
+                  />
+                )}
+              </FloatingBar>
+            )}
+          <ZoomPill
+            label={viewState.zoom === 'fit' ? 'Fit' : `${Math.round(zoom * 100)}%`}
+            resetLabel="Fit slide"
+            onZoomOut={() => stepZoom(-1)}
+            onZoomIn={() => stepZoom(1)}
+            onReset={() => setZoom('fit')}
+            className="z-30"
+          />
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div

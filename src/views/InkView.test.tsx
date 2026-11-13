@@ -164,6 +164,12 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+/** Opens the header's ⋯ menu and returns one of its items. */
+async function openMoreMenuItem(name: string) {
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More drawing actions' }), { key: 'Enter' });
+  return screen.findByRole('menuitem', { name });
+}
+
 describe('InkView', () => {
   it('opens a drawing and reports its page and stroke counts', async () => {
     await openDrawing();
@@ -199,13 +205,15 @@ describe('InkView', () => {
     await openDrawing();
     // A drawing with one page cannot lose it: a document with no pages has
     // nowhere to draw, and the normalizer would invent one on reload.
-    expect(screen.getByText('Delete page').closest('button')?.disabled).toBe(true);
+    expect((await openMoreMenuItem('Delete page')).hasAttribute('data-disabled')).toBe(true);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
     fireEvent.click(screen.getByText('Add page'));
     await screen.findByText('Page 2 of 2');
-    expect(screen.getByText('Delete page').closest('button')?.disabled).toBe(false);
+    const deletePage = await openMoreMenuItem('Delete page');
+    expect(deletePage.hasAttribute('data-disabled')).toBe(false);
 
-    fireEvent.click(screen.getByText('Delete page'));
+    fireEvent.click(deletePage);
     await screen.findByText('Page 1 of 1');
   });
 
@@ -214,7 +222,8 @@ describe('InkView', () => {
     await openDrawing();
 
     expect(screen.getByText('Add page').closest('button')?.disabled).toBe(true);
-    expect(screen.getByText('Save').closest('button')?.disabled).toBe(true);
+    // Read-only drawings never offer Save.
+    expect(screen.queryByText('Save')).toBeNull();
     expect(clientMocks.writeDocument).not.toHaveBeenCalled();
   });
 
@@ -274,7 +283,7 @@ describe('InkView', () => {
 
   it('opens the bounded export workflow from the document toolbar', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(await openMoreMenuItem('Export'));
 
     expect(await screen.findByRole('dialog', { name: 'Export drawing' })).toBeTruthy();
     expect(screen.getByText('PNG image')).toBeTruthy();
@@ -612,7 +621,8 @@ describe('InkView drawing', () => {
     });
     fireEvent.pointerCancel(host, { pointerId: 1, pointerType: 'pen' });
 
-    expect(screen.getByText('Save').closest('button')?.disabled).toBe(true);
+    // Nothing changed, so there is nothing to save.
+    expect(screen.queryByText('Save')).toBeNull();
   });
 
   it('undoes and redoes a stroke', async () => {
@@ -734,7 +744,7 @@ describe('InkView drawing', () => {
     await openDrawing();
     expect(screen.queryByRole('toolbar', { name: 'Drawing tools' })).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Focus'));
+    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
     await waitFor(() =>
       expect(screen.queryByRole('toolbar', { name: 'Drawing tools' })).toBeNull(),
     );
