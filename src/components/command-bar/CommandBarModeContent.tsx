@@ -12,7 +12,7 @@ import {
   Type,
 } from 'lucide-react';
 
-import { isCaptionPath, mediaKindForPath } from '../../lib/mediaFiles';
+import { isMediaSidecarPath, mediaKindForPath } from '../../lib/mediaFiles';
 import {
   formatNerdFontHexCode,
   groupNerdFontIcons,
@@ -53,7 +53,7 @@ function FileTypeIcon({
 
 function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
   const { searchResults } = ctx;
-  const files = ctx.files.filter((file) => !isCaptionPath(file.relativePath));
+  const files = ctx.files.filter((file) => !isMediaSidecarPath(file.relativePath));
 
   if (!mode.query) {
     const recent = [...files].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 8);

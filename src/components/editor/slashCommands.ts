@@ -1,7 +1,7 @@
 import type { Completion, CompletionSource } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
 
-import { isCaptionPath } from '../../lib/mediaFiles';
+import { isMediaSidecarPath } from '../../lib/mediaFiles';
 import {
   buildVaultLinkInsertText,
   flattenVaultFiles,
@@ -216,7 +216,7 @@ function snippetToCommand(snippet: NoteSnippet): SlashCommandItem {
 function createVaultFileCommands(currentDocumentRelativePath: string): SlashCommandItem[] {
   const fileTree = useVaultStore.getState().fileTree;
   return flattenVaultFiles(fileTree)
-    .filter((file) => !isCaptionPath(file.relativePath))
+    .filter((file) => !isMediaSidecarPath(file.relativePath))
     .map((file) => {
       const type = getVaultDocumentTabType(file.relativePath);
       const folder = file.relativePath.includes('/')

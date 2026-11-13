@@ -36,6 +36,7 @@ import { cn } from '../lib/utils';
 import { vaultTreeIndex } from '../lib/vaultTreeIndex';
 import { useVaultStore } from '../store/vaultStore';
 
+import { AudioArtwork, AudioLyrics } from './AudioPlayerContent';
 import MediaAmbiance from './MediaAmbiance';
 import { useFullscreenMediaDock } from './useFullscreenMediaDock';
 
@@ -532,17 +533,19 @@ function LocalPlayer({
   const filename = getDocumentBaseName(relativePath, 'Media');
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center overflow-auto p-4">
+    <div className="@container flex min-h-0 flex-1 flex-col items-center overflow-auto p-4">
       <div
         ref={surface}
         className={cn(
-          'isolate flex min-h-0 w-full flex-col text-card-foreground focus-visible:outline-ring',
+          'isolate min-h-0 w-full text-card-foreground focus-visible:outline-ring',
           fullscreen
             ? 'fixed inset-0 z-50 bg-background'
-            : ambiance && kind === 'video'
+            : ambiance || kind === 'audio'
               ? 'relative my-auto'
               : 'relative my-auto overflow-hidden rounded-xl border border-border/65',
-          kind === 'video' ? 'flex-1' : 'max-w-3xl shrink-0 bg-card',
+          kind === 'video'
+            ? 'flex flex-1 flex-col'
+            : 'grid max-w-6xl shrink-0 gap-x-8 gap-y-4 p-3 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @3xl:p-8',
           !controls.show && 'cursor-none',
         )}
         tabIndex={0}
@@ -598,12 +601,13 @@ function LocalPlayer({
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-3 px-5 pt-5">
-            <Music2
-              className="size-9 shrink-0 rounded-lg bg-primary/10 p-2 text-primary"
-              aria-hidden="true"
+          <>
+            <AudioArtwork
+              key={source?.audioMetadata?.artworkUrl}
+              filename={filename}
+              metadata={source?.audioMetadata}
+              ambiance={ambiance}
             />
-            <div className="truncate text-sm font-medium">{filename}</div>
             {source ? (
               <audio
                 key={source.id}
@@ -616,7 +620,7 @@ function LocalPlayer({
                 {tracks}
               </audio>
             ) : null}
-          </div>
+          </>
         )}
         <div
           ref={controls.dock}
@@ -630,9 +634,11 @@ function LocalPlayer({
             'z-10 space-y-2',
             fullscreen
               ? 'absolute inset-x-0 bottom-5 mx-auto w-[min(44rem,calc(100%_-_2rem))] rounded-2xl bg-card/95 p-3 shadow-lg transition-opacity app-motion-fast'
-              : ambiance && kind === 'video'
-                ? 'shrink-0 rounded-xl bg-card/65 p-4'
-                : 'shrink-0 bg-card/90 p-4',
+              : kind === 'audio'
+                ? 'min-w-0 @3xl:col-start-1 @3xl:row-start-2'
+                : ambiance
+                  ? 'shrink-0 rounded-xl bg-card/65 p-4'
+                  : 'shrink-0 bg-card/90 p-4',
             !controls.show && 'pointer-events-none opacity-0',
           )}
         >
@@ -723,7 +729,7 @@ function LocalPlayer({
                 }}
               />
             ) : null}
-            {captionChoices.length ? (
+            {kind === 'video' && captionChoices.length ? (
               <Choice
                 label="Captions"
                 onOpenChange={controls.onMenuOpenChange}
@@ -767,40 +773,40 @@ function LocalPlayer({
                 }}
               />
             ) : null}
-            <CaptionPicker
-              onOpenChange={controls.onMenuOpenChange}
-              captionPath={captionPath}
-              onChange={(path) => {
-                if (element.current) remember(element.current);
-                setCaptionPath(path);
-              }}
-            />
             {kind === 'video' ? (
-              <>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label="Ambiance mode"
-                  aria-pressed={ambiance}
-                  title="Ambiance mode"
-                  onClick={() => {
-                    const next = !ambiance;
-                    setAmbiance(next);
-                    localStorage.setItem(AMBIANCE_KEY, String(next));
-                  }}
-                >
-                  <Sparkles />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                  title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                  onClick={() => void toggleFullscreen()}
-                >
-                  {fullscreen ? <Minimize /> : <Maximize />}
-                </Button>
-              </>
+              <CaptionPicker
+                onOpenChange={controls.onMenuOpenChange}
+                captionPath={captionPath}
+                onChange={(path) => {
+                  if (element.current) remember(element.current);
+                  setCaptionPath(path);
+                }}
+              />
+            ) : null}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Ambiance mode"
+              aria-pressed={ambiance}
+              title="Ambiance mode"
+              onClick={() => {
+                const next = !ambiance;
+                setAmbiance(next);
+                localStorage.setItem(AMBIANCE_KEY, String(next));
+              }}
+            >
+              <Sparkles />
+            </Button>
+            {kind === 'video' ? (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                onClick={() => void toggleFullscreen()}
+              >
+                {fullscreen ? <Minimize /> : <Maximize />}
+              </Button>
             ) : null}
             <DocumentTopBarButton
               className={fullscreen && !error ? 'hidden' : undefined}
@@ -842,6 +848,15 @@ function LocalPlayer({
             </div>
           ) : null}
         </div>
+        {kind === 'audio' ? (
+          <AudioLyrics
+            key={source ? `lyrics-${source.id}` : undefined}
+            lyrics={source?.audioMetadata?.lyrics ?? (source ? [] : undefined)}
+            position={position}
+            ready={ready}
+            onSeek={seek}
+          />
+        ) : null}
       </div>
     </div>
   );

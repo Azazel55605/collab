@@ -1,7 +1,8 @@
 import { type RefObject, useEffect, useRef } from 'react';
 
+import { paintMediaAmbiance } from './mediaAmbianceGradient';
+
 const SAMPLE_INTERVAL_MS = 1000;
-const CORNERS = ['20% 25%', '80% 25%', '20% 75%', '80% 75%'];
 
 export default function MediaAmbiance({ media }: { media: RefObject<HTMLMediaElement | null> }) {
   const background = useRef<HTMLDivElement>(null);
@@ -34,27 +35,21 @@ export default function MediaAmbiance({ media }: { media: RefObject<HTMLMediaEle
         return;
       sampledAt = performance.now();
       sampledPosition = video.currentTime;
-      try {
-        context.drawImage(video, 0, 0, 2, 2);
-        const { data } = context.getImageData(0, 0, 2, 2);
-        const gradient = CORNERS.map((corner, index) => {
-          const offset = index * 4;
-          const color = `${data[offset]} ${data[offset + 1]} ${data[offset + 2]}`;
-          return `radial-gradient(ellipse at ${corner}, rgb(${color} / 0.38), transparent 68%)`;
-        }).join(', ');
-        if (gradient === previous) return;
-        if (!previous || overlayVisible) {
-          layer.style.backgroundImage = gradient;
-          overlay.style.opacity = '0';
-        } else {
-          overlay.style.backgroundImage = gradient;
-          overlay.style.opacity = '1';
-        }
-        overlayVisible = Boolean(previous) && !overlayVisible;
-        previous = gradient;
-      } catch {
+      const gradient = paintMediaAmbiance(video, context);
+      if (!gradient) {
         blocked = true;
+        return;
       }
+      if (gradient === previous) return;
+      if (!previous || overlayVisible) {
+        layer.style.backgroundImage = gradient;
+        overlay.style.opacity = '0';
+      } else {
+        overlay.style.backgroundImage = gradient;
+        overlay.style.opacity = '1';
+      }
+      overlayVisible = Boolean(previous) && !overlayVisible;
+      previous = gradient;
     };
     const schedule = () => {
       cancelAnimationFrame(frame);

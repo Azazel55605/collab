@@ -381,12 +381,21 @@ export async function invokeMedia<T>(
 
 let databaseProfileChange: Promise<void> = Promise.resolve();
 
+export interface LocalAudioMetadata {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  artworkUrl: string | null;
+  lyrics: { label: string; text: string }[];
+}
+
 export interface LocalPlaybackSource {
   id: string;
   url: string;
   revision: string;
   captions: { label: string; url: string; language?: string }[];
   audioTracks?: string[];
+  audioMetadata?: LocalAudioMetadata | null;
 }
 
 export const tauriCommands = {

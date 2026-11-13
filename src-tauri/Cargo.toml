@@ -90,6 +90,7 @@ sqlx = { workspace = true, features = ["mysql", "tls-rustls-ring-native-roots"] 
 rusqlite = { version = "0.41", features = ["bundled", "hooks", "backup", "limits"] }
 same-file = "1"
 cap-std = "4"
+lofty = "0.25.5"
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 collab-database = { path = "../crates/collab-database" }
 mssql-tds = { version = "=0.4.0", default-features = false }

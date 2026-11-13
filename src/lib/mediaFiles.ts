@@ -5,6 +5,7 @@ export const LOCAL_MEDIA_EXTENSIONS = [
   ...VIDEO_EXTENSIONS,
   ...AUDIO_EXTENSIONS,
   ...CAPTION_EXTENSIONS,
+  'lrc',
 ];
 
 function extensionOf(path: string) {
@@ -23,4 +24,12 @@ export function isCaptionPath(path: string) {
 
 export function mediaKindForPath(path: string) {
   return mediaKind(extensionOf(path));
+}
+
+export function isLyricsPath(path: string) {
+  return extensionOf(path) === 'lrc';
+}
+
+export function isMediaSidecarPath(path: string) {
+  return isCaptionPath(path) || isLyricsPath(path);
 }
