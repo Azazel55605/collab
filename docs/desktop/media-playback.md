@@ -37,12 +37,14 @@ can also receive focus directly. Video fills the available space while
 preserving its aspect ratio. Use the fullscreen button or F while the player
 has focus. Escape returns to the tab.
 Fullscreen controls float over the video and hide after about two seconds of
-inactivity. Move the pointer or use the keyboard to reveal them. The dock stays
+inactivity, along with the cursor. Move the pointer or use the keyboard to
+reveal them. The dock stays
 visible while you use the controls or an open menu.
 
 **Ambiance mode** blends colours from the video into the background and removes
-the player outline. It samples a frame when the video loads, after seeks and on
-pause. Collab remembers the preference on this device.
+the player outline. It samples colours about once a second during playback and
+crossfades over the full second between samples. It also refreshes on load, seek and pause. Collab
+remembers the preference on this device.
 
 The player uses the WebView's automatic decoder selection. On Linux, WebKitGTK
 can use a GStreamer hardware decoder when the matching codec plugin, driver,
