@@ -449,8 +449,9 @@ track headers in the response. `commands/playback/mp4.rs` exposes supported
 timed-text tracks as bounded WebVTT on demand, and can isolate one audio
 track if the WebView omits track choices. The native scanner seeks past media
 boxes, bounds header and sample reads, and preserves the original byte offsets.
-Fullscreen uses the existing Tauri window permissions. Ambiance samples a small
-canvas at most four times per second while enabled. File-tree refreshes leave existing playback sessions mounted. Native
+Fullscreen uses the existing Tauri window permissions and overlays an
+idle-hiding dock without resizing the video. Ambiance samples four colours on
+load, seek and pause, and paints static gradients behind the video. File-tree refreshes leave existing playback sessions mounted. Native
 revision and access checks still detect replacement and removal.
 
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives

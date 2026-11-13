@@ -37,6 +37,7 @@ import { vaultTreeIndex } from '../lib/vaultTreeIndex';
 import { useVaultStore } from '../store/vaultStore';
 
 import MediaAmbiance from './MediaAmbiance';
+import { useFullscreenMediaDock } from './useFullscreenMediaDock';
 
 interface Resume {
   revision: string;
@@ -82,14 +83,16 @@ function Choice({
   value,
   onChange,
   choices,
+  onOpenChange,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   choices: { label: string; value: string }[];
+  onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={onChange} onOpenChange={onOpenChange}>
       <SelectTrigger aria-label={label} size="sm" className="max-w-56">
         <SelectValue placeholder={label} />
       </SelectTrigger>
@@ -176,6 +179,7 @@ function LocalPlayer({
   const element = useRef<HTMLMediaElement | null>(null);
   const surface = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const controls = useFullscreenMediaDock(fullscreen, Boolean(error || actionError));
   const [ambiance, setAmbiance] = useState(() => localStorage.getItem(AMBIANCE_KEY) === 'true');
   const restoreWindow = useRef<(() => Promise<void>) | null>(null);
   const fullscreenPending = useRef(false);
@@ -535,13 +539,18 @@ function LocalPlayer({
           'isolate flex min-h-0 w-full flex-col text-card-foreground focus-visible:outline-ring',
           fullscreen
             ? 'fixed inset-0 z-50 bg-background'
-            : 'relative my-auto rounded-xl border border-border/65',
+            : ambiance && kind === 'video'
+              ? 'relative my-auto'
+              : 'relative my-auto overflow-hidden rounded-xl border border-border/65',
           kind === 'video' ? 'flex-1' : 'max-w-3xl shrink-0 bg-card',
         )}
         tabIndex={0}
         role="region"
         aria-label={kind === 'video' ? 'Video player' : 'Audio player'}
+        onPointerMove={fullscreen ? controls.reveal : undefined}
+        onPointerDown={fullscreen ? controls.reveal : undefined}
         onKeyDown={(event) => {
+          if (fullscreen) controls.reveal();
           if (event.key === 'Escape' && fullscreen && !event.defaultPrevented) {
             event.preventDefault();
             void toggleFullscreen();
@@ -569,7 +578,7 @@ function LocalPlayer({
               !ambiance && 'bg-black',
             )}
           >
-            <MediaAmbiance media={element} active={ambiance && !!source} key={source?.id} />
+            {ambiance && source ? <MediaAmbiance media={element} key={source.id} /> : null}
             {source ? (
               <video
                 key={source.id}
@@ -608,7 +617,24 @@ function LocalPlayer({
             ) : null}
           </div>
         )}
-        <div className="z-0 shrink-0 space-y-3 bg-card/90 p-4">
+        <div
+          ref={controls.dock}
+          role="group"
+          aria-label="Playback controls"
+          data-visible={controls.show}
+          onFocusCapture={controls.reveal}
+          onBlurCapture={controls.reveal}
+          onPointerLeave={controls.reveal}
+          className={cn(
+            'z-10 space-y-2',
+            fullscreen
+              ? 'absolute inset-x-0 bottom-5 mx-auto w-[min(44rem,calc(100%_-_2rem))] rounded-2xl bg-card/95 p-3 shadow-lg transition-opacity app-motion-fast'
+              : ambiance && kind === 'video'
+                ? 'shrink-0 rounded-xl bg-card/65 p-4'
+                : 'shrink-0 bg-card/90 p-4',
+            !controls.show && 'pointer-events-none opacity-0',
+          )}
+        >
           <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
             <span>{formatTime(scrub ?? position)}</span>
             <Slider
@@ -643,7 +669,7 @@ function LocalPlayer({
             />
             <span>{formatTime(duration)}</span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={cn('flex flex-wrap items-center gap-2', fullscreen && 'justify-center')}>
             <Button size="sm" disabled={!canPlay} onClick={toggle}>
               {playing ? <Pause /> : <Play />} {playing ? 'Pause' : 'Play'}
             </Button>
@@ -681,6 +707,7 @@ function LocalPlayer({
             {ready ? (
               <Choice
                 label="Playback speed"
+                onOpenChange={controls.onMenuOpenChange}
                 value={String(rate)}
                 choices={[0.5, 0.75, 1, 1.25, 1.5, 2].map((value) => ({
                   label: `${value}×`,
@@ -698,6 +725,7 @@ function LocalPlayer({
             {captionChoices.length ? (
               <Choice
                 label="Captions"
+                onOpenChange={controls.onMenuOpenChange}
                 value={caption}
                 choices={[{ label: 'Captions off', value: 'off' }, ...captionChoices]}
                 onChange={(value) => {
@@ -709,6 +737,7 @@ function LocalPlayer({
             {availableAudio.length > 1 ? (
               <Choice
                 label="Audio track"
+                onOpenChange={controls.onMenuOpenChange}
                 value={useIsolatedAudio ? String(isolatedAudio ?? 0) : audio}
                 choices={availableAudio}
                 onChange={(value) => {
@@ -725,6 +754,7 @@ function LocalPlayer({
             {isMp4 && (compatibility || error) ? (
               <Choice
                 label="MP4 subtitle mode"
+                onOpenChange={controls.onMenuOpenChange}
                 value={compatibility ? 'compatibility' : 'auto'}
                 choices={[
                   { label: 'Automatic subtitles', value: 'auto' },
@@ -737,6 +767,7 @@ function LocalPlayer({
               />
             ) : null}
             <CaptionPicker
+              onOpenChange={controls.onMenuOpenChange}
               captionPath={captionPath}
               onChange={(path) => {
                 if (element.current) remember(element.current);
@@ -770,7 +801,10 @@ function LocalPlayer({
                 </Button>
               </>
             ) : null}
-            <DocumentTopBarButton onClick={openExternal}>
+            <DocumentTopBarButton
+              className={fullscreen && !error ? 'hidden' : undefined}
+              onClick={openExternal}
+            >
               <ExternalLink /> Open externally
             </DocumentTopBarButton>
           </div>
@@ -791,11 +825,11 @@ function LocalPlayer({
               </Button>
             </div>
           ) : (
-            <div role="status" className="text-xs text-muted-foreground">
+            <div role="status" className={fullscreen ? 'sr-only' : 'text-xs text-muted-foreground'}>
               {status}
             </div>
           )}
-          {compatibility && ready ? (
+          {compatibility && ready && !fullscreen ? (
             <p className="text-xs text-muted-foreground">
               Compatible subtitle mode. Supported embedded text tracks and sidecar captions are
               available.
@@ -815,7 +849,9 @@ function LocalPlayer({
 function CaptionPicker({
   captionPath,
   onChange,
+  onOpenChange,
 }: {
+  onOpenChange: (open: boolean) => void;
   captionPath: string | null;
   onChange: (path: string | null) => void;
 }) {
@@ -825,6 +861,7 @@ function CaptionPicker({
   return (
     <Choice
       label="Caption file"
+      onOpenChange={onOpenChange}
       value={captionPath ?? 'automatic'}
       onChange={(value) => onChange(value === 'automatic' ? null : value)}
       choices={[
