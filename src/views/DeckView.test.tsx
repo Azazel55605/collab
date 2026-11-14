@@ -1002,6 +1002,7 @@ describe('DeckView: objects and Collab data', () => {
     await openDeck();
     fireEvent.click(menuItem('Linked document…'));
     fireEvent.click(await screen.findByRole('option', { name: /Plan\.md/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use Plan.md' }));
     await waitFor(() => expect(clientMocks.importData).toHaveBeenCalled());
     const [dataUrl, name, folder] = clientMocks.importData.mock.calls[0];
     expect(dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
@@ -1026,6 +1027,7 @@ describe('DeckView: objects and Collab data', () => {
     await openDeck();
     fireEvent.click(menuItem('Image…'));
     fireEvent.click(await screen.findByRole('option', { name: /cat\.png/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use cat.png' }));
     await screen.findByText('1 selected');
     const saved = await savedDeck();
     const image = Object.values(saved.slides['slide-1'].elements).find(

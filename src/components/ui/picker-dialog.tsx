@@ -55,6 +55,7 @@ export interface PickerDialogProps<T> {
   /** Extra content above the results (a breadcrumb, a notice). */
   header?: ReactNode;
   className?: string;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function PickerDialog<T>({
@@ -84,6 +85,7 @@ export function PickerDialog<T>({
   emptyText = 'Nothing matches.',
   header,
   className,
+  onCloseAutoFocus,
 }: PickerDialogProps<T>) {
   const flat = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const selected = flat.find((item) => getKey(item) === selectedKey) ?? null;
@@ -130,7 +132,12 @@ export function PickerDialog<T>({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <AppDialogContent size={size} className={className} onKeyDown={move}>
+      <AppDialogContent
+        size={size}
+        className={className}
+        onKeyDown={move}
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <AppDialogHeader icon={icon} title={title} description={description} />
         {(onQueryChange || scopes) && (
           <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-3">

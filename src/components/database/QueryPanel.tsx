@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { FolderOpen, History, Play, Save, Square } from 'lucide-react';
+import { FileCode2, FolderOpen, History, Play, Save, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -32,9 +32,9 @@ import {
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { ConfirmDialog } from '../ui/confirm-dialog';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Field, FieldLabel } from '../ui/field';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
+import { PickerDialog } from '../ui/picker-dialog';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 import ResultGrid from './ResultGrid';
@@ -531,86 +531,109 @@ export default function QueryPanel({
         />
       )}
       {history && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setHistory(null);
+        <QueryHistoryPicker
+          history={history}
+          disabled={tab.dirty || running}
+          onClose={() => setHistory(null)}
+          onLoad={(sql) => {
+            updateQuery(binding.tab_id, (t) => ({ ...t, sql, dirty: true, script: null }));
+            setHistory(null);
           }}
-        >
-          <DialogContent className="max-h-[85vh] overflow-auto">
-            <DialogHeader>
-              <DialogTitle>Session query history</DialogTitle>
-              <DialogDescription>
-                Memory only, up to 100 entries / 1 MiB. Selecting an entry loads text without
-                executing it. Save or discard current SQL before replacing it.
-              </DialogDescription>
-            </DialogHeader>
-            {history.map((entry, index) => (
-              <Button
-                key={index}
-                variant="ghost"
-                className="h-auto justify-start whitespace-pre-wrap break-all text-left font-mono text-xs"
-                disabled={tab.dirty || running}
-                onClick={() => {
-                  updateQuery(binding.tab_id, (t) => ({
-                    ...t,
-                    sql: entry.sql,
-                    dirty: true,
-                    script: null,
-                  }));
-                  setHistory(null);
-                }}
-              >
-                {entry.executed_at}
-                <br />
-                {entry.sql.slice(0, 500)}
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              onClick={() =>
-                void job(async () =>
-                  setHistory(await tauriCommands.databaseQueryHistory(token, binding, true)),
-                )
-              }
-            >
-              Clear history
-            </Button>
-          </DialogContent>
-        </Dialog>
+          onClear={() =>
+            void job(async () =>
+              setHistory(await tauriCommands.databaseQueryHistory(token, binding, true)),
+            )
+          }
+        />
       )}
       {fileAction && (
-        <Dialog
+        <FormDialog
           open
           onOpenChange={(open) => {
             if (!open) setFileAction(null);
           }}
+          size="s"
+          icon={<FileCode2 />}
+          title={fileAction === 'open' ? 'Open SQL script' : 'Save SQL script'}
+          description="A path inside the current vault. SQL text syncs like other files; connection secrets, history and results stay on this device. Opening never runs it."
+          submitLabel={fileAction === 'open' ? 'Open script' : 'Save script'}
+          busy={working}
+          submitDisabled={!path.trim()}
+          onSubmit={() => job(file)}
         >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {fileAction === 'open' ? 'Open SQL script' : 'Save SQL script'}
-              </DialogTitle>
-              <DialogDescription>
-                Relative to the current vault. SQL text can sync like other files; connection
-                secrets, history and results stay local. Opening never executes. Use a new name for
-                Save As.
-              </DialogDescription>
-            </DialogHeader>
-            <Field>
-              <FieldLabel htmlFor="sql-script-path">Vault relative .sql path</FieldLabel>
-              <Input
-                id="sql-script-path"
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-              />
-            </Field>
-            <Button disabled={working} onClick={() => void job(file)}>
-              {fileAction === 'open' ? 'Open script' : 'Save script'}
-            </Button>
-          </DialogContent>
-        </Dialog>
+          <FormField
+            label="Vault relative .sql path"
+            htmlFor="sql-script-path"
+            hint={fileAction === 'save' ? 'Use a new name to save a copy.' : undefined}
+          >
+            <Input
+              id="sql-script-path"
+              autoFocus
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              className="h-9 font-mono text-[13px]"
+            />
+          </FormField>
+        </FormDialog>
       )}
     </section>
+  );
+}
+
+/** Session query history: pick an earlier query to load it (never runs it). */
+function QueryHistoryPicker({
+  history,
+  disabled,
+  onClose,
+  onLoad,
+  onClear,
+}: {
+  history: { executed_at: string; sql: string }[];
+  disabled: boolean;
+  onClose: () => void;
+  onLoad: (sql: string) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  const entries = history.map((entry, index) => ({ ...entry, key: String(index) }));
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? entries.filter((entry) => entry.sql.toLowerCase().includes(needle))
+    : entries;
+  return (
+    <PickerDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      size="m"
+      className="h-[min(600px,calc(100vh-2rem))] sm:max-w-[680px]"
+      icon={<History />}
+      title="Session query history"
+      description="Kept in memory only (up to 100 entries). Loading a query never runs it."
+      query={query}
+      onQueryChange={setQuery}
+      searchPlaceholder="Search queries"
+      groups={[{ items: shown }]}
+      getKey={(entry) => entry.key}
+      selectedKey={selected}
+      onSelect={setSelected}
+      renderItem={(entry) => (
+        <div className="min-w-0">
+          <p className="text-[11.5px] text-muted-foreground">{entry.executed_at}</p>
+          <pre className="line-clamp-3 font-mono text-xs whitespace-pre-wrap break-all">
+            {entry.sql.slice(0, 500)}
+          </pre>
+        </div>
+      )}
+      onPick={(entry) => onLoad(entry.sql)}
+      pickDisabled={disabled}
+      pickLabel={() => (disabled ? 'Save or discard the current SQL first' : 'Load query')}
+      emptyText="No queries in this session yet."
+      secondary={
+        <Button variant="ghost" onClick={onClear}>
+          Clear history
+        </Button>
+      }
+    />
   );
 }

@@ -65,7 +65,8 @@ it('loads history text without executing it and requires an explicit run', async
   ]);
   render(<QueryPanel token="token" binding={binding} />);
   fireEvent.click(screen.getByRole('button', { name: 'Session history' }));
-  fireEvent.click(await screen.findByRole('button', { name: /SELECT 123456789/ }));
+  fireEvent.click(await screen.findByRole('option', { name: /SELECT 123456789/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Load query' }));
   expect((screen.getByLabelText('SQL editor') as HTMLTextAreaElement).value).toBe(
     'SELECT 123456789',
   );

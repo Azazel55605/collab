@@ -79,6 +79,7 @@ import {
   instantiateLogicDiagramTemplate,
   type LogicDiagramTemplate,
 } from '../components/logic/logicDiagramTemplates';
+import { LogicComponentPicker, LogicTemplatePicker } from '../components/logic/LogicPickers';
 import {
   generateComponentTruthTable,
   generateLogicTruthTable,
@@ -5623,124 +5624,24 @@ function LogicDiagramEditor({ relativePath }: Props) {
           />
         </FormField>
       </FormDialog>
-      <Dialog open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Insert template</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
-            {getLogicDiagramTemplates().map((template) => (
-              <button
-                key={template.id}
-                type="button"
-                className="flex w-full flex-col items-start gap-0.5 rounded-lg border border-border/60 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent"
-                onClick={() => insertTemplate(template)}
-              >
-                <span className="text-sm font-medium">{template.name}</span>
-                <span className="text-xs text-muted-foreground">{template.description}</span>
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Templates are appended to the current diagram at the viewport center.
-          </p>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={componentPickerOpen} onOpenChange={setComponentPickerOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Insert component</DialogTitle>
-            <DialogDescription>
-              Components are placed as single reusable nodes. Snapshot is the safe default; linked
-              follows future library updates.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2 rounded-md border border-border/60 p-2">
-            <span className="text-xs text-muted-foreground">Mode</span>
-            <Select
-              value={componentInsertMode}
-              onValueChange={(value) => setComponentInsertMode(value as LogicComponentInstanceMode)}
-            >
-              <SelectTrigger size="sm" className="h-8 w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="snapshot">Snapshot</SelectItem>
-                <SelectItem value="linked">Linked</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void reloadLogicComponents()}
-              disabled={loadingComponents}
-            >
-              {loadingComponents ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <RotateCcw size={14} />
-              )}
-              Refresh
-            </Button>
-          </div>
-          <div className="max-h-[58vh] space-y-1.5 overflow-y-auto">
-            {loadingComponents ? (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                <Loader2 size={15} className="mr-2 animate-spin" />
-                Loading components...
-              </div>
-            ) : logicComponents.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
-                No saved logic components in this vault yet.
-              </div>
-            ) : (
-              logicComponents.map((component) => {
-                const inputs = component.ports
-                  .filter((port) => port.direction === 'input')
-                  .map((port) => port.label)
-                  .join(', ');
-                const outputs = component.ports
-                  .filter((port) => port.direction === 'output')
-                  .map((port) => port.label)
-                  .join(', ');
-                return (
-                  <div
-                    key={component.id}
-                    className="flex items-stretch rounded-md border border-border/60 transition-colors hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 flex-col items-start gap-1 px-3 py-2.5 text-left outline-none focus-visible:bg-accent"
-                      onClick={() => insertLogicComponent(component)}
-                    >
-                      <span className="text-sm font-medium">{component.name}</span>
-                      {component.description && (
-                        <span className="text-xs text-muted-foreground">
-                          {component.description}
-                        </span>
-                      )}
-                      <span className="text-[11px] text-muted-foreground">
-                        In: {inputs || 'none'} · Out: {outputs || 'none'} · v{component.version}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="m-1 flex w-9 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                      title={`Edit ${component.name}`}
-                      aria-label="Edit saved component"
-                      disabled={Boolean(componentEditSession)}
-                      onClick={() => void editLogicComponent(component)}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <LogicTemplatePicker
+        open={templatePickerOpen}
+        onOpenChange={setTemplatePickerOpen}
+        templates={getLogicDiagramTemplates()}
+        onInsert={insertTemplate}
+      />
+      <LogicComponentPicker
+        open={componentPickerOpen}
+        onOpenChange={setComponentPickerOpen}
+        components={logicComponents}
+        loading={loadingComponents}
+        mode={componentInsertMode}
+        onModeChange={setComponentInsertMode}
+        onReload={() => void reloadLogicComponents()}
+        onInsert={insertLogicComponent}
+        onEdit={(component) => void editLogicComponent(component)}
+        editDisabled={Boolean(componentEditSession)}
+      />
       <FormDialog
         open={componentSaveOpen}
         onOpenChange={setComponentSaveOpen}
