@@ -1,5 +1,6 @@
 import { History, MessageSquare, Users } from 'lucide-react';
 
+import { useChatUnreadTotal } from '../../lib/useChatUnreadTotal';
 import { useCollabStore } from '../../store/collabStore';
 import { type CollabTab, useUiStore } from '../../store/uiStore';
 import { sidebarSwitchListClass, sidebarSwitchTriggerClass } from '../layout/sidebarSwitch';
@@ -21,6 +22,7 @@ export function CollabPanel() {
   const onlineCount = peers.filter(
     (peer) => peer.userId !== myUserId && now - peer.lastSeen < ONLINE_MS,
   ).length;
+  const unread = useChatUnreadTotal();
   const selectedTab = collabTab === 'chat' ? 'peers' : collabTab;
   return (
     <Tabs
@@ -58,6 +60,14 @@ export function CollabPanel() {
           >
             <MessageSquare />
             Open team chat
+            {unread > 0 && (
+              <span
+                className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
+                aria-label={`${unread} unread`}
+              >
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
           </Button>
         </div>
       </TabsContent>
