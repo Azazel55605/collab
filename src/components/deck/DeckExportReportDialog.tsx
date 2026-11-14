@@ -1,18 +1,10 @@
 import { useMemo } from 'react';
 
-import { CheckCircle2 } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 import { countBySeverity } from '../../lib/deck/pptx/exportReport';
 import type { DeckExportReport, DeckExportSeverity } from '../../lib/deck/pptx/exportReport';
-import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { ReportDialog, type ReviewTone } from '../ui/review-dialog';
 
 interface DeckExportReportDialogProps {
   outcome: { report: DeckExportReport; fileName: string } | null;
@@ -22,11 +14,11 @@ interface DeckExportReportDialogProps {
   onReturnFocus?: () => void;
 }
 
-const SEVERITY: Record<DeckExportSeverity, { label: string; tone: string }> = {
-  approximated: { label: 'Approximated', tone: 'text-sky-500' },
-  flattened: { label: 'Flattened', tone: 'text-amber-500' },
-  omitted: { label: 'Omitted', tone: 'text-orange-500' },
-  missing: { label: 'Missing', tone: 'text-destructive' },
+const SEVERITY: Record<DeckExportSeverity, { label: string; tone: ReviewTone }> = {
+  approximated: { label: 'Approximated', tone: 'info' },
+  flattened: { label: 'Flattened', tone: 'warning' },
+  omitted: { label: 'Omitted', tone: 'warning' },
+  missing: { label: 'Missing', tone: 'danger' },
 };
 const ORDER: DeckExportSeverity[] = ['missing', 'omitted', 'flattened', 'approximated'];
 
@@ -66,76 +58,62 @@ export function DeckExportReportDialog({
   const counts = report ? countBySeverity(report) : null;
   const clean = report !== undefined && report.entries.length === 0;
 
+  const changed = report ? report.entries.length : 0;
   return (
-    <Dialog open={outcome !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className="sm:max-w-lg"
-        onCloseAutoFocus={(event) => {
-          if (!onReturnFocus) return;
-          event.preventDefault();
-          onReturnFocus();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>Exported to PowerPoint</DialogTitle>
-          <DialogDescription>
-            {outcome?.fileName}: {report?.slides} {report?.slides === 1 ? 'slide' : 'slides'},{' '}
-            {report?.exported} objects written exactly.
-          </DialogDescription>
-        </DialogHeader>
-        {clean ? (
-          <p className="flex items-center gap-2 text-sm">
-            <CheckCircle2 className="size-4 text-emerald-500" />
-            Everything was exported exactly.
-          </p>
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-3 text-xs" aria-label="Export summary">
-              {ORDER.map((severity) => (
-                <span
-                  key={severity}
-                  className={counts?.[severity] ? SEVERITY[severity].tone : 'text-muted-foreground'}
-                >
-                  {SEVERITY[severity].label}: {counts?.[severity] ?? 0}
-                </span>
-              ))}
-            </div>
-            <ul className="max-h-64 space-y-2 overflow-y-auto text-xs" aria-label="Export details">
-              {groups.map(([code, group]) => (
-                <li key={code} className="rounded-md border border-border/60 p-2">
-                  <span className={`font-medium ${SEVERITY[group.severity].tone}`}>
-                    {SEVERITY[group.severity].label}
-                  </span>{' '}
-                  {group.message}
-                  {group.slides.size > 0 && (
-                    <span className="text-muted-foreground">
-                      {' '}
-                      ({group.slides.size === 1 ? 'slide' : 'slides'}{' '}
-                      {[...group.slides].sort((a, b) => a - b).join(', ')})
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {report && report.fonts.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Fonts the file uses: {report.fonts.join(', ')}. A viewer without one substitutes its
-            own, which can change where lines wrap.
-          </p>
-        )}
-        {report && report.missingAssets.length > 0 && (
-          <p className="text-xs text-destructive">
-            Images not available: {report.missingAssets.join(', ')}
-          </p>
-        )}
-        <DialogFooter>
-          <Button type="button" onClick={onClose}>
-            Done
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ReportDialog
+      open={outcome !== null}
+      onOpenChange={(open) => !open && onClose()}
+      onCloseAutoFocus={
+        onReturnFocus
+          ? (event) => {
+              event.preventDefault();
+              onReturnFocus();
+            }
+          : undefined
+      }
+      outcome={clean ? 'success' : counts?.missing ? 'warning' : 'success'}
+      title="Exported to PowerPoint"
+      description={`${outcome?.fileName ?? ''} · ${report?.slides ?? 0} ${report?.slides === 1 ? 'slide' : 'slides'}`}
+      statsLabel="Export summary"
+      stats={
+        report
+          ? [
+              { key: 'slides', label: 'Slides', value: report.slides },
+              { key: 'exact', label: 'Written exactly', value: report.exported, tone: 'success' },
+              {
+                key: 'changed',
+                label: 'Changed in the copy',
+                value: changed,
+                tone: changed ? 'warning' : 'neutral',
+              },
+            ]
+          : []
+      }
+      itemsLabel={clean ? undefined : 'What changed in the copy'}
+      listLabel="Export details"
+      emptyText={clean ? 'Everything was exported exactly.' : undefined}
+      items={groups.map(([code, group]) => ({
+        key: code,
+        icon: <AlertTriangle />,
+        title: group.message,
+        detail:
+          group.slides.size > 0
+            ? `${group.slides.size === 1 ? 'Slide' : 'Slides'} ${[...group.slides].sort((a, b) => a - b).join(', ')}`
+            : undefined,
+        chip: { label: SEVERITY[group.severity].label, tone: SEVERITY[group.severity].tone },
+      }))}
+    >
+      {report && report.fonts.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Fonts the file uses: {report.fonts.join(', ')}. A viewer without one substitutes its own,
+          which can change where lines wrap.
+        </p>
+      )}
+      {report && report.missingAssets.length > 0 && (
+        <p className="text-xs text-destructive">
+          Images not available: {report.missingAssets.join(', ')}
+        </p>
+      )}
+    </ReportDialog>
   );
 }

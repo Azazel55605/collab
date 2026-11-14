@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 
-import { Download, Loader2, Printer } from 'lucide-react';
+import {
+  FileText,
+  Image as ImageIcon,
+  LayoutGrid,
+  Loader2,
+  Presentation,
+  Printer,
+} from 'lucide-react';
 
 import { HANDOUT_SLIDES_PER_PAGE, parseSlideRange } from '../../lib/deck/output';
 import type {
@@ -11,15 +18,9 @@ import type {
 } from '../../lib/deck/output';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { ExportDialog } from '../ui/export-dialog';
 import { Input } from '../ui/input';
+import { DetailRow } from '../ui/list-detail-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 export type DeckExportFormat = 'pdf' | 'handouts' | 'pptx' | 'png' | 'svg';
@@ -48,14 +49,6 @@ interface DeckExportDialogProps {
   onPrint: (request: DeckExportRequest) => void;
   onCancel: () => void;
 }
-
-const FORMAT_NAMES: Record<DeckExportFormat, string> = {
-  pdf: 'PDF — one slide per page',
-  handouts: 'PDF — handouts',
-  pptx: 'PowerPoint (.pptx)',
-  png: 'PNG images',
-  svg: 'SVG images',
-};
 
 /** Export and print settings for a presentation. */
 export function DeckExportDialog({
@@ -110,212 +103,209 @@ export function DeckExportDialog({
   };
 
   const printable = format === 'pdf' || format === 'handouts';
+  const count =
+    range === 'current'
+      ? 1
+      : range === 'selected'
+        ? selectedNumbers.length
+        : range === 'custom'
+          ? null
+          : slideCount;
+  const slidesText =
+    count === null ? 'The chosen slides' : `${count} slide${count === 1 ? '' : 's'}`;
+  const summary =
+    format === 'pptx'
+      ? `${slidesText} → an editable PowerPoint copy. Anything it cannot represent exactly is listed afterwards.`
+      : format === 'png' || format === 'svg'
+        ? `${slidesText} → one ${format.toUpperCase()} per slide; several go into a folder you choose.`
+        : format === 'handouts'
+          ? `${slidesText} → a handout PDF, ${perPage} per page`
+          : `${slidesText} → one PDF page each`;
+  const exportLabel = {
+    pdf: 'Export PDF',
+    handouts: 'Export handouts',
+    pptx: 'Export PowerPoint',
+    png: 'Export PNGs',
+    svg: 'Export SVGs',
+  }[format];
+
+  const select = (
+    value: string,
+    onChange: (value: string) => void,
+    label: string,
+    options: [string, string][],
+    width = 'w-44',
+  ) => (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger size="sm" className={width} aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(([optionValue, optionLabel]) => (
+          <SelectItem key={optionValue} value={optionValue}>
+            {optionLabel}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent
-        className="sm:max-w-md"
-        onCloseAutoFocus={(event) => {
-          if (!onReturnFocus) return;
-          event.preventDefault();
-          onReturnFocus();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>Export presentation</DialogTitle>
-          <DialogDescription>
-            PDFs keep slides exactly as drawn and their text searchable. Exporting never changes the
-            presentation.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid grid-cols-[6rem_1fr] items-center gap-x-3 gap-y-2 text-sm">
-          <span className="text-xs text-muted-foreground">Format</span>
-          <Select value={format} onValueChange={(value) => setFormat(value as DeckExportFormat)}>
-            <SelectTrigger size="sm" aria-label="Format">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(FORMAT_NAMES) as DeckExportFormat[]).map((entry) => (
-                <SelectItem key={entry} value={entry}>
-                  {FORMAT_NAMES[entry]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <span className="text-xs text-muted-foreground">Slides</span>
-          <div className="flex items-center gap-2">
-            <Select value={range} onValueChange={(value) => setRange(value as DeckExportRange)}>
-              <SelectTrigger size="sm" className="w-40" aria-label="Slides">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All slides</SelectItem>
-                <SelectItem value="current">Current slide ({currentNumber})</SelectItem>
-                {selectedNumbers.length > 1 && (
-                  <SelectItem value="selected">Selected ({selectedNumbers.length})</SelectItem>
-                )}
-                <SelectItem value="custom">Custom range</SelectItem>
-              </SelectContent>
-            </Select>
-            {range === 'custom' && (
-              <Input
-                aria-label="Slide numbers"
-                className="h-8 w-28"
-                placeholder="1-3, 5"
-                value={custom}
-                onChange={(event) => setCustom(event.target.value)}
-              />
-            )}
-          </div>
-
-          {range === 'all' && format !== 'pptx' && (
-            <>
-              <span />
-              <label className="flex items-center gap-1.5 text-xs">
-                <Checkbox
-                  className="accent-primary"
-                  checked={includeHidden}
-                  onCheckedChange={(checked) => setIncludeHidden(checked === true)}
-                />
-                Include hidden slides
-              </label>
-            </>
-          )}
-
-          {format === 'handouts' && (
-            <>
-              <span className="text-xs text-muted-foreground">Per page</span>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={String(perPage)}
-                  onValueChange={(value) => setPerPage(Number(value) as HandoutSlidesPerPage)}
-                >
-                  <SelectTrigger size="sm" className="w-20" aria-label="Slides per page">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {HANDOUT_SLIDES_PER_PAGE.filter((count) => !notes || count <= 3).map(
-                      (count) => (
-                        <SelectItem key={count} value={String(count)}>
-                          {count}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-                <label className="flex items-center gap-1.5 text-xs">
-                  <Checkbox
-                    className="accent-primary"
-                    checked={notes}
-                    onCheckedChange={(checked) => {
-                      setNotes(checked === true);
-                      if (checked === true && perPage > 3) setPerPage(3);
-                    }}
-                  />
-                  Speaker notes
-                </label>
-              </div>
-              <span className="text-xs text-muted-foreground">Paper</span>
-              <div className="flex items-center gap-2">
-                <Select value={paper} onValueChange={(value) => setPaper(value as DeckPaper)}>
-                  <SelectTrigger size="sm" className="w-24" aria-label="Paper">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="a4">A4</SelectItem>
-                    <SelectItem value="letter">Letter</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={orientation}
-                  onValueChange={(value) => setOrientation(value as DeckOrientation)}
-                >
-                  <SelectTrigger size="sm" className="w-32" aria-label="Orientation">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="portrait">Portrait</SelectItem>
-                    <SelectItem value="landscape">Landscape</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          )}
-
-          {format === 'png' && (
-            <>
-              <span className="text-xs text-muted-foreground">Size</span>
-              <Select value={scale} onValueChange={setScale}>
-                <SelectTrigger size="sm" className="w-40" aria-label="Image size">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">Standard (1×)</SelectItem>
-                  <SelectItem value="2">Large (2×)</SelectItem>
-                  <SelectItem value="4">Extra large (4×)</SelectItem>
-                </SelectContent>
-              </Select>
-            </>
-          )}
-        </div>
-
-        {format === 'pptx' && (
-          <p className="text-xs text-muted-foreground">
-            An editable copy with masters, layouts, notes, charts, and groups. Hidden slides stay
-            hidden. Anything PowerPoint cannot represent exactly is listed after export.
-          </p>
-        )}
-        {(format === 'png' || format === 'svg') && (
-          <p className="text-xs text-muted-foreground">
-            One slide saves as a file; several are written to a folder you choose, one file per
-            slide.
-          </p>
-        )}
-        {error && (
-          <p className="text-xs text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        {progress && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
-            <Loader2 className="size-3.5 animate-spin" />
-            Rendering {progress.completed} of {progress.total}…
-            <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={onCancel}>
-              Cancel
-            </Button>
-          </div>
-        )}
-
-        <DialogFooter>
-          {printable && (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => {
-                const request = build();
-                if (request) onPrint(request);
-              }}
-            >
-              <Printer className="size-4" />
-              Print…
-            </Button>
-          )}
+    <ExportDialog
+      open={open}
+      onOpenChange={(next) => !busy && onOpenChange(next)}
+      onCloseAutoFocus={
+        onReturnFocus
+          ? (event) => {
+              event.preventDefault();
+              onReturnFocus();
+            }
+          : undefined
+      }
+      title="Export presentation"
+      description="Exporting never changes the presentation."
+      formats={[
+        { value: 'pdf', label: 'PDF', description: 'One slide per page', icon: <FileText /> },
+        {
+          value: 'handouts',
+          label: 'Handouts',
+          description: 'Several per page',
+          icon: <LayoutGrid />,
+        },
+        {
+          value: 'pptx',
+          label: 'PowerPoint',
+          description: '.pptx, editable',
+          icon: <Presentation />,
+        },
+        { value: 'png', label: 'PNG', description: 'One image per slide', icon: <ImageIcon /> },
+        { value: 'svg', label: 'SVG', description: 'Vector images', icon: <ImageIcon /> },
+      ]}
+      format={format}
+      onFormatChange={(next) => setFormat(next)}
+      summary={summary}
+      exportLabel={exportLabel}
+      busy={busy}
+      error={error}
+      onExport={() => {
+        const request = build();
+        if (request) onExport(request);
+      }}
+      secondary={
+        printable ? (
           <Button
             type="button"
+            variant="ghost"
             disabled={busy}
             onClick={() => {
               const request = build();
-              if (request) onExport(request);
+              if (request) onPrint(request);
             }}
           >
-            <Download className="size-4" />
-            Export…
+            <Printer className="size-4" />
+            Print…
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ) : undefined
+      }
+    >
+      <DetailRow label="Slides" description={`${slideCount} slides in this presentation.`}>
+        <div className="flex items-center gap-2">
+          {select(range, (value) => setRange(value as DeckExportRange), 'Slides', [
+            ['all', 'All slides'],
+            ['current', `Current slide (${currentNumber})`],
+            ...(selectedNumbers.length > 1
+              ? ([['selected', `Selected (${selectedNumbers.length})`]] as [string, string][])
+              : []),
+            ['custom', 'Custom range'],
+          ])}
+          {range === 'custom' && (
+            <Input
+              aria-label="Slide numbers"
+              className="h-8 w-28"
+              placeholder="1-3, 5"
+              value={custom}
+              onChange={(event) => setCustom(event.target.value)}
+            />
+          )}
+        </div>
+      </DetailRow>
+      {range === 'all' && format !== 'pptx' && (
+        <DetailRow label="Hidden slides" description="Include slides that are hidden in the show.">
+          <Checkbox
+            aria-label="Include hidden slides"
+            checked={includeHidden}
+            onCheckedChange={(checked) => setIncludeHidden(checked === true)}
+          />
+        </DetailRow>
+      )}
+      {format === 'handouts' && (
+        <>
+          <DetailRow label="Per page" description="With notes, at most three slides fit a page.">
+            {select(
+              String(perPage),
+              (value) => setPerPage(Number(value) as HandoutSlidesPerPage),
+              'Slides per page',
+              HANDOUT_SLIDES_PER_PAGE.filter((entry) => !notes || entry <= 3).map((entry) => [
+                String(entry),
+                String(entry),
+              ]),
+              'w-24',
+            )}
+          </DetailRow>
+          <DetailRow label="Speaker notes" description="Print each slide's notes beside it.">
+            <Checkbox
+              aria-label="Speaker notes"
+              checked={notes}
+              onCheckedChange={(checked) => {
+                setNotes(checked === true);
+                if (checked === true && perPage > 3) setPerPage(3);
+              }}
+            />
+          </DetailRow>
+          <DetailRow label="Paper">
+            <div className="flex items-center gap-2">
+              {select(
+                paper,
+                (value) => setPaper(value as DeckPaper),
+                'Paper',
+                [
+                  ['a4', 'A4'],
+                  ['letter', 'Letter'],
+                ],
+                'w-24',
+              )}
+              {select(
+                orientation,
+                (value) => setOrientation(value as DeckOrientation),
+                'Orientation',
+                [
+                  ['portrait', 'Portrait'],
+                  ['landscape', 'Landscape'],
+                ],
+                'w-32',
+              )}
+            </div>
+          </DetailRow>
+        </>
+      )}
+      {format === 'png' && (
+        <DetailRow label="Size" description="Pixels per slide point.">
+          {select(scale, setScale, 'Image size', [
+            ['1', 'Standard (1×)'],
+            ['2', 'Large (2×)'],
+            ['4', 'Extra large (4×)'],
+          ])}
+        </DetailRow>
+      )}
+      {progress && (
+        <div className="flex items-center gap-2 pt-3 text-xs text-muted-foreground" role="status">
+          <Loader2 className="size-3.5 animate-spin" />
+          Rendering {progress.completed} of {progress.total}…
+          <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={onCancel}>
+            Stop
+          </Button>
+        </div>
+      )}
+    </ExportDialog>
   );
 }

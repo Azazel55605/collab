@@ -40,7 +40,7 @@ describe('CSV export options', () => {
   it('exports the active worksheet with safe defaults', () => {
     const { onExport, document } = renderDialog();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
 
     expect(onExport).toHaveBeenCalledWith({
       worksheetId: document.worksheets[0].id,
@@ -79,9 +79,9 @@ describe('CSV export options', () => {
     const range = { top: 1, left: 2, bottom: 4, right: 3 };
     const { onExport } = renderDialog({ selectionRange: range });
 
-    fireEvent.click(screen.getByText('Whole worksheet'));
-    fireEvent.click(screen.getByText('Selected range (A1:B2)'));
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Cells' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Selected range (A1:B2)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
 
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ range }));
   });
@@ -93,14 +93,14 @@ describe('CSV export options', () => {
     fireEvent.click(screen.getByLabelText('Allow fields a spreadsheet will execute'));
     expect(screen.getByTestId('csv-injection-warning')).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ sanitizeFormulas: false }));
   });
 
   it('keeps writing formula source an explicit choice', () => {
     const { onExport } = renderDialog();
     fireEvent.click(screen.getByLabelText('Write formula source instead of values'));
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ includeFormulas: true }));
   });
 });

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 
+import { Table2 } from 'lucide-react';
+
 import { type EditDraft, type ResultSet, updateQuery } from '../../lib/database/queryStore';
 import { applyTableEdit, reloadTableEdit } from '../../lib/database/tableEditing';
 import { valueText } from '../../lib/database/values';
@@ -20,6 +22,7 @@ import { ConfirmDialog } from '../ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Field, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
+import { ChangeReviewDialog } from '../ui/review-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
@@ -271,53 +274,71 @@ export default function TableEditDialog({
           />
         )}
         {review && page && (
-          <Dialog
+          <ChangeReviewDialog
             open
             onOpenChange={(open) => {
               if (!open && !busy) setReview(false);
             }}
-          >
-            <DialogContent className="max-h-[85vh] overflow-auto sm:max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>
-                  Review {changes.length} pending {changes.length === 1 ? 'change' : 'changes'}
-                </DialogTitle>
-                <DialogDescription>
-                  Changes apply in order in one transaction. Other writers may have to wait during
-                  Apply.
-                </DialogDescription>
-              </DialogHeader>
-              <ol className="max-h-72 space-y-2 overflow-auto text-sm">
-                {changes.map((change, index) => (
-                  <li key={index} className="rounded-md border px-3 py-2">
-                    <ChangeSummary page={page} change={change} />
-                    {outcome === 'draft' && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() =>
-                          updateQuery(binding.tab_id, (tab) =>
-                            tab.edit
-                              ? {
-                                  ...tab,
-                                  edit: {
-                                    ...tab.edit,
-                                    changes: tab.edit.changes.filter((_, i) => i !== index),
-                                    failure: null,
-                                  },
-                                }
-                              : tab,
-                          )
-                        }
-                      >
-                        Remove change
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ol>
-              {outcome === 'conflict' ? (
+            wide
+            icon={<Table2 />}
+            tone={outcome === 'conflict' ? 'danger' : 'accent'}
+            title={`Review ${changes.length} pending ${changes.length === 1 ? 'change' : 'changes'}`}
+            description="Changes apply in order in one transaction. Other writers may have to wait while they apply."
+            chips={[
+              { key: 'count', label: `${changes.length} staged`, tone: 'info' },
+              ...(outcome === 'conflict'
+                ? [
+                    {
+                      key: 'conflict',
+                      label: 'rows changed on the server',
+                      tone: 'danger' as const,
+                    },
+                  ]
+                : []),
+            ]}
+            blockedReason={
+              outcome === 'conflict'
+                ? 'The rows changed in the database since you staged these edits. Reload to start from the current rows.'
+                : undefined
+            }
+            items={changes.map((change, index) => ({
+              key: String(index),
+              title: <ChangeSummary page={page} change={change} />,
+              action:
+                outcome === 'draft' ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    disabled={busy}
+                    onClick={() =>
+                      updateQuery(binding.tab_id, (tab) =>
+                        tab.edit
+                          ? {
+                              ...tab,
+                              edit: {
+                                ...tab.edit,
+                                changes: tab.edit.changes.filter((_, i) => i !== index),
+                                failure: null,
+                              },
+                            }
+                          : tab,
+                      )
+                    }
+                  >
+                    Remove change
+                  </Button>
+                ) : undefined,
+            }))}
+            emptyText="No staged changes."
+            confirmLabel={`Apply ${changeCount}`}
+            confirmDisabled={busy || !changes.length || outcome !== 'draft'}
+            onConfirm={() => {
+              setReview(false);
+              void applyTableEdit(token, binding);
+            }}
+            secondary={
+              outcome === 'conflict' ? (
                 <Button
                   variant="destructive"
                   onClick={() => {
@@ -327,19 +348,9 @@ export default function TableEditDialog({
                 >
                   Reload rows and discard pending changes
                 </Button>
-              ) : (
-                <Button
-                  disabled={busy || !changes.length || outcome !== 'draft'}
-                  onClick={() => {
-                    setReview(false);
-                    void applyTableEdit(token, binding);
-                  }}
-                >
-                  Apply {changeCount}
-                </Button>
-              )}
-            </DialogContent>
-          </Dialog>
+              ) : undefined
+            }
+          />
         )}
         {discard && (
           <ConfirmDialog

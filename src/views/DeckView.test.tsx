@@ -1106,7 +1106,7 @@ describe('DeckView: presenting and export', () => {
     tauriMocks.writeDownloadedBytes.mockResolvedValue(undefined);
     await openDeck();
     fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Export…/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Export PDF' }));
     await waitFor(() => expect(tauriMocks.writeDownloadedBytes).toHaveBeenCalled());
     expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pdf', {
       name: 'PDF',
@@ -1132,10 +1132,8 @@ describe('DeckView: PowerPoint export', () => {
     tauriMocks.writeDownloadedBytes.mockResolvedValue(undefined);
     await openDeck();
     fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
-    const format = await screen.findByRole('combobox', { name: 'Format' });
-    fireEvent.click(format);
-    fireEvent.click(await screen.findByRole('option', { name: 'PowerPoint (.pptx)' }));
-    fireEvent.click(screen.getByRole('button', { name: /Export…/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'PowerPoint' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export PowerPoint' }));
     expect(await screen.findByText('Exported to PowerPoint', {}, { timeout: 10_000 })).toBeTruthy();
     expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pptx', {
       name: 'PowerPoint',

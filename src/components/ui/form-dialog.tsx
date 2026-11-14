@@ -46,6 +46,8 @@ export interface FormDialogProps {
   destructive?: boolean;
   className?: string;
   bodyClassName?: string;
+  /** Called instead of returning focus to the trigger when the dialog closes. */
+  onCloseAutoFocus?: (event: Event) => void;
   children: ReactNode;
 }
 
@@ -67,6 +69,7 @@ export function FormDialog({
   destructive = false,
   className,
   bodyClassName,
+  onCloseAutoFocus,
   children,
 }: FormDialogProps) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -77,7 +80,7 @@ export function FormDialog({
   };
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <AppDialogContent size={size} className={className}>
+      <AppDialogContent size={size} className={className} onCloseAutoFocus={onCloseAutoFocus}>
         <form className="contents" onSubmit={submit} noValidate>
           <AppDialogHeader icon={icon} tone={tone} title={title} description={description} />
           <AppDialogBody className={bodyClassName}>

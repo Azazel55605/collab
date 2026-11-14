@@ -12,23 +12,24 @@ import {
   Table2,
   Trash2,
   Undo2,
+  FolderInput,
+  ArrowRight,
+  Link2,
+  PanelTop,
+  Check,
+  FileText,
 } from 'lucide-react';
 
 import type { PathChangePreview, TrashEntry } from '../../types/vault';
 import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
-import { Button } from '../ui/button';
+
 import { Checkbox } from '../ui/checkbox';
 import { ConfirmDialog } from '../ui/confirm-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
 import { FormDialog, FormField, PromptDialog } from '../ui/form-dialog';
 import { Input } from '../ui/input';
+import {
+  ChangeReviewDialog,
+} from '../ui/review-dialog';
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
@@ -276,101 +277,74 @@ export function RenameMovePreviewDialog({
   onConfirm,
   onCancel,
 }: RenameMovePreviewDialogProps) {
-  const affectedReferencePaths = preview?.affectedReferencePaths ?? [];
+  const references = preview?.affectedReferencePaths ?? [];
   const blocked = preview?.blockedReason;
-
+  const name = (path: string) => path.split('/').pop() ?? path;
+  const folder = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
+  const verb =
+    preview?.operation === 'rename' ? 'Rename' : preview?.operation === 'move' ? 'Move' : 'Move and rename';
+  const linkWord = (count: number) => `${count} link${count === 1 ? '' : 's'}`;
   return (
-    <Dialog
+    <ChangeReviewDialog
       open={open}
-      onOpenChange={(next) => {
-        if (!next) onCancel();
-      }}
-    >
-      <DialogContent showCloseButton={false} className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Review rename / move</DialogTitle>
-          <DialogDescription>
-            Confirm the path change before the app rewrites references and retargets open tabs.
-          </DialogDescription>
-        </DialogHeader>
-
-        {preview && (
-          <div className="space-y-4 text-sm">
-            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-              <div className="font-medium text-foreground">{preview.oldRelativePath}</div>
-              <div className="text-xs text-muted-foreground mt-1">→ {preview.newRelativePath}</div>
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <span className="rounded-full border border-border/60 px-2 py-0.5">
-                  {preview.operation}
-                </span>
-                <span className="rounded-full border border-border/60 px-2 py-0.5">
-                  {preview.itemKind}
-                </span>
-                <span className="rounded-full border border-border/60 px-2 py-0.5">
-                  {preview.itemKind === 'folder'
-                    ? `${preview.nestedItemCount} nested items`
-                    : 'single file'}
-                </span>
-              </div>
-            </div>
-
-            {blocked ? (
-              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {blocked}
-              </div>
-            ) : null}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="text-xs font-medium text-muted-foreground">
-                  Open tabs to retarget
-                </div>
-                <div className="mt-1 text-lg font-semibold text-foreground">
-                  {affectedOpenTabs.length}
-                </div>
-              </div>
-              <div className="rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="text-xs font-medium text-muted-foreground">
-                  References to rewrite
-                </div>
-                <div className="mt-1 text-lg font-semibold text-foreground">
-                  {affectedReferencePaths.length}
-                </div>
-              </div>
-            </div>
-
-            {affectedReferencePaths.length > 0 && (
-              <div className="rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="text-xs font-medium text-muted-foreground mb-2">
-                  Affected documents
-                </div>
-                <div className="max-h-40 overflow-y-auto space-y-1 text-xs">
-                  {affectedReferencePaths.slice(0, 12).map((path) => (
-                    <div key={path} className="truncate text-foreground/85">
-                      {path}
-                    </div>
-                  ))}
-                  {affectedReferencePaths.length > 12 && (
-                    <div className="text-muted-foreground">
-                      +{affectedReferencePaths.length - 12} more
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button onClick={onConfirm} disabled={!preview || !!blocked}>
-            Apply
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      onOpenChange={(next) => !next && onCancel()}
+      icon={<FolderInput />}
+      title={preview ? `${verb} “${name(preview.oldRelativePath)}”?` : 'Review rename / move'}
+      description="Links to it are updated and open tabs follow, so nothing breaks."
+      change={
+        preview && (
+          <>
+            <span>
+              <span className="text-muted-foreground">{folder(preview.oldRelativePath)}</span>
+              <span className="text-muted-foreground line-through">{name(preview.oldRelativePath)}</span>
+            </span>
+            <ArrowRight className="size-3.5 shrink-0 text-primary" />
+            <span>
+              <span className="text-muted-foreground">{folder(preview.newRelativePath)}</span>
+              <span className="font-semibold">{name(preview.newRelativePath)}</span>
+            </span>
+          </>
+        )
+      }
+      chips={
+        preview
+          ? [
+              {
+                key: 'links',
+                label: references.length ? `${linkWord(references.length)} updated` : 'no links to update',
+                tone: references.length ? 'info' : 'neutral',
+                icon: <Link2 />,
+              },
+              ...(affectedOpenTabs.length
+                ? [
+                    {
+                      key: 'tabs',
+                      label: `${affectedOpenTabs.length} open tab${affectedOpenTabs.length === 1 ? '' : 's'} follow`,
+                      icon: <PanelTop />,
+                    },
+                  ]
+                : []),
+              ...(preview.itemKind === 'folder'
+                ? [{ key: 'nested', label: `${preview.nestedItemCount} items inside` }]
+                : []),
+              ...(blocked ? [] : [{ key: 'ok', label: 'no conflicts', tone: 'success' as const, icon: <Check /> }]),
+            ]
+          : []
+      }
+      blockedReason={blocked}
+      itemsLabel="Documents with links to update"
+      items={references.map((path) => ({
+        key: path,
+        icon: <FileText />,
+        title: name(path),
+        detail: folder(path) || 'Vault root',
+        chip: { label: 'link', tone: 'info' as const },
+      }))}
+      confirmLabel={
+        references.length ? `${verb} and update ${linkWord(references.length)}` : verb
+      }
+      onConfirm={onConfirm}
+    />
   );
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   ArchiveRestore,
+  ArrowRight,
   Bell,
   CalendarDays,
   CheckCircle2,
@@ -12,6 +13,7 @@ import {
   ClipboardCheck,
   CloudOff,
   Copy,
+  Download,
   Ellipsis,
   FileDown,
   FileUp,
@@ -29,6 +31,7 @@ import {
   Search,
   SquareKanban,
   Trash2,
+  Upload,
 } from 'lucide-react';
 
 import {
@@ -77,9 +80,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { ExportDialog } from '../components/ui/export-dialog';
 import { FormDialog, FormField } from '../components/ui/form-dialog';
 import { Input } from '../components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { ChangeReviewDialog } from '../components/ui/review-dialog';
 import {
   Select,
   SelectContent,
@@ -1094,72 +1099,66 @@ function CalendarExportDialog({
           ? `-${visibleRange.from}-to-${visibleRange.to}`
           : '-selection';
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Export calendar</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Export scope</span>
-            <Select value={scope} onValueChange={(value) => setScope(value as typeof scope)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="calendar">Entire calendar</SelectItem>
-                <SelectItem value="range">Visible range</SelectItem>
-                <SelectItem value="day">Selected day</SelectItem>
-                <SelectItem value="items">Selected items</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          {scope === 'items' && (
-            <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-1">
-              {request.items.map((item) => (
-                <label
-                  key={item.id}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50"
-                >
-                  <Checkbox
-                    checked={selectedIds.includes(item.id)}
-                    onCheckedChange={(checked) =>
-                      setSelectedIds((current) =>
-                        checked === true
-                          ? [...current, item.id]
-                          : current.filter((id) => id !== item.id),
-                      )
-                    }
-                  />
-                  <ItemTypeIcon item={item} className="size-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                </label>
-              ))}
-              {request.items.length === 0 && (
-                <p className="px-2 py-3 text-xs text-muted-foreground">No items are available.</p>
-              )}
-            </div>
+    <ExportDialog
+      open
+      onOpenChange={onOpenChange}
+      icon={<Download />}
+      title={`Export ${request.calendar.name}`}
+      description="Writes an iCalendar (.ics) file that other calendar apps can import."
+      summary={`${output.length} item${output.length === 1 ? '' : 's'} → ${request.calendar.name}${suffix}.ics`}
+      exportLabel="Export .ics"
+      exportDisabled={output.length === 0}
+      onExport={() => onExport(request.calendar, output, suffix)}
+    >
+      <div className="flex flex-col gap-1.5 py-3">
+        <span className="text-[12.5px] font-medium text-foreground/85">What to export</span>
+        <ChoiceGroup
+          value={scope}
+          onValueChange={(value) => setScope(value as typeof scope)}
+          aria-label="Export scope"
+          className="sm:grid-cols-2"
+        >
+          <ChoiceCard
+            value="calendar"
+            title="Entire calendar"
+            description={`${request.items.length} items`}
+          />
+          <ChoiceCard
+            value="range"
+            title="Visible range"
+            description={`${rangeItems.length} items`}
+          />
+          <ChoiceCard value="day" title="Selected day" description={`${dayItems.length} items`} />
+          <ChoiceCard value="items" title="Selected items" description="Pick them below" />
+        </ChoiceGroup>
+      </div>
+      {scope === 'items' && (
+        <div className="mb-3 max-h-56 space-y-0.5 overflow-y-auto rounded-[10px] border border-border/60 p-1">
+          {request.items.map((item) => (
+            <label
+              key={item.id}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-muted/50"
+            >
+              <Checkbox
+                checked={selectedIds.includes(item.id)}
+                onCheckedChange={(checked) =>
+                  setSelectedIds((current) =>
+                    checked === true
+                      ? [...current, item.id]
+                      : current.filter((id) => id !== item.id),
+                  )
+                }
+              />
+              <ItemTypeIcon item={item} className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{item.title}</span>
+            </label>
+          ))}
+          {request.items.length === 0 && (
+            <p className="px-2 py-3 text-xs text-muted-foreground">No items are available.</p>
           )}
-          <p className="text-xs text-muted-foreground">
-            {output.length} item{output.length === 1 ? '' : 's'} will be written to the iCalendar
-            file.
-          </p>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={scope === 'items' && output.length === 0}
-            onClick={() => void onExport(request.calendar, output, suffix)}
-          >
-            <FileDown />
-            Export
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+    </ExportDialog>
   );
 }
 
@@ -3682,62 +3681,77 @@ function CalendarImportDialog({
 }) {
   const preview = request?.preview;
   const changes = (preview?.creates ?? 0) + (preview?.updates ?? 0);
+  const order = { create: 0, update: 1, conflict: 2, unchanged: 3 } as const;
+  const action = {
+    create: { label: 'new', tone: 'success' },
+    update: { label: 'updated', tone: 'info' },
+    conflict: { label: 'conflict', tone: 'danger' },
+    unchanged: { label: 'unchanged', tone: 'neutral' },
+  } as const;
+  const entries = [...(preview?.entries ?? [])]
+    .sort((a, b) => order[a.action] - order[b.action])
+    .slice(0, 300);
   return (
-    <Dialog open={request != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Import iCalendar file</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground">
-            <span className="block truncate font-medium text-foreground">{request?.fileName}</span>
-            Import into{' '}
-            <span className="font-medium text-foreground">{request?.calendar.name}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              ['New', preview?.creates ?? 0],
-              ['Updates', preview?.updates ?? 0],
-              ['Unchanged', preview?.unchanged ?? 0],
-              ['Conflicts', preview?.conflicts ?? 0],
-            ].map(([label, count]) => (
-              <div key={String(label)} className="rounded-md border border-border/60 px-3 py-2">
-                <div className="text-lg font-semibold">{count}</div>
-                <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-              </div>
-            ))}
-          </div>
-          {(preview?.warnings.length ?? 0) > 0 && (
-            <div className="max-h-28 overflow-y-auto rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {preview?.warnings.slice(0, 20).map((warning, index) => (
-                <div key={`${index}-${warning}`}>{warning}</div>
-              ))}
-              {(preview?.warnings.length ?? 0) > 20 && (
-                <div>And {(preview?.warnings.length ?? 0) - 20} more warnings.</div>
-              )}
-            </div>
-          )}
-          {(preview?.conflicts ?? 0) > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Conflicting duplicate identities are skipped. Resolve them in the source file before
-              importing.
-            </p>
+    <ChangeReviewDialog
+      open={request != null}
+      onOpenChange={onOpenChange}
+      icon={<Upload />}
+      title="Import iCalendar file"
+      description={`${preview?.entries.length ?? 0} entries in the file. Conflicting duplicates are skipped; fix them in the source file to import them.`}
+      change={
+        request && (
+          <>
+            <span className="truncate">{request.fileName}</span>
+            <ArrowRight className="size-3.5 shrink-0 text-primary" />
+            <span className="font-sans font-semibold">{request.calendar.name}</span>
+          </>
+        )
+      }
+      chips={[
+        { key: 'new', label: `${preview?.creates ?? 0} new`, tone: 'success' },
+        { key: 'updated', label: `${preview?.updates ?? 0} updated`, tone: 'info' },
+        { key: 'same', label: `${preview?.unchanged ?? 0} already there` },
+        ...((preview?.conflicts ?? 0) > 0
+          ? [
+              {
+                key: 'conflicts',
+                label: `${preview?.conflicts} conflicts`,
+                tone: 'danger' as const,
+              },
+            ]
+          : []),
+      ]}
+      itemsLabel="Entries"
+      items={entries.map((entry) => ({
+        key: entry.key,
+        icon: <ItemTypeIcon item={entry.item} />,
+        title: entry.item.title,
+        detail: entry.reason ?? itemDate(entry.item),
+        chip: action[entry.action],
+      }))}
+      emptyText="The file has no calendar entries."
+      blockedReason={
+        changes === 0 && preview
+          ? 'Nothing new to import: every entry is already here or conflicts.'
+          : undefined
+      }
+      busy={saving}
+      confirmLabel={`Import ${changes} item${changes === 1 ? '' : 's'}`}
+      onConfirm={() => {
+        if (request) void onImport(request);
+      }}
+    >
+      {(preview?.warnings.length ?? 0) > 0 && (
+        <div className="max-h-28 overflow-y-auto rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          {preview?.warnings.slice(0, 20).map((warning, index) => (
+            <div key={`${index}-${warning}`}>{warning}</div>
+          ))}
+          {(preview?.warnings.length ?? 0) > 20 && (
+            <div>And {(preview?.warnings.length ?? 0) - 20} more warnings.</div>
           )}
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={saving || !request || changes === 0}
-            onClick={() => request && void onImport(request)}
-          >
-            {saving ? 'Importing...' : `Import ${changes} item${changes === 1 ? '' : 's'}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+    </ChangeReviewDialog>
   );
 }
 
