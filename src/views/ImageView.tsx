@@ -48,15 +48,9 @@ import {
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import PdfInkToolbar from '../components/pdf/PdfInkToolbar';
+import { ChoiceCard, ChoiceGroup } from '../components/ui/app-dialog';
 import { Button } from '../components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { DropdownMenuItem } from '../components/ui/dropdown-menu';
 import { Textarea } from '../components/ui/textarea';
 import { renderEditedImage as buildPermanentCanvas } from '../lib/imageProcessing';
@@ -808,52 +802,83 @@ export default function ImageView({ relativePath }: Props) {
         onApplyCrop={applyCrop}
       />
 
-      <Dialog
-        open={saveIntent !== null}
-        onOpenChange={(open) => !open && !saving && setSaveIntent(null)}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {saveIntent === 'flatten'
-                ? 'Turn additive changes into permanent edits?'
-                : 'Save permanent image changes?'}
-            </DialogTitle>
-            <DialogDescription>
-              {saveIntent === 'flatten'
-                ? 'This creates a separate raster copy with annotations baked in. The original image and editable annotation sidecar remain intact.'
-                : 'Permanent changes modify the raster output. Overwriting updates the current image; saving as new creates a second file.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          {saveIntent !== 'flatten' && !overwriteSupported && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
-              {hostedImage
-                ? 'Hosted images can be saved as a new edited file. Overwriting the original hosted image is not available yet.'
-                : 'Overwrite is only available for PNG, JPEG, and WebP files. Other formats can still be saved as a new edited PNG.'}
-            </div>
-          )}
-
-          <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-            <Button variant="outline" disabled={saving} onClick={() => setSaveIntent(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={saving}
-              onClick={() => void saveImageOutput(false)}
-            >
-              Save As New File
-            </Button>
-            <Button
-              disabled={saving || !overwriteSupported || saveIntent === 'flatten'}
-              onClick={() => void saveImageOutput(true)}
-            >
-              Overwrite Original
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ImageSaveDialog
+        intent={saveIntent}
+        saving={saving}
+        overwriteSupported={overwriteSupported}
+        hostedImage={hostedImage}
+        onClose={() => setSaveIntent(null)}
+        onSave={(overwrite) => void saveImageOutput(overwrite)}
+      />
     </div>
+  );
+}
+
+/** Where permanent image changes go: a new file, or over the original. */
+function ImageSaveDialog({
+  intent,
+  saving,
+  overwriteSupported,
+  hostedImage,
+  onClose,
+  onSave,
+}: {
+  intent: 'flatten' | 'permanent' | null;
+  saving: boolean;
+  overwriteSupported: boolean;
+  hostedImage: boolean;
+  onClose: () => void;
+  onSave: (overwrite: boolean) => void;
+}) {
+  const flatten = intent === 'flatten';
+  const canOverwrite = overwriteSupported && !flatten;
+  const [target, setTarget] = useState<'new' | 'overwrite'>('new');
+  useEffect(() => {
+    if (intent) setTarget('new');
+  }, [intent]);
+  return (
+    <ConfirmDialog
+      open={intent !== null}
+      onOpenChange={(open) => !open && onClose()}
+      tone="warning"
+      icon={<ImageIcon />}
+      title={
+        flatten ? 'Turn additive changes into permanent edits?' : 'Save permanent image changes?'
+      }
+      description={
+        flatten
+          ? 'This creates a separate raster copy with annotations baked in. The original image and editable annotation sidecar remain intact.'
+          : 'Permanent changes modify the image itself.'
+      }
+      busy={saving}
+      confirmLabel={target === 'overwrite' ? 'Overwrite original' : 'Save as new file'}
+      onConfirm={() => onSave(target === 'overwrite')}
+    >
+      <ChoiceGroup
+        value={target}
+        onValueChange={(value) => setTarget(value as 'new' | 'overwrite')}
+        aria-label="Where to save"
+      >
+        <ChoiceCard
+          value="new"
+          title="Save as a new file"
+          description="Keeps the original; the edited image is saved next to it"
+        />
+        <ChoiceCard
+          value="overwrite"
+          title="Overwrite the original"
+          disabled={!canOverwrite}
+          description={
+            flatten
+              ? 'Not available when flattening'
+              : canOverwrite
+                ? 'Replaces the current image'
+                : hostedImage
+                  ? 'Not available for hosted images yet'
+                  : 'Only PNG, JPEG and WebP files can be overwritten'
+          }
+        />
+      </ChoiceGroup>
+    </ConfirmDialog>
   );
 }

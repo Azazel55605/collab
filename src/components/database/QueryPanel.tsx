@@ -31,6 +31,7 @@ import {
 } from '../layout/DocumentTopBar';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Field, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
@@ -509,30 +510,25 @@ export default function QueryPanel({
         <TableEditDialog token={token} binding={binding} draft={tab.edit} />
       )}
       {confirmCommit && (
-        <Dialog open onOpenChange={setConfirmCommit}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Commit this session’s transaction?</DialogTitle>
-              <DialogDescription>
-                Commit pending SQL changes on the pinned session.
-                {engine === 'sql_server' &&
-                  ' A nested transaction stays open until its outermost level is committed.'}
-              </DialogDescription>
-            </DialogHeader>
-            <Button variant="outline" onClick={() => setConfirmCommit(false)}>
-              Keep transaction open
-            </Button>
-            <Button
-              disabled={!canControlTransaction || status.transaction !== 'open'}
-              onClick={() => {
-                setConfirmCommit(false);
-                void executeQuery(token, binding, undefined, 'commit');
-              }}
-            >
-              Confirm commit
-            </Button>
-          </DialogContent>
-        </Dialog>
+        <ConfirmDialog
+          open
+          onOpenChange={setConfirmCommit}
+          tone="warning"
+          title="Commit this session’s transaction?"
+          description={
+            'Commit pending SQL changes on the pinned session.' +
+            (engine === 'sql_server'
+              ? ' A nested transaction stays open until its outermost level is committed.'
+              : '')
+          }
+          cancelLabel="Keep transaction open"
+          confirmLabel="Confirm commit"
+          confirmDisabled={!canControlTransaction || status.transaction !== 'open'}
+          onConfirm={() => {
+            setConfirmCommit(false);
+            void executeQuery(token, binding, undefined, 'commit');
+          }}
+        />
       )}
       {history && (
         <Dialog

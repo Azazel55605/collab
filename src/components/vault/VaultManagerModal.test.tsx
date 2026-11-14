@@ -5,7 +5,6 @@ import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { HostedVaultMeta, HostedVaultSummary, LocalVaultMeta } from '../../types/vault';
-
 import { ConfirmDialogHost } from '../ui/confirm-dialog';
 
 import VaultManagerModal from './VaultManagerModal';

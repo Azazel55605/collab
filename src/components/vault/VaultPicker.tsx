@@ -44,6 +44,7 @@ import {
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
 
+import { confirmRemoveOfflineCopy } from './confirmRemoveOfflineCopy';
 import { LauncherRail } from './launcher/LauncherRail';
 import { NewVaultDialog, type NewVaultLocation } from './launcher/NewVaultDialog';
 import { ServerDetailsDialog } from './launcher/ServerDetailsDialog';
@@ -58,9 +59,6 @@ import {
   type VaultEntryKind,
   type VaultKindFilter,
 } from './launcher/vaultEntries';
-import {
-  confirmRemoveOfflineCopy,
-} from './confirmRemoveOfflineCopy';
 
 const KIND_FILTERS: { id: VaultKindFilter; label: string }[] = [
   { id: 'all', label: 'All' },

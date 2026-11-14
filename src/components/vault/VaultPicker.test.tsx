@@ -5,7 +5,6 @@ import { tauriCommands } from '../../lib/tauri';
 import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-
 import { ConfirmDialogHost } from '../ui/confirm-dialog';
 
 import VaultPicker from './VaultPicker';

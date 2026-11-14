@@ -5,14 +5,7 @@ import { Table2, Trash2 } from 'lucide-react';
 import type { SheetTable } from '../../types/sheet';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 
 interface Props {
@@ -42,78 +35,83 @@ export default function SheetTableDialog({
     if (open) setName(suggestedName);
   }, [open, suggestedName]);
 
+  if (activeTable) {
+    return (
+      <FormDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        size="s"
+        icon={<Table2 />}
+        title={activeTable.name}
+        description={`${activeTable.columns.length} columns. Removing the table keeps its cells.`}
+        submitLabel="Done"
+        cancelLabel="Close"
+        onSubmit={() => onOpenChange(false)}
+        secondary={
+          <Button
+            type="button"
+            variant="ghost"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={readOnly}
+            onClick={() => {
+              onRemove(activeTable.id);
+              onOpenChange(false);
+            }}
+          >
+            <Trash2 />
+            Remove table
+          </Button>
+        }
+      >
+        <FormField label="Columns">
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
+            {activeTable.columns.map((column) => (
+              <div
+                key={column.id}
+                className="truncate rounded-md border border-border/60 px-2 py-1.5"
+              >
+                {column.name}
+              </div>
+            ))}
+          </div>
+        </FormField>
+      </FormDialog>
+    );
+  }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{activeTable ? activeTable.name : 'Create table'}</DialogTitle>
-          <DialogDescription>
-            {activeTable
-              ? `${activeTable.columns.length} columns with stable table identities.`
-              : `Turn ${selectionLabel} into a structured table.`}
-          </DialogDescription>
-        </DialogHeader>
-
-        {activeTable ? (
-          <div className="grid gap-3">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {activeTable.columns.map((column) => (
-                <div
-                  key={column.id}
-                  className="truncate rounded-md border border-border/60 px-2 py-1.5"
-                >
-                  {column.name}
-                </div>
-              ))}
-            </div>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={readOnly}
-              onClick={() => {
-                onRemove(activeTable.id);
-                onOpenChange(false);
-              }}
-            >
-              <Trash2 />
-              Remove table
-            </Button>
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            <label className="grid gap-1 text-xs font-medium">
-              Table name
-              <Input
-                value={name}
-                maxLength={64}
-                disabled={readOnly}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <Checkbox
-                checked={hasHeaderRow}
-                disabled={readOnly}
-                onCheckedChange={(checked) => setHasHeaderRow(checked === true)}
-              />
-              Selection includes a header row
-            </label>
-            <Button
-              type="button"
-              disabled={readOnly || !name.trim()}
-              onClick={() => {
-                onCreate(name, hasHeaderRow);
-                onOpenChange(false);
-              }}
-            >
-              <Table2 />
-              Create table
-            </Button>
-          </div>
-        )}
-
-        <DialogFooter showCloseButton />
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      size="s"
+      icon={<Table2 />}
+      title="Create table"
+      description={`Turn ${selectionLabel} into a structured table.`}
+      submitLabel="Create table"
+      submitDisabled={readOnly || !name.trim()}
+      onSubmit={() => {
+        onCreate(name, hasHeaderRow);
+        onOpenChange(false);
+      }}
+    >
+      <FormField label="Table name" htmlFor="sheet-table-name">
+        <Input
+          id="sheet-table-name"
+          autoFocus
+          value={name}
+          maxLength={64}
+          disabled={readOnly}
+          onChange={(event) => setName(event.target.value)}
+          className="h-9"
+        />
+      </FormField>
+      <label className="flex items-center gap-2 text-[13px]">
+        <Checkbox
+          checked={hasHeaderRow}
+          disabled={readOnly}
+          onCheckedChange={(checked) => setHasHeaderRow(checked === true)}
+        />
+        The selection includes a header row
+      </label>
+    </FormDialog>
   );
 }

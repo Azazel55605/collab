@@ -103,6 +103,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 import CalendarView from './CalendarView';
 import CardDialog from './CardDialog';
+import { ColumnTagsPrompt } from './ColumnTagsPrompt';
 import KanbanCardView from './KanbanCard';
 import KanbanColumnView from './KanbanColumn';
 import TimelineView from './TimelineView';
@@ -1551,54 +1552,15 @@ export default function KanbanBoardView() {
         />
       )}
 
-      <Dialog
+      <ColumnTagsPrompt
         open={moveTagsPrompt !== null}
-        onOpenChange={(open) => !open && setMoveTagsPrompt(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Apply column tags?</DialogTitle>
-          </DialogHeader>
-          {moveTagsPrompt && (
-            <div className="space-y-3 text-sm">
-              <p className="text-muted-foreground">
-                <span className="text-foreground font-medium">{moveTagsPrompt.cardTitle}</span> was
-                moved to{' '}
-                <span className="text-foreground font-medium">{moveTagsPrompt.columnTitle}</span>.
-              </p>
-              <p className="text-muted-foreground">
-                This column has default tags that are not yet on the card:
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {moveTagsPrompt.missingTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary/80"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="ghost" onClick={() => setMoveTagsPrompt(null)}>
-              Not now
-            </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => moveTagsPrompt && applyPromptTags(moveTagsPrompt, false)}
-              >
-                Apply once
-              </Button>
-              <Button onClick={() => moveTagsPrompt && applyPromptTags(moveTagsPrompt, true)}>
-                Always apply here
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        cardTitle={moveTagsPrompt?.cardTitle ?? ''}
+        columnTitle={moveTagsPrompt?.columnTitle ?? ''}
+        tags={moveTagsPrompt?.missingTags ?? []}
+        onClose={() => setMoveTagsPrompt(null)}
+        onApplyOnce={() => moveTagsPrompt && applyPromptTags(moveTagsPrompt, false)}
+        onAlwaysApply={() => moveTagsPrompt && applyPromptTags(moveTagsPrompt, true)}
+      />
 
       <Dialog open={filterDialogOpen} onOpenChange={setFilterDialogOpen}>
         <DialogContent className="sm:max-w-lg">

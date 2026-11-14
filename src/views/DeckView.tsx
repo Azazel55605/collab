@@ -26,6 +26,7 @@ import {
   Paintbrush,
   PanelLeft,
   PanelRight,
+  PenLine,
   Play,
   Presentation,
   Redo2,
@@ -87,7 +88,7 @@ import {
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import { Button } from '../components/ui/button';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -96,14 +97,6 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '../components/ui/context-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -3933,31 +3926,18 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       {deckExport.printPages && (
         <DeckPrintHost pages={deckExport.printPages} onDone={deckExport.finishPrint} />
       )}
-      <Dialog open={inkToKeep !== null} onOpenChange={(open) => !open && setInkToKeep(null)}>
-        <DialogContent
-          className="sm:max-w-sm"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            focusCanvas();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Keep ink annotations?</DialogTitle>
-            <DialogDescription>
-              Ink drawn during the show is not part of the presentation. Keep it as an image on each
-              slide you drew on, or discard it.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setInkToKeep(null)}>
-              Discard
-            </Button>
-            <Button type="button" onClick={() => inkToKeep && void keepInk(inkToKeep)}>
-              Keep
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={inkToKeep !== null}
+        onOpenChange={(open) => !open && setInkToKeep(null)}
+        icon={<PenLine />}
+        title="Keep ink annotations?"
+        description="Ink drawn during the show is not part of the presentation. Keep it as an image on each slide you drew on, or discard it."
+        cancelLabel="Discard"
+        confirmLabel="Keep"
+        onConfirm={() => {
+          if (inkToKeep) void keepInk(inkToKeep);
+        }}
+      />
       {presenting && document && (
         <DeckPresenter
           deck={document}

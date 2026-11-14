@@ -16,13 +16,7 @@ import {
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -609,42 +603,30 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
         />
       )}
       {closing && workspace && tab && (
-        <Dialog open onOpenChange={setClosing}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Close database session?</DialogTitle>
-              <DialogDescription>
-                Discard this tab’s SQL draft, staged row changes, results and history. Running work
-                is stopped by closing the connection; uncommitted transactions are not committed.
-                Already committed changes are not undone. If an outcome is unknown, verify the
-                database before rerunning SQL.
-              </DialogDescription>
-            </DialogHeader>
-            <Button variant="outline" onClick={() => setClosing(false)}>
-              Keep session
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() =>
-                void perform(
-                  async () => {
-                    await tauriCommands.databaseCloseTab(workspace.token, tab, true);
-                    return reload();
-                  },
-                  (state) => {
-                    forgetQuery(tab.tab_id);
-                    setWorkspace(state);
-                    setActiveTab(null);
-                    setClosing(false);
-                  },
-                )
-              }
-            >
-              Close session and discard
-            </Button>
-          </DialogContent>
-        </Dialog>
+        <ConfirmDialog
+          open
+          onOpenChange={setClosing}
+          destructive
+          title="Close database session?"
+          description="Discard this tab’s SQL draft, staged row changes, results and history. Running work is stopped by closing the connection; uncommitted transactions are not committed. Already committed changes are not undone. If an outcome is unknown, verify the database before rerunning SQL."
+          cancelLabel="Keep session"
+          confirmLabel="Close session and discard"
+          busy={busy}
+          onConfirm={() =>
+            void perform(
+              async () => {
+                await tauriCommands.databaseCloseTab(workspace.token, tab, true);
+                return reload();
+              },
+              (state) => {
+                forgetQuery(tab.tab_id);
+                setWorkspace(state);
+                setActiveTab(null);
+                setClosing(false);
+              },
+            )
+          }
+        />
       )}
       {form !== undefined && workspace && (
         <ConnectionForm

@@ -38,8 +38,8 @@ describe('CardDialogMoveTagsPrompt', () => {
     );
 
     expect(screen.getByText('Apply column tags?')).toBeTruthy();
-    expect(screen.getByText(/was moved to/i).textContent).toContain('Card');
-    expect(screen.getByText(/was moved to/i).textContent).toContain('Done');
+    expect(screen.getByText(/moved to/i).textContent).toContain('Card');
+    expect(screen.getByText(/moved to/i).textContent).toContain('Done');
     expect(screen.getByText('review')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /not now/i }));

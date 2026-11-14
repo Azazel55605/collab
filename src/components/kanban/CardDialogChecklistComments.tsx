@@ -302,7 +302,10 @@ export function CardDialogChecklistComments({
                 }}
                 placeholder="Add comment… (Enter to post)"
                 rows={2}
-                className={cn('min-h-16 w-full max-w-full resize-none text-sm', secondaryFieldClass)}
+                className={cn(
+                  'min-h-16 w-full max-w-full resize-none text-sm',
+                  secondaryFieldClass,
+                )}
               />
               {commentInput.trim() && (
                 <Button

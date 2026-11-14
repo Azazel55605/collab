@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useState,
+} from 'react';
 
 import {
   CircuitBoard,
@@ -11,11 +14,14 @@ import {
   Presentation,
   Table2,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 
 import type { PathChangePreview, TrashEntry } from '../../types/vault';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +31,11 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
+import {
+  FormDialog,
+  FormField,
+  PromptDialog,
+} from '../ui/form-dialog';
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
@@ -59,84 +70,73 @@ export function ConfirmDeleteDialog({
 }: ConfirmDeleteProps) {
   const hasTrashFlow = !!onMoveToTrash;
   const isMultiple = itemCount > 1;
+  const [mode, setMode] = useState<'trash' | 'delete'>('trash');
+  useEffect(() => {
+    if (open) setMode('trash');
+  }, [open]);
+  const what = isMultiple ? `${itemCount} items` : `“${name}”`;
+  const kind = isFolder ? 'folder' : 'file';
+  const permanent = !hasTrashFlow || mode === 'delete';
   return (
-    <Dialog
+    <ConfirmDialog
       open={open}
-      onOpenChange={(o) => {
-        if (!o) onCancel();
+      onOpenChange={(next) => !next && onCancel()}
+      destructive={permanent}
+      tone={permanent ? 'danger' : 'warning'}
+      icon={<Trash2 />}
+      title={isMultiple ? `Delete ${itemCount} items?` : `Delete ${isFolder ? 'folder' : 'note'}?`}
+      description={
+        hasTrashFlow
+          ? `${what} can go to the vault trash, where ${isMultiple ? 'they stay' : 'it stays'} restorable, or be deleted for good.`
+          : `${what} will be permanently deleted.${!isMultiple && isFolder ? ' Everything inside it is deleted too.' : ''} This cannot be undone.`
+      }
+      confirmLabel={hasTrashFlow && mode === 'trash' ? 'Move to Trash' : primaryActionLabel}
+      onConfirm={() => {
+        if (hasTrashFlow && mode === 'trash') onMoveToTrash?.();
+        else (onDeletePermanently ?? onConfirm)();
       }}
     >
-      <DialogContent showCloseButton={false} className="max-w-sm">
-        <DialogHeader>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="flex items-center justify-center w-9 h-9 rounded-full bg-destructive/15 text-destructive shrink-0">
-              <Trash2 size={16} />
-            </span>
-            <DialogTitle>
-              {isMultiple
-                ? `Delete ${itemCount} items?`
-                : `Delete ${isFolder ? 'folder' : 'note'}?`}
-            </DialogTitle>
-          </div>
-          <DialogDescription>
-            <span className="font-medium text-foreground">
-              {isMultiple ? `${itemCount} items` : `"${name}"`}
-            </span>
-            {hasTrashFlow ? (
-              <>
-                {' '}
-                will be moved to the vault trash.
-                {!isMultiple && isFolder && ' Everything inside it will move to trash too.'} You can
-                restore {isMultiple ? 'them' : 'it'} later until permanently purged.
-              </>
-            ) : (
-              <>
-                {' '}
-                will be permanently deleted.
-                {!isMultiple && isFolder && ' All notes inside will also be deleted.'} This cannot
-                be undone.
-              </>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        {showReferenceOption && onRemoveReferencesChange && (
-          <label className="flex items-start gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5">
-            <Checkbox
-              checked={removeReferences}
-              onCheckedChange={(checked) => onRemoveReferencesChange(checked === true)}
-              className="mt-0.5"
-            />
-            <div className="space-y-1">
-              <div className="text-sm font-medium text-foreground">Also remove file references</div>
-              <div className="text-xs text-muted-foreground">
-                Update notes, boards, and canvases that link to this {isFolder ? 'folder' : 'file'}{' '}
-                by removing the affected references as part of this delete action. If you move it to
-                trash, those references will not be restored automatically.
-              </div>
-            </div>
-          </label>
-        )}
-        <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          {onMoveToTrash ? (
-            <>
-              <Button variant="outline" onClick={onMoveToTrash} autoFocus>
-                Move to Trash
-              </Button>
-              <Button variant="destructive" onClick={onDeletePermanently ?? onConfirm}>
-                {primaryActionLabel}
-              </Button>
-            </>
-          ) : (
-            <Button variant="destructive" onClick={onConfirm} autoFocus>
-              {primaryActionLabel}
-            </Button>
+      {hasTrashFlow || (showReferenceOption && onRemoveReferencesChange) ? (
+        <>
+          {hasTrashFlow && (
+            <ChoiceGroup
+              value={mode}
+              onValueChange={(value) => setMode(value as 'trash' | 'delete')}
+              aria-label="How to delete"
+            >
+              <ChoiceCard
+                value="trash"
+                title="Move to trash"
+                description={`Restore ${isMultiple ? 'them' : 'it'} any time until the trash is emptied${!isMultiple && isFolder ? '; the contents go too' : ''}`}
+              />
+              <ChoiceCard
+                value="delete"
+                title="Delete permanently"
+                description={`Gone for good${!isMultiple && isFolder ? ', with everything inside' : ''}; cannot be undone`}
+              />
+            </ChoiceGroup>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          {showReferenceOption && onRemoveReferencesChange && (
+            <label className="flex items-start gap-2.5 rounded-[10px] border border-border px-3 py-2.5">
+              <Checkbox
+                checked={removeReferences}
+                onCheckedChange={(checked) => onRemoveReferencesChange(checked === true)}
+                className="mt-0.5"
+              />
+              <span className="space-y-0.5">
+                <span className="block text-[13px] font-medium">
+                  Also remove links to this {kind}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Notes, boards and canvases that link here are updated. Restoring from the trash
+                  does not bring those links back.
+                </span>
+              </span>
+            </label>
+          )}
+        </>
+      ) : undefined}
+    </ConfirmDialog>
   );
 }
 
@@ -251,72 +251,20 @@ export function InputDialog({
   onConfirm,
   onCancel,
 }: InputDialogProps) {
-  const [value, setValue] = useState(initialValue);
-  const inputRef = useRef<HTMLInputElement>(null);
   const meta = VARIANT_META[variant];
-
-  // Reset + focus when opened
-  useEffect(() => {
-    if (open) {
-      setValue(initialValue);
-      // Select the name part (without extension) for rename
-      setTimeout(() => {
-        const el = inputRef.current;
-        if (!el) return;
-        el.focus();
-        const dotIndex = initialValue.lastIndexOf('.');
-        el.setSelectionRange(0, dotIndex > 0 ? dotIndex : initialValue.length);
-      }, 50);
-    }
-  }, [open, initialValue]);
-
-  const submit = () => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    onConfirm(trimmed);
-  };
-
   return (
-    <Dialog
+    <PromptDialog
       open={open}
-      onOpenChange={(o) => {
-        if (!o) onCancel();
-      }}
-    >
-      <DialogContent showCloseButton={false} className="max-w-sm">
-        <DialogHeader>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/15 text-primary shrink-0">
-              {meta.icon}
-            </span>
-            <DialogTitle>{meta.title}</DialogTitle>
-          </div>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">{meta.label}</label>
-          <Input
-            ref={inputRef}
-            value={value}
-            placeholder={meta.placeholder}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit();
-              if (e.key === 'Escape') onCancel();
-            }}
-          />
-        </div>
-
-        <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!value.trim()}>
-            {meta.confirm}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      onOpenChange={(next) => !next && onCancel()}
+      icon={meta.icon}
+      title={meta.title}
+      label={meta.label}
+      placeholder={meta.placeholder}
+      initialValue={initialValue}
+      selectBaseName={variant === 'rename'}
+      submitLabel={meta.confirm}
+      onSubmit={onConfirm}
+    />
   );
 }
 
@@ -451,45 +399,35 @@ export function RestoreTrashDialog({
   onCancel,
 }: RestoreTrashDialogProps) {
   return (
-    <Dialog
+    <FormDialog
       open={open}
-      onOpenChange={(next) => {
-        if (!next) onCancel();
-      }}
+      onOpenChange={(next) => !next && onCancel()}
+      size="s"
+      icon={<Undo2 />}
+      title="Restore item"
+      description={
+        entry?.restoreConflict
+          ? 'Something else is at the original place now. Choose where to restore it.'
+          : 'It goes back to where it was, or to another path you choose.'
+      }
+      submitLabel="Restore"
+      submitDisabled={!targetPath.trim()}
+      onSubmit={onConfirm}
     >
-      <DialogContent showCloseButton={false} className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Restore item</DialogTitle>
-          <DialogDescription>
-            {entry?.restoreConflict
-              ? 'The original path is occupied. Choose a restore path for this item.'
-              : 'Restore this item to its original location or adjust the path first.'}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-            <div className="text-xs font-medium text-muted-foreground">Original path</div>
-            <div className="mt-1 text-sm text-foreground break-all">
-              {entry?.originalRelativePath}
-            </div>
-          </div>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Restore to</span>
-            <Input
-              value={targetPath}
-              onChange={(event) => onTargetPathChange(event.target.value)}
-            />
-          </label>
-        </div>
-        <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button onClick={onConfirm} disabled={!targetPath.trim()}>
-            Restore
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <FormField label="Original path">
+        <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs break-all">
+          {entry?.originalRelativePath}
+        </p>
+      </FormField>
+      <FormField label="Restore to" htmlFor="restore-target">
+        <Input
+          id="restore-target"
+          autoFocus
+          value={targetPath}
+          onChange={(event) => onTargetPathChange(event.target.value)}
+          className="h-9 font-mono text-[13px]"
+        />
+      </FormField>
+    </FormDialog>
   );
 }

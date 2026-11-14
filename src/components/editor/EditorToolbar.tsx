@@ -51,14 +51,6 @@ import {
 } from '../layout/DocumentTopBar';
 import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -92,6 +84,10 @@ import {
   TaskListEditorDialog,
   type TaskListItemDraft,
 } from './TaskListEditorDialog';
+import {
+  FormDialog,
+  FormField,
+} from '../ui/form-dialog';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -241,42 +237,37 @@ function LinkInsertDialog({
   onApply,
 }: LinkDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Insert Link</DialogTitle>
-          <DialogDescription>
-            Enter the visible link text and the target URL, then insert the markdown link.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3 py-1">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Link text</span>
-            <Input
-              value={text}
-              onChange={(event) => onTextChange(event.target.value)}
-              placeholder="Open project site"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">URL</span>
-            <Input
-              value={url}
-              onChange={(event) => onUrlChange(event.target.value)}
-              placeholder="https://example.com"
-            />
-          </label>
-        </div>
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={onApply} disabled={!text.trim() || !url.trim()}>
-            Insert Link
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      size="s"
+      icon={<Link2 />}
+      title="Insert Link"
+      description="The text people see, and where it leads."
+      submitLabel="Insert Link"
+      submitDisabled={!text.trim() || !url.trim()}
+      onSubmit={onApply}
+    >
+      <FormField label="Link text" htmlFor="editor-link-text">
+        <Input
+          id="editor-link-text"
+          autoFocus
+          value={text}
+          onChange={(event) => onTextChange(event.target.value)}
+          placeholder="Open project site"
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="URL" htmlFor="editor-link-url">
+        <Input
+          id="editor-link-url"
+          value={url}
+          onChange={(event) => onUrlChange(event.target.value)}
+          placeholder="https://example.com"
+          className="h-9 font-mono text-[13px]"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 
@@ -291,47 +282,41 @@ function ImageInsertDialog({
   onApply,
 }: ImageDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Insert Image</DialogTitle>
-          <DialogDescription>
-            Enter the label and image path, or browse for a file, then insert the markdown image.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3 py-1">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Name</span>
-            <Input
-              value={altText}
-              onChange={(event) => onAltTextChange(event.target.value)}
-              placeholder="Diagram"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Path</span>
-            <div className="flex gap-2">
-              <Input
-                value={path}
-                onChange={(event) => onPathChange(event.target.value)}
-                placeholder="Pictures/example.png"
-              />
-              <Button type="button" variant="outline" onClick={onBrowse}>
-                Browse
-              </Button>
-            </div>
-          </label>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Image />}
+      title="Insert Image"
+      description="Pick an image from the vault, or type its path."
+      submitLabel="Insert Image"
+      submitDisabled={!altText.trim() || !path.trim()}
+      onSubmit={onApply}
+    >
+      <FormField label="Name" htmlFor="editor-image-name" hint="Also used as the alt text.">
+        <Input
+          id="editor-image-name"
+          autoFocus
+          value={altText}
+          onChange={(event) => onAltTextChange(event.target.value)}
+          placeholder="Diagram"
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="Path" htmlFor="editor-image-path">
+        <div className="flex gap-2">
+          <Input
+            id="editor-image-path"
+            value={path}
+            onChange={(event) => onPathChange(event.target.value)}
+            placeholder="Pictures/example.png"
+            className="h-9 font-mono text-[13px]"
+          />
+          <Button type="button" variant="outline" onClick={onBrowse}>
+            Browse…
+          </Button>
         </div>
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={onApply} disabled={!altText.trim() || !path.trim()}>
-            Insert Image
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </FormField>
+    </FormDialog>
   );
 }
 

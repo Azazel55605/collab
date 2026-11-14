@@ -16,6 +16,7 @@ import type {
 } from '../../types/database';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Field, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
@@ -341,20 +342,16 @@ export default function TableEditDialog({
           </Dialog>
         )}
         {discard && (
-          <Dialog open onOpenChange={setDiscard}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Discard pending row changes?</DialogTitle>
-                <DialogDescription>These changes are staged locally.</DialogDescription>
-              </DialogHeader>
-              <Button variant="outline" onClick={() => setDiscard(false)}>
-                Keep editing
-              </Button>
-              <Button variant="destructive" onClick={close}>
-                Discard changes and close
-              </Button>
-            </DialogContent>
-          </Dialog>
+          <ConfirmDialog
+            open
+            onOpenChange={setDiscard}
+            destructive
+            title="Discard pending row changes?"
+            description="These changes are staged locally and have not been written to the database."
+            cancelLabel="Keep editing"
+            confirmLabel="Discard changes and close"
+            onConfirm={close}
+          />
         )}
       </DialogContent>
     </Dialog>

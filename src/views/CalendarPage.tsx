@@ -23,6 +23,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Repeat,
   Rss,
   Search,
   SquareKanban,
@@ -41,9 +42,11 @@ import {
   DocumentTopBarIconButton,
 } from '../components/layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
+import { ChoiceCard, ChoiceGroup } from '../components/ui/app-dialog';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
 import { ColorPicker } from '../components/ui/color-picker';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -66,6 +69,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { FormDialog, FormField } from '../components/ui/form-dialog';
 import { Input } from '../components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
@@ -917,21 +921,23 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
         onOpenChange={(open) => !open && setEditorRequest(null)}
         onSave={(item) => store.saveItem(item, 'series')}
       />
-      <RecurringDeleteDialog
+      <RecurringScopeDialog
+        action="delete"
         item={deleteRequest}
         saving={store.saving}
         onOpenChange={(open) => !open && setDeleteRequest(null)}
-        onDelete={async (scope) => {
+        onConfirm={async (scope) => {
           if (!deleteRequest) return;
           await store.deleteItem(deleteRequest, scope);
           setDeleteRequest(null);
         }}
       />
-      <RecurringRescheduleDialog
+      <RecurringScopeDialog
+        action="reschedule"
         item={rescheduleRequest?.item ?? null}
         saving={store.saving}
         onOpenChange={(open) => !open && setRescheduleRequest(null)}
-        onSave={async (scope) => {
+        onConfirm={async (scope) => {
           if (!rescheduleRequest) return;
           await store.saveItem(rescheduleRequest.item, scope);
           setRescheduleRequest(null);
@@ -960,43 +966,22 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
         onOpenChange={setCaldavDialogOpen}
         origins={hostedOrigins}
       />
-      <Dialog
+      <ConfirmDialog
         open={subscriptionDeleteRequest != null}
         onOpenChange={(open) => !open && setSubscriptionDeleteRequest(null)}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Remove calendar subscription?</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            The cached read-only calendar and its entries will be removed from this profile. The
-            external feed is not changed.
-          </p>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setSubscriptionDeleteRequest(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={store.saving}
-              onClick={() => {
-                if (!subscriptionDeleteRequest) return;
-                void store
-                  .deleteSubscription(subscriptionDeleteRequest.id)
-                  .then(() => setSubscriptionDeleteRequest(null))
-                  .catch(() => {});
-              }}
-            >
-              {store.saving ? 'Removing...' : 'Remove'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        destructive
+        title="Remove calendar subscription?"
+        description="The cached read-only calendar and its entries are removed from this profile. The external feed is not changed."
+        confirmLabel="Remove subscription"
+        busy={store.saving}
+        onConfirm={() => {
+          if (!subscriptionDeleteRequest) return;
+          void store
+            .deleteSubscription(subscriptionDeleteRequest.id)
+            .then(() => setSubscriptionDeleteRequest(null))
+            .catch(() => {});
+        }}
+      />
       <CalendarMirrorDialog
         open={mirrorDialogOpen}
         onOpenChange={setMirrorDialogOpen}
@@ -1170,114 +1155,63 @@ function CalendarExportDialog({
   );
 }
 
-function RecurringDeleteDialog({
+/** Which occurrences of a repeating item an action applies to, as choice cards. */
+function RecurringScopeDialog({
   item,
   saving,
+  action,
   onOpenChange,
-  onDelete,
+  onConfirm,
 }: {
   item: CalendarItem | null;
   saving: boolean;
+  action: 'delete' | 'reschedule';
   onOpenChange: (open: boolean) => void;
-  onDelete: (scope: CalendarRecurrenceEditScope) => Promise<void>;
+  onConfirm: (scope: CalendarRecurrenceEditScope) => Promise<void>;
 }) {
   const [scope, setScope] = useState<CalendarRecurrenceEditScope>('occurrence');
   useEffect(() => {
     if (item) setScope('occurrence');
   }, [item]);
+  const deleting = action === 'delete';
   return (
-    <Dialog open={item != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Delete recurring item</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Choose which occurrences of{' '}
-            <span className="font-medium text-foreground">{item?.title}</span> to delete.
-          </p>
-          <Select
-            value={scope}
-            onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}
-          >
-            <SelectTrigger aria-label="Recurring delete scope">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="occurrence">This occurrence</SelectItem>
-              <SelectItem value="following">This and following occurrences</SelectItem>
-              <SelectItem value="series">Entire series</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={saving}
-            onClick={() => void onDelete(scope)}
-          >
-            {saving ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RecurringRescheduleDialog({
-  item,
-  saving,
-  onOpenChange,
-  onSave,
-}: {
-  item: CalendarItem | null;
-  saving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (scope: CalendarRecurrenceEditScope) => Promise<void>;
-}) {
-  const [scope, setScope] = useState<CalendarRecurrenceEditScope>('occurrence');
-  useEffect(() => {
-    if (item) setScope('occurrence');
-  }, [item]);
-  return (
-    <Dialog open={item != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Reschedule recurring item</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Choose which occurrences of{' '}
-            <span className="font-medium text-foreground">{item?.title}</span> to reschedule.
-          </p>
-          <Select
-            value={scope}
-            onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}
-          >
-            <SelectTrigger aria-label="Recurring reschedule scope">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="occurrence">This occurrence</SelectItem>
-              <SelectItem value="following">This and following occurrences</SelectItem>
-              <SelectItem value="series">Entire series</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={saving} onClick={() => void onSave(scope)}>
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={item != null}
+      onOpenChange={onOpenChange}
+      destructive={deleting}
+      icon={deleting ? undefined : <Repeat />}
+      title={deleting ? `Delete “${item?.title ?? ''}”?` : `Move “${item?.title ?? ''}”?`}
+      description={
+        deleting
+          ? 'It repeats. Choose which occurrences to delete.'
+          : 'It repeats. Choose which occurrences move.'
+      }
+      busy={saving}
+      confirmLabel={
+        deleting
+          ? scope === 'series'
+            ? 'Delete series'
+            : 'Delete'
+          : scope === 'series'
+            ? 'Move series'
+            : 'Move'
+      }
+      onConfirm={() => onConfirm(scope)}
+    >
+      <ChoiceGroup
+        value={scope}
+        onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}
+        aria-label={deleting ? 'Recurring delete scope' : 'Recurring reschedule scope'}
+      >
+        <ChoiceCard value="occurrence" title="This occurrence" description="Only this one" />
+        <ChoiceCard
+          value="following"
+          title="This and following occurrences"
+          description="From this one on"
+        />
+        <ChoiceCard value="series" title="Entire series" description="Every occurrence" />
+      </ChoiceGroup>
+    </ConfirmDialog>
   );
 }
 
@@ -3650,8 +3584,7 @@ export function CalendarSettingsDialog({
     setName(calendar.name);
     setColor(calendar.color);
   }, [calendar]);
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!calendar || !name.trim()) return;
     try {
       await onSave(calendar.id, {
@@ -3663,56 +3596,46 @@ export function CalendarSettingsDialog({
     }
   };
   return (
-    <Dialog open={calendar != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Calendar settings</DialogTitle>
-        </DialogHeader>
-        <form
-          id="calendar-settings-form"
-          className="space-y-4"
-          onSubmit={(event) => void submit(event)}
-        >
-          <div className="rounded-md bg-muted/45 px-2.5 py-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">
-              {calendar ? calendarOrigin(calendar) : ''}
-            </span>
-            {calendar?.location.kind === 'hosted'
-              ? ' calendar settings sync through its server.'
-              : ' calendar stored in this profile.'}
-          </div>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Name</span>
-            <Input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              maxLength={120}
-            />
-          </label>
-          <fieldset className="space-y-2">
-            <legend className="text-xs font-medium">Accent color</legend>
-            <ColorPicker
-              label="Calendar accent color"
-              value={color}
-              colors={CALENDAR_COLORS}
-              onValueChange={setColor}
-              className="w-full"
-            />
-          </fieldset>
-        </form>
-        <DialogFooter>
-          <Button
-            type="submit"
-            form="calendar-settings-form"
-            disabled={saving || !calendar || !name.trim()}
-          >
-            {saving ? 'Saving...' : 'Save changes'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={calendar != null}
+      onOpenChange={onOpenChange}
+      size="s"
+      icon={<CalendarDays />}
+      title="Calendar settings"
+      description={
+        calendar
+          ? `${calendarOrigin(calendar)} calendar · ${
+              calendar.location.kind === 'hosted'
+                ? 'changes sync through its server'
+                : 'stored in this profile'
+            }`
+          : undefined
+      }
+      submitLabel="Save changes"
+      busy={saving}
+      submitDisabled={!calendar || !name.trim()}
+      onSubmit={() => submit()}
+    >
+      <FormField label="Name" htmlFor="calendar-settings-name">
+        <Input
+          id="calendar-settings-name"
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={120}
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="Colour">
+        <ColorPicker
+          label="Calendar accent color"
+          value={color}
+          colors={CALENDAR_COLORS}
+          onValueChange={setColor}
+          className="w-full"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 
@@ -4101,8 +4024,7 @@ function CalendarDialog({
   const [name, setName] = useState('');
   const [color, setColor] = useState(CALENDAR_COLORS[1]);
   const [locationKey, setLocationKey] = useState('local');
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!name.trim()) return;
     const target = locations.find((entry) => entry.value === locationKey) ?? locations[0];
     await onCreate(name.trim(), color, target?.location);
@@ -4110,51 +4032,51 @@ function CalendarDialog({
     onOpenChange(false);
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>New calendar</DialogTitle>
-        </DialogHeader>
-        <form id="new-calendar-form" className="space-y-3" onSubmit={(event) => void submit(event)}>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Name</span>
-            <Input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Location</span>
-            <Select value={locationKey} onValueChange={setLocationKey}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {locations.map((entry) => (
-                  <SelectItem key={entry.value} value={entry.value}>
-                    {entry.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          <ColorPicker
-            label="Calendar accent color"
-            value={color}
-            colors={CALENDAR_COLORS}
-            onValueChange={setColor}
-            className="w-full"
-          />
-        </form>
-        <DialogFooter>
-          <Button type="submit" form="new-calendar-form" disabled={saving || !name.trim()}>
-            {saving ? 'Saving...' : 'Create'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<CalendarDays />}
+      title="New calendar"
+      description="Calendars group events; events take their calendar's colour."
+      submitLabel="Create calendar"
+      busy={saving}
+      submitDisabled={!name.trim()}
+      onSubmit={() => submit()}
+    >
+      <FormField label="Name" htmlFor="new-calendar-name">
+        <Input
+          id="new-calendar-name"
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Team"
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="Stored in" htmlFor="new-calendar-location">
+        <Select value={locationKey} onValueChange={setLocationKey}>
+          <SelectTrigger id="new-calendar-location" className="h-9 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {locations.map((entry) => (
+              <SelectItem key={entry.value} value={entry.value}>
+                {entry.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+      <FormField label="Colour">
+        <ColorPicker
+          label="Calendar accent color"
+          value={color}
+          colors={CALENDAR_COLORS}
+          onValueChange={setColor}
+          className="w-full"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 

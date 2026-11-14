@@ -34,6 +34,9 @@ import {
 } from '../../types/kanban';
 import type { KnownUser } from '../../types/vault';
 import { useKanbanContext } from '../../views/KanbanPage';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { ConfirmDialog } from '../ui/confirm-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -44,7 +47,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '../ui/context-menu';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 import CardDialog from './CardDialog';
 
@@ -601,49 +603,71 @@ function SortableKanbanCard({ card, columnId }: Props) {
 
       {/* Done-destination picker — shown when multiple done-destination columns exist */}
       {destPicker && (
-        <Dialog open onOpenChange={() => setDestPicker(null)}>
-          <DialogContent className="sm:max-w-xs w-full p-0 gap-0">
-            <DialogHeader className="px-4 py-3 border-b border-border/30">
-              <DialogTitle className="text-sm font-semibold flex items-center gap-2">
-                <FolderInput size={13} className="text-blue-400" />
-                Move to done column
-              </DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col py-1">
-              {destPicker.map((col) => (
-                <button
-                  key={col.id}
-                  onClick={() => moveCardToColumn(col.id, { forceDone: true })}
-                  className="flex items-center gap-2.5 px-4 py-2 text-sm text-left hover:bg-accent/40 transition-colors"
-                >
-                  <div
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: col.color ?? '#64748b' }}
-                  />
-                  <span className="flex-1 truncate">{col.title}</span>
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {col.cards.length}
-                  </span>
-                </button>
-              ))}
-              <div className="border-t border-border/20 mt-1 pt-1">
-                <button
-                  onClick={() => {
-                    const { card, updateBoard } = stateRef.current;
-                    setDestPicker(null);
-                    updateBoard((prev) => ({
-                      ...setCardDoneState(prev, card.id, true),
-                    }));
-                  }}
-                  className="w-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors text-left"
-                >
-                  Keep here (just mark done)
-                </button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <DoneColumnPicker
+          columns={destPicker}
+          onClose={() => setDestPicker(null)}
+          onMove={(columnId) => moveCardToColumn(columnId, { forceDone: true })}
+          onMarkDoneHere={() => {
+            const { card, updateBoard } = stateRef.current;
+            setDestPicker(null);
+            updateBoard((prev) => ({
+              ...setCardDoneState(prev, card.id, true),
+            }));
+          }}
+        />
       )}
     </>
+  );
+}
+
+/** Several "done" columns: pick where the finished card goes. */
+function DoneColumnPicker({
+  columns,
+  onClose,
+  onMove,
+  onMarkDoneHere,
+}: {
+  columns: { id: string; title: string; color?: string; cards: unknown[] }[];
+  onClose: () => void;
+  onMove: (columnId: string) => void;
+  onMarkDoneHere: () => void;
+}) {
+  const [target, setTarget] = useState(columns[0]?.id ?? '');
+  const chosen = columns.find((column) => column.id === target);
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      icon={<FolderInput />}
+      title="Move to done column"
+      description="This board has more than one column for finished cards."
+      confirmLabel={chosen ? `Move to ${chosen.title}` : 'Move'}
+      confirmDisabled={!chosen}
+      onConfirm={() => onMove(target)}
+      secondary={
+        <Button variant="ghost" onClick={onMarkDoneHere}>
+          Keep here (just mark done)
+        </Button>
+      }
+    >
+      <ChoiceGroup value={target} onValueChange={setTarget} aria-label="Done column">
+        {columns.map((column) => (
+          <ChoiceCard
+            key={column.id}
+            value={column.id}
+            title={
+              <span className="flex items-center gap-2">
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: column.color ?? '#64748b' }}
+                />
+                {column.title}
+              </span>
+            }
+            description={`${column.cards.length} card${column.cards.length === 1 ? '' : 's'}`}
+          />
+        ))}
+      </ChoiceGroup>
+    </ConfirmDialog>
   );
 }

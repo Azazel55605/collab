@@ -39,6 +39,7 @@ import {
   Ungroup,
   X,
   Zap,
+  Package,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -184,6 +185,10 @@ import {
 import { isElectronicComponentKind } from '../types/logicDiagram';
 import { isVaultReadOnly } from '../types/vault';
 import type { NoteFile } from '../types/vault';
+import {
+  FormDialog,
+  FormField,
+} from '../components/ui/form-dialog';
 
 interface Props {
   relativePath: string;
@@ -5576,7 +5581,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
             ))}
         </div>
       </div>
-      <Dialog
+      <FormDialog
         open={renameTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -5584,49 +5589,37 @@ function LogicDiagramEditor({ relativePath }: Props) {
             setRenameValue('');
           }
         }}
+        size="s"
+        icon={<Pencil />}
+        title={
+          renameTarget?.kind === 'edge'
+            ? 'Label wire'
+            : renameTarget && nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'group'
+              ? 'Rename group'
+              : renameTarget && nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'output'
+                ? 'Label output'
+                : renameTarget &&
+                    nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'component'
+                  ? 'Label component'
+                  : 'Label gate'
+        }
+        description={
+          renameTarget?.kind === 'edge' ? undefined : 'Leave it empty to use the default label.'
+        }
+        submitLabel={renameTarget?.kind === 'edge' ? 'Set label' : 'Rename'}
+        onSubmit={applyRename}
       >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {renameTarget?.kind === 'edge'
-                ? 'Label wire'
-                : renameTarget && nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'group'
-                  ? 'Rename group'
-                  : renameTarget &&
-                      nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'output'
-                    ? 'Label output'
-                    : renameTarget &&
-                        nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'component'
-                      ? 'Label component'
-                      : 'Label gate'}
-            </DialogTitle>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              applyRename();
-            }}
-          >
-            <Input
-              autoFocus
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              placeholder={
-                renameTarget?.kind === 'edge' ? 'Wire label' : 'Label (leave empty for default)'
-              }
-            />
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                {renameTarget?.kind === 'edge' ? 'Set label' : 'Rename'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        <FormField label="Label" htmlFor="logic-rename">
+          <Input
+            id="logic-rename"
+            autoFocus
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            placeholder={renameTarget?.kind === 'edge' ? 'Wire label' : 'Default label'}
+            className="h-9"
+          />
+        </FormField>
+      </FormDialog>
       <Dialog open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -5745,64 +5738,39 @@ function LogicDiagramEditor({ relativePath }: Props) {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={componentSaveOpen} onOpenChange={setComponentSaveOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Save component</DialogTitle>
-            <DialogDescription>
-              Saves selected nodes as a component. If nothing is selected, the whole logic file is
-              captured.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveLogicComponent();
-            }}
-          >
-            <div className="space-y-2">
-              <label
-                className="text-xs font-medium text-muted-foreground"
-                htmlFor="logic-component-name"
-              >
-                Name
-              </label>
-              <Input
-                id="logic-component-name"
-                autoFocus
-                value={componentName}
-                onChange={(event) => setComponentName(event.target.value)}
-                placeholder="Half adder"
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                className="text-xs font-medium text-muted-foreground"
-                htmlFor="logic-component-description"
-              >
-                Description
-              </label>
-              <Input
-                id="logic-component-description"
-                value={componentDescription}
-                onChange={(event) => setComponentDescription(event.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              Ports are derived from captured input and output nodes. Labels must be unique for each
-              direction.
-            </div>
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setComponentSaveOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">Save component</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <FormDialog
+        open={componentSaveOpen}
+        onOpenChange={setComponentSaveOpen}
+        icon={<Package />}
+        title="Save component"
+        description="Saves the selected nodes as a reusable component. With nothing selected, the whole logic file is captured."
+        submitLabel="Save component"
+        onSubmit={saveLogicComponent}
+      >
+        <FormField label="Name" htmlFor="logic-component-name">
+          <Input
+            id="logic-component-name"
+            autoFocus
+            value={componentName}
+            onChange={(event) => setComponentName(event.target.value)}
+            placeholder="Half adder"
+            className="h-9"
+          />
+        </FormField>
+        <FormField
+          label="Description"
+          htmlFor="logic-component-description"
+          hint="Ports come from the captured input and output nodes; their labels must be unique for each direction."
+        >
+          <Input
+            id="logic-component-description"
+            value={componentDescription}
+            onChange={(event) => setComponentDescription(event.target.value)}
+            placeholder="Optional"
+            className="h-9"
+          />
+        </FormField>
+      </FormDialog>
       <Dialog open={truthTableOpen} onOpenChange={setTruthTableOpen}>
         <DialogContent className="max-w-[min(92vw,960px)] sm:max-w-4xl">
           <DialogHeader>

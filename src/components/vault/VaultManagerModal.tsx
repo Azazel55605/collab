@@ -53,21 +53,13 @@ import {
   type VaultMeta,
 } from '../../types/vault';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { ConfirmDialog } from '../ui/confirm-dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 
+import { confirmRemoveOfflineCopy } from './confirmRemoveOfflineCopy';
 import { HostedMembersPanel } from './HostedMembersPanel';
 import { ManagerServersTab } from './ManagerServersTab';
-import {
-  confirmRemoveOfflineCopy,
-} from './confirmRemoveOfflineCopy';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1565,31 +1557,21 @@ export default function VaultManagerModal() {
 
   return (
     <>
-      <Dialog
+      <ConfirmDialog
         open={!!removeTarget}
         onOpenChange={(open) => {
           if (!open) setRemoveTarget(null);
         }}
-      >
-        <DialogContent showCloseButton={false} className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Remove vault from recents?</DialogTitle>
-            <DialogDescription>
-              {removeTarget && vault?.path === removeTarget.path
-                ? `"${removeTarget.name}" is currently open. Removing it from recents will also close the active vault.`
-                : `This removes "${removeTarget?.name ?? ''}" from the recent vaults list.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-            <Button variant="outline" onClick={() => setRemoveTarget(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={() => void confirmRemoveVault()}>
-              Remove
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        destructive
+        title="Remove vault from recents?"
+        description={
+          removeTarget && vault?.path === removeTarget.path
+            ? `“${removeTarget.name}” is open now. Removing it from the list also closes it. Its files are not deleted.`
+            : `“${removeTarget?.name ?? ''}” leaves the list of vaults. Its files are not deleted.`
+        }
+        confirmLabel="Remove from list"
+        onConfirm={() => void confirmRemoveVault()}
+      />
 
       <Dialog open={isVaultManagerOpen} onOpenChange={(open) => !open && closeVaultManager()}>
         <DialogContent className="flex h-[600px] max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 glass-strong sm:max-w-[880px]">
