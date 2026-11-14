@@ -250,11 +250,14 @@ describe('FileTree folder collapse state', () => {
     });
   });
 
-  it('opens Graph as a singleton tab from the file toolbar', () => {
+  it('opens Graph as a singleton tab from the sidebar footer', () => {
     render(<FileTree />);
     const button = screen.getByRole('button', { name: 'Open Graph View' });
+    // Graph sits in the footer with Trash, not in the filter row.
     expect(
-      button.parentElement?.contains(screen.getByRole('button', { name: 'Filter files' })),
+      button.parentElement?.parentElement?.contains(
+        screen.getByRole('button', { name: /^Trash$/ }),
+      ),
     ).toBe(true);
     fireEvent.click(button);
     fireEvent.click(button);
@@ -262,6 +265,15 @@ describe('FileTree folder collapse state', () => {
     expect(activeTabPath).toBe('__graph__');
     expect(openTabs.filter((tab) => tab.type === 'graph')).toHaveLength(1);
     expect(useUiStore.getState().activeView).toBe('editor');
+  });
+
+  it('filters the tree by name and opens folders that hold a match', () => {
+    useUiStore.setState({ fileTreeCollapsedPathsByVault: { '/vault': ['Docs'] } });
+    render(<FileTree />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter files by name' }), {
+      target: { value: 'child' },
+    });
+    expect(screen.getByText('child.md')).toBeTruthy();
   });
 
   it('reveals a newly activated document from stale trash and collapsed folders', async () => {

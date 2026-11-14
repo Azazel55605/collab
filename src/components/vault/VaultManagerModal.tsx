@@ -12,9 +12,11 @@ import {
   HardDriveDownload,
   Lock,
   LockOpen,
+  LogOut,
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Server,
   ShieldCheck,
   Trash2,
@@ -45,6 +47,7 @@ import {
   type HostedVaultMeta,
   type HostedVaultSummary,
   type MemberRole,
+  type NoteFile,
   vaultKind,
   type VaultKind,
   type VaultMeta,
@@ -434,6 +437,9 @@ function VaultsTab({
   onClose: () => void;
   onRequestRemove: (meta: VaultMeta) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const matches = (name: string) =>
+    !query.trim() || name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
   const { vault, recentVaults, openVault, openHostedVault, loadRecentVaults, closeVault } =
     useVaultStore();
   const connections = useServerStore((state) => state.connections);
@@ -598,9 +604,19 @@ function VaultsTab({
 
   return (
     <div className="flex h-full w-full justify-start">
-      <div className="flex h-full w-full max-w-[34rem] flex-col gap-3 pr-6">
-        {/* Action bar */}
-        <div className="flex gap-2 shrink-0">
+      <div className="flex h-full w-full flex-col gap-3">
+        {/* Search and actions */}
+        <div className="flex shrink-0 gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find a vault"
+              aria-label="Find a vault"
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
           <Button
             size="sm"
             variant="outline"
@@ -639,7 +655,9 @@ function VaultsTab({
           {/* Hosted vaults, grouped by connected server */}
           {connectedServers.map(({ status, hostedVaults }) => {
             const serverUrl = status.serverUrl!;
-            const activeHostedVaults = hostedVaults.filter((hosted) => hosted.status === 'active');
+            const activeHostedVaults = hostedVaults.filter(
+              (hosted) => hosted.status === 'active' && matches(hosted.name),
+            );
             const canCreateHosted = isEffectivelyConnected(status);
             return (
               <div key={serverUrl} className="mb-4">
@@ -735,21 +753,23 @@ function VaultsTab({
                 Offline copies · {serverUrl}
               </div>
               <div className="flex flex-col gap-2">
-                {replicas.map((replica) => (
-                  <HostedVaultRow
-                    key={`${replica.serverUrl}|${replica.vaultId}`}
-                    summary={replicaToHostedVaultSummary(replica)}
-                    isCurrent={
-                      vault?.kind === 'hosted' &&
-                      vault.hostedVaultId === replica.vaultId &&
-                      vault.serverUrl === replica.serverUrl
-                    }
-                    onOpen={() => handleOpenOfflineReplica(replica)}
-                    offline
-                    serverUrl={replica.serverUrl}
-                    onRemoveOffline={() => handleRemoveOfflineReplica(replica)}
-                  />
-                ))}
+                {replicas
+                  .filter((replica) => matches(replica.vaultName))
+                  .map((replica) => (
+                    <HostedVaultRow
+                      key={`${replica.serverUrl}|${replica.vaultId}`}
+                      summary={replicaToHostedVaultSummary(replica)}
+                      isCurrent={
+                        vault?.kind === 'hosted' &&
+                        vault.hostedVaultId === replica.vaultId &&
+                        vault.serverUrl === replica.serverUrl
+                      }
+                      onOpen={() => handleOpenOfflineReplica(replica)}
+                      offline
+                      serverUrl={replica.serverUrl}
+                      onRemoveOffline={() => handleRemoveOfflineReplica(replica)}
+                    />
+                  ))}
               </div>
             </div>
           ))}
@@ -764,24 +784,26 @@ function VaultsTab({
             </div>
           )}
           <div className="flex flex-col gap-2">
-            {localVaults.map((meta) => {
-              const client = createVaultClient(meta);
-              return (
-                <VaultRow
-                  key={meta.path}
-                  meta={meta}
-                  isCurrent={vault?.path === meta.path}
-                  onOpen={() => handleOpen(meta.path)}
-                  onRemove={() => onRequestRemove(meta)}
-                  onExport={
-                    hasRuntimeCapability(client, 'archiveExport')
-                      ? () => handleExport(meta)
-                      : undefined
-                  }
-                  onRenameComplete={(newName) => handleRename(meta, newName)}
-                />
-              );
-            })}
+            {localVaults
+              .filter((meta) => matches(meta.name))
+              .map((meta) => {
+                const client = createVaultClient(meta);
+                return (
+                  <VaultRow
+                    key={meta.path}
+                    meta={meta}
+                    isCurrent={vault?.path === meta.path}
+                    onOpen={() => handleOpen(meta.path)}
+                    onRemove={() => onRequestRemove(meta)}
+                    onExport={
+                      hasRuntimeCapability(client, 'archiveExport')
+                        ? () => handleExport(meta)
+                        : undefined
+                    }
+                    onRenameComplete={(newName) => handleRename(meta, newName)}
+                  />
+                );
+              })}
           </div>
         </div>
       </div>
@@ -1018,6 +1040,48 @@ function PasswordField({
   );
 }
 
+function SettingsSectionLabel({
+  children,
+  danger,
+}: {
+  children: React.ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <h3
+      className={cn(
+        'mb-1 text-[11px] font-semibold tracking-wider uppercase',
+        danger ? 'text-destructive/80' : 'text-muted-foreground',
+      )}
+    >
+      {children}
+    </h3>
+  );
+}
+
+/** One setting: label and description on the left, its control on the right. */
+function SettingRow({
+  label,
+  description,
+  danger,
+  children,
+}: {
+  label: string;
+  description: string;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-6 border-b border-border/40 py-3 last:border-b-0">
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-[13.5px] font-medium', danger && 'text-destructive')}>{label}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
 function EncryptionTab() {
   const { vault } = useVaultStore();
   const isEncrypted = vault?.isEncrypted ?? false;
@@ -1037,6 +1101,9 @@ function EncryptionTab() {
   const [disablePw, setDisablePw] = useState('');
   const [disableBusy, setDisableBusy] = useState(false);
 
+  // Password forms open in small dialogs so nothing sensitive stays typed in on the page.
+  const [dialog, setDialog] = useState<'enable' | 'change' | 'disable' | null>(null);
+
   const handleEnable = async () => {
     if (!vault) return;
     if (!newPw) return toast.error('Enter a password');
@@ -1051,6 +1118,7 @@ function EncryptionTab() {
       }));
       setNewPw('');
       setConfirmPw('');
+      setDialog(null);
       toast.success('Vault encryption enabled');
     } catch (e) {
       toast.error('Failed to enable encryption: ' + e);
@@ -1074,6 +1142,7 @@ function EncryptionTab() {
       setOldPw('');
       setChangePw('');
       setChangeConfirm('');
+      setDialog(null);
       toast.success('Password changed');
     } catch (e) {
       toast.error('Failed to change password: ' + e);
@@ -1092,6 +1161,7 @@ function EncryptionTab() {
         vault: s.vault ? { ...s.vault, isEncrypted: false } : s.vault,
       }));
       setDisablePw('');
+      setDialog(null);
       toast.success('Vault encryption disabled');
     } catch (e) {
       toast.error('Failed to disable encryption: ' + e);
@@ -1108,57 +1178,119 @@ function EncryptionTab() {
     );
   }
 
+  const closeDialog = (open: boolean) => {
+    if (open) return;
+    setDialog(null);
+    setNewPw('');
+    setConfirmPw('');
+    setOldPw('');
+    setChangePw('');
+    setChangeConfirm('');
+    setDisablePw('');
+  };
+
   return (
-    <div className="flex flex-col gap-5 h-full overflow-y-auto pr-1">
-      {/* Status banner */}
+    <div className="flex h-full flex-col gap-5 overflow-y-auto">
       <div
         className={cn(
-          'flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm font-medium',
-          isEncrypted
-            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
-            : 'bg-muted/40 border-border/50 text-muted-foreground',
+          'flex items-center gap-3 rounded-xl border px-4 py-3',
+          isEncrypted ? 'border-emerald-500/25 bg-emerald-500/10' : 'border-border/60 bg-muted/30',
         )}
       >
-        {isEncrypted ? <Lock size={14} /> : <LockOpen size={14} />}
-        {isEncrypted
-          ? 'This vault is encrypted at rest (AES-256-GCM · Argon2id)'
-          : 'This vault is not encrypted — files are stored in plaintext'}
+        <span className={isEncrypted ? 'text-emerald-500' : 'text-muted-foreground'}>
+          {isEncrypted ? <ShieldCheck size={20} /> : <LockOpen size={20} />}
+        </span>
+        <div className="min-w-0 flex-1 leading-snug">
+          <p className="text-sm font-semibold">
+            {isEncrypted ? 'Encrypted at rest' : 'Not encrypted'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {isEncrypted
+              ? 'AES-256-GCM, with the key derived from your password using Argon2id.'
+              : 'Files are stored as plain text on this device.'}
+          </p>
+        </div>
+        {!isEncrypted && (
+          <Button size="sm" onClick={() => setDialog('enable')}>
+            <Lock size={13} /> Encrypt…
+          </Button>
+        )}
       </div>
 
-      {!isEncrypted && (
-        /* ── Enable encryption ─────────────────────────────────────────────── */
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">
-            Enable Encryption
-          </p>
-          <p className="text-[12px] text-muted-foreground leading-relaxed">
-            All note files will be encrypted with AES-256-GCM. The key is derived from your password
-            using Argon2id — without the correct password the files cannot be read.{' '}
-            <span className="text-foreground/70 font-medium">
-              There is no recovery if you lose the password.
-            </span>
-          </p>
-          <PasswordField label="New Password" value={newPw} onChange={setNewPw} />
-          <PasswordField label="Confirm Password" value={confirmPw} onChange={setConfirmPw} />
-          <Button
-            size="sm"
-            onClick={handleEnable}
-            disabled={enableBusy || !newPw || !confirmPw}
-            className="gap-1.5 w-full"
+      {isEncrypted && (
+        <section>
+          <SettingsSectionLabel>Password</SettingsSectionLabel>
+          <SettingRow
+            label="Change password"
+            description="Re-encrypts every file with a key from the new password. Large vaults take a minute."
           >
-            <Lock size={13} />
-            {enableBusy ? 'Encrypting…' : 'Enable Encryption'}
-          </Button>
-        </div>
+            <Button size="sm" variant="outline" onClick={() => setDialog('change')}>
+              Change…
+            </Button>
+          </SettingRow>
+        </section>
       )}
 
       {isEncrypted && (
-        <>
-          {/* ── Change password ───────────────────────────────────────────── */}
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">
-              Change Password
-            </p>
+        <section>
+          <SettingsSectionLabel danger>Danger zone</SettingsSectionLabel>
+          <SettingRow
+            danger
+            label="Turn off encryption"
+            description="Decrypts every file and stores it as plain text."
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={() => setDialog('disable')}
+            >
+              Turn off…
+            </Button>
+          </SettingRow>
+        </section>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        There is no way to recover a lost password: without it the files cannot be read.
+      </p>
+
+      <Dialog open={dialog === 'enable'} onOpenChange={closeDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Encrypt this vault</DialogTitle>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleEnable();
+            }}
+          >
+            <PasswordField label="New Password" value={newPw} onChange={setNewPw} />
+            <PasswordField label="Confirm Password" value={confirmPw} onChange={setConfirmPw} />
+            <DialogFooter>
+              <Button type="submit" size="sm" disabled={enableBusy || !newPw || !confirmPw}>
+                <Lock size={13} />
+                {enableBusy ? 'Encrypting…' : 'Enable Encryption'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dialog === 'change'} onOpenChange={closeDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change password</DialogTitle>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleChangePassword();
+            }}
+          >
             <PasswordField label="Current Password" value={oldPw} onChange={setOldPw} />
             <PasswordField label="New Password" value={changePw} onChange={setChangePw} />
             <PasswordField
@@ -1166,58 +1298,234 @@ function EncryptionTab() {
               value={changeConfirm}
               onChange={setChangeConfirm}
             />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleChangePassword}
-              disabled={changeBusy || !oldPw || !changePw || !changeConfirm}
-              className="gap-1.5"
-            >
-              <Check size={13} />
-              {changeBusy ? 'Re-encrypting…' : 'Change Password'}
-            </Button>
-          </div>
+            <DialogFooter>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={changeBusy || !oldPw || !changePw || !changeConfirm}
+              >
+                <Check size={13} />
+                {changeBusy ? 'Re-encrypting…' : 'Change Password'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-          {/* ── Disable encryption ────────────────────────────────────────── */}
-          <div className="space-y-3 pt-3 border-t border-border/40">
-            <p className="text-[11px] font-semibold text-destructive/70 uppercase tracking-widest">
-              Danger Zone
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              Decrypts all files and removes the encryption header. Files will be stored in
-              plaintext.
+      <Dialog open={dialog === 'disable'} onOpenChange={closeDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Turn off encryption?</DialogTitle>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleDisable();
+            }}
+          >
+            <p className="text-sm text-muted-foreground">
+              Every file is decrypted and stored as plain text on this device.
             </p>
             <PasswordField label="Current Password" value={disablePw} onChange={setDisablePw} />
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={handleDisable}
-              disabled={disableBusy || !disablePw}
-              className="gap-1.5"
-            >
-              <LockOpen size={13} />
-              {disableBusy ? 'Decrypting…' : 'Disable Encryption'}
-            </Button>
-          </div>
-        </>
-      )}
+            <DialogFooter>
+              <Button
+                type="submit"
+                size="sm"
+                variant="destructive"
+                disabled={disableBusy || !disablePw}
+              >
+                <LockOpen size={13} />
+                {disableBusy ? 'Decrypting…' : 'Disable Encryption'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // ─── Tab list ─────────────────────────────────────────────────────────────────
 
-type Tab = 'vaults' | 'permissions' | 'offline' | 'encryption';
+type Tab = 'overview' | 'vaults' | 'permissions' | 'offline' | 'encryption';
 
 const ALL_TABS: Record<Tab, { id: Tab; label: string; icon: React.ReactNode }> = {
-  vaults: { id: 'vaults', label: 'Vaults', icon: <Vault size={14} /> },
-  permissions: { id: 'permissions', label: 'Permissions', icon: <ShieldCheck size={14} /> },
-  offline: { id: 'offline', label: 'Offline Sync', icon: <HardDriveDownload size={14} /> },
-  encryption: { id: 'encryption', label: 'Encryption', icon: <Lock size={14} /> },
+  overview: { id: 'overview', label: 'Overview', icon: <Vault size={15} /> },
+  vaults: { id: 'vaults', label: 'Vaults', icon: <FolderOpen size={15} /> },
+  permissions: { id: 'permissions', label: 'Members', icon: <ShieldCheck size={15} /> },
+  offline: { id: 'offline', label: 'Offline copy', icon: <HardDriveDownload size={15} /> },
+  encryption: { id: 'encryption', label: 'Encryption', icon: <Lock size={15} /> },
 };
 
+/** Sections about the open vault, by kind. "Vaults" (all vaults) is listed separately. */
 export function vaultManagerTabIds(kind: VaultKind): Tab[] {
-  return kind === 'hosted' ? ['vaults', 'permissions', 'offline'] : ['vaults', 'encryption'];
+  return kind === 'hosted' ? ['overview', 'permissions', 'offline'] : ['overview', 'encryption'];
+}
+
+function countFiles(nodes: NoteFile[]): number {
+  return nodes.reduce(
+    (total, node) => total + (node.isFolder ? countFiles(node.children ?? []) : 1),
+    0,
+  );
+}
+
+function OverviewStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 flex-1 rounded-xl border border-border/50 bg-card/40 px-3 py-2.5">
+      <p className="text-[11.5px] text-muted-foreground">{label}</p>
+      <p className="truncate text-base font-semibold">{value}</p>
+    </div>
+  );
+}
+
+/** The open vault at a glance, with the settings that belong to it. */
+function OverviewTab({
+  onNavigate,
+  onClose,
+}: {
+  onNavigate: (tab: Tab) => void;
+  onClose: () => void;
+}) {
+  const vault = useVaultStore((state) => state.vault);
+  const fileTree = useVaultStore((state) => state.fileTree);
+  const closeVault = useVaultStore((state) => state.closeVault);
+  const offlineAvailableAt = useSyncStore((state) => state.offlineAvailableAt);
+  const lastSyncedAt = useSyncStore((state) => state.lastSyncedAt);
+  if (!vault) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        No vault open
+      </div>
+    );
+  }
+  const hosted = vault.kind === 'hosted';
+  const location = hosted ? vault.serverUrl : vault.path;
+  return (
+    <div className="flex h-full flex-col gap-5 overflow-y-auto">
+      <div className="flex items-center gap-3.5">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+          <Vault size={22} />
+        </span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-lg font-semibold">{vault.name}</p>
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {hosted ? <Server size={12} /> : <FolderOpen size={12} />}
+            <span className="truncate font-mono">{location}</span>
+          </p>
+        </div>
+      </div>
+      <div className="flex gap-2.5">
+        <OverviewStat label="Files" value={countFiles(fileTree).toLocaleString()} />
+        <OverviewStat
+          label={hosted ? 'Your role' : 'Storage'}
+          value={hosted ? (vault.role ?? 'member') : 'This device'}
+        />
+        <OverviewStat
+          label={hosted ? 'Last sync' : 'Encryption'}
+          value={
+            hosted
+              ? lastSyncedAt
+                ? new Date(lastSyncedAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : 'Not yet'
+              : vault.isEncrypted
+                ? 'On'
+                : 'Off'
+          }
+        />
+      </div>
+      <section>
+        <SettingsSectionLabel>{hosted ? 'Access and storage' : 'Security'}</SettingsSectionLabel>
+        {hosted ? (
+          <>
+            <SettingRow
+              label="Members and permissions"
+              description="Who can read and edit this vault, and what each role may do."
+            >
+              <Button size="sm" variant="outline" onClick={() => onNavigate('permissions')}>
+                Manage
+              </Button>
+            </SettingRow>
+            <SettingRow
+              label="Offline copy"
+              description={
+                offlineAvailableAt
+                  ? 'A full copy is kept on this device, so the vault works without the server.'
+                  : 'Keep a full copy on this device so the vault works without the server.'
+              }
+            >
+              <Button size="sm" variant="outline" onClick={() => onNavigate('offline')}>
+                {offlineAvailableAt ? 'Manage' : 'Set up'}
+              </Button>
+            </SettingRow>
+          </>
+        ) : (
+          <SettingRow
+            label="Encryption"
+            description={
+              vault.isEncrypted
+                ? 'Files are encrypted at rest with your password.'
+                : 'Encrypt the files on this device with a password.'
+            }
+          >
+            <Button size="sm" variant="outline" onClick={() => onNavigate('encryption')}>
+              {vault.isEncrypted ? 'Manage' : 'Set up'}
+            </Button>
+          </SettingRow>
+        )}
+      </section>
+      <section>
+        <SettingsSectionLabel>Leave</SettingsSectionLabel>
+        <SettingRow
+          label="Close vault"
+          description="Return to the start screen. Nothing is deleted."
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              onClose();
+              closeVault();
+            }}
+          >
+            <LogOut size={13} /> Close vault
+          </Button>
+        </SettingRow>
+      </section>
+    </div>
+  );
+}
+
+function ManagerNavButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+        active
+          ? 'bg-primary/15 font-medium text-foreground'
+          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  );
 }
 
 export default function VaultManagerModal() {
@@ -1229,8 +1537,8 @@ export default function VaultManagerModal() {
   const tabs = vaultManagerTabIds(kind).map((id) => ALL_TABS[id]);
 
   useEffect(() => {
-    if (!vaultManagerTabIds(kind).includes(tab)) setTab('vaults');
-  }, [kind, tab]);
+    if (tab !== 'vaults' && (!vault || !vaultManagerTabIds(kind).includes(tab))) setTab('vaults');
+  }, [kind, tab, vault]);
 
   const confirmRemoveVault = async () => {
     if (!removeTarget) return;
@@ -1281,36 +1589,50 @@ export default function VaultManagerModal() {
       </Dialog>
 
       <Dialog open={isVaultManagerOpen} onOpenChange={(open) => !open && closeVaultManager()}>
-        <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0">
-          <DialogHeader className="px-5 pt-5 pb-0">
-            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <Vault size={16} className="text-primary" />
-              Vault Manager
-            </DialogTitle>
+        <DialogContent className="flex h-[600px] max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 glass-strong sm:max-w-[880px]">
+          <DialogHeader className="flex h-13 shrink-0 flex-row items-center gap-2.5 border-b border-border/40 px-5">
+            <Vault size={16} className="text-primary" />
+            <DialogTitle className="text-[15px] font-semibold">Vault manager</DialogTitle>
           </DialogHeader>
 
-          <div className="flex h-[520px]">
-            {/* Tab sidebar */}
-            <nav className="w-44 shrink-0 border-r border-border/40 p-2 flex flex-col gap-0.5">
-              {tabs.map(({ id, label, icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setTab(id)}
-                  className={cn(
-                    'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left',
-                    tab === id
-                      ? 'bg-primary/15 text-primary font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
-                  )}
-                >
-                  {icon}
-                  {label}
-                </button>
-              ))}
+          <div className="flex min-h-0 flex-1">
+            <nav
+              aria-label="Vault manager sections"
+              className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border/40 p-2.5"
+            >
+              {vault && (
+                <>
+                  <p className="px-2.5 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    This vault
+                  </p>
+                  {tabs.map(({ id, label, icon }) => (
+                    <ManagerNavButton
+                      key={id}
+                      active={tab === id}
+                      onClick={() => setTab(id)}
+                      icon={icon}
+                    >
+                      {label}
+                    </ManagerNavButton>
+                  ))}
+                </>
+              )}
+              <p className="px-2.5 pt-4 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                All vaults
+              </p>
+              <ManagerNavButton
+                active={tab === 'vaults'}
+                onClick={() => setTab('vaults')}
+                icon={ALL_TABS.vaults.icon}
+              >
+                {ALL_TABS.vaults.label}
+              </ManagerNavButton>
             </nav>
 
-            {/* Tab content */}
-            <div className="flex-1 min-w-0 overflow-y-auto p-5 flex flex-col">
+            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+              {tab === 'overview' && (
+                <OverviewTab onNavigate={setTab} onClose={closeVaultManager} />
+              )}
               {tab === 'vaults' && (
                 <VaultsTab onClose={closeVaultManager} onRequestRemove={setRemoveTarget} />
               )}

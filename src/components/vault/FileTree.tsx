@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   CircuitBoard,
@@ -23,6 +24,8 @@ import {
   PenLine,
   Plus,
   Presentation,
+  Search,
+  Settings2,
   Subtitles,
   Table2,
   Trash2,
@@ -89,11 +92,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { Input } from '../ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 import FileReferencesPanel from './FileReferencesPanel';
-import { FILE_TYPE_FILTERS, type FileTypeFilter, filterFileTreeByType } from './fileTreeFilters';
+import {
+  FILE_TYPE_FILTERS,
+  type FileTypeFilter,
+  filterFileTreeByName,
+  filterFileTreeByType,
+} from './fileTreeFilters';
 import { nativeDropFolderAtPoint } from './nativeDropTarget';
 import TrashPanel from './TrashPanel';
 import { useNativeFileDrop } from './useNativeFileDrop';
@@ -124,6 +133,7 @@ interface TaskAttachmentRef {
 }
 
 const EMPTY_PATHS: string[] = [];
+const NO_COLLAPSED_PATHS = new Set<string>();
 const IMAGE_FILE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -174,6 +184,7 @@ export default function FileTree() {
   const renameTab = useEditorStore((state) => state.renameTab);
   const activeTabPath = useEditorStore((state) => state.activeTabPath);
   const setActiveView = useUiStore((state) => state.setActiveView);
+  const openVaultManager = useUiStore((state) => state.openVaultManager);
   const confirmDeleteEnabled = useUiStore((state) => state.confirmDelete);
   const fileTreeHoverPreviewsEnabled = useUiStore((state) => state.fileTreeHoverPreviewsEnabled);
   const fileTreeCollapsedPathsByVault = useUiStore((state) => state.fileTreeCollapsedPathsByVault);
@@ -203,9 +214,10 @@ export default function FileTree() {
     ? (fileTreeCollapsedPathsByVault[vault.path] ?? EMPTY_PATHS)
     : EMPTY_PATHS;
   const collapsed = useMemo(() => new Set(collapsedPaths), [collapsedPaths]);
+  const [nameQuery, setNameQuery] = useState('');
   const filteredFileTree = useMemo(
-    () => filterFileTreeByType(fileTree, fileTypeFilters),
-    [fileTree, fileTypeFilters],
+    () => filterFileTreeByName(filterFileTreeByType(fileTree, fileTypeFilters), nameQuery),
+    [fileTree, fileTypeFilters, nameQuery],
   );
 
   const setCollapsed = useCallback(
@@ -231,7 +243,8 @@ export default function FileTree() {
   // Flattened list of nodes currently visible in the tree (respecting collapsed
   // folders), in display order — used for shift-range multi-selection.
   const rows = useMemo(
-    () => visibleTreeRows(filteredFileTree, collapsed),
+    // While filtering by name every matching folder is shown open.
+    () => visibleTreeRows(filteredFileTree, nameQuery.trim() ? NO_COLLAPSED_PATHS : collapsed),
     [filteredFileTree, collapsed],
   );
   const visibleNodes = useMemo(() => rows.map((row) => row.node), [rows]);
@@ -1152,55 +1165,23 @@ export default function FileTree() {
         onCancel={() => setPreviewState(null)}
       />
 
-      {/* Toolbar row */}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1.5 border-b border-border/30">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setMode('files')}
-            className={cn(
-              'rounded px-2 py-1 text-[11px] font-medium transition-colors',
-              mode === 'files'
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
-            )}
-          >
-            Files
-          </button>
-          <button
-            onClick={() => setMode('trash')}
-            className={cn(
-              'flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
-              mode === 'trash'
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
-            )}
-          >
-            <Trash2 size={11} />
-            Trash
-          </button>
-        </div>
-        {mode === 'files' && (
+      {/* Filter and create: one row above the tree. */}
+      {mode === 'files' && (
+        <div className="flex items-center gap-1 px-2.5 pb-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={nameQuery}
+              onChange={(event) => setNameQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setNameQuery('');
+              }}
+              placeholder="Filter files"
+              aria-label="Filter files by name"
+              className="h-8 pl-8 text-[13px]"
+            />
+          </div>
           <div className="flex shrink-0 items-center gap-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Open Graph View"
-                  className="text-muted-foreground transition-colors app-motion-fast hover:text-foreground"
-                  onClick={() => {
-                    openTab('__graph__', 'Graph', 'graph');
-                    setActiveView('editor');
-                  }}
-                >
-                  <GitFork size={12} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs text-foreground">
-                Open Graph View
-              </TooltipContent>
-            </Tooltip>
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1212,7 +1193,7 @@ export default function FileTree() {
                           : `Filter files, ${fileTypeFilters.size} active`
                       }
                       className={cn(
-                        'relative flex h-6 min-w-6 items-center justify-center rounded px-1 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground',
+                        'relative flex h-8 min-w-8 items-center justify-center rounded-md px-1.5 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground',
                         fileTypeFilters.size > 0 && 'bg-primary/10 text-primary',
                       )}
                     >
@@ -1267,7 +1248,7 @@ export default function FileTree() {
                     <DropdownMenuTrigger asChild>
                       <button
                         aria-label="Create"
-                        className="flex h-6 items-center gap-0.5 rounded px-1 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground"
+                        className="flex h-8 items-center gap-0.5 rounded-md px-1.5 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground"
                       >
                         <Plus size={13} />
                         <ChevronDown size={10} />
@@ -1321,7 +1302,7 @@ export default function FileTree() {
                   <button
                     aria-label="Add files to vault"
                     onClick={handleImportButton}
-                    className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
+                    className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
                   >
                     <FileUp size={13} />
                   </button>
@@ -1332,8 +1313,8 @@ export default function FileTree() {
               </Tooltip>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Tree — root is also a drop target */}
       {mode === 'trash' ? (
@@ -1516,6 +1497,60 @@ export default function FileTree() {
           onOpenReference={handleOpenReference}
         />
       ) : null}
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-sidebar-border/60 px-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-pressed={mode === 'trash'}
+          onClick={() => setMode(mode === 'trash' ? 'files' : 'trash')}
+          className={cn(
+            'h-7 gap-1.5 px-2 text-[12.5px] text-muted-foreground',
+            mode === 'trash' && 'bg-accent text-foreground',
+          )}
+        >
+          {mode === 'trash' ? <ArrowLeft className="size-3.5" /> : <Trash2 className="size-3.5" />}
+          {mode === 'trash' ? 'Back to files' : 'Trash'}
+        </Button>
+        <span className="flex-1" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Open Graph View"
+              className="text-muted-foreground"
+              onClick={() => {
+                openTab('__graph__', 'Graph', 'graph');
+                setActiveView('editor');
+              }}
+            >
+              <GitFork />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs text-foreground">
+            Graph view
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Open vault manager"
+              className="text-muted-foreground"
+              onClick={openVaultManager}
+            >
+              <Settings2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs text-foreground">
+            Vault manager
+          </TooltipContent>
+        </Tooltip>
+      </div>
       <VersionHistoryModal
         open={historyModalPath !== null}
         relativePath={historyModalPath}

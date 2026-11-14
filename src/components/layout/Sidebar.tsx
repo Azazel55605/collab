@@ -8,6 +8,9 @@ import FileTree from '../vault/FileTree';
 import SearchPanel from '../vault/SearchPanel';
 import TagsPanel from '../vault/TagsPanel';
 
+import { sidebarSwitchListClass, sidebarSwitchTriggerClass } from './sidebarSwitch';
+import { SidebarVaultHeader } from './SidebarVaultHeader';
+
 const EDITOR_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
   { id: 'files', icon: <Files size={13} />, label: 'Files' },
   { id: 'search', icon: <Search size={13} />, label: 'Search' },
@@ -19,21 +22,12 @@ export default function Sidebar() {
   const setSidebarPanel = useUiStore((state) => state.setSidebarPanel);
   const vault = useVaultStore((state) => state.vault);
 
-  // Collab panel is a standalone overlay — skip normal tab logic
+  // The collaboration panel has its own switch (People / History) under the same header.
   if (sidebarPanel === 'collab') {
     return (
-      <div className="flex flex-col h-full bg-sidebar">
-        {vault && (
-          <div className="px-3 pt-3 pb-2 border-b border-sidebar-border/60">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-sm bg-primary/20 flex items-center justify-center shrink-0">
-                <div className="w-2 h-2 rounded-sm bg-primary" />
-              </div>
-              <span className="text-xs font-semibold text-foreground truncate">{vault.name}</span>
-            </div>
-          </div>
-        )}
-        <div className="flex-1 overflow-hidden">
+      <div className="flex h-full flex-col bg-sidebar">
+        <SidebarVaultHeader />
+        <div className="min-h-0 flex-1 overflow-hidden">
           <CollabPanel />
         </div>
       </div>
@@ -44,25 +38,14 @@ export default function Sidebar() {
     <Tabs
       value={sidebarPanel}
       onValueChange={(value) => setSidebarPanel(value as SidebarPanel)}
-      className="flex flex-col h-full bg-sidebar"
+      className="flex h-full flex-col gap-0 bg-sidebar"
     >
-      {/* Vault name header */}
-      {vault && (
-        <div className="px-3 pt-3 pb-2 border-b border-sidebar-border/60">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-sm bg-primary/20 flex items-center justify-center shrink-0">
-              <div className="w-2 h-2 rounded-sm bg-primary" />
-            </div>
-            <span className="text-xs font-semibold text-foreground truncate">{vault.name}</span>
-          </div>
-        </div>
-      )}
+      <SidebarVaultHeader />
 
-      {/* Panel tab switcher */}
-      <div className="px-2 pt-2 pb-1">
-        <TabsList className="w-full" aria-label="Vault navigation">
+      <div className="px-2.5 pt-2.5 pb-2">
+        <TabsList className={sidebarSwitchListClass} aria-label="Vault navigation">
           {EDITOR_TABS.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} className="flex-1">
+            <TabsTrigger key={tab.id} value={tab.id} className={sidebarSwitchTriggerClass}>
               {tab.icon}
               <span>{tab.label}</span>
             </TabsTrigger>
@@ -70,8 +53,11 @@ export default function Sidebar() {
         </TabsList>
       </div>
 
-      {/* Panel content */}
-      <TabsContent value={sidebarPanel} key={sidebarPanel} className="flex-1 overflow-hidden">
+      <TabsContent
+        value={sidebarPanel}
+        key={sidebarPanel}
+        className="min-h-0 flex-1 overflow-hidden"
+      >
         {sidebarPanel === 'files' && (
           <FileTree
             key={

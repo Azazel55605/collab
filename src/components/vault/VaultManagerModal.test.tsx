@@ -166,6 +166,24 @@ describe('VaultManagerModal hosted vaults', () => {
     );
   });
 
+  it('finds vaults by name', async () => {
+    connect(true);
+    render(<VaultManagerModal />);
+    await screen.findByText('Team Vault');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find a vault' }), {
+      target: { value: 'local' },
+    });
+    expect(screen.queryByText('Team Vault')).toBeNull();
+    expect(screen.getByText('My Local Vault')).not.toBeNull();
+  });
+
+  it('closes the open vault from its overview', () => {
+    render(<VaultManagerModal />);
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close vault' }));
+    expect(useVaultStore.getState().closeVault).toHaveBeenCalled();
+  });
+
   it('does not show a hosted section when disconnected', () => {
     connect(false);
     render(<VaultManagerModal />);
@@ -201,7 +219,7 @@ describe('VaultManagerModal hosted vaults', () => {
     useVaultStore.setState({ vault: openHostedVaultMeta } as never);
     render(<VaultManagerModal />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Offline Sync' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Offline copy' }));
     fireEvent.click(screen.getByRole('button', { name: 'Make available offline' }));
 
     await waitFor(() =>
@@ -217,7 +235,7 @@ describe('VaultManagerModal hosted vaults', () => {
     useVaultStore.setState({ vault: openHostedVaultMeta } as never);
     render(<VaultManagerModal />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Offline Sync' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Offline copy' }));
 
     const button = screen.getByRole('button', { name: 'Offline copy ready' });
     expect(button.hasAttribute('disabled')).toBe(true);

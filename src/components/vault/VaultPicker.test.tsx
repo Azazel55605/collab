@@ -13,7 +13,14 @@ vi.mock('../../lib/tauri', () => ({
     showOpenVaultDialog: vi.fn(),
     reauthenticateServer: vi.fn(),
     createVault: vi.fn(),
+    showSaveDialog: vi.fn(),
+    exportVault: vi.fn(),
   },
+}));
+
+const syncMock = vi.hoisted(() => ({ makeAvailableOffline: vi.fn() }));
+vi.mock('../../store/syncStore', () => ({
+  useSyncStore: { getState: () => ({ makeAvailableOffline: syncMock.makeAvailableOffline }) },
 }));
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -309,6 +316,39 @@ describe('VaultPicker start screen', () => {
 
     await waitFor(() => expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(stale));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Stale Offline' })).toBeNull());
+  });
+
+  it('downloads a local vault as a ZIP from its row', async () => {
+    vi.mocked(tauriCommands.showSaveDialog).mockResolvedValue('/tmp/Personal Notes.zip');
+    render(<VaultPicker />);
+    fireEvent.click(screen.getByRole('button', { name: 'Download Personal Notes as ZIP' }));
+    await waitFor(() =>
+      expect(tauriCommands.exportVault).toHaveBeenCalledWith(
+        '/home/me/notes',
+        '/tmp/Personal Notes.zip',
+      ),
+    );
+    // Editors cannot export hosted vaults, so their rows offer no download.
+    expect(screen.queryByRole('button', { name: 'Download Team Vault as ZIP' })).toBeNull();
+  });
+
+  it('makes a hosted vault available offline only when the account may copy it', async () => {
+    syncMock.makeAvailableOffline.mockResolvedValue({ documentsCached: 4, assetsCached: 1 });
+    useServerStore.setState((state) => ({
+      connections: {
+        [SERVER]: {
+          ...state.connections[SERVER],
+          hostedVaults: [{ ...hostedVault, capabilities: ['vault.read', 'vault.offlineCopy'] }],
+        },
+      },
+    }));
+    render(<VaultPicker />);
+    fireEvent.click(screen.getByRole('button', { name: 'Make Team Vault available offline' }));
+    await waitFor(() =>
+      expect(syncMock.makeAvailableOffline).toHaveBeenCalledWith(
+        expect.objectContaining({ hostedVaultId: 'vault-1', serverUrl: SERVER }),
+      ),
+    );
   });
 
   it('removes a local vault from the list through its row menu', async () => {

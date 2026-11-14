@@ -257,6 +257,52 @@
   --workspace-entry-y: -14px;
 }
 
+/* Opening a vault: the workspace settles in from a slight zoom and blur. Returning
+   to the start screen plays the reverse feel. */
+.app-vault-enter {
+  animation: app-vault-enter var(--motion-slower) var(--motion-ease-emphasized) backwards;
+}
+
+.app-launcher-enter {
+  animation: app-launcher-enter var(--motion-slow) var(--motion-ease-standard) backwards;
+}
+
+@keyframes app-vault-enter {
+  from {
+    opacity: 0;
+    scale: 0.97;
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    filter: none;
+  }
+}
+
+@keyframes app-launcher-enter {
+  from {
+    opacity: 0;
+    scale: 1.03;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+[data-motion='off'] .app-vault-enter,
+[data-motion='off'] .app-launcher-enter {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-vault-enter,
+  .app-launcher-enter {
+    animation: none;
+  }
+}
+
 @keyframes app-workspace-enter {
   from {
     translate: 0 var(--workspace-entry-y);
@@ -1838,7 +1884,9 @@
 .note-print-overlay-host {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  /* Above the app, below portalled menus, popovers and dialogs (z-50), so the
+     print controls' dropdowns open on top of the preview. */
+  z-index: 45;
   overflow: auto;
   background: color-mix(in oklab, var(--background) 92%, black 8%);
 }

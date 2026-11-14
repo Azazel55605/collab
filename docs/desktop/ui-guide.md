@@ -212,6 +212,24 @@ Rules:
 - search and filter inputs should match the app’s control styling
 - destructive actions should remain discoverable but not dominant
 
+Every sidebar panel starts with the same 48 px vault header
+(`layout/SidebarVaultHeader.tsx`), level with the document header. Its menu holds
+the vault manager and **Close vault**, the way back to the start screen. Below
+it, a segmented switch (`layout/sidebarSwitch.ts`: Files / Search / Tags, or
+People / History) and then the panel. Rare panel actions (Trash, Graph, vault
+manager) sit in a quiet 40 px footer rather than in the header.
+
+The collaboration panel groups people by where they are: in the open document,
+elsewhere in the vault (with a button that opens their document), offline
+(collapsed), then you. History is a timeline of versions grouped by day, with
+**Save version** as its one primary action.
+
+The vault manager uses the settings dialog shape (880 × 600): a navigation column
+grouped into **This vault** (Overview, then Members and Offline copy for hosted
+vaults or Encryption for local ones) and **All vaults**, and setting rows with the
+label and description on the left and the control on the right. Password forms
+open in small dialogs instead of sitting on the page.
+
 ### Cards
 
 Used in canvas, kanban, lists, previews, and dialogs.
