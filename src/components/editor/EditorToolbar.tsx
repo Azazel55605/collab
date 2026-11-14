@@ -61,6 +61,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
@@ -84,10 +85,6 @@ import {
   TaskListEditorDialog,
   type TaskListItemDraft,
 } from './TaskListEditorDialog';
-import {
-  FormDialog,
-  FormField,
-} from '../ui/form-dialog';
 
 interface EditorToolbarProps {
   relativePath: string;

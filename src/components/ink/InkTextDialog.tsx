@@ -24,10 +24,16 @@ export default function InkTextDialog({ draft, onOpenChange, onCreate }: InkText
       onOpenChange={onOpenChange}
       multiline
       icon={kind === 'sticky' ? <StickyNote /> : kind === 'equation' ? <Sigma /> : <Type />}
-      title={kind === 'sticky' ? 'Add sticky note' : kind === 'equation' ? 'Add equation' : 'Add text'}
+      title={
+        kind === 'sticky' ? 'Add sticky note' : kind === 'equation' ? 'Add equation' : 'Add text'
+      }
       description="It stays editable after it is placed on the drawing. Ctrl+Enter adds it."
       label={
-        kind === 'sticky' ? 'Sticky note text' : kind === 'equation' ? 'Equation LaTeX' : 'Drawing text'
+        kind === 'sticky'
+          ? 'Sticky note text'
+          : kind === 'equation'
+            ? 'Equation LaTeX'
+            : 'Drawing text'
       }
       placeholder={kind === 'equation' ? 'x^2 + y^2 = r^2' : undefined}
       submitLabel="Add to drawing"

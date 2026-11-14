@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { BadgeCheck, Trash2 } from 'lucide-react';
+import { BadgeCheck, ListChecks, Trash2 } from 'lucide-react';
 
 import { parseA1Range } from '../../lib/sheet/address';
 import type { SheetValidationDraft } from '../../lib/sheet/validation';
 import type { SheetValidation, SheetValidationKind, SheetWorksheet } from '../../types/sheet';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { DatePicker } from '../ui/date-picker';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
@@ -130,104 +129,110 @@ export default function SheetValidationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Data validation</DialogTitle>
-          <DialogDescription>Apply an input rule to {selectionLabel}.</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <label className="grid gap-1 text-xs font-medium">
-            Rule
-            <Select value={kind} onValueChange={(value) => setKind(value as SheetValidationKind)}>
-              <SelectTrigger className="w-full" aria-label="Validation rule">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="list">List of values</SelectItem>
-                <SelectItem value="range">Values from range</SelectItem>
-                <SelectItem value="number">Number range</SelectItem>
-                <SelectItem value="date">Date range</SelectItem>
-                <SelectItem value="text">Text length</SelectItem>
-                <SelectItem value="custom">Custom formula</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          {kind === 'list' && (
+      <AppDialogContent size="m">
+        <AppDialogHeader
+          icon={<ListChecks />}
+          title="Data validation"
+          description={<>Apply an input rule to {selectionLabel}.</>}
+        />
+        <AppDialogBody>
+          <div className="grid gap-3">
             <label className="grid gap-1 text-xs font-medium">
-              Allowed values
-              <Textarea
-                value={options}
-                rows={3}
-                placeholder="Open, In progress, Done"
-                onChange={(event) => setOptions(event.target.value)}
-              />
+              Rule
+              <Select value={kind} onValueChange={(value) => setKind(value as SheetValidationKind)}>
+                <SelectTrigger className="w-full" aria-label="Validation rule">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="list">List of values</SelectItem>
+                  <SelectItem value="range">Values from range</SelectItem>
+                  <SelectItem value="number">Number range</SelectItem>
+                  <SelectItem value="date">Date range</SelectItem>
+                  <SelectItem value="text">Text length</SelectItem>
+                  <SelectItem value="custom">Custom formula</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
-          )}
-          {kind === 'range' && (
-            <label className="grid gap-1 text-xs font-medium">
-              Source range
-              <Input
-                value={source}
-                placeholder="A1:A10"
-                onChange={(event) => setSource(event.target.value)}
-              />
-            </label>
-          )}
-          {(kind === 'number' || kind === 'text') && (
-            <div className="grid grid-cols-2 gap-2">
+            {kind === 'list' && (
               <label className="grid gap-1 text-xs font-medium">
-                {kind === 'text' ? 'Minimum length' : 'Minimum'}
-                <Input
-                  type="number"
-                  value={minimum}
-                  onChange={(event) => setMinimum(event.target.value)}
+                Allowed values
+                <Textarea
+                  value={options}
+                  rows={3}
+                  placeholder="Open, In progress, Done"
+                  onChange={(event) => setOptions(event.target.value)}
                 />
               </label>
+            )}
+            {kind === 'range' && (
               <label className="grid gap-1 text-xs font-medium">
-                {kind === 'text' ? 'Maximum length' : 'Maximum'}
+                Source range
                 <Input
-                  type="number"
+                  value={source}
+                  placeholder="A1:A10"
+                  onChange={(event) => setSource(event.target.value)}
+                />
+              </label>
+            )}
+            {(kind === 'number' || kind === 'text') && (
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-xs font-medium">
+                  {kind === 'text' ? 'Minimum length' : 'Minimum'}
+                  <Input
+                    type="number"
+                    value={minimum}
+                    onChange={(event) => setMinimum(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-medium">
+                  {kind === 'text' ? 'Maximum length' : 'Maximum'}
+                  <Input
+                    type="number"
+                    value={maximum}
+                    onChange={(event) => setMaximum(event.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+            {kind === 'date' && (
+              <div className="grid grid-cols-2 gap-2">
+                <DatePicker label="Earliest" value={minimum} onChange={setMinimum} />
+                <DatePicker
+                  label="Latest"
                   value={maximum}
-                  onChange={(event) => setMaximum(event.target.value)}
+                  min={minimum || undefined}
+                  onChange={setMaximum}
+                />
+              </div>
+            )}
+            {kind === 'custom' && (
+              <label className="grid gap-1 text-xs font-medium">
+                Formula
+                <Input
+                  value={formula}
+                  placeholder="=A1&gt;0"
+                  onChange={(event) => setFormula(event.target.value)}
                 />
               </label>
-            </div>
-          )}
-          {kind === 'date' && (
-            <div className="grid grid-cols-2 gap-2">
-              <DatePicker label="Earliest" value={minimum} onChange={setMinimum} />
-              <DatePicker
-                label="Latest"
-                value={maximum}
-                min={minimum || undefined}
-                onChange={setMaximum}
+            )}
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox
+                checked={strict}
+                onCheckedChange={(checked) => setStrict(checked === true)}
               />
-            </div>
-          )}
-          {kind === 'custom' && (
+              Reject invalid entries
+            </label>
             <label className="grid gap-1 text-xs font-medium">
-              Formula
+              Message
               <Input
-                value={formula}
-                placeholder="=A1&gt;0"
-                onChange={(event) => setFormula(event.target.value)}
+                value={message}
+                placeholder="Explain the expected value"
+                onChange={(event) => setMessage(event.target.value)}
               />
             </label>
-          )}
-          <label className="flex items-center gap-2 text-xs">
-            <Checkbox checked={strict} onCheckedChange={(checked) => setStrict(checked === true)} />
-            Reject invalid entries
-          </label>
-          <label className="grid gap-1 text-xs font-medium">
-            Message
-            <Input
-              value={message}
-              placeholder="Explain the expected value"
-              onChange={(event) => setMessage(event.target.value)}
-            />
-          </label>
-        </div>
-        <DialogFooter>
+          </div>
+        </AppDialogBody>
+        <AppDialogFooter>
           {activeValidation && (
             <Button
               type="button"
@@ -246,8 +251,8 @@ export default function SheetValidationDialog({
             <BadgeCheck />
             Apply
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

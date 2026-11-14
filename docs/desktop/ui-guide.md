@@ -466,6 +466,19 @@ Every dialog is built from `components/ui/app-dialog.tsx`:
 - **Workspaces.** Large dialogs put a list (filter, rows, New) on the left and
   setting rows for the selected item on the right.
 
+Reach for a template before building a dialog by hand:
+
+1. **Confirm and choose** — `ConfirmDialog` (declarative, for a busy flag or
+   extra content such as a checkbox) and `confirmAction()` / `chooseAction()`
+   (one-off questions). Choices are `ChoiceCard`s; the confirm label follows the
+   choice ("Delete" / "Delete series").
+2. **Quick prompt** — `PromptDialog` from `ui/form-dialog.tsx`: one text field in
+   a small form, trimmed, optional `validate`, a thrown error shown inline;
+   `selectBaseName` selects a file name without its extension.
+3. **Form** — `FormDialog` with `FormField` (label above, hint or error below),
+   `FormRow` (side by side) and `FormSection`. The body is a real form, so Enter
+   submits; `busy` keeps it open with a spinner.
+
 ### Sync center
 
 The status bar has one sync chip (`layout/SyncCenter.tsx`) for the open hosted

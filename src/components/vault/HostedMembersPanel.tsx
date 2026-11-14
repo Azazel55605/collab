@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Loader2, SlidersHorizontal, Trash2, UserPlus } from 'lucide-react';
+import { Loader2, ShieldCheck, SlidersHorizontal, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -21,16 +21,15 @@ import {
   vaultCan,
   vaultKind,
 } from '../../types/vault';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -251,121 +250,124 @@ function PermissionEditorDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Permissions — {member.displayName}</DialogTitle>
-          <DialogDescription>
-            Choose how this member&apos;s capabilities are granted. The server enforces the
-            effective capability tokens on every request.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex gap-1.5">
-          {(
-            [
-              ['role', 'Role default'],
-              ['template', 'Template'],
-              ['custom', 'Custom'],
-            ] as [EditorMode, string][]
-          ).map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              size="sm"
-              variant={mode === value ? 'default' : 'outline'}
-              className="h-8 flex-1 text-xs"
-              onClick={() => setMode(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-
-        {mode === 'role' && (
-          <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
-            Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
-            custom override or template assignment is cleared.
-          </p>
-        )}
-
-        {mode === 'template' && (
-          <div className="space-y-2">
-            {templates === null ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 size={14} className="animate-spin" /> Loading templates…
-              </div>
-            ) : templates.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No permission templates are available.
-              </p>
-            ) : (
-              <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select a template…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id} className="text-sm">
-                      {template.name}
-                      {template.isBuiltin ? ' (built-in)' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {selfLockoutBlocked && (
-              <p className="text-xs text-destructive">
-                This template would remove your own management permissions.
-              </p>
-            )}
+      <AppDialogContent size="m">
+        <AppDialogHeader
+          icon={<ShieldCheck />}
+          title={<>Permissions — {member.displayName}</>}
+          description={
+            <>
+              Choose how this member&apos;s capabilities are granted. The server enforces the
+              effective capability tokens on every request.
+            </>
+          }
+        />
+        <AppDialogBody>
+          <div className="flex gap-1.5">
+            {(
+              [
+                ['role', 'Role default'],
+                ['template', 'Template'],
+                ['custom', 'Custom'],
+              ] as [EditorMode, string][]
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={mode === value ? 'default' : 'outline'}
+                className="h-8 flex-1 text-xs"
+                onClick={() => setMode(value)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
-        )}
 
-        {mode === 'custom' && (
-          <ScrollArea className="max-h-72 rounded-md border border-border/50 p-2">
-            <div className="space-y-3">
-              {CAPABILITY_GROUPS.map((group) => (
-                <div key={group.domain}>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    {group.domain}
-                  </p>
-                  <div className="grid grid-cols-2 gap-1">
-                    {group.capabilities.map((capability) => {
-                      const locked =
-                        isSelf &&
-                        MANAGEMENT_CAPABILITIES.includes(
-                          capability.token as (typeof MANAGEMENT_CAPABILITIES)[number],
-                        );
-                      return (
-                        <label
-                          key={capability.token}
-                          className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
-                          title={
-                            locked
-                              ? 'You cannot remove your own management permissions.'
-                              : undefined
-                          }
-                        >
-                          <Checkbox
-                            checked={selected.has(capability.token)}
-                            disabled={locked}
-                            onCheckedChange={() => toggle(capability.token)}
-                            aria-label={capability.token}
-                          />
-                          <span className={locked ? 'text-muted-foreground' : ''}>
-                            {capability.label}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
+          {mode === 'role' && (
+            <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
+              Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
+              custom override or template assignment is cleared.
+            </p>
+          )}
+
+          {mode === 'template' && (
+            <div className="space-y-2">
+              {templates === null ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 size={14} className="animate-spin" /> Loading templates…
                 </div>
-              ))}
+              ) : templates.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No permission templates are available.
+                </p>
+              ) : (
+                <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Select a template…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((template) => (
+                      <SelectItem key={template.id} value={template.id} className="text-sm">
+                        {template.name}
+                        {template.isBuiltin ? ' (built-in)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {selfLockoutBlocked && (
+                <p className="text-xs text-destructive">
+                  This template would remove your own management permissions.
+                </p>
+              )}
             </div>
-          </ScrollArea>
-        )}
+          )}
 
-        <DialogFooter>
+          {mode === 'custom' && (
+            <ScrollArea className="max-h-72 rounded-md border border-border/50 p-2">
+              <div className="space-y-3">
+                {CAPABILITY_GROUPS.map((group) => (
+                  <div key={group.domain}>
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      {group.domain}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {group.capabilities.map((capability) => {
+                        const locked =
+                          isSelf &&
+                          MANAGEMENT_CAPABILITIES.includes(
+                            capability.token as (typeof MANAGEMENT_CAPABILITIES)[number],
+                          );
+                        return (
+                          <label
+                            key={capability.token}
+                            className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
+                            title={
+                              locked
+                                ? 'You cannot remove your own management permissions.'
+                                : undefined
+                            }
+                          >
+                            <Checkbox
+                              checked={selected.has(capability.token)}
+                              disabled={locked}
+                              onCheckedChange={() => toggle(capability.token)}
+                              aria-label={capability.token}
+                            />
+                            <span className={locked ? 'text-muted-foreground' : ''}>
+                              {capability.label}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </AppDialogBody>
+        <AppDialogFooter>
           <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
@@ -378,8 +380,8 @@ function PermissionEditorDialog({
             {saving && <Loader2 size={13} className="mr-1.5 animate-spin" />}
             Save permissions
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

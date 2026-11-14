@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
 
-import { Loader2 } from 'lucide-react';
+import { Loader2, Table2 } from 'lucide-react';
 
 import type { SnapshotValue } from '../../lib/deck/sheetSnapshot';
 import { DECK_LIMITS } from '../../types/deck';
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
@@ -72,85 +71,88 @@ export function DeckTableDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-md"
+      <AppDialogContent
+        size="s"
         onCloseAutoFocus={(event) => {
           if (!onReturnFocus) return;
           event.preventDefault();
           onReturnFocus();
         }}
       >
-        <DialogHeader>
-          <DialogTitle>Insert table</DialogTitle>
-          <DialogDescription>
-            Start from an empty grid, or copy a workbook range as the table&apos;s text.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs">
-            Rows
-            <Input
-              aria-label="Rows"
-              className="h-8 w-20"
-              inputMode="numeric"
-              value={rows}
-              onChange={(event) => setRows(event.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs">
-            Columns
-            <Input
-              aria-label="Columns"
-              className="h-8 w-20"
-              inputMode="numeric"
-              value={columns}
-              onChange={(event) => setColumns(event.target.value)}
-            />
-          </label>
-          <Button
-            type="button"
-            onClick={() =>
-              onInsert({
-                kind: 'blank',
-                rows: count(rows, DECK_LIMITS.tableRows),
-                columns: count(columns, DECK_LIMITS.tableColumns),
-              })
-            }
-          >
-            Insert
-          </Button>
-        </div>
-        <div className="space-y-2 border-t border-border/50 pt-3">
-          <p className="text-xs text-muted-foreground">From a workbook</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={path} onValueChange={setPath}>
-              <SelectTrigger size="sm" className="w-52" aria-label="Workbook">
-                <SelectValue
-                  placeholder={workbooks.length ? 'Workbook' : 'No workbooks in this vault'}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {workbooks.map((entry) => (
-                  <SelectItem key={entry} value={entry}>
-                    {entry}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              aria-label="Range"
-              className="h-8 w-32"
-              value={range}
-              onChange={(event) => setRange(event.target.value)}
-            />
+        <AppDialogHeader
+          icon={<Table2 />}
+          title="Insert table"
+          description={
+            <>Start from an empty grid, or copy a workbook range as the table&apos;s text.</>
+          }
+        />
+        <AppDialogBody>
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs">
+              Rows
+              <Input
+                aria-label="Rows"
+                className="h-8 w-20"
+                inputMode="numeric"
+                value={rows}
+                onChange={(event) => setRows(event.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              Columns
+              <Input
+                aria-label="Columns"
+                className="h-8 w-20"
+                inputMode="numeric"
+                value={columns}
+                onChange={(event) => setColumns(event.target.value)}
+              />
+            </label>
+            <Button
+              type="button"
+              onClick={() =>
+                onInsert({
+                  kind: 'blank',
+                  rows: count(rows, DECK_LIMITS.tableRows),
+                  columns: count(columns, DECK_LIMITS.tableColumns),
+                })
+              }
+            >
+              Insert
+            </Button>
           </div>
-          {error && (
-            <p className="text-xs text-destructive" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-        <DialogFooter>
+          <div className="space-y-2 border-t border-border/50 pt-3">
+            <p className="text-xs text-muted-foreground">From a workbook</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={path} onValueChange={setPath}>
+                <SelectTrigger size="sm" className="w-52" aria-label="Workbook">
+                  <SelectValue
+                    placeholder={workbooks.length ? 'Workbook' : 'No workbooks in this vault'}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {workbooks.map((entry) => (
+                    <SelectItem key={entry} value={entry}>
+                      {entry}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                aria-label="Range"
+                className="h-8 w-32"
+                value={range}
+                onChange={(event) => setRange(event.target.value)}
+              />
+            </div>
+            {error && (
+              <p className="text-xs text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        </AppDialogBody>
+        <AppDialogFooter>
           <Button
             type="button"
             variant="secondary"
@@ -160,8 +162,8 @@ export function DeckTableDialog({
             {loading && <Loader2 className="size-3.5 animate-spin" />}
             Insert from range
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

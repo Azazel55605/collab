@@ -83,8 +83,14 @@ import {
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1563,163 +1569,168 @@ export default function KanbanBoardView() {
       />
 
       <Dialog open={filterDialogOpen} onOpenChange={setFilterDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Board filters</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <div className="grid gap-1.5">
-              <label htmlFor="kanban-filter-query" className="text-sm font-medium">
-                Search
-              </label>
-              <Input
-                id="kanban-filter-query"
-                value={workingFilter.query ?? ''}
-                onChange={(event) =>
-                  setWorkingFilter((prev) => ({ ...prev, query: event.target.value || undefined }))
-                }
-                placeholder="Title, description, tags, comments..."
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <label htmlFor="kanban-filter-assignee" className="text-sm font-medium">
-                Assignee contains
-              </label>
-              <Input
-                id="kanban-filter-assignee"
-                value={workingFilter.assigneeQuery ?? ''}
-                onChange={(event) =>
-                  setWorkingFilter((prev) => ({
-                    ...prev,
-                    assigneeQuery: event.target.value || undefined,
-                  }))
-                }
-                placeholder="Name or user id"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <label htmlFor="kanban-filter-tags" className="text-sm font-medium">
-                Tags any
-              </label>
-              <Input
-                id="kanban-filter-tags"
-                value={(workingFilter.tagsAny ?? []).join(', ')}
-                onChange={(event) =>
-                  setWorkingFilter((prev) => ({
-                    ...prev,
-                    tagsAny: event.target.value
-                      ? event.target.value
-                          .split(',')
-                          .map((tag) => tag.trim())
-                          .filter(Boolean)
-                      : undefined,
-                  }))
-                }
-                placeholder="bug, urgent"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setWorkingFilter((prev) => ({
-                    ...prev,
-                    includeArchived: !prev.includeArchived,
-                  }))
-                }
-                className={cn(
-                  'rounded-md border px-2.5 py-1.5 text-xs transition-colors',
-                  workingFilter.includeArchived
-                    ? 'border-primary/40 bg-primary/10 text-foreground'
-                    : 'border-border/30 text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Include archived cards
-              </button>
-            </div>
-
-            <div className="grid gap-1.5">
-              <label htmlFor="kanban-filter-name" className="text-sm font-medium">
-                Save current filter as
-              </label>
-              <div className="flex gap-2">
+        <AppDialogContent size="m">
+          <AppDialogHeader icon={<Filter />} title="Board filters" />
+          <AppDialogBody>
+            <div className="grid gap-4">
+              <div className="grid gap-1.5">
+                <label htmlFor="kanban-filter-query" className="text-sm font-medium">
+                  Search
+                </label>
                 <Input
-                  id="kanban-filter-name"
-                  value={saveFilterName}
-                  onChange={(event) => setSaveFilterName(event.target.value)}
-                  placeholder="My filter"
-                />
-                <Select
-                  value={saveFilterSource}
-                  onValueChange={(value) => setSaveFilterSource(value as 'board' | TemplateSource)}
-                >
-                  <SelectTrigger className="w-[110px] shrink-0 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="board" className="text-xs">
-                      Board
-                    </SelectItem>
-                    {supportsLocalTemplates && (
-                      <SelectItem value="vault" className="text-xs">
-                        Vault
-                      </SelectItem>
-                    )}
-                    <SelectItem value="app" className="text-xs">
-                      App
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button type="button" onClick={saveCurrentFilter} className="shrink-0">
-                  Save
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-1.5">
-              <label htmlFor="kanban-filter-preset" className="text-sm font-medium">
-                Apply preset
-              </label>
-              <div className="flex gap-2">
-                <Select
-                  value={selectedFilterPresetName || '__none__'}
-                  onValueChange={(value) =>
-                    setSelectedFilterPresetName(value === '__none__' ? '' : value)
+                  id="kanban-filter-query"
+                  value={workingFilter.query ?? ''}
+                  onChange={(event) =>
+                    setWorkingFilter((prev) => ({
+                      ...prev,
+                      query: event.target.value || undefined,
+                    }))
                   }
-                >
-                  <SelectTrigger id="kanban-filter-preset" className="text-xs">
-                    <SelectValue placeholder="Choose a vault or app preset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__" className="text-xs">
-                      No preset selected
-                    </SelectItem>
-                    {filterPresets.map((preset) => (
-                      <SelectItem
-                        key={`${preset.source}:${preset.name}`}
-                        value={presetToken(preset.source, preset.name)}
-                        className="text-xs"
-                      >
-                        {preset.name} ({preset.source})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
+                  placeholder="Title, description, tags, comments..."
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <label htmlFor="kanban-filter-assignee" className="text-sm font-medium">
+                  Assignee contains
+                </label>
+                <Input
+                  id="kanban-filter-assignee"
+                  value={workingFilter.assigneeQuery ?? ''}
+                  onChange={(event) =>
+                    setWorkingFilter((prev) => ({
+                      ...prev,
+                      assigneeQuery: event.target.value || undefined,
+                    }))
+                  }
+                  placeholder="Name or user id"
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <label htmlFor="kanban-filter-tags" className="text-sm font-medium">
+                  Tags any
+                </label>
+                <Input
+                  id="kanban-filter-tags"
+                  value={(workingFilter.tagsAny ?? []).join(', ')}
+                  onChange={(event) =>
+                    setWorkingFilter((prev) => ({
+                      ...prev,
+                      tagsAny: event.target.value
+                        ? event.target.value
+                            .split(',')
+                            .map((tag) => tag.trim())
+                            .filter(Boolean)
+                        : undefined,
+                    }))
+                  }
+                  placeholder="bug, urgent"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
                   type="button"
-                  variant="outline"
-                  onClick={applySelectedFilterPreset}
-                  disabled={!selectedFilterPresetName}
+                  onClick={() =>
+                    setWorkingFilter((prev) => ({
+                      ...prev,
+                      includeArchived: !prev.includeArchived,
+                    }))
+                  }
+                  className={cn(
+                    'rounded-md border px-2.5 py-1.5 text-xs transition-colors',
+                    workingFilter.includeArchived
+                      ? 'border-primary/40 bg-primary/10 text-foreground'
+                      : 'border-border/30 text-muted-foreground hover:text-foreground',
+                  )}
                 >
+                  Include archived cards
+                </button>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label htmlFor="kanban-filter-name" className="text-sm font-medium">
+                  Save current filter as
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id="kanban-filter-name"
+                    value={saveFilterName}
+                    onChange={(event) => setSaveFilterName(event.target.value)}
+                    placeholder="My filter"
+                  />
+                  <Select
+                    value={saveFilterSource}
+                    onValueChange={(value) =>
+                      setSaveFilterSource(value as 'board' | TemplateSource)
+                    }
+                  >
+                    <SelectTrigger className="w-[110px] shrink-0 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="board" className="text-xs">
+                        Board
+                      </SelectItem>
+                      {supportsLocalTemplates && (
+                        <SelectItem value="vault" className="text-xs">
+                          Vault
+                        </SelectItem>
+                      )}
+                      <SelectItem value="app" className="text-xs">
+                        App
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button type="button" onClick={saveCurrentFilter} className="shrink-0">
+                    Save
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-1.5">
+                <label htmlFor="kanban-filter-preset" className="text-sm font-medium">
                   Apply preset
-                </Button>
+                </label>
+                <div className="flex gap-2">
+                  <Select
+                    value={selectedFilterPresetName || '__none__'}
+                    onValueChange={(value) =>
+                      setSelectedFilterPresetName(value === '__none__' ? '' : value)
+                    }
+                  >
+                    <SelectTrigger id="kanban-filter-preset" className="text-xs">
+                      <SelectValue placeholder="Choose a vault or app preset" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" className="text-xs">
+                        No preset selected
+                      </SelectItem>
+                      {filterPresets.map((preset) => (
+                        <SelectItem
+                          key={`${preset.source}:${preset.name}`}
+                          value={presetToken(preset.source, preset.name)}
+                          className="text-xs"
+                        >
+                          {preset.name} ({preset.source})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={applySelectedFilterPreset}
+                    disabled={!selectedFilterPresetName}
+                  >
+                    Apply preset
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-          <DialogFooter>
+          </AppDialogBody>
+          <AppDialogFooter>
             <Button
               type="button"
               variant="outline"
@@ -1739,8 +1750,8 @@ export default function KanbanBoardView() {
             >
               Apply quick filter
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </AppDialogFooter>
+        </AppDialogContent>
       </Dialog>
 
       <Dialog open={automationDialogOpen} onOpenChange={setAutomationDialogOpen}>

@@ -1,7 +1,4 @@
-import {
-  useEffect,
-  useState,
-} from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   CircuitBoard,
@@ -30,12 +27,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import { FormDialog, FormField, PromptDialog } from '../ui/form-dialog';
 import { Input } from '../ui/input';
-import {
-  FormDialog,
-  FormField,
-  PromptDialog,
-} from '../ui/form-dialog';
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 

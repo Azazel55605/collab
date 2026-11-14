@@ -2,15 +2,14 @@ import { useEffect, useState } from 'react';
 
 import { CheckSquare, GripVertical, Minus, Plus } from 'lucide-react';
 
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 
 export interface TaskListItemDraft {
@@ -78,69 +77,69 @@ export function TaskListEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="border-b border-border/40 px-5 py-4">
-          <DialogTitle className="flex items-center gap-2">
-            <CheckSquare size={16} />
-            Insert task list
-          </DialogTitle>
-          <DialogDescription>
-            Add multiple tasks, choose their checked state, and insert the markdown list into the
-            note.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex items-center gap-2 border-b border-border/30 px-5 py-3">
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={addTask}>
-            <Plus size={13} />
-            Task
-          </Button>
-          <div className="ml-auto text-xs text-muted-foreground">
-            {draft.filter((task) => task.text.trim().length > 0).length} filled, {draft.length}{' '}
-            total
+      <AppDialogContent size="m">
+        <AppDialogHeader
+          icon={<CheckSquare />}
+          title="Insert task list"
+          description={
+            <>
+              Add multiple tasks, choose their checked state, and insert the markdown list into the
+              note.
+            </>
+          }
+        />
+        <AppDialogBody>
+          <div className="flex items-center gap-2 border-b border-border/30 px-5 py-3">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={addTask}>
+              <Plus size={13} />
+              Task
+            </Button>
+            <div className="ml-auto text-xs text-muted-foreground">
+              {draft.filter((task) => task.text.trim().length > 0).length} filled, {draft.length}{' '}
+              total
+            </div>
           </div>
-        </div>
 
-        <div className="max-h-[60vh] overflow-auto px-5 py-4">
-          <div className="space-y-3">
-            {draft.map((task, index) => (
-              <div
-                key={task.id}
-                className="flex items-center gap-3 rounded-xl border border-border/30 bg-background/40 px-3 py-3"
-              >
-                <GripVertical size={14} className="shrink-0 text-muted-foreground/60" />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={task.checked ? 'default' : 'outline'}
-                  className="h-8 shrink-0 px-2.5 text-xs"
-                  onClick={() => updateTask(task.id, { checked: !task.checked })}
+          <div className="max-h-[60vh] overflow-auto px-5 py-4">
+            <div className="space-y-3">
+              {draft.map((task, index) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 rounded-xl border border-border/30 bg-background/40 px-3 py-3"
                 >
-                  [{task.checked ? 'x' : ' '}]
-                </Button>
-                <Input
-                  value={task.text}
-                  onChange={(event) => updateTask(task.id, { text: event.target.value })}
-                  placeholder={`Task ${index + 1}`}
-                  className="h-9"
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0"
-                  onClick={() => removeTask(task.id)}
-                  disabled={draft.length <= 1}
-                  aria-label={`Remove task ${index + 1}`}
-                >
-                  <Minus size={14} />
-                </Button>
-              </div>
-            ))}
+                  <GripVertical size={14} className="shrink-0 text-muted-foreground/60" />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={task.checked ? 'default' : 'outline'}
+                    className="h-8 shrink-0 px-2.5 text-xs"
+                    onClick={() => updateTask(task.id, { checked: !task.checked })}
+                  >
+                    [{task.checked ? 'x' : ' '}]
+                  </Button>
+                  <Input
+                    value={task.text}
+                    onChange={(event) => updateTask(task.id, { text: event.target.value })}
+                    placeholder={`Task ${index + 1}`}
+                    className="h-9"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => removeTask(task.id)}
+                    disabled={draft.length <= 1}
+                    aria-label={`Remove task ${index + 1}`}
+                  >
+                    <Minus size={14} />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-
-        <DialogFooter className="-mx-0 -mb-0 border-none bg-transparent px-5 pb-5 pt-3 gap-2 sm:justify-between">
+        </AppDialogBody>
+        <AppDialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -150,8 +149,8 @@ export function TaskListEditorDialog({
           >
             Insert task list
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

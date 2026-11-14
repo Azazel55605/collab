@@ -17,12 +17,14 @@ import {
   Activity,
   ChartLine,
   CircuitBoard,
+  Clock,
   Download,
   Group,
   Image,
   Loader2,
   Maximize2,
   Minus,
+  Package,
   Pause,
   Pencil,
   Play,
@@ -39,7 +41,6 @@ import {
   Ungroup,
   X,
   Zap,
-  Package,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -93,13 +94,18 @@ import {
   schematicTerminalPoint,
   schematicTerminalSide,
 } from '../components/logic/schematicSymbols';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../components/ui/app-dialog';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
@@ -110,6 +116,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { FormDialog, FormField } from '../components/ui/form-dialog';
 import { Input } from '../components/ui/input';
 import {
   Select,
@@ -185,10 +192,6 @@ import {
 import { isElectronicComponentKind } from '../types/logicDiagram';
 import { isVaultReadOnly } from '../types/vault';
 import type { NoteFile } from '../types/vault';
-import {
-  FormDialog,
-  FormField,
-} from '../components/ui/form-dialog';
 
 interface Props {
   relativePath: string;
@@ -5885,126 +5888,134 @@ function LogicDiagramEditor({ relativePath }: Props) {
         open={clockSettingsNodeId !== null}
         onOpenChange={(open) => !open && setClockSettingsNodeId(null)}
       >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Clock sequence</DialogTitle>
-            <DialogDescription>
-              Configure the repeating digital signal. The clock starts high at phase zero.
-            </DialogDescription>
-          </DialogHeader>
+        <AppDialogContent size="m">
+          <AppDialogHeader
+            icon={<Clock />}
+            title="Clock sequence"
+            description={
+              <>Configure the repeating digital signal. The clock starts high at phase zero.</>
+            }
+          />
           <form
-            className="space-y-4"
+            className="contents"
             onSubmit={(event) => {
               event.preventDefault();
               saveClockSettings();
             }}
           >
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-                Period (ms)
+            <AppDialogBody>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Period (ms)
+                  <Input
+                    type="number"
+                    min={100}
+                    step={50}
+                    value={clockPeriodValue}
+                    onChange={(event) => setClockPeriodValue(event.target.value)}
+                  />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  High time (%)
+                  <Input
+                    type="number"
+                    min={5}
+                    max={95}
+                    step={5}
+                    value={clockDutyValue}
+                    onChange={(event) => setClockDutyValue(event.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Phase offset (ms)
                 <Input
                   type="number"
-                  min={100}
+                  min={0}
                   step={50}
-                  value={clockPeriodValue}
-                  onChange={(event) => setClockPeriodValue(event.target.value)}
+                  value={clockPhaseValue}
+                  onChange={(event) => setClockPhaseValue(event.target.value)}
                 />
               </label>
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-                High time (%)
-                <Input
-                  type="number"
-                  min={5}
-                  max={95}
-                  step={5}
-                  value={clockDutyValue}
-                  onChange={(event) => setClockDutyValue(event.target.value)}
-                />
-              </label>
-            </div>
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Phase offset (ms)
-              <Input
-                type="number"
-                min={0}
-                step={50}
-                value={clockPhaseValue}
-                onChange={(event) => setClockPhaseValue(event.target.value)}
-              />
-            </label>
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setClockSettingsNodeId(null)}>
+            </AppDialogBody>
+            <AppDialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setClockSettingsNodeId(null)}>
                 Cancel
               </Button>
               <Button type="submit" disabled={readOnly}>
                 Apply
               </Button>
-            </DialogFooter>
+            </AppDialogFooter>
           </form>
-        </DialogContent>
+        </AppDialogContent>
       </Dialog>
       <Dialog
         open={schematicSettingsNodeId !== null}
         onOpenChange={(open) => !open && setSchematicSettingsNodeId(null)}
       >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {schematicSettingsNode && schematicSettingsKind
-                ? `${logicNodeLabel({ kind: schematicSettingsKind, label: schematicSettingsNode.data.label })} settings`
-                : 'Component settings'}
-            </DialogTitle>
-            <DialogDescription>
-              Electrical values are stored in SI units and used by local circuit simulation.
-            </DialogDescription>
-          </DialogHeader>
+        <AppDialogContent size="s">
+          <AppDialogHeader
+            icon={<SlidersHorizontal />}
+            title={
+              <>
+                {schematicSettingsNode && schematicSettingsKind
+                  ? `${logicNodeLabel({ kind: schematicSettingsKind, label: schematicSettingsNode.data.label })} settings`
+                  : 'Component settings'}
+              </>
+            }
+            description={
+              <>Electrical values are stored in SI units and used by local circuit simulation.</>
+            }
+          />
           <form
-            className="space-y-4"
+            className="contents"
             onSubmit={(event) => {
               event.preventDefault();
               saveSchematicSettings();
             }}
           >
-            {schematicSettingsNumeric && (
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                {schematicSettingsNumeric.label} ({schematicSettingsNumeric.unit})
-                <Input
-                  autoFocus
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={schematicSettingsNumeric.positive ? Number.MIN_VALUE : undefined}
-                  value={schematicValueInput}
-                  onChange={(event) => setSchematicValueInput(event.target.value)}
-                />
-              </label>
-            )}
-            {schematicSettingsKind === 'switch' && (
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Checkbox
-                  checked={schematicSwitchClosed}
-                  onCheckedChange={(checked) => setSchematicSwitchClosed(checked === true)}
-                />
-                Switch closed
-              </label>
-            )}
-            {(schematicSettingsKind === 'diode' ||
-              schematicSettingsKind === 'led' ||
-              schematicSettingsKind === 'transistor') && (
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Model reference
-                <Input
-                  autoFocus
-                  value={schematicValueInput}
-                  onChange={(event) => setSchematicValueInput(event.target.value)}
-                  placeholder={`builtin:${schematicSettingsKind === 'transistor' ? 'npn' : schematicSettingsKind}`}
-                />
-              </label>
-            )}
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
+            <AppDialogBody>
+              {schematicSettingsNumeric && (
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  {schematicSettingsNumeric.label} ({schematicSettingsNumeric.unit})
+                  <Input
+                    autoFocus
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min={schematicSettingsNumeric.positive ? Number.MIN_VALUE : undefined}
+                    value={schematicValueInput}
+                    onChange={(event) => setSchematicValueInput(event.target.value)}
+                  />
+                </label>
+              )}
+              {schematicSettingsKind === 'switch' && (
+                <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Checkbox
+                    checked={schematicSwitchClosed}
+                    onCheckedChange={(checked) => setSchematicSwitchClosed(checked === true)}
+                  />
+                  Switch closed
+                </label>
+              )}
+              {(schematicSettingsKind === 'diode' ||
+                schematicSettingsKind === 'led' ||
+                schematicSettingsKind === 'transistor') && (
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Model reference
+                  <Input
+                    autoFocus
+                    value={schematicValueInput}
+                    onChange={(event) => setSchematicValueInput(event.target.value)}
+                    placeholder={`builtin:${schematicSettingsKind === 'transistor' ? 'npn' : schematicSettingsKind}`}
+                  />
+                </label>
+              )}
+            </AppDialogBody>
+            <AppDialogFooter>
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 onClick={() => setSchematicSettingsNodeId(null)}
               >
                 Cancel
@@ -6012,135 +6023,33 @@ function LogicDiagramEditor({ relativePath }: Props) {
               <Button type="submit" disabled={readOnly}>
                 Apply
               </Button>
-            </DialogFooter>
+            </AppDialogFooter>
           </form>
-        </DialogContent>
+        </AppDialogContent>
       </Dialog>
       <Dialog open={sweepConfigOpen} onOpenChange={setSweepConfigOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>DC source sweep</DialogTitle>
-            <DialogDescription>
-              Sweep one independent voltage source and record the configured voltage and current
-              probes.
-            </DialogDescription>
-          </DialogHeader>
+        <AppDialogContent size="m">
+          <AppDialogHeader
+            icon={<Activity />}
+            title="DC source sweep"
+            description={
+              <>
+                Sweep one independent voltage source and record the configured voltage and current
+                probes.
+              </>
+            }
+          />
           <form
-            className="space-y-4"
+            className="contents"
             onSubmit={(event) => {
               event.preventDefault();
               saveSweepConfiguration();
             }}
           >
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Source
-              <Select value={sweepSourceInput} onValueChange={setSweepSourceInput}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select voltage source" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sweepSourceChoices.map((source) => (
-                    <SelectItem key={source.id} value={source.id}>
-                      {source.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Start (V)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  value={sweepStartInput}
-                  onChange={(event) => setSweepStartInput(event.target.value)}
-                />
-              </label>
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Stop (V)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  value={sweepStopInput}
-                  onChange={(event) => setSweepStopInput(event.target.value)}
-                />
-              </label>
-            </div>
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Samples
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={2}
-                max={4096}
-                step={1}
-                value={sweepSamplesInput}
-                onChange={(event) => setSweepSamplesInput(event.target.value)}
-              />
-            </label>
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setSweepConfigOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>
-                Save sweep
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={transientConfigOpen} onOpenChange={setTransientConfigOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Transient analysis</DialogTitle>
-            <DialogDescription>
-              Configure the bounded time range and waveform for an independent voltage source.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveTransientConfiguration();
-            }}
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Duration (s)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={Number.MIN_VALUE}
-                  value={transientDurationInput}
-                  onChange={(event) => setTransientDurationInput(event.target.value)}
-                />
-              </label>
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Maximum timestep (s)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={Number.MIN_VALUE}
-                  value={transientStepInput}
-                  onChange={(event) => setTransientStepInput(event.target.value)}
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+            <AppDialogBody>
               <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
                 Source
-                <Select
-                  value={transientSourceInput}
-                  onValueChange={(value) => {
-                    setTransientSourceInput(value);
-                    loadTransientWaveform(value);
-                  }}
-                >
+                <Select value={sweepSourceInput} onValueChange={setSweepSourceInput}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select voltage source" />
                   </SelectTrigger>
@@ -6153,121 +6062,231 @@ function LogicDiagramEditor({ relativePath }: Props) {
                   </SelectContent>
                 </Select>
               </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Start (V)
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={sweepStartInput}
+                    onChange={(event) => setSweepStartInput(event.target.value)}
+                  />
+                </label>
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Stop (V)
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={sweepStopInput}
+                    onChange={(event) => setSweepStopInput(event.target.value)}
+                  />
+                </label>
+              </div>
               <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Waveform
-                <Select
-                  value={transientWaveformKind}
-                  onValueChange={(value) => {
-                    const kind = value as LogicSourceWaveform['kind'];
-                    setTransientWaveformKind(kind);
-                    setTransientWaveformInputs(
-                      kind === 'pulse'
-                        ? {
-                            lowValue: '0',
-                            highValue: '5',
-                            delaySeconds: '0.001',
-                            riseSeconds: '0',
-                            fallSeconds: '0',
-                            pulseWidthSeconds: '0.005',
-                            periodSeconds: '0.01',
-                          }
-                        : kind === 'sine'
-                          ? {
-                              offset: '0',
-                              amplitude: '5',
-                              frequencyHertz: '50',
-                              phaseDegrees: '0',
-                              delaySeconds: '0',
-                              dampingPerSecond: '0',
-                            }
-                          : {},
-                    );
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="dc">DC value</SelectItem>
-                    <SelectItem value="pulse">Pulse</SelectItem>
-                    <SelectItem value="sine">Sine</SelectItem>
-                  </SelectContent>
-                </Select>
+                Samples
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={2}
+                  max={4096}
+                  step={1}
+                  value={sweepSamplesInput}
+                  onChange={(event) => setSweepSamplesInput(event.target.value)}
+                />
               </label>
-            </div>
-            {transientWaveformKind === 'pulse' ? (
+            </AppDialogBody>
+            <AppDialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setSweepConfigOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>
+                Save sweep
+              </Button>
+            </AppDialogFooter>
+          </form>
+        </AppDialogContent>
+      </Dialog>
+      <Dialog open={transientConfigOpen} onOpenChange={setTransientConfigOpen}>
+        <AppDialogContent size="m" className="max-h-[85vh]">
+          <AppDialogHeader
+            icon={<Activity />}
+            title="Transient analysis"
+            description={
+              <>Configure the bounded time range and waveform for an independent voltage source.</>
+            }
+          />
+          <form
+            className="contents"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveTransientConfiguration();
+            }}
+          >
+            <AppDialogBody>
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  ['lowValue', 'Low level (V)'],
-                  ['highValue', 'High level (V)'],
-                  ['delaySeconds', 'Delay (s)'],
-                  ['riseSeconds', 'Rise time (s)'],
-                  ['fallSeconds', 'Fall time (s)'],
-                  ['pulseWidthSeconds', 'Pulse width (s)'],
-                  ['periodSeconds', 'Period (s)'],
-                ].map(([name, label]) => (
-                  <label
-                    key={name}
-                    className="block space-y-1.5 text-xs font-medium text-muted-foreground"
-                  >
-                    {label}
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      value={transientWaveformInputs[name] ?? ''}
-                      onChange={(event) =>
-                        setTransientWaveformInputs((current) => ({
-                          ...current,
-                          [name]: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ))}
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Duration (s)
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min={Number.MIN_VALUE}
+                    value={transientDurationInput}
+                    onChange={(event) => setTransientDurationInput(event.target.value)}
+                  />
+                </label>
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Maximum timestep (s)
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min={Number.MIN_VALUE}
+                    value={transientStepInput}
+                    onChange={(event) => setTransientStepInput(event.target.value)}
+                  />
+                </label>
               </div>
-            ) : null}
-            {transientWaveformKind === 'sine' ? (
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  ['offset', 'Offset (V)'],
-                  ['amplitude', 'Amplitude (V)'],
-                  ['frequencyHertz', 'Frequency (Hz)'],
-                  ['phaseDegrees', 'Phase (deg)'],
-                  ['delaySeconds', 'Delay (s)'],
-                  ['dampingPerSecond', 'Damping (1/s)'],
-                ].map(([name, label]) => (
-                  <label
-                    key={name}
-                    className="block space-y-1.5 text-xs font-medium text-muted-foreground"
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Source
+                  <Select
+                    value={transientSourceInput}
+                    onValueChange={(value) => {
+                      setTransientSourceInput(value);
+                      loadTransientWaveform(value);
+                    }}
                   >
-                    {label}
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      value={transientWaveformInputs[name] ?? ''}
-                      onChange={(event) =>
-                        setTransientWaveformInputs((current) => ({
-                          ...current,
-                          [name]: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ))}
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select voltage source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sweepSourceChoices.map((source) => (
+                        <SelectItem key={source.id} value={source.id}>
+                          {source.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Waveform
+                  <Select
+                    value={transientWaveformKind}
+                    onValueChange={(value) => {
+                      const kind = value as LogicSourceWaveform['kind'];
+                      setTransientWaveformKind(kind);
+                      setTransientWaveformInputs(
+                        kind === 'pulse'
+                          ? {
+                              lowValue: '0',
+                              highValue: '5',
+                              delaySeconds: '0.001',
+                              riseSeconds: '0',
+                              fallSeconds: '0',
+                              pulseWidthSeconds: '0.005',
+                              periodSeconds: '0.01',
+                            }
+                          : kind === 'sine'
+                            ? {
+                                offset: '0',
+                                amplitude: '5',
+                                frequencyHertz: '50',
+                                phaseDegrees: '0',
+                                delaySeconds: '0',
+                                dampingPerSecond: '0',
+                              }
+                            : {},
+                      );
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="dc">DC value</SelectItem>
+                      <SelectItem value="pulse">Pulse</SelectItem>
+                      <SelectItem value="sine">Sine</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
               </div>
-            ) : null}
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setTransientConfigOpen(false)}>
+              {transientWaveformKind === 'pulse' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    ['lowValue', 'Low level (V)'],
+                    ['highValue', 'High level (V)'],
+                    ['delaySeconds', 'Delay (s)'],
+                    ['riseSeconds', 'Rise time (s)'],
+                    ['fallSeconds', 'Fall time (s)'],
+                    ['pulseWidthSeconds', 'Pulse width (s)'],
+                    ['periodSeconds', 'Period (s)'],
+                  ].map(([name, label]) => (
+                    <label
+                      key={name}
+                      className="block space-y-1.5 text-xs font-medium text-muted-foreground"
+                    >
+                      {label}
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        value={transientWaveformInputs[name] ?? ''}
+                        onChange={(event) =>
+                          setTransientWaveformInputs((current) => ({
+                            ...current,
+                            [name]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+              {transientWaveformKind === 'sine' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    ['offset', 'Offset (V)'],
+                    ['amplitude', 'Amplitude (V)'],
+                    ['frequencyHertz', 'Frequency (Hz)'],
+                    ['phaseDegrees', 'Phase (deg)'],
+                    ['delaySeconds', 'Delay (s)'],
+                    ['dampingPerSecond', 'Damping (1/s)'],
+                  ].map(([name, label]) => (
+                    <label
+                      key={name}
+                      className="block space-y-1.5 text-xs font-medium text-muted-foreground"
+                    >
+                      {label}
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        value={transientWaveformInputs[name] ?? ''}
+                        onChange={(event) =>
+                          setTransientWaveformInputs((current) => ({
+                            ...current,
+                            [name]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </AppDialogBody>
+            <AppDialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setTransientConfigOpen(false)}>
                 Cancel
               </Button>
               <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>
                 Save transient
               </Button>
-            </DialogFooter>
+            </AppDialogFooter>
           </form>
-        </DialogContent>
+        </AppDialogContent>
       </Dialog>
     </div>
   );

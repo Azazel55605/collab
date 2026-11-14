@@ -6,15 +6,14 @@ import { loadInkTemplates } from '../../lib/ink/templates';
 import { cn } from '../../lib/utils';
 import { INK_PAGE_PRESETS } from '../../types/ink';
 import type { InkBackgroundPattern, InkPageMode, InkPagePresetId } from '../../types/ink';
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
@@ -101,157 +100,153 @@ export default function NewDrawingDialog({ open, onOpenChange, onCreate }: NewDr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <PenLine size={16} />
-            New drawing
-          </DialogTitle>
-          <DialogDescription>
-            Choose the paper now — every part of it stays editable later.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label htmlFor="ink-name" className={labelClass}>
-              Drawing name
-            </label>
-            <Input
-              id="ink-name"
-              value={name}
-              autoFocus
-              placeholder="Untitled Drawing"
-              onChange={(event) => setName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') submit();
-              }}
-            />
-          </div>
-
-          {templates.length > 0 && (
+      <AppDialogContent size="m">
+        <AppDialogHeader
+          icon={<PenLine />}
+          title="New drawing"
+          description={<>Choose the paper now — every part of it stays editable later.</>}
+        />
+        <AppDialogBody>
+          <div className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="ink-template" className={labelClass}>
-                Saved template
+              <label htmlFor="ink-name" className={labelClass}>
+                Drawing name
               </label>
-              <Select
-                value={templateId || '__paper__'}
-                onValueChange={(value) => setTemplateId(value === '__paper__' ? '' : value)}
-              >
-                <SelectTrigger id="ink-template">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__paper__">Use the paper settings below</SelectItem>
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                id="ink-name"
+                value={name}
+                autoFocus
+                placeholder="Untitled Drawing"
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submit();
+                }}
+              />
             </div>
-          )}
 
-          <div className="space-y-1.5">
-            <span className={labelClass}>Paper</span>
-            <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Paper">
-              {PAPERS.map((paper) => (
-                <button
-                  key={paper.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={pattern === paper.id}
-                  onClick={() => setPattern(paper.id)}
-                  className={cn(
-                    'rounded-lg border p-2 text-left text-xs transition-colors app-motion-fast',
-                    pattern === paper.id
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border/60 hover:bg-accent/50',
-                  )}
+            {templates.length > 0 && (
+              <div className="space-y-1.5">
+                <label htmlFor="ink-template" className={labelClass}>
+                  Saved template
+                </label>
+                <Select
+                  value={templateId || '__paper__'}
+                  onValueChange={(value) => setTemplateId(value === '__paper__' ? '' : value)}
                 >
-                  <div className="font-medium text-foreground">{paper.label}</div>
-                  <div className="text-[11px] text-muted-foreground">{paper.hint}</div>
-                </button>
-              ))}
-            </div>
-          </div>
+                  <SelectTrigger id="ink-template">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__paper__">Use the paper settings below</SelectItem>
+                    {templates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-          <div className="space-y-1.5">
-            <span className={labelClass}>Surface</span>
-            <div className="flex gap-1.5" role="radiogroup" aria-label="Surface">
-              {(['fixed', 'infinite'] as InkPageMode[]).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === option}
-                  onClick={() => setMode(option)}
-                  className={cn(
-                    'flex-1 rounded-lg border px-3 py-2 text-xs transition-colors app-motion-fast',
-                    mode === option
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border/60 hover:bg-accent/50',
-                  )}
-                >
-                  {option === 'fixed' ? 'Fixed page' : 'Infinite canvas'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {mode === 'fixed' && (
             <div className="space-y-1.5">
-              <span className={labelClass}>Page size</span>
-              <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Page size">
-                {SIZES.map((entry) => (
+              <span className={labelClass}>Paper</span>
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Paper">
+                {PAPERS.map((paper) => (
                   <button
-                    key={entry.id}
+                    key={paper.id}
                     type="button"
                     role="radio"
-                    aria-checked={preset === entry.id}
-                    onClick={() => setPreset(entry.id)}
+                    aria-checked={pattern === paper.id}
+                    onClick={() => setPattern(paper.id)}
                     className={cn(
-                      'rounded-lg border px-3 py-1.5 text-xs transition-colors app-motion-fast',
-                      preset === entry.id
+                      'rounded-lg border p-2 text-left text-xs transition-colors app-motion-fast',
+                      pattern === paper.id
                         ? 'border-primary bg-primary/10'
                         : 'border-border/60 hover:bg-accent/50',
                     )}
                   >
-                    {entry.label}
+                    <div className="font-medium text-foreground">{paper.label}</div>
+                    <div className="text-[11px] text-muted-foreground">{paper.hint}</div>
                   </button>
                 ))}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={landscape}
-                  onClick={() => setLandscape((current) => !current)}
-                  className={cn(
-                    'rounded-lg border px-3 py-1.5 text-xs transition-colors app-motion-fast',
-                    landscape
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border/60 hover:bg-accent/50',
-                  )}
-                >
-                  Landscape
-                </button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {landscape
-                  ? `${Math.round(size.height / 64)} x ${Math.round(size.width / 64)} pt`
-                  : `${Math.round(size.width / 64)} x ${Math.round(size.height / 64)} pt`}
-              </p>
             </div>
-          )}
-        </div>
 
-        <DialogFooter>
+            <div className="space-y-1.5">
+              <span className={labelClass}>Surface</span>
+              <div className="flex gap-1.5" role="radiogroup" aria-label="Surface">
+                {(['fixed', 'infinite'] as InkPageMode[]).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === option}
+                    onClick={() => setMode(option)}
+                    className={cn(
+                      'flex-1 rounded-lg border px-3 py-2 text-xs transition-colors app-motion-fast',
+                      mode === option
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border/60 hover:bg-accent/50',
+                    )}
+                  >
+                    {option === 'fixed' ? 'Fixed page' : 'Infinite canvas'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {mode === 'fixed' && (
+              <div className="space-y-1.5">
+                <span className={labelClass}>Page size</span>
+                <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Page size">
+                  {SIZES.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={preset === entry.id}
+                      onClick={() => setPreset(entry.id)}
+                      className={cn(
+                        'rounded-lg border px-3 py-1.5 text-xs transition-colors app-motion-fast',
+                        preset === entry.id
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border/60 hover:bg-accent/50',
+                      )}
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={landscape}
+                    onClick={() => setLandscape((current) => !current)}
+                    className={cn(
+                      'rounded-lg border px-3 py-1.5 text-xs transition-colors app-motion-fast',
+                      landscape
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border/60 hover:bg-accent/50',
+                    )}
+                  >
+                    Landscape
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {landscape
+                    ? `${Math.round(size.height / 64)} x ${Math.round(size.width / 64)} pt`
+                    : `${Math.round(size.width / 64)} x ${Math.round(size.height / 64)} pt`}
+                </p>
+              </div>
+            )}
+          </div>
+        </AppDialogBody>
+        <AppDialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={submit}>Create</Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

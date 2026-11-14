@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { RotateCcw } from 'lucide-react';
+import { ChartLine, RotateCcw } from 'lucide-react';
 
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Slider } from '../ui/slider';
 
@@ -140,113 +141,120 @@ export function MathPlotModal({ spec, onOpenChange }: MathPlotModalProps) {
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[min(80rem,calc(100%-2rem))] max-w-none overflow-y-auto sm:max-w-none">
-        <DialogHeader>
-          <DialogTitle>{draft.kind === '2d' ? '2D plot' : '3D plot'}</DialogTitle>
-          <DialogDescription className="font-mono text-foreground/80">
-            {outputVar} = {draft.expression || '(empty)'}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-4 lg:flex-row">
-          {/* Plot */}
-          <div className="min-w-0 flex-1">
-            {rangeValid ? (
-              draft.kind === '2d' ? (
-                <MathPlot2D spec={draft} variant="modal" />
+      <AppDialogContent
+        size="m"
+        className="max-h-[92vh] w-[min(80rem,calc(100%-2rem))] max-w-none sm:max-w-none"
+      >
+        <AppDialogHeader
+          icon={<ChartLine />}
+          title={<>{draft.kind === '2d' ? '2D plot' : '3D plot'}</>}
+          description={
+            <>
+              {outputVar} = {draft.expression || '(empty)'}
+            </>
+          }
+        />
+        <AppDialogBody>
+          <div className="flex flex-col gap-4 lg:flex-row">
+            {/* Plot */}
+            <div className="min-w-0 flex-1">
+              {rangeValid ? (
+                draft.kind === '2d' ? (
+                  <MathPlot2D spec={draft} variant="modal" />
+                ) : (
+                  <MathPlot3D spec={draft} variant="modal" />
+                )
               ) : (
-                <MathPlot3D spec={draft} variant="modal" />
-              )
-            ) : (
-              <div className="flex h-[540px] items-center justify-center rounded-lg border border-destructive/35 bg-destructive/8 px-4 text-center text-xs text-destructive">
-                Each axis minimum must be less than its maximum.
-              </div>
-            )}
-          </div>
-
-          {/* Controls */}
-          <div className="flex w-full shrink-0 flex-col gap-3 lg:w-72">
-            <Field label="Expression">
-              <Input
-                value={draft.expression}
-                spellCheck={false}
-                className="h-8 font-mono"
-                onChange={(event) => updateDraft({ expression: event.target.value })}
-              />
-            </Field>
-
-            <DomainField label="x range" domain={draft.x} onChange={(x) => updateDraft({ x })} />
-
-            {draft.kind === '3d' && (
-              <DomainField
-                label="y range"
-                domain={draft.y}
-                onChange={(y) => updateDraft({ y } as Partial<MathPlotSpec>)}
-              />
-            )}
-
-            <Field label={`Sample rate — ${draft.samples}`}>
-              <div className="flex items-center gap-2">
-                <Slider
-                  aria-label="Sample rate slider"
-                  min={PLOT_MIN_SAMPLES}
-                  max={maxSamples}
-                  value={[draft.samples]}
-                  className="h-8 flex-1 accent-primary"
-                  onValueChange={(values) =>
-                    updateDraft({ samples: clampSamples(values[0], maxSamples) })
-                  }
-                />
-                <Input
-                  type="number"
-                  aria-label="Sample rate"
-                  min={PLOT_MIN_SAMPLES}
-                  max={maxSamples}
-                  value={draft.samples}
-                  className="h-8 w-20"
-                  onChange={(event) =>
-                    updateDraft({ samples: clampSamples(Number(event.target.value), maxSamples) })
-                  }
-                />
-              </div>
-            </Field>
-
-            <div className="flex flex-col gap-2 rounded-md border border-border/45 p-2.5">
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Checkbox
-                  className="accent-primary"
-                  checked={manualVertical}
-                  onCheckedChange={(checked) => setManualVertical(checked === true)}
-                />
-                <span>Manual {verticalLabel} limits</span>
-              </label>
-              {manualVertical && verticalDomain && (
-                <DomainField
-                  label={`${verticalLabel} range`}
-                  domain={verticalDomain}
-                  onChange={setVerticalDomain}
-                />
-              )}
-              {!manualVertical && (
-                <p className="text-[11px] text-muted-foreground/70">
-                  Auto-fit to the sampled {outputVar} values.
-                </p>
+                <div className="flex h-[540px] items-center justify-center rounded-lg border border-destructive/35 bg-destructive/8 px-4 text-center text-xs text-destructive">
+                  Each axis minimum must be less than its maximum.
+                </div>
               )}
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-1 gap-1.5"
-              onClick={() => setDraft(spec)}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reset to note
-            </Button>
+            {/* Controls */}
+            <div className="flex w-full shrink-0 flex-col gap-3 lg:w-72">
+              <Field label="Expression">
+                <Input
+                  value={draft.expression}
+                  spellCheck={false}
+                  className="h-8 font-mono"
+                  onChange={(event) => updateDraft({ expression: event.target.value })}
+                />
+              </Field>
+
+              <DomainField label="x range" domain={draft.x} onChange={(x) => updateDraft({ x })} />
+
+              {draft.kind === '3d' && (
+                <DomainField
+                  label="y range"
+                  domain={draft.y}
+                  onChange={(y) => updateDraft({ y } as Partial<MathPlotSpec>)}
+                />
+              )}
+
+              <Field label={`Sample rate — ${draft.samples}`}>
+                <div className="flex items-center gap-2">
+                  <Slider
+                    aria-label="Sample rate slider"
+                    min={PLOT_MIN_SAMPLES}
+                    max={maxSamples}
+                    value={[draft.samples]}
+                    className="h-8 flex-1 accent-primary"
+                    onValueChange={(values) =>
+                      updateDraft({ samples: clampSamples(values[0], maxSamples) })
+                    }
+                  />
+                  <Input
+                    type="number"
+                    aria-label="Sample rate"
+                    min={PLOT_MIN_SAMPLES}
+                    max={maxSamples}
+                    value={draft.samples}
+                    className="h-8 w-20"
+                    onChange={(event) =>
+                      updateDraft({ samples: clampSamples(Number(event.target.value), maxSamples) })
+                    }
+                  />
+                </div>
+              </Field>
+
+              <div className="flex flex-col gap-2 rounded-md border border-border/45 p-2.5">
+                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Checkbox
+                    className="accent-primary"
+                    checked={manualVertical}
+                    onCheckedChange={(checked) => setManualVertical(checked === true)}
+                  />
+                  <span>Manual {verticalLabel} limits</span>
+                </label>
+                {manualVertical && verticalDomain && (
+                  <DomainField
+                    label={`${verticalLabel} range`}
+                    domain={verticalDomain}
+                    onChange={setVerticalDomain}
+                  />
+                )}
+                {!manualVertical && (
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Auto-fit to the sampled {outputVar} values.
+                  </p>
+                )}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-1 gap-1.5"
+                onClick={() => setDraft(spec)}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset to note
+              </Button>
+            </div>
           </div>
-        </div>
-      </DialogContent>
+        </AppDialogBody>
+      </AppDialogContent>
     </Dialog>
   );
 }

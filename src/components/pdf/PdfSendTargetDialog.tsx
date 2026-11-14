@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { Send } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
 import type { NoteFile } from '../../types/vault';
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 export type PdfSendTarget =
@@ -85,76 +86,77 @@ export function PdfSendTargetDialog({
         if (!next) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{mode === 'quote' ? 'Send quote' : 'Send snapshot'}</DialogTitle>
-          <DialogDescription>
-            Choose where to insert this PDF {mode === 'quote' ? 'selection' : 'snapshot'}.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          {currentNotePath && (
-            <button
-              type="button"
-              className={targetOptionClass(targetKind === 'note-current')}
-              onClick={() => setTargetKind('note-current')}
-            >
-              Current note
-              <div className="mt-1 text-xs text-muted-foreground">{currentNotePath}</div>
-            </button>
-          )}
-
-          {currentCanvasPath && (
-            <button
-              type="button"
-              className={targetOptionClass(targetKind === 'canvas-current')}
-              onClick={() => setTargetKind('canvas-current')}
-            >
-              Current canvas
-              <div className="mt-1 text-xs text-muted-foreground">{currentCanvasPath}</div>
-            </button>
-          )}
-
-          <div
-            className={cn(
-              'rounded-xl border px-3 py-3 transition-colors app-motion-fast',
-              targetKind === 'note-other'
-                ? 'border-primary/45 bg-primary/6 shadow-sm shadow-primary/10'
-                : 'border-border/60 bg-card/35',
+      <AppDialogContent size="s">
+        <AppDialogHeader
+          icon={<Send />}
+          title={<>{mode === 'quote' ? 'Send quote' : 'Send snapshot'}</>}
+          description={
+            <>Choose where to insert this PDF {mode === 'quote' ? 'selection' : 'snapshot'}.</>
+          }
+        />
+        <AppDialogBody>
+          <div className="space-y-3">
+            {currentNotePath && (
+              <button
+                type="button"
+                className={targetOptionClass(targetKind === 'note-current')}
+                onClick={() => setTargetKind('note-current')}
+              >
+                Current note
+                <div className="mt-1 text-xs text-muted-foreground">{currentNotePath}</div>
+              </button>
             )}
-          >
-            <button
-              type="button"
-              className="w-full text-left text-sm font-medium text-foreground"
-              onClick={() => setTargetKind('note-other')}
-            >
-              Another note
-            </button>
-            <Select value={notePath} onValueChange={setNotePath}>
-              <SelectTrigger className="mt-2 w-full justify-between bg-background/80">
-                <SelectValue placeholder="Choose a note" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableNotes.map((note) => (
-                  <SelectItem key={note.relativePath} value={note.relativePath}>
-                    {note.relativePath}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+            {currentCanvasPath && (
+              <button
+                type="button"
+                className={targetOptionClass(targetKind === 'canvas-current')}
+                onClick={() => setTargetKind('canvas-current')}
+              >
+                Current canvas
+                <div className="mt-1 text-xs text-muted-foreground">{currentCanvasPath}</div>
+              </button>
+            )}
+
+            <div
+              className={cn(
+                'rounded-xl border px-3 py-3 transition-colors app-motion-fast',
+                targetKind === 'note-other'
+                  ? 'border-primary/45 bg-primary/6 shadow-sm shadow-primary/10'
+                  : 'border-border/60 bg-card/35',
+              )}
+            >
+              <button
+                type="button"
+                className="w-full text-left text-sm font-medium text-foreground"
+                onClick={() => setTargetKind('note-other')}
+              >
+                Another note
+              </button>
+              <Select value={notePath} onValueChange={setNotePath}>
+                <SelectTrigger className="mt-2 w-full justify-between bg-background/80">
+                  <SelectValue placeholder="Choose a note" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableNotes.map((note) => (
+                    <SelectItem key={note.relativePath} value={note.relativePath}>
+                      {note.relativePath}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={!canSubmit}>
             Insert
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

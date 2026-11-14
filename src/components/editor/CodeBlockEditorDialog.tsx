@@ -26,16 +26,15 @@ import {
 import { FileCode2, Sparkles } from 'lucide-react';
 
 import { EDITOR_FONTS, useUiStore } from '../../store/uiStore';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 import {
@@ -354,69 +353,73 @@ export function CodeBlockEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="border-b border-border/40 px-5 py-4">
-          <DialogTitle className="flex items-center gap-2">
-            <FileCode2 size={16} />
-            {mode === 'edit' ? 'Edit code block' : 'Insert code block'}
-          </DialogTitle>
-          <DialogDescription>
-            Choose a fence language and edit the code in a dedicated editor before inserting it into
-            the note.
-          </DialogDescription>
-        </DialogHeader>
+      <AppDialogContent size="l" className="sm:max-w-6xl">
+        <AppDialogHeader
+          icon={<FileCode2 />}
+          title={<>{mode === 'edit' ? 'Edit code block' : 'Insert code block'}</>}
+          description={
+            <>
+              Choose a fence language and edit the code in a dedicated editor before inserting it
+              into the note.
+            </>
+          }
+        />
+        <AppDialogBody>
+          <div className="border-b border-border/30 px-5 py-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-[220px]">
+                <div className="mb-1 text-xs font-medium text-muted-foreground">Language</div>
+                <Select
+                  value={language || PLAIN_TEXT_SELECT_VALUE}
+                  onValueChange={(value) => {
+                    setLanguage(value === PLAIN_TEXT_SELECT_VALUE ? '' : value);
+                    setLanguageTouched(true);
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CODE_BLOCK_LANGUAGE_OPTIONS.map((option) => (
+                      <SelectItem
+                        key={option.label || 'plain-text'}
+                        value={option.value || PLAIN_TEXT_SELECT_VALUE}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-        <div className="border-b border-border/30 px-5 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[220px]">
-              <div className="mb-1 text-xs font-medium text-muted-foreground">Language</div>
-              <Select
-                value={language || PLAIN_TEXT_SELECT_VALUE}
-                onValueChange={(value) => {
-                  setLanguage(value === PLAIN_TEXT_SELECT_VALUE ? '' : value);
-                  setLanguageTouched(true);
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CODE_BLOCK_LANGUAGE_OPTIONS.map((option) => (
-                    <SelectItem
-                      key={option.label || 'plain-text'}
-                      value={option.value || PLAIN_TEXT_SELECT_VALUE}
-                    >
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-5">
-              <Badge variant="outline">{currentLanguageLabel}</Badge>
-              {detected ? (
-                <Badge variant={showDetectionHint ? 'secondary' : 'outline'} className="gap-1">
-                  <Sparkles size={12} />
-                  {showDetectionHint ? `Detected ${detectedLabel}` : `Looks like ${detectedLabel}`}
-                </Badge>
-              ) : null}
-              {showDetectionHint ? (
-                <span className="text-xs text-muted-foreground">
-                  Suggestion only: {detected?.reason}
-                </span>
-              ) : detected ? (
-                <span className="text-xs text-muted-foreground">Detection: {detected.reason}</span>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2 pt-5">
+                <Badge variant="outline">{currentLanguageLabel}</Badge>
+                {detected ? (
+                  <Badge variant={showDetectionHint ? 'secondary' : 'outline'} className="gap-1">
+                    <Sparkles size={12} />
+                    {showDetectionHint
+                      ? `Detected ${detectedLabel}`
+                      : `Looks like ${detectedLabel}`}
+                  </Badge>
+                ) : null}
+                {showDetectionHint ? (
+                  <span className="text-xs text-muted-foreground">
+                    Suggestion only: {detected?.reason}
+                  </span>
+                ) : detected ? (
+                  <span className="text-xs text-muted-foreground">
+                    Detection: {detected.reason}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="h-[68vh] min-h-[420px] overflow-hidden">
-          <CodeEditorSurface value={code} language={language} onChange={setCode} />
-        </div>
-
-        <DialogFooter className="border-t border-border/30 px-5 py-4 gap-2 sm:justify-between">
+          <div className="h-[68vh] min-h-[420px] overflow-hidden">
+            <CodeEditorSurface value={code} language={language} onChange={setCode} />
+          </div>
+        </AppDialogBody>
+        <AppDialogFooter>
           <div className="text-xs text-muted-foreground">
             Auto-detection suggests a language, but you stay in control of the final fence.
           </div>
@@ -428,8 +431,8 @@ export function CodeBlockEditorDialog({
               {mode === 'edit' ? 'Update code block' : 'Insert code block'}
             </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }
