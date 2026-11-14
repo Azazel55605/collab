@@ -639,19 +639,21 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
         }
         meta={
           <>
-            <CalendarSearch
-              open={searchOpen}
-              onOpenChange={setSearchOpen}
-              query={searchQuery}
-              onQueryChange={setSearchQuery}
-              results={searchResults}
-              searching={searching}
-              calendarById={calendarById}
-              onOpenItem={(item) => {
-                setSearchOpen(false);
-                editItem(item);
-              }}
-            />
+            {!showCalendarRail && (
+              <CalendarSearch
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                results={searchResults}
+                searching={searching}
+                calendarById={calendarById}
+                onOpenItem={(item) => {
+                  setSearchOpen(false);
+                  editItem(item);
+                }}
+              />
+            )}
             {hostedOrigins.length > 0 && (
               <CalendarInvitations
                 origins={hostedOrigins}
@@ -734,6 +736,33 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
       <div className="flex min-h-0 flex-1">
         <CalendarRail
           open={showCalendarRail}
+          top={
+            <>
+              <MiniMonth
+                selectedDate={selectedDate}
+                weekStart={weekStart}
+                highlightWeek={viewMode === 'week'}
+                onSelect={(day) => {
+                  setAnchor(day);
+                  setSelectedDate(calendarDateKey(day));
+                }}
+              />
+              <CalendarSearch
+                variant="field"
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                results={searchResults}
+                searching={searching}
+                calendarById={calendarById}
+                onOpenItem={(item) => {
+                  setSearchOpen(false);
+                  editItem(item);
+                }}
+              />
+            </>
+          }
           calendars={store.calendars}
           subscriptions={store.subscriptions}
           visibleIds={store.visibleCalendarIds}
@@ -1321,7 +1350,10 @@ export function CalendarRail({
   onRefreshSubscription,
   onDeleteSubscription,
   onArchive,
+  top,
 }: {
+  /** Mini month and search, above the calendar list. */
+  top?: React.ReactNode;
   open?: boolean;
   calendars: CalendarDefinition[];
   subscriptions: CalendarSubscription[];
@@ -1346,10 +1378,11 @@ export function CalendarRail({
     <WorkspaceSidebar
       aria-label="Calendar overview"
       open={open}
-      frameClassName="[--workspace-sidebar-width:min(14rem,40vw)]"
-      className="flex w-56 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
+      frameClassName="[--workspace-sidebar-width:min(15rem,40vw)]"
+      className="flex w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border/60 bg-sidebar/40 p-3.5"
     >
-      <div className="mb-2 flex items-center justify-between">
+      {top}
+      <div className="-mb-3 flex items-center justify-between">
         <span className="text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
           Calendars
         </span>
@@ -1381,7 +1414,7 @@ export function CalendarRail({
           </Button>
         </span>
       </div>
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+      <div className="space-y-0.5">
         {activeCalendars.map((calendar) => {
           const checkboxId = `calendar-visible-${calendar.id}`;
           const subscription = subscriptions.find((entry) => entry.calendarId === calendar.id);
@@ -1394,21 +1427,19 @@ export function CalendarRail({
                 id={checkboxId}
                 checked={visibleIds.includes(calendar.id)}
                 onCheckedChange={(checked) => onVisible(calendar.id, checked === true)}
+                // The checkbox carries the calendar's colour, as in the concept.
+                className="border-[var(--calendar-color)] data-[state=checked]:border-[var(--calendar-color)] data-[state=checked]:bg-[var(--calendar-color)] data-checked:border-[var(--calendar-color)] data-checked:bg-[var(--calendar-color)]"
+                style={{ '--calendar-color': calendar.color } as React.CSSProperties}
               />
               <label
                 htmlFor={checkboxId}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 pl-1"
                 title={subscription?.lastError || undefined}
               >
-                <span
-                  className="relative size-3 shrink-0 rounded-[4px]"
-                  style={{ backgroundColor: calendar.color }}
-                >
-                  {subscription?.lastError && (
-                    <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-destructive ring-1 ring-background" />
-                  )}
-                </span>
                 <span className="truncate">{calendar.name}</span>
+                {subscription?.lastError && (
+                  <span className="size-1.5 shrink-0 rounded-full bg-destructive" />
+                )}
               </label>
               <CalendarActions
                 calendar={calendar}
@@ -1469,6 +1500,100 @@ export function CalendarRail({
         )}
       </div>
     </WorkspaceSidebar>
+  );
+}
+
+function MiniMonth({
+  selectedDate,
+  weekStart,
+  highlightWeek,
+  onSelect,
+}: {
+  selectedDate: string;
+  weekStart: 0 | 1;
+  highlightWeek: boolean;
+  onSelect: (date: Date) => void;
+}) {
+  const selected = dateFromKey(selectedDate);
+  const [month, setMonth] = useState(
+    () => new Date(selected.getFullYear(), selected.getMonth(), 1),
+  );
+  // Follow the main view when it moves to another month.
+  useEffect(() => {
+    setMonth((current) =>
+      current.getFullYear() === selected.getFullYear() && current.getMonth() === selected.getMonth()
+        ? current
+        : new Date(selected.getFullYear(), selected.getMonth(), 1),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+  const days = calendarMonthGrid(month, weekStart);
+  const todayKey = calendarDateKey(new Date());
+  const selectedWeek = new Set(
+    Array.from({ length: 7 }, (_, index) =>
+      calendarDateKey(addDays(startOfWeek(selected, weekStart), index)),
+    ),
+  );
+  const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
+  const labels = Array.from({ length: 7 }, (_, index) =>
+    weekdayFormat.format(new Date(2026, 6, 5 + ((weekStart + index) % 7))),
+  );
+  return (
+    <section aria-label="Month overview">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="pl-1 text-[13px] font-semibold">
+          {new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(month)}
+        </span>
+        <span className="flex">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Previous month"
+            onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Next month"
+            onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+          >
+            <ChevronRight />
+          </Button>
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-muted-foreground">
+        {labels.map((label, index) => (
+          <span key={index} className="py-0.5">
+            {label}
+          </span>
+        ))}
+        {days.map((day) => {
+          const key = calendarDateKey(day);
+          const outside = day.getMonth() !== month.getMonth();
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-label={new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(day)}
+              aria-current={key === todayKey ? 'date' : undefined}
+              onClick={() => onSelect(day)}
+              className={cn(
+                'flex aspect-square items-center justify-center rounded-md text-xs tabular-nums text-foreground/85 transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50',
+                outside && 'text-muted-foreground/60',
+                highlightWeek && selectedWeek.has(key) && 'bg-primary/10',
+                key === selectedDate && 'ring-1 ring-primary/60',
+                key === todayKey &&
+                  'bg-primary font-bold text-primary-foreground hover:bg-primary/90',
+              )}
+            >
+              {day.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1573,7 +1698,9 @@ export function CalendarSearch({
   searching,
   calendarById,
   onOpenItem,
+  variant = 'icon',
 }: {
+  variant?: 'icon' | 'field';
   open: boolean;
   onOpenChange: (open: boolean) => void;
   query: string;
@@ -1586,17 +1713,28 @@ export function CalendarSearch({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Search calendars"
-          title="Search calendars"
-        >
-          <Search />
-        </Button>
+        {variant === 'field' ? (
+          <button
+            type="button"
+            aria-label="Search calendars"
+            className="flex h-8 w-full items-center gap-2 rounded-lg border border-input bg-background/40 px-2.5 text-left text-[13px] text-muted-foreground transition-colors outline-none hover:border-ring/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+          >
+            <Search className="size-3.5 shrink-0" />
+            <span className="truncate">{query.trim() || 'Search events and tasks'}</span>
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Search calendars"
+            title="Search calendars"
+          >
+            <Search />
+          </Button>
+        )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent align={variant === 'field' ? 'start' : 'end'} className="w-80 p-0">
         <div className="border-b border-border/60 p-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1839,23 +1977,24 @@ function WeekView({
               type="button"
               onClick={() => onSelect(key)}
               className={cn(
-                'flex flex-col items-center gap-1 border-r border-border/60 py-2 text-center hover:bg-accent/40',
+                'flex items-center gap-1.5 border-r border-border/60 px-2.5 py-2 text-left hover:bg-accent/40',
                 (day.getDay() === 0 || day.getDay() === 6) && 'bg-muted/30',
                 selectedDate === key && 'bg-primary/5',
               )}
             >
               <span
                 className={cn(
-                  'block text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
-                  key === todayKey && 'text-primary',
+                  'text-xs text-muted-foreground',
+                  key === todayKey && 'font-medium text-primary',
                 )}
               >
                 {new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day)}
               </span>
               <span
                 className={cn(
-                  'mx-auto flex size-8 items-center justify-center rounded-full text-base font-semibold tabular-nums',
-                  key === todayKey && 'bg-primary text-primary-foreground shadow-sm',
+                  'flex items-center justify-center text-[15px] font-semibold tabular-nums',
+                  key === todayKey &&
+                    'size-6 rounded-full bg-primary text-[13px] font-bold text-primary-foreground',
                 )}
               >
                 {day.getDate()}
@@ -1951,19 +2090,20 @@ function DayView({
     <section ref={rootRef} className="mx-auto min-w-[520px] max-w-5xl">
       <div className="sticky top-0 z-20 grid grid-cols-[52px_minmax(0,1fr)] border-b border-border bg-background">
         <div className="border-r border-border/60" />
-        <div className="flex flex-col items-center gap-1 border-r border-border/60 py-2 text-center">
+        <div className="flex items-center gap-1.5 border-r border-border/60 px-2.5 py-2">
           <span
             className={cn(
-              'block text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
-              key === todayKey && 'text-primary',
+              'text-xs text-muted-foreground',
+              key === todayKey && 'font-medium text-primary',
             )}
           >
             {new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(day)}
           </span>
           <span
             className={cn(
-              'mx-auto flex size-8 items-center justify-center rounded-full text-base font-semibold tabular-nums',
-              key === todayKey && 'bg-primary text-primary-foreground shadow-sm',
+              'flex items-center justify-center text-[15px] font-semibold tabular-nums',
+              key === todayKey &&
+                'size-6 rounded-full bg-primary text-[13px] font-bold text-primary-foreground',
             )}
           >
             {day.getDate()}
@@ -2041,7 +2181,7 @@ function TimeGutter({ hourLabel }: { hourLabel: (hour: number) => string }) {
       {Array.from({ length: 24 }, (_, hour) => (
         <span
           key={hour}
-          className="absolute right-2 -translate-y-1/2 text-[11px] text-muted-foreground tabular-nums first:hidden"
+          className="absolute right-2 -translate-y-1/2 font-mono text-[11px] text-muted-foreground tabular-nums first:hidden"
           style={{ top: hour * WEEK_HOUR_HEIGHT }}
         >
           {hourLabel(hour)}
@@ -2285,10 +2425,10 @@ function TimedDayColumn({
         )}
         {dateKey === todayKey && (
           <div
-            className="pointer-events-none absolute left-0 right-0 z-10 border-t border-primary"
+            className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-red-400"
             style={{ top: (nowMinute / CALENDAR_MINUTES_PER_DAY) * WEEK_HOUR_HEIGHT * 24 }}
           >
-            <span className="absolute -left-1 -top-1 size-2 rounded-full bg-primary" />
+            <span className="absolute -top-[5px] -left-1 size-2 rounded-full bg-red-400" />
           </div>
         )}
         {timedItems.map((entry) => {
@@ -2307,7 +2447,7 @@ function TimedDayColumn({
               onDelete={onDelete}
             >
               <div
-                className="group absolute z-[2] overflow-hidden rounded-md border-l-[3px] bg-background shadow-sm ring-1 ring-black/5 transition-[filter] hover:z-[3] hover:brightness-110 focus-within:z-[4] dark:ring-white/5"
+                className="group absolute z-[2] overflow-hidden rounded-md bg-muted transition-[filter] hover:z-[3] hover:brightness-110 focus-within:z-[4]"
                 style={{
                   top: (entry.startMinute / 60) * WEEK_HOUR_HEIGHT,
                   height: Math.max(
@@ -2316,10 +2456,13 @@ function TimedDayColumn({
                   ),
                   left: `calc(${entry.column * width}% + 2px)`,
                   width: `calc(${width}% - 4px)`,
-                  borderLeftColor: color,
-                  backgroundImage: color
-                    ? `linear-gradient(color-mix(in srgb, ${color} 22%, transparent), color-mix(in srgb, ${color} 22%, transparent))`
-                    : undefined,
+                  // A solid block tinted with the calendar colour; text in a light tint of it.
+                  ...(color
+                    ? {
+                        backgroundColor: `color-mix(in oklab, ${color} 30%, var(--background))`,
+                        color: `color-mix(in oklab, ${color} 30%, var(--foreground))`,
+                      }
+                    : {}),
                 }}
               >
                 <button
@@ -2342,7 +2485,7 @@ function TimedDayColumn({
                     <ItemTypeIcon item={entry.item} className="size-3 shrink-0" />
                     <span className="truncate">{entry.item.title}</span>
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground tabular-nums">
+                  <span className="mt-0.5 block truncate text-[11px] tabular-nums opacity-85">
                     {itemTime(entry.item)}
                   </span>
                 </button>

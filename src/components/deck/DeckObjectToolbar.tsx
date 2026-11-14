@@ -48,6 +48,8 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 
+import { DeckShapeIcon } from './DeckShapeIcon';
+
 export type TableAction =
   'rowAbove' | 'rowBelow' | 'columnLeft' | 'columnRight' | 'deleteRow' | 'deleteColumn' | 'header';
 
@@ -367,6 +369,7 @@ export function DeckObjectToolbar({
           <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
             {DECK_SHAPE_GEOMETRIES.map((geometry) => (
               <DropdownMenuItem key={geometry} onClick={() => onGeometry(geometry)}>
+                <DeckShapeIcon geometry={geometry} />
                 {SHAPE_NAMES[geometry]}
               </DropdownMenuItem>
             ))}

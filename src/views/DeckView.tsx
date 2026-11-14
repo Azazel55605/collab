@@ -12,7 +12,6 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   BarChart3,
-  Circle,
   Download,
   FileText,
   Group,
@@ -33,7 +32,6 @@ import {
   Save,
   Settings2,
   Shapes,
-  Square,
   StickyNote,
   Table2,
   Type,
@@ -64,6 +62,7 @@ import type {
   DeckShowPosition,
 } from '../components/deck/DeckPresenter';
 import { DeckPrintHost } from '../components/deck/DeckPrintHost';
+import { DeckShapeIcon } from '../components/deck/DeckShapeIcon';
 import { DeckSlideRail } from '../components/deck/DeckSlideRail';
 import type { DeckRailAction } from '../components/deck/DeckSlideRail';
 import { DeckStage } from '../components/deck/DeckStage';
@@ -3321,8 +3320,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                   <DropdownMenuLabel className="text-[11px]">Shapes</DropdownMenuLabel>
                   {DECK_SHAPE_GEOMETRIES.map((geometry) => (
                     <DropdownMenuItem key={geometry} onClick={() => insert(geometry)}>
-                      {geometry === 'ellipse' ? <Circle size={13} /> : <Square size={13} />}{' '}
-                      {SHAPE_NAMES[geometry]}
+                      <DeckShapeIcon geometry={geometry} /> {SHAPE_NAMES[geometry]}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
