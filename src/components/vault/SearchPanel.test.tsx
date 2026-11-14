@@ -27,7 +27,7 @@ it('keeps newer results when an older search finishes late, including clearing t
   const replies: Array<(rows: unknown[]) => void> = [];
   mocks.search.mockImplementation(() => new Promise((resolve) => replies.push(resolve)));
   render(<SearchPanel />);
-  const input = screen.getByPlaceholderText('Search notes...');
+  const input = screen.getByPlaceholderText('Search notes');
   fireEvent.change(input, { target: { value: 'older' } });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(300);
@@ -82,7 +82,7 @@ it('keeps rendering bounded and reaches later pages, clearing on server switch',
     nextOffset: offset + 50 < 120 ? offset + 50 : null,
   }));
   render(<SearchPanel />);
-  fireEvent.change(screen.getByPlaceholderText('Search notes...'), { target: { value: 'needle' } });
+  fireEvent.change(screen.getByPlaceholderText('Search notes'), { target: { value: 'needle' } });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(300);
   });

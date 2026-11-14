@@ -211,6 +211,15 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
     state.fileTreeCollapsedPathsByVault && typeof state.fileTreeCollapsedPathsByVault === 'object'
       ? (state.fileTreeCollapsedPathsByVault as Record<string, string[]>)
       : {};
+  const pinnedPathsByVault: Record<string, string[]> = {};
+  if (state.pinnedPathsByVault && typeof state.pinnedPathsByVault === 'object') {
+    for (const [vaultPath, paths] of Object.entries(state.pinnedPathsByVault)) {
+      if (Array.isArray(paths))
+        pinnedPathsByVault[vaultPath] = paths.filter(
+          (value): value is string => typeof value === 'string',
+        );
+    }
+  }
   const legacyCollapsedPaths = Array.isArray(state.fileTreeCollapsedPaths)
     ? state.fileTreeCollapsedPaths.filter((value): value is string => typeof value === 'string')
     : [];
@@ -316,6 +325,7 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
       !fileTreeCollapsedPathsByVault[lastOpenedVaultPath]
         ? { ...fileTreeCollapsedPathsByVault, [lastOpenedVaultPath]: legacyCollapsedPaths }
         : fileTreeCollapsedPathsByVault,
+    pinnedPathsByVault,
   } as Partial<UiState>;
 }
 
@@ -394,6 +404,8 @@ interface UiState {
   sidebarPanel: SidebarPanel;
   collabTab: CollabTab;
   fileTreeCollapsedPathsByVault: Record<string, string[]>;
+  /** Files pinned above the tree, per vault path. */
+  pinnedPathsByVault: Record<string, string[]>;
   sidebarWidth: number;
   isSidebarOpen: boolean;
   workspaceSidebars: Record<WorkspaceSidebarView, boolean>;
@@ -466,6 +478,7 @@ interface UiState {
   setSidebarPanel: (panel: SidebarPanel) => void;
   setCollabTab: (tab: CollabTab) => void;
   setFileTreeCollapsedPathsForVault: (vaultPath: string, paths: string[]) => void;
+  togglePinnedPath: (vaultPath: string, relativePath: string) => void;
   setSidebarWidth: (width: number) => void;
   toggleSidebar: () => void;
   openVaultSidebar: (panel: SidebarPanel, showEditor?: boolean) => void;
@@ -537,6 +550,7 @@ export const useUiStore = create<UiState>()(
       sidebarPanel: 'files',
       collabTab: 'peers',
       fileTreeCollapsedPathsByVault: {},
+      pinnedPathsByVault: {},
       sidebarWidth: 240,
       isSidebarOpen: true,
       workspaceSidebars: { calendar: true, chats: true, databases: true },
@@ -603,6 +617,14 @@ export const useUiStore = create<UiState>()(
       setActiveView: (activeView) => runDocumentNavigation(() => set({ activeView })),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
       setCollabTab: (collabTab) => set({ collabTab }),
+      togglePinnedPath: (vaultPath, relativePath) =>
+        set((state) => {
+          const current = state.pinnedPathsByVault[vaultPath] ?? [];
+          const next = current.includes(relativePath)
+            ? current.filter((path) => path !== relativePath)
+            : [...current, relativePath];
+          return { pinnedPathsByVault: { ...state.pinnedPathsByVault, [vaultPath]: next } };
+        }),
       setFileTreeCollapsedPathsForVault: (vaultPath, paths) =>
         set((state) => ({
           fileTreeCollapsedPathsByVault: {
@@ -740,6 +762,7 @@ export const useUiStore = create<UiState>()(
       partialize: (s) => ({
         collabTab: s.collabTab,
         fileTreeCollapsedPathsByVault: s.fileTreeCollapsedPathsByVault,
+        pinnedPathsByVault: s.pinnedPathsByVault,
         sidebarWidth: s.sidebarWidth,
         isSidebarOpen: s.isSidebarOpen,
         workspaceSidebars: s.workspaceSidebars,

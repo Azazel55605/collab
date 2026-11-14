@@ -64,6 +64,7 @@ import {
 import { Input } from '../ui/input';
 
 import { HostedMembersPanel } from './HostedMembersPanel';
+import { ManagerServersTab } from './ManagerServersTab';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1348,11 +1349,12 @@ function EncryptionTab() {
 
 // ─── Tab list ─────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'vaults' | 'permissions' | 'offline' | 'encryption';
+type Tab = 'overview' | 'vaults' | 'servers' | 'permissions' | 'offline' | 'encryption';
 
 const ALL_TABS: Record<Tab, { id: Tab; label: string; icon: React.ReactNode }> = {
   overview: { id: 'overview', label: 'Overview', icon: <Vault size={15} /> },
   vaults: { id: 'vaults', label: 'Vaults', icon: <FolderOpen size={15} /> },
+  servers: { id: 'servers', label: 'Servers', icon: <Server size={15} /> },
   permissions: { id: 'permissions', label: 'Members', icon: <ShieldCheck size={15} /> },
   offline: { id: 'offline', label: 'Offline copy', icon: <HardDriveDownload size={15} /> },
   encryption: { id: 'encryption', label: 'Encryption', icon: <Lock size={15} /> },
@@ -1537,7 +1539,12 @@ export default function VaultManagerModal() {
   const tabs = vaultManagerTabIds(kind).map((id) => ALL_TABS[id]);
 
   useEffect(() => {
-    if (tab !== 'vaults' && (!vault || !vaultManagerTabIds(kind).includes(tab))) setTab('vaults');
+    if (
+      tab !== 'vaults' &&
+      tab !== 'servers' &&
+      (!vault || !vaultManagerTabIds(kind).includes(tab))
+    )
+      setTab('vaults');
   }, [kind, tab, vault]);
 
   const confirmRemoveVault = async () => {
@@ -1627,6 +1634,13 @@ export default function VaultManagerModal() {
               >
                 {ALL_TABS.vaults.label}
               </ManagerNavButton>
+              <ManagerNavButton
+                active={tab === 'servers'}
+                onClick={() => setTab('servers')}
+                icon={ALL_TABS.servers.icon}
+              >
+                {ALL_TABS.servers.label}
+              </ManagerNavButton>
             </nav>
 
             <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-5">
@@ -1636,6 +1650,7 @@ export default function VaultManagerModal() {
               {tab === 'vaults' && (
                 <VaultsTab onClose={closeVaultManager} onRequestRemove={setRemoveTarget} />
               )}
+              {tab === 'servers' && <ManagerServersTab onNewVault={() => setTab('vaults')} />}
               {tab === 'permissions' && <HostedPermissionsTab />}
               {tab === 'offline' && <OfflineSyncTab />}
               {tab === 'encryption' && <EncryptionTab />}

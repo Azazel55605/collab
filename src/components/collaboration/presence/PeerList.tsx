@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronRight, ExternalLink, Eye } from 'lucide-react';
 
 import {
   getVaultDocumentTabType,
@@ -81,6 +81,26 @@ export function PeerList() {
   const openTab = useEditorStore((state) => state.openTab);
   const setActiveView = useUiStore((state) => state.setActiveView);
   const [showOffline, setShowOffline] = useState(false);
+  const followingUserId = useCollabStore((state) => state.followingUserId);
+  const setFollowing = useCollabStore((state) => state.setFollowing);
+  const followButton = (peer: PresenceEntry) => {
+    const following = followingUserId === peer.userId;
+    return (
+      <Button
+        type="button"
+        variant={following ? 'secondary' : 'outline'}
+        size="sm"
+        aria-pressed={following}
+        aria-label={following ? `Stop following ${peer.userName}` : `Follow ${peer.userName}`}
+        title={following ? 'Stop following' : 'Open each document they open'}
+        className="h-7 px-2 text-xs"
+        onClick={() => setFollowing(following ? null : peer.userId)}
+      >
+        <Eye />
+        {following ? 'Following' : 'Follow'}
+      </Button>
+    );
+  };
 
   const now = Date.now();
   const isOnline = (entry: PresenceEntry) => now - entry.lastSeen < STALE_MS;
@@ -129,6 +149,7 @@ export function PeerList() {
               entry={peer}
               online
               detail={peer.cursorLine != null ? `Line ${peer.cursorLine}` : 'Viewing this document'}
+              action={followButton(peer)}
             />
           ))}
         </section>
@@ -144,17 +165,20 @@ export function PeerList() {
               detail={where(peer)}
               action={
                 peer.activeFile ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Open ${fileName(peer.activeFile)}`}
-                    title="Open their document"
-                    className="text-muted-foreground"
-                    onClick={() => openDocument(peer.activeFile!)}
-                  >
-                    <ExternalLink />
-                  </Button>
+                  <span className="flex items-center gap-0.5">
+                    {followButton(peer)}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Open ${fileName(peer.activeFile)}`}
+                      title="Open their document"
+                      className="text-muted-foreground"
+                      onClick={() => openDocument(peer.activeFile!)}
+                    >
+                      <ExternalLink />
+                    </Button>
+                  </span>
                 ) : undefined
               }
             />

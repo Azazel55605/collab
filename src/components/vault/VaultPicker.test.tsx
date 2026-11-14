@@ -351,6 +351,19 @@ describe('VaultPicker start screen', () => {
     );
   });
 
+  it('marks hosted vaults that already have a full offline copy', async () => {
+    replicaMock.listHostedVaultReplicas.mockResolvedValue([
+      {
+        ...offlineReplica(SERVER, 'vault-1', 'Team Vault'),
+        offlineAvailableAt: '2026-06-20T10:00:00Z',
+        capabilities: ['vault.read', 'vault.offlineCopy'],
+      },
+    ]);
+    render(<VaultPicker />);
+    expect(await screen.findByText('Available')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Make Team Vault available offline' })).toBeNull();
+  });
+
   it('removes a local vault from the list through its row menu', async () => {
     render(<VaultPicker />);
     openRowMenu('Personal Notes');

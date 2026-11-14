@@ -217,16 +217,20 @@ Every sidebar panel starts with the same 48 px vault header
 the vault manager and **Close vault**, the way back to the start screen. Below
 it, a segmented switch (`layout/sidebarSwitch.ts`: Files / Search / Tags, or
 People / History) and then the panel. Rare panel actions (Trash, Graph, vault
-manager) sit in a quiet 40 px footer rather than in the header.
+manager) sit in a quiet 40 px footer rather than in the header. Files pinned from the
+context menu sit in a Pinned group above the tree; rows show an unsaved dot and the
+initials of whoever is editing.
 
 The collaboration panel groups people by where they are: in the open document,
 elsewhere in the vault (with a button that opens their document), offline
-(collapsed), then you. History is a timeline of versions grouped by day, with
+(collapsed), then you. **Follow** opens each document the followed person opens; a small
+"Following" bar over the workspace shows it and stops it, and it ends on its own
+when they go offline. History is a timeline of versions grouped by day, with
 **Save version** as its one primary action.
 
 The vault manager uses the settings dialog shape (880 × 600): a navigation column
 grouped into **This vault** (Overview, then Members and Offline copy for hosted
-vaults or Encryption for local ones) and **All vaults**, and setting rows with the
+vaults or Encryption for local ones) and **All vaults** (Vaults, Servers), and setting rows with the
 label and description on the left and the control on the right. Password forms
 open in small dialogs instead of sitting on the page.
 

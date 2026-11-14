@@ -22,6 +22,8 @@ import {
   Music2,
   Paperclip,
   PenLine,
+  Pin,
+  PinOff,
   Plus,
   Presentation,
   Search,
@@ -215,6 +217,23 @@ export default function FileTree() {
     : EMPTY_PATHS;
   const collapsed = useMemo(() => new Set(collapsedPaths), [collapsedPaths]);
   const [nameQuery, setNameQuery] = useState('');
+  const pinnedPaths = useUiStore((state) =>
+    vault?.path ? (state.pinnedPathsByVault[vault.path] ?? EMPTY_PATHS) : EMPTY_PATHS,
+  );
+  const togglePinnedPath = useUiStore((state) => state.togglePinnedPath);
+  // Pins whose file no longer exists (deleted, or renamed elsewhere) simply drop out.
+  const pinnedFiles = useMemo(() => {
+    if (pinnedPaths.length === 0) return [];
+    const byPath = new Map<string, NoteFile>();
+    const visit = (nodes: NoteFile[]) => {
+      for (const node of nodes) {
+        if (node.isFolder) visit(node.children ?? []);
+        else byPath.set(node.relativePath, node);
+      }
+    };
+    visit(fileTree);
+    return pinnedPaths.flatMap((path) => byPath.get(path) ?? []);
+  }, [fileTree, pinnedPaths]);
   const filteredFileTree = useMemo(
     () => filterFileTreeByName(filterFileTreeByType(fileTree, fileTypeFilters), nameQuery),
     [fileTree, fileTypeFilters, nameQuery],
@@ -1316,6 +1335,44 @@ export default function FileTree() {
         </div>
       )}
 
+      {/* Pinned files: kept above the tree, hidden while filtering or in the trash. */}
+      {mode === 'files' && !nameQuery.trim() && pinnedFiles.length > 0 && (
+        <section aria-label="Pinned" className="shrink-0 px-1 pb-1">
+          <h3 className="px-2.5 pt-0.5 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Pinned
+          </h3>
+          {pinnedFiles.map((file) => (
+            <div
+              key={file.relativePath}
+              className={cn(
+                'group mx-1 flex h-7 items-center gap-1.5 rounded-sm pr-1 pl-2 text-[12.5px] transition-colors',
+                activeTabPath === file.relativePath
+                  ? 'bg-primary/15 text-foreground'
+                  : 'text-foreground/70 hover:bg-accent/50 hover:text-foreground',
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => handleOpenFile(file)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:underline"
+              >
+                <Pin size={12} className="shrink-0 text-primary/70" />
+                <span className="truncate">{file.name}</span>
+              </button>
+              <button
+                type="button"
+                aria-label={`Unpin ${file.name}`}
+                title="Unpin"
+                onClick={() => vault?.path && togglePinnedPath(vault.path, file.relativePath)}
+                className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
+              >
+                <PinOff size={11} />
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* Tree — root is also a drop target */}
       {mode === 'trash' ? (
         <TrashPanel />
@@ -1681,6 +1738,18 @@ const FileTreeNode = memo(function FileTreeNode({
   const isDuplicableDocument =
     !node.isFolder && canDuplicate && isTextDocumentPath(node.relativePath);
 
+  const pinVaultPath = useVaultStore((state) => state.vault?.path ?? null);
+  const isPinned = useUiStore((state) =>
+    pinVaultPath
+      ? (state.pinnedPathsByVault[pinVaultPath] ?? []).includes(node.relativePath)
+      : false,
+  );
+  const togglePinnedPath = useUiStore((state) => state.togglePinnedPath);
+  const isUnsaved = useEditorStore((state) =>
+    node.isFolder
+      ? false
+      : state.openTabs.some((tab) => tab.relativePath === node.relativePath && tab.isDirty),
+  );
   const getFileIcon = () => {
     if (node.isFolder) {
       return isCollapsed ? (
@@ -1715,6 +1784,8 @@ const FileTreeNode = memo(function FileTreeNode({
     if (node.extension === 'sheet') return <Table2 size={13} className="text-violet-400/75" />;
     if (node.extension === 'ink') return <PenLine size={13} className="text-fuchsia-400/75" />;
     if (node.extension === 'deck') return <Presentation size={13} className="text-orange-400/75" />;
+    if (node.extension.toLowerCase() === 'pdf')
+      return <FileText size={13} className="text-rose-400/75" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
   };
 
@@ -1913,20 +1984,30 @@ const FileTreeNode = memo(function FileTreeNode({
               </span>
             )}
 
-            {/* Active file dot */}
-            {isActive && !isDropTarget && (
-              <span className="w-1 h-1 rounded-full bg-primary shrink-0 opacity-80" />
+            {/* Unsaved changes */}
+            {isUnsaved && (
+              <span
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+                title="Unsaved changes"
+                aria-label="Unsaved changes"
+              />
             )}
 
-            {/* Peer presence dots */}
-            {activePeers.map((peer) => (
-              <span
-                key={peer.userId}
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ backgroundColor: peer.userColor }}
-                title={`${peer.userName} is editing`}
-              />
-            ))}
+            {/* Who is editing this file */}
+            {activePeers.length > 0 && (
+              <span className="flex shrink-0 -space-x-1">
+                {activePeers.slice(0, 3).map((peer) => (
+                  <span
+                    key={peer.userId}
+                    className="flex size-4 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-sidebar"
+                    style={{ backgroundColor: peer.userColor }}
+                    title={`${peer.userName} is editing`}
+                  >
+                    {peer.userName.slice(0, 1).toUpperCase()}
+                  </span>
+                ))}
+              </span>
+            )}
             {isTaskAttached && (
               <Popover open={attachmentPopoverOpen} onOpenChange={setAttachmentPopoverOpen}>
                 <PopoverTrigger asChild>
@@ -2017,6 +2098,12 @@ const FileTreeNode = memo(function FileTreeNode({
         )}
         {isDuplicableDocument && (
           <ContextMenuItem onClick={() => void onDuplicate(node)}>Duplicate</ContextMenuItem>
+        )}
+        {!node.isFolder && pinVaultPath && (
+          <ContextMenuItem onClick={() => togglePinnedPath(pinVaultPath, node.relativePath)}>
+            {isPinned ? <PinOff size={12} /> : <Pin size={12} />}{' '}
+            {isPinned ? 'Unpin' : 'Pin to top'}
+          </ContextMenuItem>
         )}
         {supportsVersionHistory && (
           <ContextMenuItem onClick={() => onViewHistory(node.relativePath)}>

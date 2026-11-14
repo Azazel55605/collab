@@ -267,6 +267,19 @@ describe('FileTree folder collapse state', () => {
     expect(useUiStore.getState().activeView).toBe('editor');
   });
 
+  it('lists pinned files above the tree, opens them and unpins them', () => {
+    useUiStore.setState({ pinnedPathsByVault: { '/vault': ['Docs/child.md', 'Gone.md'] } });
+    render(<FileTree />);
+    const pinned = screen.getByRole('region', { name: 'Pinned' });
+    // A pin whose file is gone is not shown.
+    expect(within(pinned).queryByText('Gone.md')).toBeNull();
+    fireEvent.click(within(pinned).getByText('child.md'));
+    expect(useEditorStore.getState().activeTabPath).toBe('Docs/child.md');
+    fireEvent.click(within(pinned).getByRole('button', { name: 'Unpin child.md' }));
+    expect(useUiStore.getState().pinnedPathsByVault['/vault']).toEqual(['Gone.md']);
+    expect(screen.queryByRole('region', { name: 'Pinned' })).toBeNull();
+  });
+
   it('filters the tree by name and opens folders that hold a match', () => {
     useUiStore.setState({ fileTreeCollapsedPathsByVault: { '/vault': ['Docs'] } });
     render(<FileTree />);

@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useStat
 
 import {
   CircleAlert,
+  CloudCheck,
   CloudDownload,
   CloudOff,
   Download,
@@ -440,11 +441,12 @@ export default function VaultPicker() {
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/40">
                 <div
                   aria-hidden="true"
-                  className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_2rem] gap-4 px-5 pt-3 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:grid"
+                  className="hidden gap-4 px-5 pt-3 pb-1.5 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7rem_6.5rem] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:grid"
                 >
                   <span>Name</span>
                   <span>Location</span>
                   <span>Access</span>
+                  <span>Offline</span>
                   <span>Opened</span>
                   <span />
                 </div>
@@ -627,10 +629,13 @@ function VaultRow({
   /** Label of a running row action ("Making offline copy…"). */
   working?: string | null;
 }) {
+  // Offline-only entries are themselves a cached copy.
+  const offlineReady =
+    entry.kind === 'offline' || (entry.kind === 'hosted' && !!entry.replica?.offlineAvailableAt);
   return (
     <li
       className={cn(
-        'group relative grid grid-cols-[minmax(0,1fr)_auto_6.5rem] items-center gap-4 rounded-lg px-3.5 py-2 transition-colors app-motion-base hover:bg-muted/60 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_6.5rem]',
+        'group relative grid grid-cols-[minmax(0,1fr)_auto_6.5rem] items-center gap-4 rounded-lg px-3.5 py-2 transition-colors app-motion-base hover:bg-muted/60 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7rem_6.5rem]',
         highlighted && 'bg-muted/70',
       )}
     >
@@ -643,6 +648,12 @@ function VaultRow({
       >
         <KindIcon kind={entry.kind} />
         <span className="truncate font-medium">{entry.name}</span>
+        {offlineReady && (
+          <CloudCheck
+            className="size-3.5 shrink-0 text-emerald-600 lg:hidden dark:text-emerald-400"
+            aria-hidden="true"
+          />
+        )}
         {entry.pendingCount > 0 && (
           <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-px text-[11px] font-medium text-amber-700 dark:text-amber-300">
             {entry.pendingCount} pending
@@ -657,6 +668,25 @@ function VaultRow({
       </span>
       <span className="hidden truncate text-[13px] text-muted-foreground lg:block">
         {entry.detail}
+      </span>
+      <span
+        className="hidden min-w-0 items-center gap-1.5 text-[13px] lg:flex"
+        title={
+          offlineReady && entry.replica?.offlineAvailableAt
+            ? `Full copy on this device since ${new Date(entry.replica.offlineAvailableAt).toLocaleString()}`
+            : undefined
+        }
+      >
+        {offlineReady ? (
+          <>
+            <CloudCheck className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span className="truncate">Available</span>
+          </>
+        ) : entry.kind === 'hosted' ? (
+          <span className="truncate text-muted-foreground">Online only</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </span>
       <span className="text-[13px] text-muted-foreground">
         {working ?? formatLastOpened(entry.lastOpened)}

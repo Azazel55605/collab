@@ -130,7 +130,7 @@ describe('HostedMembersPanel', () => {
     expect(await screen.findByText('Bob')).not.toBeNull();
     expect(screen.queryByText('Add member')).toBeNull();
     expect(screen.queryByLabelText('Remove Bob')).toBeNull();
-    expect(screen.getByText(/do not currently have vault\.managePermissions/)).not.toBeNull();
+    expect(screen.getByText(/can view grants but not change them/)).not.toBeNull();
     expect(screen.queryByLabelText('Edit permissions for Bob')).toBeNull();
   });
 
@@ -142,7 +142,7 @@ describe('HostedMembersPanel', () => {
     render(<HostedMembersPanel />);
     await screen.findByText('Bob');
 
-    fireEvent.change(screen.getByPlaceholderText('Search users by name or username…'), {
+    fireEvent.change(screen.getByPlaceholderText('Add someone by name or username…'), {
       target: { value: 'car' },
     });
     const result = await screen.findByText(/Carol/);

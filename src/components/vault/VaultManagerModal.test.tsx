@@ -177,6 +177,14 @@ describe('VaultManagerModal hosted vaults', () => {
     expect(screen.getByText('My Local Vault')).not.toBeNull();
   });
 
+  it('lists connected servers on the Servers page', async () => {
+    connect(true);
+    render(<VaultManagerModal />);
+    fireEvent.click(screen.getByRole('button', { name: 'Servers' }));
+    expect(await screen.findByText('collab.example.test')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Details' })).not.toBeNull();
+  });
+
   it('closes the open vault from its overview', () => {
     render(<VaultManagerModal />);
     fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
