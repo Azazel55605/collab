@@ -13,7 +13,7 @@ export function CommandBar() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="top-[30%] translate-y-0 overflow-hidden p-0 gap-0 rounded-xl! sm:max-w-xl"
+        className="top-[22%] translate-y-0 gap-0 overflow-hidden rounded-[14px]! border border-border/70 p-0 shadow-2xl shadow-black/40 sm:max-w-[600px]"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
@@ -56,12 +56,12 @@ export function CommandBar() {
               <span className="ml-1 text-[10px] uppercase tracking-wide opacity-60">Right</span>
             </div>
           )}
-          <CommandList className="max-h-80">
+          <CommandList className="max-h-[min(420px,50vh)] px-1 pb-1">
             <div key={mode.type} className="app-command-content-enter">
               <CommandBarModeContent mode={mode} ctx={ctx} />
             </div>
           </CommandList>
-          <CommandBarModeHints current={mode.type} />
+          <CommandBarModeHints current={mode.type} onPick={(prefix) => setInput(prefix)} />
         </Command>
       </DialogContent>
     </Dialog>

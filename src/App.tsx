@@ -33,6 +33,9 @@ import { useUpdateStore } from './store/updateStore';
 import { useVaultStore } from './store/vaultStore';
 import { type VaultMeta } from './types/vault';
 import { ChatsPage, DatabasePage, NotePrintView } from './views/deferredViews';
+import {
+  ConfirmDialogHost,
+} from './components/ui/confirm-dialog';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
@@ -450,6 +453,7 @@ export default function App() {
         {isVaultManagerOpen && <VaultManagerModal />}
         {liveCollabDebug && <LiveDebugPanel />}
         <MathPlotModalHost />
+        <ConfirmDialogHost />
         <Toaster richColors position="bottom-right" />
       </div>
       {activePrintNotePath && vault && !isVaultLocked && (

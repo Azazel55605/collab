@@ -1,15 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { diffLines } from 'diff';
-import {
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  Eye,
-  GitCompareArrows,
-  RotateCcw,
-  Trash2,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Eye, History, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { cn } from '../../../lib/utils';
@@ -18,15 +10,10 @@ import { useCollabStore } from '../../../store/collabStore';
 import { useEditorStore } from '../../../store/editorStore';
 import { useVaultStore } from '../../../store/vaultStore';
 import type { SnapshotMeta } from '../../../types/collab';
+import { AppDialogContent, AppDialogFooter, AppDialogHeader } from '../../ui/app-dialog';
 import { Button } from '../../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../../ui/dialog';
+import { confirmAction } from '../../ui/confirm-dialog';
+import { Dialog } from '../../ui/dialog';
 
 import { relativeTime } from './historyUtils';
 
@@ -35,9 +22,6 @@ interface VersionHistoryModalProps {
   relativePath: string | null;
   onOpenChange: (open: boolean) => void;
 }
-
-type HistoryDangerAction =
-  { type: 'delete-snapshot'; snapshot: SnapshotMeta } | { type: 'clear-history' };
 
 interface DiffRow {
   kind: 'added' | 'removed' | 'unchanged';
@@ -174,7 +158,6 @@ export function VersionHistoryModal({
   const [deletingSnapshotId, setDeletingSnapshotId] = useState<string | null>(null);
   const [clearingHistory, setClearingHistory] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
-  const [dangerAction, setDangerAction] = useState<HistoryDangerAction | null>(null);
 
   const selectedSnapshot = useMemo(
     () => snapshots.find((snapshot) => snapshot.id === selectedSnapshotId) ?? null,
@@ -314,7 +297,6 @@ export function VersionHistoryModal({
         toast.error(`Failed to delete snapshot: ${error}`);
       } finally {
         setDeletingSnapshotId(null);
-        setDangerAction(null);
       }
     },
     [loadSnapshots, relativePath, vault?.path],
@@ -334,7 +316,6 @@ export function VersionHistoryModal({
       toast.error(`Failed to clear version history: ${error}`);
     } finally {
       setClearingHistory(false);
-      setDangerAction(null);
     }
   }, [loadSnapshots, relativePath, vault?.path]);
 
@@ -358,96 +339,173 @@ export function VersionHistoryModal({
     [diffSections],
   );
 
-  return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent
-          showCloseButton={false}
-          className="h-[92vh] max-h-[92vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden p-0 gap-0 glass-strong border-border/40 sm:w-[min(1520px,calc(100vw-3rem))] sm:max-w-[min(1520px,calc(100vw-3rem))]"
-        >
-          <DialogHeader className="border-b border-border/50 px-5 py-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <DialogTitle className="flex items-center gap-2">
-                  <GitCompareArrows size={16} className="text-primary" />
-                  Version history
-                </DialogTitle>
-                <DialogDescription className="mt-1 truncate">
-                  {relativePath ?? 'No file selected'}
-                </DialogDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                {canDeleteHistory && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDangerAction({ type: 'clear-history' })}
-                    disabled={snapshots.length === 0 || clearingHistory || loadingSnapshots}
-                  >
-                    <Trash2 size={14} />
-                    Clear history
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-                  Close
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
+  const [view, setView] = useState<'changes' | 'split' | 'full'>('changes');
+  const [namedOnly, setNamedOnly] = useState(false);
+  const shownSnapshots = namedOnly ? snapshots.filter((snapshot) => snapshot.label) : snapshots;
+  const groups: { label: string; items: SnapshotMeta[] }[] = [];
+  for (const snapshot of shownSnapshots) {
+    const label = historyDayLabel(snapshot.timestamp);
+    const group = groups[groups.length - 1];
+    if (group?.label === label) group.items.push(snapshot);
+    else groups.push({ label, items: [snapshot] });
+  }
 
-          <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col border-r border-border/50 bg-sidebar/35">
-              <div className="border-b border-border/40 px-4 py-3">
-                <div className="text-xs font-medium text-foreground/90">Snapshots</div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {loadingSnapshots
-                    ? 'Loading versions…'
-                    : `${snapshots.length} version${snapshots.length === 1 ? '' : 's'} available`}
-                </div>
-              </div>
-              <div className="min-h-0 overflow-y-auto">
-                {loadingSnapshots ? (
-                  <div className="px-4 py-6 text-xs text-muted-foreground">
-                    Loading version history…
-                  </div>
-                ) : snapshots.length === 0 ? (
-                  <div className="px-4 py-6 text-xs text-muted-foreground">
-                    No snapshots yet. Save this document to create one.
-                  </div>
-                ) : (
-                  <div className="p-2">
-                    {snapshots.map((snapshot) => {
+  const confirmDelete = async (snapshot: SnapshotMeta) => {
+    const confirmed = await confirmAction({
+      title: 'Delete this version?',
+      description: 'It is removed from this file’s history for good.',
+      confirmLabel: 'Delete snapshot',
+      destructive: true,
+    });
+    if (confirmed) await handleDeleteSnapshot(snapshot);
+  };
+  const confirmClear = async () => {
+    const confirmed = await confirmAction({
+      title: 'Clear the whole version history?',
+      description: 'Every saved version of this file is removed for good. The file itself stays.',
+      confirmLabel: 'Clear history',
+      destructive: true,
+    });
+    if (confirmed) await handleClearHistory();
+  };
+  const copySnapshot = async () => {
+    if (snapshotContent === null) return;
+    try {
+      await navigator.clipboard?.writeText(snapshotContent);
+      toast.success('Version copied');
+    } catch {
+      toast.error('Could not copy to clipboard');
+    }
+  };
+
+  const renderGap = (section: DiffSection) => {
+    const startLeft = section.rows[0]?.leftNumber ?? section.rows[0]?.rightNumber ?? '?';
+    const endLeft =
+      section.rows[section.rows.length - 1]?.leftNumber ??
+      section.rows[section.rows.length - 1]?.rightNumber ??
+      '?';
+    return (
+      <button
+        key={section.id}
+        type="button"
+        onClick={() => toggleSectionCollapsed(section.id)}
+        className="flex w-full items-center justify-between bg-muted/35 px-4 py-1.5 text-left font-sans text-xs text-muted-foreground transition-colors app-motion-fast hover:bg-muted/55"
+      >
+        <span className="flex items-center gap-2">
+          <ChevronRight size={14} />
+          {section.rows.length} unchanged line{section.rows.length === 1 ? '' : 's'} hidden
+        </span>
+        <span className="text-[11px] text-muted-foreground/80">
+          Lines {startLeft}–{endLeft}
+        </span>
+      </button>
+    );
+  };
+  const renderGapHeader = (section: DiffSection) =>
+    section.collapsible ? (
+      <button
+        type="button"
+        onClick={() => toggleSectionCollapsed(section.id)}
+        className="flex w-full items-center justify-between bg-muted/20 px-4 py-1 text-left font-sans text-xs text-muted-foreground transition-colors app-motion-fast hover:bg-muted/40"
+      >
+        <span className="flex items-center gap-2">
+          <ChevronDown size={14} />
+          Showing {section.rows.length} unchanged line{section.rows.length === 1 ? '' : 's'}
+        </span>
+        <span>Collapse</span>
+      </button>
+    ) : null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <AppDialogContent
+        size="l"
+        className="h-[min(780px,calc(100vh-2rem))] sm:max-w-[min(1240px,calc(100vw-3rem))]"
+      >
+        <AppDialogHeader
+          icon={<History />}
+          title="Version history"
+          description={relativePath ?? 'No file selected'}
+        />
+        <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)] border-t border-border/60">
+          <aside aria-label="Versions" className="flex min-h-0 flex-col border-r border-border/60">
+            <div className="flex shrink-0 gap-1.5 px-3 py-2.5" role="group" aria-label="Show">
+              {[
+                { value: false, label: 'All changes' },
+                { value: true, label: 'Named only' },
+              ].map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={namedOnly === option.value}
+                  onClick={() => setNamedOnly(option.value)}
+                  className={cn(
+                    'h-6 rounded-full px-2.5 text-[11.5px] transition-colors',
+                    namedOnly === option.value
+                      ? 'bg-primary/15 font-medium text-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+              {loadingSnapshots ? (
+                <p className="px-2 py-6 text-xs text-muted-foreground">Loading version history…</p>
+              ) : shownSnapshots.length === 0 ? (
+                <p className="px-2 py-6 text-xs text-muted-foreground">
+                  {snapshots.length === 0
+                    ? 'No snapshots yet. Save this document to create one.'
+                    : 'No named versions yet.'}
+                </p>
+              ) : (
+                groups.map((group) => (
+                  <section key={group.label} aria-label={group.label}>
+                    <h3 className="px-2 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                      {group.label}
+                    </h3>
+                    {group.items.map((snapshot) => {
                       const isSelected = snapshot.id === selectedSnapshotId;
                       return (
                         <div
                           key={snapshot.id}
                           className={cn(
-                            'mb-1.5 flex items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors app-motion-fast',
-                            isSelected
-                              ? 'border-primary/40 bg-primary/10 text-foreground shadow-sm'
-                              : 'border-transparent bg-background/45 text-foreground/85 hover:border-border/60 hover:bg-accent/45',
+                            'group flex items-start gap-2.5 rounded-lg px-2 py-1.5 transition-colors app-motion-fast',
+                            isSelected ? 'bg-primary/15' : 'hover:bg-muted/50',
                           )}
                         >
+                          <span
+                            className={cn(
+                              'mt-1.5 size-2.5 shrink-0 rounded-full',
+                              snapshot.label ? 'bg-primary' : 'bg-muted-foreground/40',
+                            )}
+                          />
                           <button
                             type="button"
                             onClick={() => setSelectedSnapshotId(snapshot.id)}
-                            className="min-w-0 flex-1"
+                            aria-current={isSelected ? 'true' : undefined}
+                            className="min-w-0 flex-1 text-left leading-snug outline-none"
                           >
-                            <span className="block truncate text-xs font-medium">
-                              {snapshot.label ?? relativeTime(snapshot.timestamp)}
+                            <span
+                              className={cn(
+                                'block truncate text-[13px]',
+                                snapshot.label ? 'font-medium' : 'text-muted-foreground',
+                              )}
+                            >
+                              {snapshot.label ?? 'Snapshot'}
                             </span>
-                            <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
-                              <Clock3 size={10} />
-                              {snapshot.authorName} · {relativeTime(snapshot.timestamp)}
+                            <span className="flex items-center gap-1 text-[11.5px] text-muted-foreground">
+                              {snapshot.authorName} · {historyClock(snapshot.timestamp)}
                             </span>
                           </button>
                           {canDeleteHistory && (
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="mt-0.5 shrink-0 text-muted-foreground hover:text-destructive"
+                              className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100"
                               disabled={deletingSnapshotId === snapshot.id || clearingHistory}
-                              onClick={() => setDangerAction({ type: 'delete-snapshot', snapshot })}
+                              onClick={() => void confirmDelete(snapshot)}
                               title="Delete snapshot"
                             >
                               <Trash2 size={12} />
@@ -456,223 +514,230 @@ export function VersionHistoryModal({
                         </div>
                       );
                     })}
+                  </section>
+                ))
+              )}
+            </div>
+          </aside>
+
+          <section className="flex min-h-0 min-w-0 flex-col">
+            {selectedSnapshot ? (
+              <>
+                <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-border/60 px-4 py-2">
+                  <div className="min-w-0 flex-1 text-[12.5px]">
+                    <span className="font-semibold">{selectedSnapshot.label ?? 'Snapshot'}</span>{' '}
+                    <span className="text-muted-foreground">
+                      {relativeTime(selectedSnapshot.timestamp)}, compared with now
+                    </span>
                   </div>
-                )}
-              </div>
-            </aside>
-
-            <section className="flex min-h-0 flex-col bg-background/70">
-              {selectedSnapshot ? (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 px-5 py-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">
-                        {selectedSnapshot.label ?? 'Snapshot'}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {selectedSnapshot.authorName} ·{' '}
-                        {new Date(selectedSnapshot.timestamp).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/12 px-2 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-200">
-                        +{summary.additions}
-                      </div>
-                      <div className="rounded-lg border border-rose-500/30 bg-rose-500/12 px-2 py-1 text-[11px] font-medium text-rose-700 dark:text-rose-200">
-                        -{summary.removals}
-                      </div>
-                      {collapsibleSectionCount > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            setAllCollapsedSections(!areAllCollapsibleSectionsCollapsed)
-                          }
-                        >
-                          {areAllCollapsibleSectionsCollapsed
-                            ? 'Expand all gaps'
-                            : 'Collapse all gaps'}
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleRestore}
-                        disabled={restoringId === selectedSnapshot.id}
-                      >
-                        <RotateCcw size={14} />
-                        Restore this version
-                      </Button>
-                    </div>
-                  </div>
-
-                  {loadingComparison ? (
-                    <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
-                      Loading comparison…
-                    </div>
-                  ) : snapshotContent === null || currentContent === null ? (
-                    <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
-                      Preview unavailable for this version right now.
-                    </div>
-                  ) : (
-                    <div className="grid min-h-0 flex-1 grid-rows-[auto,minmax(0,1fr)]">
-                      <div className="grid grid-cols-2 border-b border-border/40 bg-sidebar/25">
-                        <div className="px-5 py-2 text-xs font-medium text-muted-foreground">
-                          Snapshot
-                        </div>
-                        <div className="border-l border-border/40 px-5 py-2 text-xs font-medium text-muted-foreground">
-                          Current
-                        </div>
-                      </div>
-                      <div className="min-h-0 overflow-auto">
-                        {diffSections.length === 0 ? (
-                          <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
-                            No differences found.
-                          </div>
-                        ) : (
-                          <div className="font-mono text-[12px] leading-5">
-                            {diffSections.map((section) => {
-                              const isCollapsed =
-                                section.collapsible && collapsedSections[section.id];
-                              if (isCollapsed) {
-                                const startLeft =
-                                  section.rows[0]?.leftNumber ??
-                                  section.rows[0]?.rightNumber ??
-                                  '?';
-                                const endLeft =
-                                  section.rows[section.rows.length - 1]?.leftNumber ??
-                                  section.rows[section.rows.length - 1]?.rightNumber ??
-                                  '?';
-                                return (
-                                  <button
-                                    key={section.id}
-                                    type="button"
-                                    onClick={() => toggleSectionCollapsed(section.id)}
-                                    className="flex w-full items-center justify-between border-b border-border/30 bg-muted/35 px-4 py-2 text-left text-xs text-muted-foreground transition-colors app-motion-fast hover:bg-muted/55"
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      <ChevronRight size={14} />
-                                      {section.rows.length} unchanged line
-                                      {section.rows.length === 1 ? '' : 's'} hidden
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground/80">
-                                      Lines {startLeft}–{endLeft}
-                                    </span>
-                                  </button>
-                                );
-                              }
-
-                              return (
-                                <div key={section.id}>
-                                  {section.collapsible && (
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleSectionCollapsed(section.id)}
-                                      className="flex w-full items-center justify-between border-b border-border/30 bg-sidebar/20 px-4 py-1.5 text-left text-xs text-muted-foreground transition-colors app-motion-fast hover:bg-sidebar/35"
-                                    >
-                                      <span className="flex items-center gap-2">
-                                        <ChevronDown size={14} />
-                                        Showing {section.rows.length} unchanged line
-                                        {section.rows.length === 1 ? '' : 's'}
-                                      </span>
-                                      <span>Collapse</span>
-                                    </button>
-                                  )}
-                                  {section.rows.map((row, index) => (
-                                    <div
-                                      key={`${section.id}-${index}-${row.leftNumber ?? 'x'}-${row.rightNumber ?? 'y'}`}
-                                      className="grid grid-cols-2"
-                                    >
-                                      <div
-                                        className={cn(
-                                          'grid min-w-0 grid-cols-[56px_minmax(0,1fr)] border-b border-border/30 px-3 py-1.5',
-                                          row.kind === 'removed' && 'bg-rose-500/10',
-                                          row.kind === 'unchanged' && 'bg-transparent',
-                                        )}
-                                      >
-                                        <span className="select-none pr-3 text-right text-[10px] text-muted-foreground/80">
-                                          {row.leftNumber ?? ''}
-                                        </span>
-                                        <pre className="whitespace-pre-wrap break-words text-foreground/90">
-                                          {row.left ?? ''}
-                                        </pre>
-                                      </div>
-                                      <div
-                                        className={cn(
-                                          'grid min-w-0 grid-cols-[56px_minmax(0,1fr)] border-b border-l border-border/30 px-3 py-1.5',
-                                          row.kind === 'added' && 'bg-emerald-500/10',
-                                          row.kind === 'unchanged' && 'bg-transparent',
-                                        )}
-                                      >
-                                        <span className="select-none pr-3 text-right text-[10px] text-muted-foreground/80">
-                                          {row.rightNumber ?? ''}
-                                        </span>
-                                        <pre className="whitespace-pre-wrap break-words text-foreground/90">
-                                          {row.right ?? ''}
-                                        </pre>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                    +{summary.additions}
+                  </span>
+                  <span className="rounded-full bg-rose-500/12 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300">
+                    −{summary.removals}
+                  </span>
+                  {collapsibleSectionCount > 0 && view !== 'full' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setAllCollapsedSections(!areAllCollapsibleSectionsCollapsed)}
+                    >
+                      {areAllCollapsibleSectionsCollapsed ? 'Expand all gaps' : 'Collapse all gaps'}
+                    </Button>
                   )}
-                </>
-              ) : (
-                <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <Eye size={18} className="text-muted-foreground/70" />
-                    <div>Select a snapshot to compare it with the current file.</div>
+                  <div
+                    role="group"
+                    aria-label="Comparison view"
+                    className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+                  >
+                    {(
+                      [
+                        ['changes', 'Changes'],
+                        ['split', 'Side by side'],
+                        ['full', 'Full text'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={view === value}
+                        onClick={() => setView(value)}
+                        className={cn(
+                          'h-6 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground',
+                          view === value && 'bg-background text-foreground shadow-sm',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              )}
-            </section>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={dangerAction !== null}
-        onOpenChange={(next) => {
-          if (!next) setDangerAction(null);
-        }}
-      >
-        <DialogContent showCloseButton={false} className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {dangerAction?.type === 'clear-history'
-                ? 'Clear version history?'
-                : 'Delete snapshot?'}
-            </DialogTitle>
-            <DialogDescription>
-              {dangerAction?.type === 'clear-history'
-                ? 'This will permanently remove all saved snapshots for this file. This cannot be undone.'
-                : 'This will permanently remove the selected snapshot from this file history. This cannot be undone.'}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-            <Button variant="outline" onClick={() => setDangerAction(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (dangerAction?.type === 'clear-history') {
-                  void handleClearHistory();
-                } else if (dangerAction?.type === 'delete-snapshot') {
-                  void handleDeleteSnapshot(dangerAction.snapshot);
-                }
-              }}
-              disabled={clearingHistory || deletingSnapshotId !== null}
-            >
-              {dangerAction?.type === 'clear-history' ? 'Clear history' : 'Delete snapshot'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+
+                {loadingComparison ? (
+                  <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
+                    Loading comparison…
+                  </div>
+                ) : snapshotContent === null || currentContent === null ? (
+                  <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
+                    Preview unavailable for this version right now.
+                  </div>
+                ) : view === 'full' ? (
+                  <pre className="min-h-0 flex-1 overflow-auto px-5 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-words">
+                    {snapshotContent}
+                  </pre>
+                ) : diffSections.length === 0 ? (
+                  <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
+                    No differences found.
+                  </div>
+                ) : view === 'changes' ? (
+                  <div className="min-h-0 flex-1 overflow-auto py-1 font-mono text-[12.5px] leading-relaxed">
+                    {diffSections.map((section) =>
+                      section.collapsible && collapsedSections[section.id] ? (
+                        renderGap(section)
+                      ) : (
+                        <div key={section.id}>
+                          {renderGapHeader(section)}
+                          {section.rows.map((row, index) => (
+                            <div
+                              key={`${section.id}-${index}`}
+                              className={cn(
+                                'grid grid-cols-[48px_18px_minmax(0,1fr)] pr-4',
+                                row.kind === 'added' &&
+                                  'bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+                                row.kind === 'removed' &&
+                                  'bg-rose-500/10 text-rose-800 dark:text-rose-200',
+                              )}
+                            >
+                              <span className="pr-3 text-right text-[11px] text-muted-foreground/70 select-none">
+                                {row.kind === 'removed' ? row.leftNumber : row.rightNumber}
+                              </span>
+                              <span className="text-muted-foreground select-none">
+                                {row.kind === 'added' ? '+' : row.kind === 'removed' ? '−' : ''}
+                              </span>
+                              <pre className="whitespace-pre-wrap break-words">
+                                {(row.kind === 'added' ? row.right : row.left) ?? ''}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid min-h-0 flex-1 grid-rows-[auto,minmax(0,1fr)]">
+                    <div className="grid grid-cols-2 border-b border-border/40 bg-muted/30 text-xs font-medium text-muted-foreground">
+                      <div className="px-5 py-1.5">This version</div>
+                      <div className="border-l border-border/40 px-5 py-1.5">Now</div>
+                    </div>
+                    <div className="min-h-0 overflow-auto font-mono text-[12px] leading-5">
+                      {diffSections.map((section) =>
+                        section.collapsible && collapsedSections[section.id] ? (
+                          renderGap(section)
+                        ) : (
+                          <div key={section.id}>
+                            {renderGapHeader(section)}
+                            {section.rows.map((row, index) => (
+                              <div
+                                key={`${section.id}-${index}-${row.leftNumber ?? 'x'}-${row.rightNumber ?? 'y'}`}
+                                className="grid grid-cols-2"
+                              >
+                                <div
+                                  className={cn(
+                                    'grid min-w-0 grid-cols-[48px_minmax(0,1fr)] px-3 py-1',
+                                    row.kind === 'removed' && 'bg-rose-500/10',
+                                  )}
+                                >
+                                  <span className="pr-3 text-right text-[10px] text-muted-foreground/80 select-none">
+                                    {row.leftNumber ?? ''}
+                                  </span>
+                                  <pre className="whitespace-pre-wrap break-words text-foreground/90">
+                                    {row.left ?? ''}
+                                  </pre>
+                                </div>
+                                <div
+                                  className={cn(
+                                    'grid min-w-0 grid-cols-[48px_minmax(0,1fr)] border-l border-border/30 px-3 py-1',
+                                    row.kind === 'added' && 'bg-emerald-500/10',
+                                  )}
+                                >
+                                  <span className="pr-3 text-right text-[10px] text-muted-foreground/80 select-none">
+                                    {row.rightNumber ?? ''}
+                                  </span>
+                                  <pre className="whitespace-pre-wrap break-words text-foreground/90">
+                                    {row.right ?? ''}
+                                  </pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <Eye size={18} className="text-muted-foreground/70" />
+                  <div>Select a snapshot to compare it with the current file.</div>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+        <AppDialogFooter
+          start={
+            canDeleteHistory ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => void confirmClear()}
+                disabled={snapshots.length === 0 || clearingHistory || loadingSnapshots}
+              >
+                <Trash2 size={14} />
+                Clear history
+              </Button>
+            ) : undefined
+          }
+        >
+          <Button
+            variant="outline"
+            onClick={() => void copySnapshot()}
+            disabled={snapshotContent === null}
+          >
+            <Copy size={14} />
+            Copy text
+          </Button>
+          <Button
+            onClick={handleRestore}
+            disabled={!selectedSnapshot || restoringId === selectedSnapshot?.id}
+          >
+            <RotateCcw size={14} />
+            Restore this version
+          </Button>
+        </AppDialogFooter>
+      </AppDialogContent>
+    </Dialog>
+  );
+}
+
+function historyDayLabel(timestamp: number): string {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (timestamp >= start.getTime()) return 'Today';
+  if (timestamp >= start.getTime() - 86_400_000) return 'Yesterday';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(timestamp);
+}
+
+function historyClock(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(
+    timestamp,
   );
 }

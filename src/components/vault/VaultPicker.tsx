@@ -58,6 +58,9 @@ import {
   type VaultEntryKind,
   type VaultKindFilter,
 } from './launcher/vaultEntries';
+import {
+  confirmRemoveOfflineCopy,
+} from './confirmRemoveOfflineCopy';
 
 const KIND_FILTERS: { id: VaultKindFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -221,16 +224,7 @@ export default function VaultPicker() {
     });
 
   const removeOfflineCopy = async (replica: ReplicaSummary) => {
-    const pendingText =
-      replica.pendingCount > 0
-        ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
-        : '';
-    if (
-      !window.confirm(
-        `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
-      )
-    )
-      return;
+    if (!(await confirmRemoveOfflineCopy(replica))) return;
     try {
       await deleteHostedVaultReplica(replica);
       refreshReplicas();

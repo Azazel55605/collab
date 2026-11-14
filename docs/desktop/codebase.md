@@ -562,13 +562,13 @@ missing a control, add it there using the interaction and theming rules in
 
 ### Layout
 
-| File                         | Purpose                                               | Key stores                       | shadcn used         |
-| ---------------------------- | ----------------------------------------------------- | -------------------------------- | ------------------- |
-| `components/AppShell.tsx`    | Root shell: sidebar + tabbar + main area + statusbar  | vaultStore, editorStore, uiStore | ResizablePanelGroup |
-| `components/ActivityBar.tsx` | Leftmost icon strip, switches activeView/sidebarPanel | uiStore                          | Tooltip             |
-| `components/Sidebar.tsx`     | Dynamic panel host (files/search/tags/collab)         | uiStore                          | Sheet               |
-| `components/TabBar.tsx`      | Open tabs with dirty dot, drag-to-reorder             | editorStore, uiStore             | ContextMenu         |
-| `components/StatusBar.tsx`   | Bottom bar: vault name, file path, peer count         | vaultStore, collabStore          | —                   |
+| File                         | Purpose                                                                             | Key stores                       | shadcn used         |
+| ---------------------------- | ----------------------------------------------------------------------------------- | -------------------------------- | ------------------- |
+| `components/AppShell.tsx`    | Root shell: sidebar + tabbar + main area + statusbar                                | vaultStore, editorStore, uiStore | ResizablePanelGroup |
+| `components/ActivityBar.tsx` | Leftmost icon strip, switches activeView/sidebarPanel                               | uiStore                          | Tooltip             |
+| `components/Sidebar.tsx`     | Dynamic panel host (files/search/tags/collab)                                       | uiStore                          | Sheet               |
+| `components/TabBar.tsx`      | Open tabs with dirty dot, drag-to-reorder                                           | editorStore, uiStore             | ContextMenu         |
+| `components/StatusBar.tsx`   | Bottom bar: vault, file path, words, people, the sync center chip and notifications | vaultStore, collabStore          | —                   |
 
 ### Vault
 
@@ -577,7 +577,7 @@ missing a control, add it there using the interaction and theming rules in
 | `components/vault/VaultPicker.tsx`         | Start screen: rail (Vaults, Chats, Databases, servers with status and details) beside up to six recent cards and one searchable list of local, hosted and offline-copy vaults; rows offer Make available offline and Download as ZIP where allowed, and show each hosted vault's offline status in its own column | vaultStore, serverStore, uiStore      | Button, Dialog, DropdownMenu       |
 | `components/vault/launcher/`               | Start-screen parts: `vaultEntries.ts` (merge/filter/sort of vault and server entries), `LauncherRail`, `VaultlessWorkspace` (rail around chats/databases when no vault is open), `NewVaultDialog`, `ServerDetailsDialog`, `ServerStatus`                                                                          | vaultStore, serverStore               | Dialog, Button, Input              |
 | `components/vault/VaultManagerModal.tsx`   | Vault manager (880 × 600): This vault (Overview, Members, Offline copy or Encryption) and All vaults (searchable list); password changes in dialogs                                                                                                                                                               | vaultStore, collabStore, uiStore      | Dialog, Tabs, Button, Input        |
-| `components/vault/VaultUnlockModal.tsx`    | Password prompt for encrypted vaults                                                                                                                                                                                                                                                                              | vaultStore                            | Dialog, Input, Button              |
+| `components/vault/VaultUnlockModal.tsx`    | Unlock card for an encrypted vault on the start-screen backdrop; Back to all vaults                                                                                                                                                                                                                               | vaultStore                            | Dialog, Input, Button              |
 | `components/vault/FileTree.tsx`            | Unified file/folder browser with multi-type filters; creation for notes, Canvas, Kanban, logic, sheets, drawings, and folders; rename/delete/trash; path previews; and contextual references                                                                                                                      | vaultStore, editorStore, uiStore      | DropdownMenu, ContextMenu, Tooltip |
 | `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that loads incoming note/kanban/canvas references only on explicit request, avoiding a vault-wide parse during ordinary file selection                                                                                                                                            | FileTree state, typed file references | —                                  |
 | `components/vault/TrashPanel.tsx`          | Dedicated vault trash view for restore, purge, and purge-all flows                                                                                                                                                                                                                                                | vaultStore                            | Button, Dialog                     |
@@ -940,9 +940,13 @@ only the relations editor.
 
 ### Notifications
 
-| File                                              | Purpose                                                                          | shadcn used                 |
-| ------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------- |
-| `components/notifications/NotificationCenter.tsx` | In-app notification list with per-category icons, state transitions, and actions | Popover, Button, ScrollArea |
+| File                                              | Purpose                                                                                                                                | shadcn used                                                |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `components/ui/app-dialog.tsx`                    | The shared dialog shape: sizes s/m/l, header with tinted glyph, scrolling body, footer strip, choice cards                             | Dialog, RadioGroup                                         |
+| `components/ui/confirm-dialog.tsx`                | `confirmAction()` and its host: the themed replacement for `window.confirm`                                                            | app-dialog, zustand                                        |
+| `components/layout/SyncCenter.tsx`                | One status-bar chip and panel for vault sync, hosted calendars, the server connection and document conflicts (hooks in `layout/sync/`) | syncStore, calendarStore, serverStore, documentStatusStore |
+| `components/layout/DocumentReconciler.tsx`        | `useDocumentReconciliation` and the side-by-side review dialog (keep mine / use theirs / keep both)                                    | documentSessionController                                  |
+| `components/notifications/NotificationCenter.tsx` | Notifications grouped by day with kind filters, unread marks, Mark all read and hover actions                                          | Popover, Button, ScrollArea                                |
 
 ### Previews
 

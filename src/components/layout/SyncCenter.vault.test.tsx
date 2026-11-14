@@ -16,7 +16,7 @@ import { useSyncTransferStore } from '../../store/syncTransferStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { HostedVaultMeta, LocalVaultMeta } from '../../types/vault';
 
-import SyncStatusIndicator from './SyncStatusIndicator';
+import SyncCenter from './SyncCenter';
 
 const toastError = vi.fn();
 vi.mock('sonner', () => ({
@@ -108,23 +108,23 @@ beforeEach(() => {
   vi.mocked(listPendingOperationRecoveries).mockResolvedValue([]);
 });
 
-describe('SyncStatusIndicator', () => {
+describe('SyncCenter vault sync', () => {
   it('renders nothing for a local vault', () => {
     useVaultStore.setState({ vault: localVault } as never);
-    const { container } = render(<SyncStatusIndicator />);
+    const { container } = render(<SyncCenter />);
     expect(container.firstChild).toBeNull();
   });
 
   it('shows Synced when there is nothing pending', async () => {
     useVaultStore.setState({ vault: hostedVault } as never);
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
     expect(await screen.findByText('Synced')).not.toBeNull();
   });
 
   it('shows a pending count and lists pending changes in the popover', async () => {
     vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([pending('a')]);
     useVaultStore.setState({ vault: hostedVault } as never);
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
 
     fireEvent.click(await screen.findByText('1 pending'));
     expect(await screen.findByText('Plan.md')).not.toBeNull();
@@ -137,7 +137,7 @@ describe('SyncStatusIndicator', () => {
     ]);
     vi.mocked(listPendingOperationRecoveries).mockResolvedValue([recovery('a')]);
     useVaultStore.setState({ vault: hostedVault } as never);
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
 
     fireEvent.click(await screen.findByText('1 conflict'));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
@@ -157,7 +157,7 @@ describe('SyncStatusIndicator', () => {
     ]);
     vi.mocked(listPendingOperationRecoveries).mockResolvedValue([revoked]);
     useVaultStore.setState({ vault: hostedVault, closeVault: vi.fn() } as never);
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
 
     fireEvent.click(await screen.findByText('Access revoked'));
     // Sync now is disabled when access is lost.
@@ -180,7 +180,7 @@ describe('SyncStatusIndicator', () => {
     ]);
     vi.mocked(listPendingOperationRecoveries).mockResolvedValue([recovery('a')]);
     useVaultStore.setState({ vault: hostedVault } as never);
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
 
     fireEvent.click(await screen.findByText('1 conflict'));
     fireEvent.click(await screen.findByRole('button', { name: /Discard/ }));
@@ -190,9 +190,10 @@ describe('SyncStatusIndicator', () => {
   it('automatically syncs when the matching hosted server reconnects', async () => {
     useServerStore.setState({ connections: {} } as never);
     useVaultStore.setState({ vault: hostedVault } as never);
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
 
-    await screen.findByText('Synced');
+    // No session for the vault's server: the one chip says so.
+    await screen.findByText('Offline');
     expect(syncReplicaManifestDelta).not.toHaveBeenCalled();
 
     useServerStore.setState({
@@ -220,10 +221,10 @@ describe('SyncStatusIndicator', () => {
       completed: 2,
       total: 4,
     });
-    render(<SyncStatusIndicator />);
+    render(<SyncCenter />);
 
-    fireEvent.click(await screen.findByText('Syncing…'));
-    expect(await screen.findByText('Active transfers (1)')).not.toBeNull();
+    fireEvent.click(await screen.findByText('Syncing 50%'));
+    expect(await screen.findByRole('region', { name: 'In progress' })).not.toBeNull();
     expect(screen.getByText('50%')).not.toBeNull();
     expect(screen.getByText(/Team Vault · Notes\/Plan\.md/)).not.toBeNull();
 

@@ -65,6 +65,9 @@ import { Input } from '../ui/input';
 
 import { HostedMembersPanel } from './HostedMembersPanel';
 import { ManagerServersTab } from './ManagerServersTab';
+import {
+  confirmRemoveOfflineCopy,
+} from './confirmRemoveOfflineCopy';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -528,14 +531,7 @@ function VaultsTab({
   };
 
   const handleRemoveOfflineReplica = async (replica: ReplicaSummary) => {
-    const pendingText =
-      replica.pendingCount > 0
-        ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
-        : '';
-    const confirmed = window.confirm(
-      `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
-    );
-    if (!confirmed) return;
+    if (!(await confirmRemoveOfflineCopy(replica))) return;
     try {
       await deleteHostedVaultReplica(replica);
       if (

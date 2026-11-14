@@ -116,11 +116,15 @@ describe('CommandBarModeContent', () => {
 });
 
 describe('CommandBarModeHints', () => {
-  it('highlights the active mode hint', () => {
-    render(<CommandBarModeHints current="action" />);
+  it('marks the active mode and switches mode from its prefix chip', () => {
+    const onPick = vi.fn();
+    render(<CommandBarModeHints current="action" onPick={onPick} />);
 
-    const hint = screen.getByText('> Action');
-    expect(hint.className).toContain('bg-primary/20');
-    expect(screen.getByText('Search').className).toContain('bg-muted/60');
+    expect(screen.getByRole('button', { name: /commands/ }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('button', { name: /tags/ }).getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: /tags/ }));
+    expect(onPick).toHaveBeenCalledWith('#');
   });
 });

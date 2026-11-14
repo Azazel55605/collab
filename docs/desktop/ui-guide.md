@@ -445,6 +445,37 @@ Filter in the file tree because it opens a document tab.
 - Menus and popovers should use the same border, blur, and shadow language as the rest of the app.
 - Confirmation flows should make the safe action easy to identify.
 
+### The dialog pattern
+
+Every dialog is built from `components/ui/app-dialog.tsx`:
+
+- **Sizes.** `AppDialogContent size="s"` (420 px) for confirmations and short
+  choices, `"m"` (520 px) for forms, `"l"` (880 × 600) for workspaces such as list
+  - detail or version history.
+- **Header.** `AppDialogHeader`: an optional tinted glyph (`tone` accent,
+  warning, danger, success, neutral), the title as a noun or a question, and one
+  line of description. The close button sits top right.
+- **Body and footer.** `AppDialogBody` scrolls; `AppDialogFooter` is a tinted
+  strip with an alternative path in `start` (left) and Cancel then the primary
+  action on the right. Danger buttons are red and name what they do.
+- **Choices.** Use `ChoiceGroup` / `ChoiceCard` (cards with a title and a line
+  of explanation), not small radio buttons.
+- **Confirmations.** Never call `window.confirm` or `window.alert`. Use
+  `await confirmAction({ title, description, confirmLabel, destructive })` from
+  `components/ui/confirm-dialog.tsx`; its host is mounted once in `App.tsx`.
+- **Workspaces.** Large dialogs put a list (filter, rows, New) on the left and
+  setting rows for the selected item on the right.
+
+### Sync center
+
+The status bar has one sync chip (`layout/SyncCenter.tsx`) for the open hosted
+vault, hosted calendars, the server connection and the active document's
+remote changes. It shows only the worst state (Access revoked, N need you,
+Offline / Session expired, Syncing %, N pending, Synced). Its panel lists, in
+order: what needs you (each problem in plain words with one or two fixes), what
+is in progress, pending changes, and a row for everything else. Document save
+status stays in each document's header.
+
 ### Editor suggestion menus
 
 The Markdown, SQL, and fenced code block editors use the shared CodeMirror suggestion style in

@@ -11,85 +11,76 @@ import {
   type Reconciliation,
 } from '../../lib/documentSessionController';
 import { cn } from '../../lib/utils';
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
-import { ScrollArea } from '../ui/scroll-area';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+  ChoiceCard,
+  ChoiceGroup,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 
 import { DocumentStatusPill } from './DocumentStatusPill';
 
 /**
- * Shared Phase 3 reconciliation surface. Renders the non-modal
- * {@link DocumentStatusPill} for every migrated document view and, when there is
- * unresolved remote content (a queued pending-remote or a hard save conflict),
- * exposes a "Review" affordance that opens a non-dismissible dialog showing the
- * base/local/remote content with a line diff, a copy-out escape hatch, and the
- * three resolution actions (Load remote / Keep mine / Save mine as new). Every
- * path preserves a recoverable copy of the local content.
- *
- * Views pass the controller + subscribed snapshot; all action wiring lives here
- * so each view no longer re-implements load/keep handlers.
+ * Reconciliation of a document that changed elsewhere: a queued remote version
+ * while there are local edits, or a hard save conflict. The state lives in
+ * {@link useDocumentReconciliation} so any surface (the sync center, a status
+ * pill) can offer Review; {@link ReviewDialog} shows both versions side by side
+ * and three plain choices. Every path keeps a recoverable copy of local content.
  */
 export interface DocumentReconcilerProps<TDocument> {
   controller: DocumentSessionController<TDocument>;
   snapshot: DocumentSessionSnapshot<TDocument>;
-  /**
-   * Persists the local content as a new revision/file ("Save mine as new").
-   * Optional: when omitted, that action is hidden. Receives the local content.
-   */
+  /** Persists the local content as a new revision/file ("Keep both"). Optional. */
   onSaveAsNew?: (localContent: string) => Promise<void>;
   /** Read-only views (hosted viewers) never reconcile; the surface hides itself. */
   readOnly?: boolean;
+  /** Shown in the review dialog's title. */
+  documentName?: string;
   className?: string;
   hideWhenSaved?: boolean;
   compact?: boolean;
 }
 
-export function DocumentReconciler<TDocument>({
-  controller,
-  snapshot,
-  onSaveAsNew,
-  readOnly = false,
-  className,
-  hideWhenSaved,
-  compact,
-}: DocumentReconcilerProps<TDocument>) {
-  const reconciliation = useMemo(() => deriveReconciliation(snapshot), [snapshot]);
+export function useDocumentReconciliation<TDocument>(
+  controller: DocumentSessionController<TDocument> | null,
+  snapshot: DocumentSessionSnapshot<TDocument> | null,
+  onSaveAsNew?: (localContent: string) => Promise<void>,
+) {
+  const reconciliation = useMemo(
+    () => (snapshot ? deriveReconciliation(snapshot) : null),
+    [snapshot],
+  );
   const [reviewOpen, setReviewOpen] = useState(false);
   const [savingAsNew, setSavingAsNew] = useState(false);
 
-  // Keep autosave paused for the whole time the review dialog is open so a
-  // debounced write cannot fire mid-review and race the user's decision.
+  // Keep autosave paused while reviewing so a debounced write cannot race the decision.
   useEffect(() => {
-    if (!reviewOpen) return;
+    if (!reviewOpen || !controller) return;
     controller.pauseAutosave();
     return () => controller.resumeAutosave();
   }, [reviewOpen, controller]);
 
-  // If the reconciliation clears while the dialog is open (e.g. resolved from
-  // another surface), close it.
+  // Resolved from another surface while open: close.
   useEffect(() => {
     if (reviewOpen && !reconciliation) setReviewOpen(false);
   }, [reviewOpen, reconciliation]);
 
   const loadRemote = useCallback(() => {
-    controller.loadRemote();
+    controller?.loadRemote();
     setReviewOpen(false);
   }, [controller]);
 
   const keepMine = useCallback(() => {
-    controller.keepMine();
+    controller?.keepMine();
     setReviewOpen(false);
   }, [controller]);
 
   const saveAsNew = useCallback(async () => {
-    if (!onSaveAsNew) return;
+    if (!onSaveAsNew || !controller) return;
     setSavingAsNew(true);
     try {
       await controller.saveMineAsNew(onSaveAsNew);
@@ -101,21 +92,44 @@ export function DocumentReconciler<TDocument>({
     }
   }, [controller, onSaveAsNew]);
 
+  return {
+    reconciliation,
+    reviewOpen,
+    setReviewOpen,
+    loadRemote,
+    keepMine,
+    saveAsNew: onSaveAsNew ? saveAsNew : undefined,
+    savingAsNew,
+  };
+}
+
+export function DocumentReconciler<TDocument>({
+  controller,
+  snapshot,
+  onSaveAsNew,
+  readOnly = false,
+  documentName,
+  className,
+  hideWhenSaved,
+  compact,
+}: DocumentReconcilerProps<TDocument>) {
+  const state = useDocumentReconciliation(controller, snapshot, onSaveAsNew);
   if (readOnly) return null;
+  const { reconciliation } = state;
 
   return (
     <div className={cn('flex items-center gap-2', className)}>
       <DocumentStatusPill
         status={snapshot.status}
-        onLoadRemote={reconciliation ? loadRemote : undefined}
-        onKeepLocal={reconciliation ? keepMine : undefined}
+        onLoadRemote={reconciliation ? state.loadRemote : undefined}
+        onKeepLocal={reconciliation ? state.keepMine : undefined}
         hideWhenSaved={hideWhenSaved}
         compact={compact}
       />
       {reconciliation && (
         <button
           type="button"
-          onClick={() => setReviewOpen(true)}
+          onClick={() => state.setReviewOpen(true)}
           className={cn(
             'inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] font-medium text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent',
             compact && 'px-1.5 py-0 text-[10px]',
@@ -127,33 +141,38 @@ export function DocumentReconciler<TDocument>({
       )}
       {reconciliation && (
         <ReviewDialog
-          open={reviewOpen}
-          onOpenChange={setReviewOpen}
+          open={state.reviewOpen}
+          onOpenChange={state.setReviewOpen}
           reconciliation={reconciliation}
-          onLoadRemote={loadRemote}
-          onKeepMine={keepMine}
-          onSaveAsNew={onSaveAsNew ? saveAsNew : undefined}
-          savingAsNew={savingAsNew}
+          documentName={documentName}
+          onLoadRemote={state.loadRemote}
+          onKeepMine={state.keepMine}
+          onSaveAsNew={state.saveAsNew}
+          savingAsNew={state.savingAsNew}
         />
       )}
     </div>
   );
 }
 
-interface ReviewDialogProps {
+type Choice = 'mine' | 'theirs' | 'both';
+
+export interface ReviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   reconciliation: Reconciliation;
+  documentName?: string;
   onLoadRemote: () => void;
   onKeepMine: () => void;
   onSaveAsNew?: () => void;
   savingAsNew: boolean;
 }
 
-function ReviewDialog({
+export function ReviewDialog({
   open,
   onOpenChange,
   reconciliation,
+  documentName,
   onLoadRemote,
   onKeepMine,
   onSaveAsNew,
@@ -161,87 +180,139 @@ function ReviewDialog({
 }: ReviewDialogProps) {
   const { kind, base, ours, theirs } = reconciliation;
   const isConflict = kind === 'conflict';
+  const [choice, setChoice] = useState<Choice>('mine');
+  useEffect(() => {
+    if (open) setChoice('mine');
+  }, [open]);
+  const name = documentName ?? 'This document';
+  const changed = useMemo(() => changedLines(ours, theirs), [ours, theirs]);
+
+  const apply = () => {
+    if (choice === 'mine') onKeepMine();
+    else if (choice === 'theirs') onLoadRemote();
+    else onSaveAsNew?.();
+  };
+  const actionLabel =
+    choice === 'mine'
+      ? 'Keep mine'
+      : choice === 'theirs'
+        ? 'Use theirs'
+        : savingAsNew
+          ? 'Saving copy…'
+          : 'Keep both';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Non-dismissible: unresolved data would be lost, so clicking the overlay
-          or pressing Escape must not silently discard the user's local copy. */}
-      <DialogContent
+      {/* Non-dismissible by overlay or Escape: unresolved data must not be dropped
+          by accident. "Decide later" closes it explicitly. */}
+      <AppDialogContent
+        size="l"
         showCloseButton={false}
         onInteractOutside={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.preventDefault()}
-        className="flex w-[calc(100%-2rem)] h-[min(720px,calc(100dvh-2rem))] min-w-0 flex-col gap-3 sm:max-w-5xl"
+        className="h-[min(680px,calc(100dvh-2rem))] sm:max-w-[960px]"
       >
-        <DialogHeader className="shrink-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-lg',
-                isConflict
-                  ? 'bg-destructive/15 text-destructive'
-                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-              )}
-            >
-              <AlertTriangle size={16} />
-            </span>
-            <div>
-              <DialogTitle>
-                {isConflict ? 'Conflict needs review' : 'Remote changes available'}
-              </DialogTitle>
-              <DialogDescription className="mt-0.5">
-                {isConflict
-                  ? 'This document changed elsewhere while your save was in flight. Your local copy is safe below — choose how to reconcile.'
-                  : 'A newer version arrived while you had unsaved edits. Your local copy is safe below — choose how to reconcile.'}
-              </DialogDescription>
-            </div>
+        <AppDialogHeader
+          icon={<AlertTriangle />}
+          tone={isConflict ? 'danger' : 'warning'}
+          title={isConflict ? 'Conflict needs review' : 'Remote changes available'}
+          description={
+            isConflict
+              ? `${name} changed elsewhere while your save was on its way. Pick what to keep; nothing is lost either way.`
+              : `A newer version of ${name.toLowerCase() === 'this document' ? 'this document' : name} arrived while you had unsaved edits. Pick what to keep; nothing is lost either way.`
+          }
+        />
+        <AppDialogBody className="gap-3">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+            <ContentPane
+              label="Your version"
+              detail="on this device"
+              tone="local"
+              content={ours}
+              changed={changed.ours}
+            />
+            <ContentPane
+              label="Their version"
+              detail={base === null ? 'no common base' : 'from the server'}
+              tone="remote"
+              content={theirs}
+              changed={changed.theirs}
+            />
           </div>
-        </DialogHeader>
-
-        <ScrollArea className="min-h-0 flex-1 overflow-hidden [&>[data-slot=scroll-area-viewport]>div]:block!">
-          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-            <ContentPane label="Your version" tone="local" content={ours} />
-            <ContentPane label="Their version" tone="remote" content={theirs} />
-          </div>
-
-          <div className="mt-3">
-            <DiffPane base={base} ours={ours} theirs={theirs} />
-          </div>
-        </ScrollArea>
-
-        <DialogFooter className="mt-1 shrink-0 flex-wrap gap-2">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Later
-          </Button>
-          {onSaveAsNew && (
-            <Button variant="outline" size="sm" onClick={onSaveAsNew} disabled={savingAsNew}>
-              {savingAsNew ? 'Saving copy…' : 'Save mine as new'}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onLoadRemote}
-            className="border-destructive/30 text-destructive hover:bg-destructive/10"
+          <ChoiceGroup
+            value={choice}
+            onValueChange={(value) => setChoice(value as Choice)}
+            aria-label="What to keep"
+            className={cn('shrink-0', onSaveAsNew ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}
           >
-            Load remote
+            <ChoiceCard
+              value="mine"
+              title="Keep mine"
+              description="Mine is saved on top; theirs stays in history"
+            />
+            <ChoiceCard
+              value="theirs"
+              title="Use theirs"
+              description="Load their version; copy mine first if needed"
+            />
+            {onSaveAsNew && (
+              <ChoiceCard
+                value="both"
+                title="Keep both"
+                description="Save mine as a new copy, then load theirs"
+              />
+            )}
+          </ChoiceGroup>
+        </AppDialogBody>
+        <AppDialogFooter
+          start={
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Decide later
+            </Button>
+          }
+        >
+          <Button onClick={apply} disabled={choice === 'both' && savingAsNew}>
+            {actionLabel}
           </Button>
-          <Button size="sm" onClick={onKeepMine}>
-            Keep mine
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }
 
+/** Line numbers (0-based) that differ between the two versions, per side. */
+function changedLines(ours: string, theirs: string) {
+  const result = { ours: new Set<number>(), theirs: new Set<number>() };
+  let oursLine = 0;
+  let theirsLine = 0;
+  for (const part of diffLines(ours, theirs)) {
+    const count = part.count ?? part.value.split('\n').length - 1;
+    if (part.added) {
+      for (let i = 0; i < count; i += 1) result.theirs.add(theirsLine + i);
+      theirsLine += count;
+    } else if (part.removed) {
+      for (let i = 0; i < count; i += 1) result.ours.add(oursLine + i);
+      oursLine += count;
+    } else {
+      oursLine += count;
+      theirsLine += count;
+    }
+  }
+  return result;
+}
+
 function ContentPane({
   label,
+  detail,
   tone,
   content,
+  changed,
 }: {
   label: string;
+  detail: string;
   tone: 'local' | 'remote';
   content: string;
+  changed: Set<number>;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -255,71 +326,44 @@ function ContentPane({
     }
   }, [content]);
 
+  const lines = content.split('\n');
   return (
-    <div className="min-w-0 space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              'h-2 w-2 rounded-full',
-              tone === 'local' ? 'bg-primary' : 'bg-destructive',
-            )}
-          />
-          <span
-            className={cn(
-              'text-xs font-semibold',
-              tone === 'local' ? 'text-primary' : 'text-destructive',
-            )}
-          >
-            {label}
-          </span>
-        </div>
+    <section
+      aria-label={label}
+      className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-border/70"
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2">
+        <span
+          className={cn('size-2 rounded-full', tone === 'local' ? 'bg-primary' : 'bg-sky-400')}
+        />
+        <span className="text-[13px] font-semibold">{label}</span>
+        <span className="flex-1 truncate text-[11.5px] text-muted-foreground">{detail}</span>
         <button
           type="button"
           onClick={copy}
-          className="inline-flex items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent"
         >
           {copied ? <Check size={11} /> : <ClipboardCopy size={11} />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre
-        className={cn(
-          'max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border p-3 font-mono text-[11px] leading-relaxed',
-          tone === 'local'
-            ? 'border-primary/15 bg-primary/5'
-            : 'border-destructive/15 bg-destructive/5',
+      <pre className="min-h-0 flex-1 overflow-auto py-2 font-mono text-[12px] leading-relaxed">
+        {content ? (
+          lines.map((line, index) => (
+            <span
+              key={index}
+              className={cn(
+                'block px-3 whitespace-pre-wrap break-all',
+                changed.has(index) && (tone === 'local' ? 'bg-primary/12' : 'bg-sky-400/12'),
+              )}
+            >
+              {line || ' '}
+            </span>
+          ))
+        ) : (
+          <span className="px-3 text-muted-foreground italic">(empty)</span>
         )}
-      >
-        {content || <span className="text-muted-foreground italic">(empty)</span>}
       </pre>
-    </div>
-  );
-}
-
-function DiffPane({ base, ours, theirs }: { base: string | null; ours: string; theirs: string }) {
-  const parts = useMemo(() => diffLines(ours, theirs), [ours, theirs]);
-  return (
-    <details className="rounded-lg border border-border/60 bg-muted/30">
-      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground">
-        Line differences (yours → theirs)
-        {base === null && <span className="ml-1 opacity-70">· no common base</span>}
-      </summary>
-      <pre className="max-h-56 overflow-auto px-3 pb-3 font-mono text-[11px] leading-relaxed">
-        {parts.map((part, i) => (
-          <span
-            key={i}
-            className={cn(
-              part.added && 'block bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-              part.removed && 'block bg-destructive/10 text-destructive line-through',
-              !part.added && !part.removed && 'block text-muted-foreground',
-            )}
-          >
-            {part.added ? '+ ' : part.removed ? '- ' : '  '}
-            {part.value.replace(/\n$/, '')}
-          </span>
-        ))}
-      </pre>
-    </details>
+    </section>
   );
 }

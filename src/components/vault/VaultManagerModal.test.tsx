@@ -6,6 +6,8 @@ import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { HostedVaultMeta, HostedVaultSummary, LocalVaultMeta } from '../../types/vault';
 
+import { ConfirmDialogHost } from '../ui/confirm-dialog';
+
 import VaultManagerModal from './VaultManagerModal';
 
 vi.mock('../../lib/tauri', () => ({
@@ -313,10 +315,16 @@ describe('VaultManagerModal hosted vaults', () => {
     replicaMock.listHostedVaultReplicas
       .mockResolvedValueOnce([staleReplica])
       .mockResolvedValueOnce([]);
-    render(<VaultManagerModal />);
+    render(
+      <>
+        <VaultManagerModal />
+        <ConfirmDialogHost />
+      </>,
+    );
 
     expect(await screen.findByText('Stale Offline')).toBeTruthy();
     fireEvent.click(screen.getByTitle('Remove offline copy'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove copy' }));
 
     await waitFor(() =>
       expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(staleReplica),

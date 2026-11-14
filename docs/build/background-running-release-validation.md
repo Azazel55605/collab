@@ -57,7 +57,7 @@ cargo check --workspace
 NODE_ENV=test ./node_modules/.bin/vitest run \
   src/lib/vaultReplica.test.ts \
   src/components/settings/SettingsBackgroundSection.test.tsx \
-  src/components/layout/SyncStatusIndicator.test.tsx
+  src/components/layout/SyncCenter.vault.test.tsx
 NODE_ENV=test ./node_modules/.bin/vitest run \
   --config apps/mobile-android/vitest.config.ts
 ./node_modules/.bin/tsc --noEmit

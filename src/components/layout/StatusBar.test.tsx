@@ -12,16 +12,12 @@ vi.mock('../collaboration/PresenceBar', () => ({
   default: () => <span data-testid="presence-bar" />,
 }));
 
-vi.mock('./HostedConnectionStatus', () => ({
-  default: () => <span data-testid="hosted-connection-status" />,
-}));
-
-vi.mock('./SyncStatusIndicator', () => ({
-  default: () => <span data-testid="sync-indicator">Sync</span>,
-}));
-
-vi.mock('./CalendarSyncStatusIndicator', () => ({
-  default: () => <span data-testid="calendar-sync-indicator" />,
+const syncCenterProps = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('./SyncCenter', () => ({
+  default: (props: unknown) => {
+    syncCenterProps.current = props;
+    return <span data-testid="sync-center">Sync</span>;
+  },
 }));
 
 vi.mock('../notifications/NotificationCenter', () => ({
@@ -48,21 +44,26 @@ describe('StatusBar', () => {
     useDocumentStatusStore.setState({ statuses: {} });
   });
 
-  it('renders active document status next to the sync indicator', () => {
+  it('hands the active document to the sync center, between people and notifications', () => {
+    useDocumentStatusStore.getState().setDocumentStatus('Notes/a.md', { status: 'conflict' });
+
+    render(<StatusBar />);
+
+    expect(syncCenterProps.current).toMatchObject({
+      document: { relativePath: 'Notes/a.md', status: { status: 'conflict' } },
+    });
+    const presence = screen.getByTestId('presence-bar');
+    const sync = screen.getByTestId('sync-center');
+    const bell = screen.getByTestId('notification-center');
+    expect(presence.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sync.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('leaves document save status to the document header', () => {
     useDocumentStatusStore.getState().setDocumentStatus('Notes/a.md', { status: 'dirty' });
 
     render(<StatusBar />);
 
-    const sync = screen.getByTestId('sync-indicator');
-    const status = screen.getByText('Unsaved changes');
-    expect(sync.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('does not show a saved pill for clean documents', () => {
-    useDocumentStatusStore.getState().setDocumentStatus('Notes/a.md', { status: 'idle' });
-
-    render(<StatusBar />);
-
-    expect(screen.queryByText('Saved')).toBeNull();
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 });

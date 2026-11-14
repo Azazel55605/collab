@@ -6,7 +6,7 @@ import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import type { CalendarDefinition, CalendarMirrorGroup } from '../../types/calendar';
 
-import CalendarSyncStatusIndicator from './CalendarSyncStatusIndicator';
+import SyncCenter from './SyncCenter';
 
 const serverUrl = 'https://calendar.example.test';
 const hostedLocation = { kind: 'hosted' as const, serverUrl, userId: 'user-1' };
@@ -86,7 +86,7 @@ beforeEach(() => {
   useUiStore.setState({ activeView: 'editor' });
 });
 
-describe('CalendarSyncStatusIndicator mirrors', () => {
+describe('SyncCenter calendar mirrors', () => {
   it('shows waiting groups in the global calendar sync menu', () => {
     useCalendarStore.setState({
       mirrorStatuses: [
@@ -98,10 +98,10 @@ describe('CalendarSyncStatusIndicator mirrors', () => {
         },
       ],
     });
-    render(<CalendarSyncStatusIndicator />);
+    render(<SyncCenter />);
 
     fireEvent.click(screen.getByText('1 mirror waiting'));
-    expect(screen.getByText('Personal mirror')).toBeTruthy();
+    expect(screen.getByText('Mirror · Personal mirror')).toBeTruthy();
     expect(screen.getByText('Waiting for every server connection')).toBeTruthy();
   });
 
@@ -127,11 +127,11 @@ describe('CalendarSyncStatusIndicator mirrors', () => {
         },
       },
     });
-    render(<CalendarSyncStatusIndicator />);
+    render(<SyncCenter />);
 
-    fireEvent.click(screen.getByText('1 calendar issue'));
+    fireEvent.click(screen.getByText('1 needs you'));
     expect(screen.getByText('temporary write failure')).toBeTruthy();
-    fireEvent.click(screen.getByTitle('Retry mirror sync'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(syncHosted).toHaveBeenCalledWith([{ serverUrl, userId: 'user-1' }]));
   });
 
@@ -156,10 +156,10 @@ describe('CalendarSyncStatusIndicator mirrors', () => {
         },
       ],
     });
-    render(<CalendarSyncStatusIndicator />);
+    render(<SyncCenter />);
 
-    fireEvent.click(screen.getByText('1 calendar conflict'));
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    fireEvent.click(screen.getByText('1 needs you'));
+    fireEvent.click(screen.getByRole('button', { name: 'Review in Calendar' }));
     expect(useUiStore.getState().activeView).toBe('calendar');
   });
 });

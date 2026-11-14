@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useCollabStore } from '../../../store/collabStore';
 import { useEditorStore } from '../../../store/editorStore';
 import { useVaultStore } from '../../../store/vaultStore';
+import { ConfirmDialogHost } from '../../ui/confirm-dialog';
 
 import { VersionHistoryModal } from './VersionHistoryModal';
 
@@ -171,7 +172,11 @@ describe('VersionHistoryModal', () => {
     fireEvent.click(screen.getByText('Expand all gaps'));
 
     expect(await screen.findByText('Showing 10 unchanged lines')).toBeTruthy();
+    // The default Changes view shows an unchanged line once.
+    expect((await screen.findAllByText('shared 5')).length).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
     expect((await screen.findAllByText('shared 5')).length).toBe(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
 
     fireEvent.click(screen.getByText('Collapse all gaps'));
 
@@ -237,16 +242,21 @@ describe('VersionHistoryModal', () => {
 
     fireEvent.click(screen.getByText('Expand all gaps'));
 
-    expect((await screen.findAllByText('lead 5')).length).toBe(2);
-    expect((await screen.findAllByText('tail 5')).length).toBe(2);
+    expect((await screen.findAllByText('lead 5')).length).toBe(1);
+    expect((await screen.findAllByText('tail 5')).length).toBe(1);
   });
 
   it('deletes a selected snapshot after confirmation', async () => {
-    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
+    render(
+      <>
+        <VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />
+        <ConfirmDialogHost />
+      </>,
+    );
 
     await screen.findAllByText('Before edits');
     fireEvent.click(screen.getByTitle('Delete snapshot'));
-    fireEvent.click(screen.getByText('Delete snapshot'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete snapshot' }));
 
     await waitFor(() => {
       expect(tauriCommandsMock.deleteSnapshot).toHaveBeenCalledWith(
@@ -258,11 +268,17 @@ describe('VersionHistoryModal', () => {
   });
 
   it('clears history after confirmation', async () => {
-    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
+    render(
+      <>
+        <VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />
+        <ConfirmDialogHost />
+      </>,
+    );
 
     await screen.findAllByText('Before edits');
-    fireEvent.click(screen.getByText('Clear history'));
     fireEvent.click(screen.getByRole('button', { name: 'Clear history' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Clear the whole version history?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Clear history' }));
 
     await waitFor(() => {
       expect(tauriCommandsMock.clearSnapshotHistory).toHaveBeenCalledWith('/vault', 'Docs/plan.md');

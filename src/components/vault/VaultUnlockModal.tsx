@@ -1,28 +1,31 @@
 import { useRef, useState } from 'react';
 
-import { Eye, EyeOff, Lock, LogOut, Vault } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useVaultStore } from '../../store/vaultStore';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
+/** A locked, encrypted vault: one card on the start screen's backdrop. */
 export default function VaultUnlockModal() {
   const { vault, unlockVault, closeVault } = useVaultStore();
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [wrong, setWrong] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const submit = async () => {
     if (!password || busy) return;
     setBusy(true);
+    setWrong(false);
     try {
       await unlockVault(password);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.toLowerCase().includes('incorrect')) {
-        toast.error('Incorrect password');
+        setWrong(true);
         setPassword('');
         inputRef.current?.focus();
         return;
@@ -34,77 +37,76 @@ export default function VaultUnlockModal() {
   };
 
   return (
-    <div className="vault-bg flex h-screen items-center justify-center overflow-hidden">
-      {/* Ambient glow */}
+    <div className="vault-bg app-launcher-enter flex h-screen items-center justify-center overflow-hidden">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-primary/8 blur-[120px] app-ambient-drift" />
-        <div className="absolute bottom-0 right-1/4 w-[400px] h-[300px] rounded-full bg-blue-500/6 blur-[100px] app-ambient-drift [animation-delay:-2.4s]" />
+        <div className="absolute -top-40 left-1/3 h-[420px] w-[620px] rounded-full bg-primary/10 blur-[120px] app-ambient-drift" />
+        <div className="absolute right-1/4 bottom-0 h-[300px] w-[420px] rounded-full bg-sky-500/8 blur-[100px] app-ambient-drift [animation-delay:-2.4s]" />
       </div>
 
-      <div className="relative w-full max-w-sm px-4">
-        {/* Icon + title */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/20 mb-4 glow-primary-sm">
-            <Lock size={24} className="text-primary" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Vault Locked</h1>
-          <div className="flex items-center justify-center gap-1.5 mt-1.5">
-            <Vault size={12} className="text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">{vault?.name}</p>
-          </div>
+      <form
+        className="relative flex w-full max-w-[380px] flex-col items-center gap-4 rounded-[18px] border border-border/70 bg-popover/90 px-7 pt-8 pb-6 text-center shadow-2xl shadow-black/40 backdrop-blur-xl"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+          <Lock size={26} />
+        </span>
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-semibold">{vault?.name}</h1>
+          <p className="truncate text-[12.5px] text-muted-foreground" title={vault?.path}>
+            Encrypted vault{vault?.kind !== 'hosted' && vault?.path ? ` · ${vault.path}` : ''}
+          </p>
         </div>
-
-        {/* Card */}
-        <div className="glass rounded-xl p-5 shadow-2xl space-y-3">
-          <div className="relative">
-            <Input
-              ref={inputRef}
-              type={showPw ? 'text' : 'password'}
-              placeholder="Enter vault password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit();
-              }}
-              autoFocus
-              disabled={busy}
-              className="h-11 pr-10 text-sm"
-            />
-            <Button
-              type="button"
-              onClick={() => setShowPw((v) => !v)}
-              variant="ghost"
-              size="icon"
-              className="absolute right-1.5 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              tabIndex={-1}
-            >
-              {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-            </Button>
-          </div>
-
+        <div className="relative w-full">
+          <Input
+            ref={inputRef}
+            type={showPw ? 'text' : 'password'}
+            placeholder="Vault password"
+            aria-label="Vault password"
+            aria-invalid={wrong || undefined}
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setWrong(false);
+            }}
+            autoFocus
+            disabled={busy}
+            className="h-10 pr-10 text-sm"
+          />
           <Button
-            onClick={submit}
-            disabled={!password || busy}
-            className="w-full h-11 gap-2 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
-          >
-            <Lock size={15} />
-            {busy ? 'Unlocking…' : 'Unlock Vault'}
-          </Button>
-        </div>
-
-        {/* Switch vault */}
-        <div className="text-center mt-4">
-          <Button
-            onClick={closeVault}
+            type="button"
+            onClick={() => setShowPw((v) => !v)}
             variant="ghost"
-            size="sm"
-            className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/60 hover:text-muted-foreground"
+            size="icon"
+            aria-label={showPw ? 'Hide password' : 'Show password'}
+            className="absolute top-1/2 right-1.5 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            tabIndex={-1}
           >
-            <LogOut size={11} />
-            Switch vault
+            {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
           </Button>
         </div>
-      </div>
+        {wrong && (
+          <p role="alert" className="-mt-2 w-full text-left text-xs text-destructive">
+            That password is not right. Try again.
+          </p>
+        )}
+        <Button type="submit" disabled={!password || busy} className="h-10 w-full gap-2">
+          <Lock size={15} />
+          {busy ? 'Unlocking…' : 'Unlock'}
+        </Button>
+        <Button
+          type="button"
+          onClick={closeVault}
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-muted-foreground"
+        >
+          <ArrowLeft size={13} />
+          Back to all vaults
+        </Button>
+      </form>
     </div>
   );
 }

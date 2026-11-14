@@ -1,4 +1,7 @@
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
+import { Dialog } from '../ui/dialog';
 
 /** Keep Escape/close available while an overlay's content module loads or fails. */
 export function DeferredModalStatus({
@@ -17,19 +20,23 @@ export function DeferredModalStatus({
         if (!open) close();
       }}
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {failed
+      <AppDialogContent size="s">
+        <AppDialogHeader
+          icon={failed ? <AlertTriangle /> : <Loader2 className="animate-spin" />}
+          tone={failed ? 'warning' : 'neutral'}
+          title={title}
+          description={
+            failed
               ? 'Could not load this window. Save your other work and reopen Collab to try again.'
-              : 'Loading…'}
-          </DialogDescription>
-        </DialogHeader>
-        <p role={failed ? 'alert' : 'status'} className="text-sm text-muted-foreground">
-          {failed ? 'You can close this window and continue working.' : 'Preparing this window.'}
-        </p>
-      </DialogContent>
+              : 'Loading…'
+          }
+        />
+        <AppDialogBody>
+          <p role={failed ? 'alert' : 'status'} className="text-sm text-muted-foreground">
+            {failed ? 'You can close this window and continue working.' : 'Preparing this window.'}
+          </p>
+        </AppDialogBody>
+      </AppDialogContent>
     </Dialog>
   );
 }

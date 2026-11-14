@@ -6,6 +6,8 @@ import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 
+import { ConfirmDialogHost } from '../ui/confirm-dialog';
+
 import VaultPicker from './VaultPicker';
 
 vi.mock('../../lib/tauri', () => ({
@@ -275,7 +277,8 @@ describe('VaultPicker start screen', () => {
     expect(screen.getByRole('status').textContent).toContain('saved.example.test is signed out');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to saved.example.test' }));
 
-    expect(await screen.findByText(/alice on https:\/\/saved\.example\.test/)).toBeTruthy();
+    expect(await screen.findByText(/session on saved\.example\.test ended/)).toBeTruthy();
+    expect(screen.getByDisplayValue('alice')).toBeTruthy();
     expect(screen.getByLabelText('Password')).toBeTruthy();
     expect(screen.queryByLabelText('Server URL')).toBeNull();
   });
@@ -309,10 +312,16 @@ describe('VaultPicker start screen', () => {
     replicaMock.listHostedVaultReplicas.mockResolvedValueOnce([stale]).mockResolvedValueOnce([]);
     useServerStore.setState({ connections: {} });
 
-    render(<VaultPicker />);
+    render(
+      <>
+        <VaultPicker />
+        <ConfirmDialogHost />
+      </>,
+    );
     await screen.findByRole('button', { name: 'Stale Offline' });
     openRowMenu('Stale Offline');
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove offline copy' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove copy' }));
 
     await waitFor(() => expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(stale));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Stale Offline' })).toBeNull());

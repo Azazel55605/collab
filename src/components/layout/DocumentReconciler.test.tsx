@@ -75,8 +75,9 @@ describe('DocumentReconciler', () => {
     // Both versions are shown; the dialog names the state.
     expect(await screen.findByText('Your version')).toBeTruthy();
     expect(screen.getByText('Their version')).toBeTruthy();
-    // "Load remote" and "Keep mine" resolution actions are present.
-    expect(screen.getByRole('button', { name: 'Load remote' })).toBeTruthy();
+    // The choices are cards; one primary button applies the chosen one.
+    expect(screen.getByRole('radio', { name: /Use theirs/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Keep mine/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Keep mine' })).toBeTruthy();
   });
 
@@ -85,7 +86,8 @@ describe('DocumentReconciler', () => {
     pendingRemote(controller);
     render(<Harness controller={controller} />);
     fireEvent.click(screen.getByRole('button', { name: /review/i }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Load remote' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Use theirs/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use theirs' }));
 
     await waitFor(() => expect(controller.getReconciliation()).toBeNull());
     expect(controller.getSnapshot().currentContent).toBe('theirs');
@@ -118,7 +120,8 @@ describe('DocumentReconciler', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /review/i }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Save mine as new' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Keep both/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep both' }));
 
     await waitFor(() => expect(persisted).toEqual(['mine']));
     expect(controller.getSnapshot().currentContent).toBe('theirs');
