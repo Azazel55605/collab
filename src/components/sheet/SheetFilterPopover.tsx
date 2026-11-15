@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { Check, Filter, ListChecks, RotateCcw } from 'lucide-react';
+import { Check, Filter, RotateCcw } from 'lucide-react';
 
 import type { SheetTableColumnColors } from '../../lib/sheet/dataTools';
+import { cn } from '../../lib/utils';
 import type { SheetColumnFilter, SheetTableColumn } from '../../types/sheet';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { DatePicker } from '../ui/date-picker';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import {
+  PopoverPanel,
+  PopoverPanelBody,
+  PopoverPanelFooter,
+  PopoverPanelHeader,
+} from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 type FilterValue = string | number | boolean | null;
@@ -50,6 +57,7 @@ export default function SheetFilterPopover({
   filter,
   onApply,
 }: Props) {
+  const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<FilterMode>(() => initialMode(filter));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(
@@ -112,8 +120,16 @@ export default function SheetFilterPopover({
     onApply(Object.keys(next).length === 1 ? null : next);
   };
 
+  const modes: [FilterMode, string][] = [
+    ['values', 'Values'],
+    ['text', 'Text'],
+    ['number', 'Number'],
+    ['date', 'Date'],
+    ['color', 'Colour'],
+  ];
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -126,22 +142,35 @@ export default function SheetFilterPopover({
           Filter
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80">
-        <div className="mb-2 text-xs font-medium">Filter {column.name}</div>
-        <Select value={mode} onValueChange={(value) => setMode(value as FilterMode)}>
-          <SelectTrigger className="w-full" aria-label="Filter type">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="values">Values</SelectItem>
-            <SelectItem value="text">Text contains</SelectItem>
-            <SelectItem value="number">Number range</SelectItem>
-            <SelectItem value="date">Date range</SelectItem>
-            <SelectItem value="color">Cell color</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <div className="mt-3">
+      <PopoverPanel align="start" className="w-80">
+        <PopoverPanelHeader
+          title={`Filter ${column.name}`}
+          meta={active ? 'Filtered' : undefined}
+        />
+        <div
+          className="flex flex-wrap gap-1 px-3 pb-2.5"
+          role="radiogroup"
+          aria-label="Filter type"
+        >
+          {modes.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={mode === value}
+              onClick={() => setMode(value)}
+              className={cn(
+                'h-6 rounded-full px-2.5 text-[11.5px] transition-colors',
+                mode === value
+                  ? 'bg-primary/15 font-medium text-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <PopoverPanelBody className="gap-2">
           {mode === 'values' && (
             <>
               <Input
@@ -150,32 +179,31 @@ export default function SheetFilterPopover({
                 aria-label="Search filter values"
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <div className="my-2 flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setSelected(new Set(values.map(valueKey)))}
-                >
-                  <ListChecks />
-                  All
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setSelected(new Set())}
-                >
-                  None
-                </Button>
-              </div>
-              <div className="max-h-44 space-y-1 overflow-y-auto overscroll-contain pr-1">
+              <div className="-mx-1 max-h-52 overflow-y-auto overscroll-contain">
+                <label className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[12.5px] text-muted-foreground hover:bg-muted/60">
+                  <Checkbox
+                    checked={
+                      shown.length > 0 && shown.every((value) => selected.has(valueKey(value)))
+                    }
+                    onCheckedChange={(checked) =>
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        for (const value of shown) {
+                          if (checked === true) next.add(valueKey(value));
+                          else next.delete(valueKey(value));
+                        }
+                        return next;
+                      })
+                    }
+                  />
+                  Select all shown
+                </label>
                 {shown.map((value) => {
                   const key = valueKey(value);
                   return (
                     <label
                       key={key}
-                      className="flex items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60"
+                      className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[12.5px] hover:bg-muted/60"
                     >
                       <Checkbox
                         checked={selected.has(key)}
@@ -279,31 +307,43 @@ export default function SheetFilterPopover({
               )}
             </div>
           )}
-        </div>
-
-        <label className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3 text-xs">
+        </PopoverPanelBody>
+        <label className="mx-3 mb-3 flex items-center gap-2 text-[12.5px]">
           <Checkbox
             checked={hideBlanks}
             onCheckedChange={(checked) => setHideBlanks(checked === true)}
           />
           Hide blank cells
         </label>
-        <div className="mt-3 flex justify-end gap-2">
+        <PopoverPanelFooter
+          start={
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={!active}
+              onClick={() => {
+                onApply(null);
+                setOpen(false);
+              }}
+            >
+              <RotateCcw />
+              Clear filter
+            </Button>
+          }
+        >
           <Button
             type="button"
             size="sm"
-            variant="ghost"
-            disabled={!active}
-            onClick={() => onApply(null)}
+            onClick={() => {
+              apply();
+              setOpen(false);
+            }}
           >
-            <RotateCcw />
-            Clear
-          </Button>
-          <Button type="button" size="sm" onClick={apply}>
             Apply
           </Button>
-        </div>
-      </PopoverContent>
+        </PopoverPanelFooter>
+      </PopoverPanel>
     </Popover>
   );
 }

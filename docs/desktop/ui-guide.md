@@ -501,6 +501,32 @@ Reach for a template before building a dialog by hand:
    schema, analysis) use the `AppDialog*` parts directly: header with glyph,
    scrolling body, footer strip with Cancel and the primary action.
 
+### Pop-over patterns
+
+Pop-overs use the shell in `components/ui/popover-patterns.tsx`:
+`PopoverPanel` (no padding of its own), `PopoverPanelHeader` (title, short meta,
+one action), `PopoverPanelBody` and `PopoverPanelFooter` (reset or alternative
+left, commit right, the dialog footer strip in small). Every pop-over takes one
+of four shapes:
+
+- **A · Search picker** — `PickerCommand`, `PickerInput`, `PickerList`,
+  `PickerGroup`, `PickerItem` (icon tile, title, detail, meta) and `KeyHints` in
+  the footer. Groups with uppercase headings, Enter picks. A select-style picker
+  is as wide as its field and marks the current value with `data-checked`.
+  Examples: card attachments, link a card, Grid cell content, calendar search,
+  time zone, Nerd Font icons. The emoji picker keeps its grid and gets the same
+  footer.
+- **B · Date** — `DatePanel`: quick picks (Today, Tomorrow, Next Mon, In 1
+  week), the month, "No date" when `clearable`, an optional time. `DatePicker`
+  is built on it; a jump-to variant turns off quick picks and puts Today in the
+  footer.
+- **C · Mini form** — `PopoverForm` with `PopoverField`: a title naming the
+  target, a few fields, Cancel and the action; Enter submits. Without
+  `onSubmit` the form is live and has no footer (image colour).
+- **D · Panel** — header, an optional row of mode chips, a list, and a footer
+  with reset and commit (sheet filter). Read-only lists drop the footer (file →
+  tasks, annotations); invitations keep a footer note.
+
 ### Sync center
 
 The status bar has one sync chip (`layout/SyncCenter.tsx`) for the open hosted

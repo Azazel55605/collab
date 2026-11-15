@@ -95,7 +95,8 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverPanel, PopoverPanelHeader } from '../ui/popover-patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 import FileReferencesPanel from './FileReferencesPanel';
@@ -2014,37 +2015,48 @@ const FileTreeNode = memo(function FileTreeNode({
                   <button
                     className="shrink-0 text-primary/75 hover:text-primary transition-colors app-motion-fast"
                     title="Attached to task"
+                    aria-label="Attached to task"
                     onClick={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <Paperclip size={11} />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent
+                <PopoverPanel
                   align="end"
                   side="right"
-                  className="w-72 p-1"
+                  className="w-72"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                    Attached to {attachmentRefs.length} task{attachmentRefs.length === 1 ? '' : 's'}
-                  </div>
-                  <div className="flex flex-col">
+                  <PopoverPanelHeader
+                    title={`Attached to ${attachmentRefs.length} task${attachmentRefs.length === 1 ? '' : 's'}`}
+                  />
+                  <ul className="flex flex-col gap-0.5 px-1.5 pb-1.5">
                     {attachmentRefs.map((ref) => (
-                      <button
-                        key={`${ref.boardPath}:${ref.cardId}`}
-                        onClick={() => openAttachedTask(ref)}
-                        className="flex flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-accent/50 transition-colors app-motion-fast"
-                      >
-                        <span className="text-xs text-foreground">{ref.cardTitle}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {ref.boardName} · {ref.columnTitle}
-                        </span>
-                      </button>
+                      <li key={`${ref.boardPath}:${ref.cardId}`}>
+                        <button
+                          type="button"
+                          onClick={() => openAttachedTask(ref)}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
+                        >
+                          <span className="flex h-6 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            <LayoutDashboard size={13} />
+                          </span>
+                          <span className="min-w-0 flex-1 leading-snug">
+                            <span className="block truncate text-[13px] text-foreground">
+                              {ref.cardTitle}
+                            </span>
+                            <span className="block truncate text-[11.5px] text-muted-foreground">
+                              {ref.boardName} · {ref.columnTitle}
+                            </span>
+                          </span>
+                          <ChevronRight size={13} className="shrink-0 text-muted-foreground" />
+                        </button>
+                      </li>
                     ))}
-                  </div>
-                </PopoverContent>
+                  </ul>
+                </PopoverPanel>
               </Popover>
             )}
           </div>

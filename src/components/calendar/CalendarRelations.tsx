@@ -26,7 +26,8 @@ import { type KanbanCard, normalizeKanbanBoard } from '../../types/kanban';
 import type { NoteFile, UserDirectoryEntry } from '../../types/vault';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverPanel, PopoverPanelFooter, PopoverPanelHeader } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 function flattenFiles(nodes: NoteFile[]): NoteFile[] {
@@ -535,56 +536,86 @@ export function CalendarInvitations({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-2">
-        <div className="mb-2 flex items-center gap-2 px-1">
-          <Users className="size-4 text-primary" />
-          <span className="text-sm font-semibold">Invitations</span>
-        </div>
+      <PopoverPanel align="end" className="w-88">
+        <PopoverPanelHeader
+          title="Invitations"
+          meta={pending.length > 0 ? `${pending.length} waiting` : undefined}
+        />
         {loading && (
-          <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
-            <LoaderCircle className="size-4 animate-spin" />
+          <div className="flex items-center justify-center gap-2 pt-2 pb-6 text-[12.5px] text-muted-foreground">
+            <LoaderCircle className="size-3.5 animate-spin" />
             Loading invitations
           </div>
         )}
         {!loading && error && (
-          <p className="rounded bg-destructive/10 p-2 text-xs text-destructive">{error}</p>
+          <p
+            role="alert"
+            className="mx-3 mb-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+          >
+            {error}
+          </p>
         )}
         {!loading && !error && invitations.length === 0 && (
-          <p className="py-6 text-center text-xs text-muted-foreground">No invitations</p>
+          <p className="pt-2 pb-6 text-center text-[12.5px] text-muted-foreground">
+            No invitations
+          </p>
         )}
-        <div className="max-h-80 space-y-1 overflow-y-auto">
-          {invitations.map((invitation) => (
-            <div
-              key={`${invitation.serverUrl}:${invitation.id}`}
-              className="rounded-md border border-border/60 p-2"
-            >
-              <p className="truncate text-xs font-medium">{invitation.item.title}</p>
-              <p className="mb-2 truncate text-[10px] text-muted-foreground">
-                {new URL(invitation.serverUrl).host}
-              </p>
-              <div className="flex gap-1">
-                {(
-                  [
-                    ['accepted', 'Accept'],
-                    ['tentative', 'Maybe'],
-                    ['declined', 'Decline'],
-                  ] as Array<[CalendarAttendanceResponse, string]>
-                ).map(([response, label]) => (
-                  <Button
-                    key={response}
-                    type="button"
-                    variant={invitation.response === response ? 'default' : 'outline'}
-                    size="xs"
-                    onClick={() => void respond(invitation, response)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </PopoverContent>
+        {invitations.length > 0 && (
+          <ul className="flex max-h-80 flex-col gap-0.5 overflow-y-auto px-1.5 pb-1.5">
+            {invitations.map((invitation) => (
+              <li
+                key={`${invitation.serverUrl}:${invitation.id}`}
+                className="flex items-start gap-2.5 rounded-lg px-2 py-2"
+              >
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <Users className="size-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium">
+                    {invitation.item.title}
+                  </span>
+                  <span className="block truncate text-[11.5px] text-muted-foreground">
+                    {new URL(invitation.serverUrl).host}
+                  </span>
+                  <span className="mt-1.5 flex gap-1">
+                    {(
+                      [
+                        ['accepted', 'Accept'],
+                        ['tentative', 'Maybe'],
+                        ['declined', 'Decline'],
+                      ] as Array<[CalendarAttendanceResponse, string]>
+                    ).map(([response, label]) => (
+                      <Button
+                        key={response}
+                        type="button"
+                        variant={
+                          invitation.response === response
+                            ? 'default'
+                            : response === 'declined'
+                              ? 'ghost'
+                              : 'outline'
+                        }
+                        size="xs"
+                        aria-pressed={invitation.response === response}
+                        onClick={() => void respond(invitation, response)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {invitations.length > 0 && (
+          <PopoverPanelFooter>
+            <span className="text-[11.5px] text-muted-foreground">
+              Answers are sent to the organiser.
+            </span>
+          </PopoverPanelFooter>
+        )}
+      </PopoverPanel>
     </Popover>
   );
 }
