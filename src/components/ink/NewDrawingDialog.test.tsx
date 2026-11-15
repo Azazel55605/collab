@@ -58,7 +58,7 @@ describe('NewDrawingDialog', () => {
     open(onCreate);
     const input = screen.getByLabelText('Drawing name');
     fireEvent.change(input, { target: { value: 'Quick' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.submit(input.closest('form')!);
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ name: 'Quick' }));
   });
 

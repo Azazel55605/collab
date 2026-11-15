@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { ChartLine, RotateCcw } from 'lucide-react';
 
-import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Dialog, DialogContent } from '../ui/dialog';
@@ -30,7 +35,7 @@ function clampSamples(value: number, max: number) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+    <label className="flex flex-col gap-1.5 text-[12.5px] font-medium text-foreground/85">
       <span>{label}</span>
       {children}
     </label>
@@ -48,7 +53,7 @@ function DomainField({
   onChange: (next: MathPlotDomain) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+    <div className="flex flex-col gap-1.5 text-[12.5px] font-medium text-foreground/85">
       <span>{label}</span>
       <div className="flex items-center gap-2">
         <Input
@@ -235,25 +240,26 @@ export function MathPlotModal({ spec, onOpenChange }: MathPlotModalProps) {
                   />
                 )}
                 {!manualVertical && (
-                  <p className="text-[11px] text-muted-foreground/70">
+                  <p className="text-xs text-muted-foreground">
                     Auto-fit to the sampled {outputVar} values.
                   </p>
                 )}
               </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-1 gap-1.5"
-                onClick={() => setDraft(spec)}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Reset to note
-              </Button>
             </div>
           </div>
         </AppDialogBody>
+        <AppDialogFooter
+          start={
+            <Button type="button" variant="ghost" onClick={() => setDraft(spec)}>
+              <RotateCcw />
+              Reset to note
+            </Button>
+          }
+        >
+          <Button type="button" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </AppDialogFooter>
       </AppDialogContent>
     </Dialog>
   );
