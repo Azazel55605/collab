@@ -106,7 +106,7 @@ export function CardDialogTagsAttachments({
                 className={cn('h-8 text-xs', secondaryFieldClass)}
               />
               {showTagSuggestions && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto overflow-hidden rounded-xl border border-border/60 bg-popover/96 shadow-xl shadow-black/10">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto overflow-hidden rounded-xl bg-popover p-1 shadow-md ring-1 ring-foreground/10">
                   {suggestedTags.map((tag) => (
                     <button
                       key={tag}

@@ -393,3 +393,61 @@ export function PopoverField({
     </div>
   );
 }
+
+// ─── Preview card ─────────────────────────────────────────────────────────────
+
+/**
+ * A read-only hover preview (file, web link) with the pop-over surface. It is
+ * positioned by its caller because it follows the pointer rather than a
+ * trigger; the header matches picker rows: icon tile, title, detail.
+ */
+export function PreviewCard({
+  icon,
+  title,
+  detail,
+  media,
+  mediaClassName,
+  children,
+  className,
+  style,
+  ...props
+}: Omit<React.ComponentProps<'div'>, 'title'> & {
+  icon: ReactNode;
+  title: ReactNode;
+  detail?: ReactNode;
+  /** An image or thumbnail under the header. */
+  media?: ReactNode;
+  mediaClassName?: string;
+}) {
+  return (
+    <div
+      className={cn('pointer-events-none fixed z-[120] max-w-[calc(100vw-1.5rem)]', className)}
+      style={style}
+      {...props}
+    >
+      <div className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-xl bg-popover text-[13px] text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 animate-in fade-in-0 zoom-in-95">
+        <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2">
+          <span className="flex h-6 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground [&_svg]:size-3.5">
+            {icon}
+          </span>
+          <span className="min-w-0 flex-1 leading-snug">
+            <span className="block truncate font-semibold">{title}</span>
+            {detail && (
+              <span className="block truncate text-[11.5px] text-muted-foreground">{detail}</span>
+            )}
+          </span>
+        </div>
+        {media && (
+          <div className={cn('border-t border-border/60 bg-muted/30 p-2', mediaClassName)}>
+            {media}
+          </div>
+        )}
+        {children && (
+          <div className="border-t border-border/60 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            {children}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

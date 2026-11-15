@@ -11,6 +11,7 @@ import { getPdfPreviewDataUrl } from '../../lib/pdfPreview';
 import { createVaultClient } from '../../lib/vaultClient';
 import { getVaultDocumentTitle } from '../../lib/vaultLinks';
 import { useVaultStore } from '../../store/vaultStore';
+import { PreviewCard } from '../ui/popover-patterns';
 
 interface FileTreeHoverPreviewPopoverProps {
   anchorRect: DOMRect | null;
@@ -117,56 +118,42 @@ export function FileTreeHoverPreviewPopover({
   const top = Math.min(Math.max(12, preferredTop), Math.max(12, window.innerHeight - 300));
 
   return createPortal(
-    <div
+    <PreviewCard
       role="tooltip"
       aria-label="File preview"
       data-preview-path={relativePath}
-      className="pointer-events-none fixed z-[120]"
       style={{ top, left, width }}
-    >
-      <div
-        className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-2xl border border-border/60 bg-popover/96 shadow-2xl ring-1 ring-foreground/10 backdrop-blur-sm-webkit"
-        style={{
-          transformOrigin: opensOnRight ? 'left center' : 'right center',
-        }}
-      >
-        <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2.5">
-          <div className="flex size-8 items-center justify-center rounded-xl bg-primary/12 text-primary">
-            {loading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : type === 'image' ? (
-              <FileImage size={14} />
-            ) : (
-              <FileText size={14} />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-foreground">
-              {getVaultDocumentTitle(relativePath)}
-            </div>
-            <div className="truncate text-[11px] text-muted-foreground">{relativePath}</div>
-          </div>
-        </div>
-        {previewSrc ? (
-          <div className={type === 'pdf' ? 'bg-white/90 p-2' : 'bg-background/35 p-2'}>
-            <img
-              src={previewSrc}
-              alt=""
-              className="max-h-[min(13rem,calc(100dvh-7rem))] w-full rounded-lg border border-border/50 object-contain"
-              draggable={false}
-            />
-          </div>
+      icon={
+        loading ? (
+          <Loader2 className="animate-spin" />
+        ) : type === 'image' ? (
+          <FileImage />
         ) : (
-          <div className="px-3 py-3 text-xs text-muted-foreground">
-            {loading
-              ? `Loading ${type.toUpperCase()} preview…`
-              : error
-                ? 'Preview unavailable right now.'
-                : 'No preview available.'}
-          </div>
-        )}
-      </div>
-    </div>,
+          <FileText />
+        )
+      }
+      title={getVaultDocumentTitle(relativePath)}
+      detail={relativePath}
+      mediaClassName={type === 'pdf' ? 'bg-white/90' : undefined}
+      media={
+        previewSrc ? (
+          <img
+            src={previewSrc}
+            alt=""
+            className="max-h-[min(13rem,calc(100dvh-7rem))] w-full rounded-md object-contain"
+            draggable={false}
+          />
+        ) : undefined
+      }
+    >
+      {previewSrc
+        ? undefined
+        : loading
+          ? `Loading ${type.toUpperCase()} preview…`
+          : error
+            ? 'Preview unavailable right now.'
+            : 'No preview available.'}
+    </PreviewCard>,
     document.body,
   );
 }

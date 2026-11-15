@@ -315,7 +315,7 @@ function MathSolverActionPopover({
   return createPortal(
     <div className="fixed z-[130] w-[260px]" style={{ left, top }}>
       <div
-        className="overflow-hidden rounded-lg border border-border/60 bg-popover/96 p-2 shadow-2xl ring-1 ring-foreground/10 backdrop-blur-sm-webkit"
+        className="overflow-hidden rounded-xl bg-popover p-2 text-[13px] shadow-md ring-1 ring-foreground/10"
         role="dialog"
         aria-label={
           action.mode === 'approximate'

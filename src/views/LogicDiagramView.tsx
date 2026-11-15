@@ -5146,7 +5146,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
               onClick={closeContextMenu}
             />
             <div
-              className="absolute z-30 w-[280px] max-w-[calc(100%-24px)] overflow-hidden rounded-xl border border-border/70 bg-popover/96 p-1 text-popover-foreground shadow-2xl ring-1 ring-black/5 backdrop-blur-xs-webkit app-panel-enter"
+              className="absolute z-30 w-[280px] max-w-[calc(100%-24px)] overflow-hidden rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 app-panel-enter"
               style={{ left: contextMenu.x, top: contextMenu.y }}
             >
               <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-normal text-muted-foreground">
