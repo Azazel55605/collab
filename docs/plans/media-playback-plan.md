@@ -1,6 +1,6 @@
 # Media Playback And Library Plan
 
-Status: **Phase 2 hosted and offline desktop implementation. Native qualification in progress.**
+Status: **Phase 3 desktop media library implemented. Native qualification in progress.**
 See the [Phase 0 evidence and decisions](./media-playback-phase0.md) and
 [desktop player guide](../desktop/media-playback.md).
 [Open Development Work](./open-development-work.md) tracks project status.
@@ -112,13 +112,14 @@ before promising large encrypted playback. Do not silently stage plaintext.
 
 ### Phase 3 — Media Library
 
-- [ ] Add a lazy Media view for the active vault with image/SVG/video/audio filters,
-      search, list/gallery layouts and optional folder grouping.
-- [ ] Reuse indexed file metadata; load duration, artwork and posters on demand.
-      Cache derived previews by file revision and renderer version. Do not start a
-      decoder or fetch a full asset for every visible tile.
-- [ ] Add an optional Continue watching/listening section using local resume
-      state. Every library item opens or focuses the regular file tab.
+- [x] Add a lazy Media view for the active vault with image/SVG/video/audio filters,
+      path search, list/gallery layouts and optional folder grouping.
+- [x] Reuse indexed file metadata. Generate visible small local raster thumbnails
+      and load duration, artwork and video stills in an explicit preview. Cache
+      by file revision and renderer version.
+- [x] Add an optional Continue watching and listening section using in-session
+      resume data. Every item opens or focuses its regular file tab.
+- [ ] Qualify artwork and video still previews on installed desktop WebViews.
 
 ### Phase 4 — Follow-on Surfaces And Polish
 

@@ -1,5 +1,6 @@
 use super::{
-    empty, extension, range, reply, Playback, PlaybackSource, Reply, MAX_SESSIONS, SOURCE_IDLE,
+    empty, extension, range, reply, Playback, PlaybackSource, PreviewBudget, Reply, MAX_SESSIONS,
+    SOURCE_IDLE,
 };
 use crate::{
     commands::replica,
@@ -46,6 +47,8 @@ pub struct HostedPlaybackFile {
     content_hash: String,
     size: u64,
     path: String,
+    #[serde(default)]
+    preview: bool,
 }
 
 #[derive(Default)]
@@ -101,6 +104,7 @@ pub(super) struct HostedSource {
     touched: Mutex<tokio::time::Instant>,
     authorized: AsyncMutex<tokio::time::Instant>,
     failure: Mutex<Option<String>>,
+    preview_budget: PreviewBudget,
 }
 
 enum Failure {
@@ -406,6 +410,7 @@ pub async fn open_hosted_playback(
     }
     let session = session_for(state.hosted_sessions(), &file.server_url, NO_SESSION)?;
     let now = tokio::time::Instant::now();
+    let preview_budget = PreviewBudget::new(file.preview);
     let mut source = HostedSource {
         file,
         account: session.user.id,
@@ -417,10 +422,12 @@ pub async fn open_hosted_playback(
         touched: Mutex::new(now),
         authorized: AsyncMutex::new(now),
         failure: Mutex::new(None),
+        preview_budget,
     };
     match source.request(None, false).await {
         Ok(response) => {
-            source.can_download = source.file.size <= MAX_OFFLINE_BYTES
+            source.can_download = !source.file.preview
+                && source.file.size <= MAX_OFFLINE_BYTES
                 && response
                     .headers()
                     .get(OFFLINE_HEADER)
@@ -632,6 +639,13 @@ pub(super) async fn serve(
         };
         // Resolve the first chunk before sending successful response headers.
         let first_end = (start + MAX_RANGE_BYTES - 1).min(end);
+        if source
+            .preview_budget
+            .consume(first_end - start + 1)
+            .is_err()
+        {
+            return empty(StatusCode::RANGE_NOT_SATISFIABLE);
+        }
         let first = match source.read_range(start, first_end, false).await {
             Ok(bytes) => bytes,
             Err(error) => return empty(error.status()),
@@ -649,6 +663,7 @@ pub(super) async fn serve(
                     return Ok(None);
                 }
                 let stop = (offset + MAX_RANGE_BYTES - 1).min(end);
+                source.preview_budget.consume(stop - offset + 1)?;
                 let bytes = source
                     .read_range(offset, stop, false)
                     .await
@@ -779,6 +794,7 @@ mod tests {
                 content_hash: "0".repeat(64),
                 size: SIZE,
                 path: "clip.mp4".into(),
+                preview: false,
             },
             account,
             runtime,
@@ -789,6 +805,7 @@ mod tests {
             touched: Mutex::new(tokio::time::Instant::now()),
             authorized: AsyncMutex::new(tokio::time::Instant::now()),
             failure: Mutex::new(None),
+            preview_budget: PreviewBudget::default(),
         });
         assert!(source.request(None, false).await.is_ok());
         assert_eq!(fixture.bytes.load(Ordering::Relaxed), 0);

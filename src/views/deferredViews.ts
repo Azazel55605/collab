@@ -19,6 +19,7 @@ export const ImageView = deferredView(() => import('./ImageView'));
 export const InkView = deferredView(() => import('./InkView'));
 export const KanbanPage = deferredView(() => import('./KanbanPage'));
 export const LogicDiagramView = deferredView(() => import('./LogicDiagramView'));
+export const MediaLibraryView = deferredView(() => import('./MediaLibraryView'));
 export const MediaView = deferredView(() => import('./MediaView'));
 export const NoteView = deferredView(() => import('./NoteView'));
 export const NotePrintView = deferredView(() => import('./NotePrintView'));

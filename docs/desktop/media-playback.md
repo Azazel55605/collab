@@ -97,6 +97,22 @@ For larger files or when you need playback without a server sign-in, use
 **Save a copy** while connected and choose an unencrypted local vault as the
 destination. Open that copy in the local vault when offline.
 
+## Media library
+
+Choose **Media** in the activity bar to browse images, SVGs, videos and
+audio from the current vault. Search by name or path, switch between the
+gallery and list, or group items by their vault folder. Select a file to
+open or focus its regular tab.
+
+The gallery generates thumbnails for visible small local raster images.
+Use **Preview** to inspect another image, see the duration or available
+album artwork for audio, or generate a video still. Preview availability
+depends on the source and the system WebView. Hosted audio previews expose
+duration. Opening a preview does not change the resume position.
+
+**Continue playback** shows recent unfinished tracks and videos while the
+vault is open. It uses the same saved position as the regular player.
+
 ## Validation
 
 Use the [generated fixtures](../plans/media-playback-phase0.md#reproduce) for

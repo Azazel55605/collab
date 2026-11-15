@@ -43,6 +43,7 @@ import {
   InkView,
   KanbanPage,
   LogicDiagramView,
+  MediaLibraryView,
   MediaView,
   NoteView,
   PdfView,
@@ -300,6 +301,7 @@ export default function AppShell() {
   const renderMainContent = () => {
     // Grid mode is self-contained — always shown when activeView === 'grid'
     if (activeView === 'databases') return <DatabasePage sidebarOpen={workspaceSidebarOpen} />;
+    if (activeView === 'media') return <MediaLibraryView />;
     if (activeView === 'grid') return <GridView />;
     if (activeView === 'calendar') return <CalendarPage sidebarOpen={workspaceSidebarOpen} />;
     if (activeView === 'chats')
@@ -351,7 +353,9 @@ export default function AppShell() {
     return <EmptyEditor />;
   };
 
-  const showSidebar = isSidebarOpen && !hasWorkspaceSidebar(activeView);
+  const showSidebar = isSidebarOpen && activeView !== 'media' && !hasWorkspaceSidebar(activeView);
+  const showDocumentTabs =
+    activeView !== 'grid' && activeView !== 'media' && !hasWorkspaceSidebar(activeView);
   return (
     <CollabProvider>
       <CalendarSyncCoordinator />
@@ -396,10 +400,7 @@ export default function AppShell() {
 
           {/* Main pane */}
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-            {activeView !== 'grid' &&
-              activeView !== 'calendar' &&
-              activeView !== 'chats' &&
-              activeView !== 'databases' && <TabBar />}
+            {showDocumentTabs && <TabBar />}
             {/* position:relative so the split drop zones are positioned inside the content area */}
             <div className="relative flex-1 overflow-hidden">
               <div
@@ -433,10 +434,7 @@ export default function AppShell() {
                 </EditorErrorBoundary>
               </div>
               {/* Edge drop zones — only visible when a tab is being dragged */}
-              {activeView !== 'grid' &&
-                activeView !== 'calendar' &&
-                activeView !== 'chats' &&
-                activeView !== 'databases' && <SplitDropZones />}
+              {showDocumentTabs && <SplitDropZones />}
             </div>
             <StatusBar />
           </div>

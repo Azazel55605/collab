@@ -154,7 +154,7 @@ Located in `src/views/`. View selection is **two-layered** and resolved in
 `components/layout/AppShell.tsx`:
 
 1. `uiStore.activeView` selects the page-level Calendar, Chats, Databases, and
-   Grid workspaces before document tabs are considered.
+   Media and Grid workspaces before document tabs are considered.
 2. Otherwise `editorStore` tab type (`'note' | 'canvas' | 'kanban' | 'logic' |
 'sheet' | 'ink' | 'deck' | 'graph' | 'settings' | 'image' | 'pdf'`) selects the
    document view. Canvas and Kanban are file-backed document views opened from
@@ -480,6 +480,13 @@ vault transitions and playback closure revoke the loopback handle. Explicit
 offline media is cached inside the encrypted replica, bound to the account
 and revision, and decrypted into bounded native memory after transport failure.
 Permission and revision failures invalidate the hosted source.
+
+The deferred `MediaLibraryView` reads the shared vault tree index and opens
+regular editor tabs. `lib/mediaResume.ts` shares the bounded in-session resume
+state between the player and library. Visible small local raster thumbnails
+use the image preview scheduler. The inspector uses a separate one-job queue
+and revision-scoped derived cache. Its media handles have an 8 MiB lifetime
+streaming budget, and closing the inspector releases the decoder and handle.
 
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
 under `src-tauri/examples/media_playback/`. The independent desktop executable
