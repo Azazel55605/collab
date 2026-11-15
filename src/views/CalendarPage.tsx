@@ -77,7 +77,18 @@ import {
   ListDetailRow,
   useKeepSelection,
 } from '../components/ui/list-detail-dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { Popover, PopoverTrigger } from '../components/ui/popover';
+import {
+  KeyHints,
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+  PopoverPanelFooter,
+} from '../components/ui/popover-patterns';
 import { ChangeReviewDialog } from '../components/ui/review-dialog';
 import {
   Select,
@@ -1669,68 +1680,66 @@ export function CalendarSearch({
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent align={variant === 'field' ? 'start' : 'end'} className="w-80 p-0">
-        <div className="border-b border-border/60 p-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              autoFocus
-              className="h-8 pl-8"
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="Search events, tasks, birthdays..."
-              aria-label="Search calendar items"
-            />
-          </div>
-        </div>
-        <div className="max-h-80 overflow-y-auto p-1" aria-live="polite">
-          {searching && (
-            <div className="flex items-center justify-center gap-2 px-3 py-6 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" />
-              Searching
-            </div>
-          )}
-          {!searching && query.trim().length < 2 && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              Enter at least two characters
-            </div>
-          )}
-          {!searching && query.trim().length >= 2 && results.length === 0 && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              No matching calendar items
-            </div>
-          )}
-          {!searching &&
-            results.map((item) => {
-              const calendar = calendarById.get(item.calendarId);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onOpenItem(item)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted">
-                    <ItemTypeIcon item={item} className="size-3.5 text-muted-foreground" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium">{item.title}</span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
-                      {itemDate(item)}
-                      {calendar ? ` · ${calendar.name} · ${calendarOrigin(calendar)}` : ''}
-                    </span>
-                  </span>
-                  {calendar && (
-                    <span
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: calendar.color }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-        </div>
-      </PopoverContent>
+      <PopoverPanel align={variant === 'field' ? 'start' : 'end'} className="w-80">
+        <PickerCommand shouldFilter={false}>
+          <PickerInput
+            autoFocus
+            value={query}
+            onValueChange={onQueryChange}
+            placeholder="Search events, tasks, birthdays"
+            aria-label="Search calendar items"
+          />
+          <PickerList aria-live="polite">
+            {searching ? (
+              <div className="flex items-center justify-center gap-2 px-3 py-6 text-[12.5px] text-muted-foreground">
+                <LoaderCircle className="size-3.5 animate-spin" />
+                Searching
+              </div>
+            ) : query.trim().length < 2 ? (
+              <div className="px-3 py-6 text-center text-[12.5px] text-muted-foreground">
+                Type at least two characters
+              </div>
+            ) : (
+              <>
+                <PickerEmpty>No matching calendar items</PickerEmpty>
+                <PickerGroup heading={results.length ? 'Results' : undefined}>
+                  {results.map((item) => {
+                    const calendar = calendarById.get(item.calendarId);
+                    return (
+                      <PickerItem
+                        key={item.id}
+                        value={item.id}
+                        onSelect={() => onOpenItem(item)}
+                        icon={<ItemTypeIcon item={item} />}
+                        title={item.title}
+                        detail={`${itemDate(item)}${calendar ? ` · ${calendar.name} · ${calendarOrigin(calendar)}` : ''}`}
+                        meta={
+                          calendar && (
+                            <span
+                              className="block size-2 rounded-full"
+                              style={{ backgroundColor: calendar.color }}
+                            />
+                          )
+                        }
+                      />
+                    );
+                  })}
+                </PickerGroup>
+              </>
+            )}
+          </PickerList>
+          <PopoverPanelFooter
+            start={
+              <KeyHints
+                hints={[
+                  ['↑↓', 'move'],
+                  ['↵', 'open'],
+                ]}
+              />
+            }
+          />
+        </PickerCommand>
+      </PopoverPanel>
     </Popover>
   );
 }

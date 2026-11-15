@@ -1285,6 +1285,21 @@
   font-size: 13px;
   color: var(--muted-foreground);
 }
+.conversation-emoji-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin: 2px -8px -8px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+}
+.conversation-emoji-footer > span {
+  font-size: 15px;
+}
 .conversation-message-menu {
   z-index: 80;
   min-width: 170px;

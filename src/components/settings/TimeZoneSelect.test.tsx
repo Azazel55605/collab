@@ -16,7 +16,7 @@ describe('supportedTimeZones', () => {
     render(<TimeZoneSelect value="Europe/Berlin" onValueChange={onValueChange} />);
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Default calendar time zone' }));
-    fireEvent.change(await screen.findByPlaceholderText('Search time zones...'), {
+    fireEvent.change(await screen.findByPlaceholderText('Search time zones'), {
       target: { value: 'Tokyo' },
     });
     fireEvent.click(await screen.findByText('Asia/Tokyo'));

@@ -7,7 +7,6 @@ import {
   Image as ImageIcon,
   Layout,
   LayoutDashboard,
-  Search,
   Settings,
 } from 'lucide-react';
 
@@ -19,9 +18,18 @@ import {
 import type { CellContentType, GridCellContent } from '../../store/gridStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import {
+  KeyHints,
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+  PopoverPanelFooter,
+} from '../ui/popover-patterns';
 
 const VIEW_OPTIONS: { type: CellContentType; label: string; icon: React.ReactNode }[] = [
   { type: 'graph', label: 'Graph', icon: <GitFork size={14} /> },
@@ -116,168 +124,116 @@ export default function CellContentPicker({ children, onSelect }: Props) {
     setSearch('');
   };
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent
-        side="bottom"
-        align="start"
-        className="w-60 p-0 overflow-hidden"
-        onOpenAutoFocus={(e) => e.preventDefault()}
-      >
-        {/* Quick view buttons */}
-        <div className="flex items-center gap-1 p-2 border-b border-border/50">
-          {VIEW_OPTIONS.map(({ type, label, icon }) => (
-            <Tooltip key={type}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => select({ type, relativePath: null, title: label })}
-                  className="flex-1 flex items-center justify-center h-8 rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
-                >
-                  {icon}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                {label}
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
+  const fileItem = (
+    type: CellContentType,
+    file: { relativePath: string },
+    icon: React.ReactNode,
+  ) => (
+    <PickerItem
+      key={`${type}:${file.relativePath}`}
+      value={`${type}:${file.relativePath}`}
+      icon={icon}
+      title={getVaultDocumentTitle(file.relativePath)}
+      detail={folderOf(file.relativePath)}
+      onSelect={() =>
+        select({
+          type,
+          relativePath: file.relativePath,
+          title: getVaultDocumentTitle(file.relativePath),
+        })
+      }
+    />
+  );
+  const boards = [
+    ...filteredCanvasBoards.map((file) => fileItem('canvas', file, <Layout />)),
+    ...filteredKanbanBoards.map((file) => fileItem('kanban', file, <LayoutDashboard />)),
+  ];
 
-        {/* Note search */}
-        <div className="p-2 space-y-1.5">
-          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-muted/40 border border-border/40">
-            <Search size={11} className="text-muted-foreground shrink-0" />
-            <Input
-              type="text"
-              placeholder="Search notes…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60 min-w-0"
-              autoFocus
-            />
-          </div>
-          <div className="max-h-52 overflow-y-auto space-y-0.5">
-            {filteredCanvasBoards.map((file) => (
-              <button
-                key={`canvas:${file.relativePath}`}
-                onClick={() =>
-                  select({
-                    type: 'canvas',
-                    relativePath: file.relativePath,
-                    title: getVaultDocumentTitle(file.relativePath),
-                  })
-                }
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-              >
-                <Layout size={11} className="text-blue-400/70 shrink-0" />
-                <span className="truncate text-foreground/80">
-                  {getVaultDocumentTitle(file.relativePath)}
-                </span>
-              </button>
-            ))}
-            {filteredKanbanBoards.map((file) => (
-              <button
-                key={`kanban:${file.relativePath}`}
-                onClick={() =>
-                  select({
-                    type: 'kanban',
-                    relativePath: file.relativePath,
-                    title: getVaultDocumentTitle(file.relativePath),
-                  })
-                }
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-              >
-                <LayoutDashboard size={11} className="text-emerald-400/70 shrink-0" />
-                <span className="truncate text-foreground/80">
-                  {getVaultDocumentTitle(file.relativePath)}
-                </span>
-              </button>
-            ))}
-            {filteredLogicDiagrams.map((file) => (
-              <button
-                key={`logic:${file.relativePath}`}
-                onClick={() =>
-                  select({
-                    type: 'logic',
-                    relativePath: file.relativePath,
-                    title: getVaultDocumentTitle(file.relativePath),
-                  })
-                }
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-              >
-                <CircuitBoard size={11} className="text-cyan-400/70 shrink-0" />
-                <span className="truncate text-foreground/80">
-                  {getVaultDocumentTitle(file.relativePath)}
-                </span>
-              </button>
-            ))}
-            {filteredPdfFiles.map((file) => (
-              <button
-                key={`pdf:${file.relativePath}`}
-                onClick={() =>
-                  select({
-                    type: 'pdf',
-                    relativePath: file.relativePath,
-                    title: getVaultDocumentTitle(file.relativePath),
-                  })
-                }
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-              >
-                <FileText size={11} className="text-rose-400/70 shrink-0" />
-                <span className="truncate text-foreground/80">
-                  {getVaultDocumentTitle(file.relativePath)}
-                </span>
-              </button>
-            ))}
-            {filteredImageFiles.map((file) => (
-              <button
-                key={`image:${file.relativePath}`}
-                onClick={() =>
-                  select({
-                    type: 'image',
-                    relativePath: file.relativePath,
-                    title: getVaultDocumentTitle(file.relativePath),
-                  })
-                }
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-              >
-                <ImageIcon size={11} className="text-amber-400/70 shrink-0" />
-                <span className="truncate text-foreground/80">
-                  {getVaultDocumentTitle(file.relativePath)}
-                </span>
-              </button>
-            ))}
-            {filteredNotes.length > 0
-              ? filteredNotes.map((note) => (
-                  <button
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setSearch('');
+      }}
+    >
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverPanel side="bottom" align="start" className="w-72">
+        <PickerCommand shouldFilter={false}>
+          <PickerInput
+            placeholder="Search notes and files"
+            value={search}
+            onValueChange={setSearch}
+          />
+          <PickerList>
+            <PickerEmpty>No matching content found</PickerEmpty>
+            {!query && (
+              <PickerGroup heading="Views">
+                {VIEW_OPTIONS.map(({ type, label, icon }) => (
+                  <PickerItem
+                    key={type}
+                    value={`view:${type}`}
+                    icon={icon}
+                    title={label}
+                    onSelect={() => select({ type, relativePath: null, title: label })}
+                  />
+                ))}
+              </PickerGroup>
+            )}
+            {filteredNotes.length > 0 && (
+              <PickerGroup heading="Notes">
+                {filteredNotes.map((note) => (
+                  <PickerItem
                     key={note.relativePath}
-                    onClick={() =>
+                    value={`note:${note.relativePath}`}
+                    icon={<FileText />}
+                    title={note.title || note.relativePath}
+                    detail={folderOf(note.relativePath)}
+                    onSelect={() =>
                       select({
                         type: 'note',
                         relativePath: note.relativePath,
                         title: note.title || note.relativePath,
                       })
                     }
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-                  >
-                    <FileText size={11} className="text-muted-foreground shrink-0" />
-                    <span className="truncate text-foreground/80">
-                      {note.title || note.relativePath}
-                    </span>
-                  </button>
-                ))
-              : filteredCanvasBoards.length === 0 &&
-                filteredKanbanBoards.length === 0 &&
-                filteredPdfFiles.length === 0 &&
-                filteredImageFiles.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-4">
-                    No matching content found
-                  </p>
-                )}
-          </div>
-        </div>
-      </PopoverContent>
+                  />
+                ))}
+              </PickerGroup>
+            )}
+            {boards.length > 0 && <PickerGroup heading="Boards">{boards}</PickerGroup>}
+            {filteredLogicDiagrams.length > 0 && (
+              <PickerGroup heading="Diagrams">
+                {filteredLogicDiagrams.map((file) => fileItem('logic', file, <CircuitBoard />))}
+              </PickerGroup>
+            )}
+            {filteredPdfFiles.length > 0 && (
+              <PickerGroup heading="PDFs">
+                {filteredPdfFiles.map((file) => fileItem('pdf', file, <FileText />))}
+              </PickerGroup>
+            )}
+            {filteredImageFiles.length > 0 && (
+              <PickerGroup heading="Images">
+                {filteredImageFiles.map((file) => fileItem('image', file, <ImageIcon />))}
+              </PickerGroup>
+            )}
+          </PickerList>
+          <PopoverPanelFooter
+            start={
+              <KeyHints
+                hints={[
+                  ['↑↓', 'move'],
+                  ['↵', 'show'],
+                ]}
+              />
+            }
+          />
+        </PickerCommand>
+      </PopoverPanel>
     </Popover>
   );
+}
+
+function folderOf(relativePath: string) {
+  const index = relativePath.lastIndexOf('/');
+  return index > 0 ? relativePath.slice(0, index) : 'Vault root';
 }

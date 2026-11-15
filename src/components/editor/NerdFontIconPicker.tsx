@@ -5,16 +5,19 @@ import { Shapes } from 'lucide-react';
 import { EDITOR_TOOLBAR_ACTION_EVENT } from '../../lib/editorToolbarActions';
 import { formatNerdFontHexCode, groupNerdFontIcons } from '../../lib/nerdFontIconQuery';
 import { useNerdFontIcons } from '../../lib/useNerdFontIcons';
+import { Popover, PopoverTrigger } from '../ui/popover';
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandShortcut,
-} from '../ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+  KeyHints,
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+  PopoverPanelFooter,
+  PopoverPanelHeader,
+} from '../ui/popover-patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 interface NerdFontIconPickerProps {
@@ -69,66 +72,66 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
         <TooltipContent side="bottom">Insert Nerd Font icon (Ctrl+Alt+S)</TooltipContent>
       </Tooltip>
 
-      <PopoverContent align="start" sideOffset={8} className="w-[28rem] p-0">
-        <Command shouldFilter={false} className="rounded-lg border-0 bg-transparent p-0">
-          <div className="border-b border-border/70 px-3 py-2">
-            <div className="text-sm font-medium">Insert Icon</div>
-            <div className="text-xs text-muted-foreground">
-              Search Nerd Font icons and insert the raw glyph into the note.
-            </div>
-          </div>
-          <CommandInput
+      <PopoverPanel align="start" sideOffset={8} className="w-[26rem]">
+        <PickerCommand shouldFilter={false}>
+          <PopoverPanelHeader
+            title="Insert icon"
+            meta={`${filteredEntries.length} icon${filteredEntries.length === 1 ? '' : 's'}`}
+          />
+          <PickerInput
             value={query}
             onValueChange={(value) => {
               startTransition(() => setQuery(value));
             }}
             autoFocus
-            placeholder="Search icons by name, id, or category..."
+            placeholder="Search icons by name, id or category"
           />
-          <CommandList className="max-h-[26rem]">
-            <CommandEmpty>
+          <PickerList className="max-h-[24rem]">
+            <PickerEmpty>
               {error
                 ? 'Could not load icons. Reopen Collab to retry.'
                 : loading
                   ? 'Loading icons…'
                   : 'No icons found.'}
-            </CommandEmpty>
+            </PickerEmpty>
             {groupedEntries.map(([categoryLabel, entries]) => (
-              <CommandGroup key={categoryLabel} heading={categoryLabel}>
+              <PickerGroup key={categoryLabel} heading={categoryLabel}>
                 {entries.map((entry) => (
-                  <CommandItem
+                  <PickerItem
                     key={entry.id}
                     value={entry.id}
                     onSelect={() => handleInsert(entry.glyph)}
-                    className="gap-3"
-                  >
-                    <span
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-[18px] leading-none"
-                      style={{ fontFamily: "'Pure Nerd Font', PureNerdFont, monospace" }}
-                      aria-hidden="true"
-                    >
-                      {entry.glyph}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{entry.nameLabel}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {entry.id}
+                    icon={
+                      <span
+                        className="text-[16px] leading-none"
+                        style={{ fontFamily: "'Pure Nerd Font', PureNerdFont, monospace" }}
+                        aria-hidden="true"
+                      >
+                        {entry.glyph}
                       </span>
-                    </span>
-                    <CommandShortcut className="tracking-normal">
-                      {formatNerdFontHexCode(entry.hexCode)}
-                    </CommandShortcut>
-                  </CommandItem>
+                    }
+                    title={entry.nameLabel}
+                    detail={entry.id}
+                    meta={<span className="font-mono">{formatNerdFontHexCode(entry.hexCode)}</span>}
+                  />
                 ))}
-              </CommandGroup>
+              </PickerGroup>
             ))}
-            <div className="border-t border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
-              Showing {filteredEntries.length} icon{filteredEntries.length === 1 ? '' : 's'}
-              {deferredQuery.trim() ? ' for this search' : ' from the bundled catalog'}.
-            </div>
-          </CommandList>
-        </Command>
-      </PopoverContent>
+          </PickerList>
+          <PopoverPanelFooter
+            start={
+              <KeyHints
+                hints={[
+                  ['↑↓', 'move'],
+                  ['↵', 'insert'],
+                ]}
+              />
+            }
+          >
+            <span className="text-[11.5px] text-muted-foreground">Raw glyph, Nerd Font</span>
+          </PopoverPanelFooter>
+        </PickerCommand>
+      </PopoverPanel>
     </Popover>
   );
 }

@@ -81,7 +81,7 @@ describe('CellContentPicker', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Open picker' }));
-    fireEvent.click(screen.getByRole('button', { name: 'network' }));
+    fireEvent.click(screen.getByRole('option', { name: /network/ }));
     expect(onSelect).toHaveBeenCalledWith({
       type: 'canvas',
       relativePath: 'Boards/network.canvas',
@@ -89,7 +89,7 @@ describe('CellContentPicker', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Open picker' }));
-    fireEvent.click(screen.getByRole('button', { name: 'tasks' }));
+    fireEvent.click(screen.getByRole('option', { name: /tasks/ }));
     expect(onSelect).toHaveBeenCalledWith({
       type: 'kanban',
       relativePath: 'Boards/tasks.kanban',
@@ -97,7 +97,7 @@ describe('CellContentPicker', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Open picker' }));
-    fireEvent.click(screen.getByRole('button', { name: 'spec' }));
+    fireEvent.click(screen.getByRole('option', { name: /spec/ }));
     expect(onSelect).toHaveBeenCalledWith({
       type: 'pdf',
       relativePath: 'Boards/spec.pdf',
@@ -105,7 +105,7 @@ describe('CellContentPicker', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Open picker' }));
-    fireEvent.click(screen.getByRole('button', { name: 'diagram' }));
+    fireEvent.click(screen.getByRole('option', { name: /diagram/ }));
     expect(onSelect).toHaveBeenCalledWith({
       type: 'image',
       relativePath: 'Boards/diagram.png',
