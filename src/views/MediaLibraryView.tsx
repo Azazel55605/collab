@@ -595,6 +595,7 @@ function MediaInspector({
           {details ? (
             <p role="status" className="text-muted-foreground">
               {[
+                details.title !== file.name ? details.title : undefined,
                 details.artist,
                 details.album,
                 details.duration ? formatTime(details.duration) : undefined,

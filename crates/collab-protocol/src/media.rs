@@ -11,3 +11,12 @@ pub fn mime_for_extension(extension: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+pub fn sidecar_mime_for_extension(extension: &str) -> Option<&'static str> {
+    match extension {
+        "lrc" => Some("text/plain"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        _ => None,
+    }
+}

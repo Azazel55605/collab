@@ -24,7 +24,7 @@ the vault. Embedded captions and alternate audio tracks appear when the
 WebView exposes them. A file with a matching caption still starts with
 captions off unless a previous session selected a track.
 
-Local audio shows the title, artist, album and cover from the file’s tags when
+Audio shows the title, artist, album and cover from the file’s tags when
 available. Folder artwork can use `cover.jpg`, `cover.jpeg`, `cover.png`,
 `folder.jpg` or `folder.png`. **Ambiance mode** uses the cover colours across the
 audio player and shares the video player’s device preference.
@@ -83,8 +83,11 @@ Open an uploaded MP4, WebM, MP3, WAV or FLAC in **Files**. The player requests
 the parts it needs and checks the file revision and your vault permissions
 throughout playback. After a network interruption, use **Reload** to reconnect.
 The current position is restored for the same revision. Hosted tracks use the
-system WebView’s embedded track support. Local playback also provides sidecar
-captions and lyrics, audio artwork, and MP4 compatibility mode.
+system WebView’s embedded track support. Hosted audio reads its tags and
+embedded artwork through bounded range requests. Matching LRC files and folder
+artwork need a connection to the updated server. Offline audio can still use
+its embedded tags and artwork. Local video also provides sidecar captions
+and MP4 compatibility mode.
 
 Choose **Make available offline** in the player while connected to save an
 encrypted copy of that revision. This action requires the vault’s offline-copy
@@ -107,8 +110,7 @@ open or focus its regular tab.
 The gallery generates thumbnails for visible small local raster images.
 Use **Preview** to inspect another image, see the duration or available
 album artwork for audio, or generate a video still. Preview availability
-depends on the source and the system WebView. Hosted audio previews expose
-duration. Opening a preview does not change the resume position.
+depends on the source and the system WebView. Opening a preview does not change the resume position.
 
 **Continue playback** shows recent unfinished tracks and videos while the
 vault is open. It uses the same saved position as the regular player.

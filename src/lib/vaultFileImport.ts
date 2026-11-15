@@ -5,7 +5,7 @@ import type { NoteFile } from '../types/vault';
 
 import { parseDeckDocument } from './deck/document';
 import { parseInkDocument } from './ink/document';
-import { isMediaSidecarPath, mediaKindForPath } from './mediaFiles';
+import { isCaptionPath, isLyricsPath, mediaKindForPath } from './mediaFiles';
 import { importWorkbookFile } from './sheet/conversion';
 import { inspectSheetDocumentText } from './sheet/document';
 import { isSqlitePath, SQLITE_EXTENSIONS } from './sqliteFiles';
@@ -60,6 +60,7 @@ export type ImportableCategory =
   | 'sqlite'
   | 'media'
   | 'caption'
+  | 'lyrics'
   | 'markdown'
   | 'canvas'
   | 'kanban'
@@ -83,7 +84,8 @@ export function importCategoryForName(name: string): ImportableCategory | null {
   const ext = extensionOf(name);
   if (isSqlitePath(name)) return 'sqlite';
   if (mediaKindForPath(name)) return 'media';
-  if (isMediaSidecarPath(name)) return 'caption';
+  if (isLyricsPath(name)) return 'lyrics';
+  if (isCaptionPath(name)) return 'caption';
   if (IMPORT_SVG_EXTENSIONS.includes(ext)) return 'svg';
   if (IMPORT_IMAGE_EXTENSIONS.includes(ext)) return 'image';
   if (IMPORT_PDF_EXTENSIONS.includes(ext)) return 'pdf';
@@ -246,7 +248,7 @@ export async function importExternalFilesIntoVault(
         continue;
       }
       if (category === 'caption' && client.kind !== 'local') {
-        throw new Error('Media sidecars can only be imported into local vaults.');
+        throw new Error('Video caption sidecars can only be imported into local vaults.');
       }
       if (category === 'workbookConversion') {
         // Converted natively into a brand-new `.sheet` document. The source

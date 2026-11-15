@@ -12,14 +12,13 @@ use lofty::{
 };
 use serde::Serialize;
 use std::{
-    fs::File,
     io::{self, BufReader, Cursor, Read, Seek, SeekFrom},
     path::Path,
 };
 
-const TAG_READ_BUDGET: usize = 16 * 1024 * 1024;
-const ARTWORK_BYTES: usize = 8 * 1024 * 1024;
-const LYRICS_BYTES: usize = 128 * 1024;
+pub(super) const TAG_READ_BUDGET: usize = 16 * 1024 * 1024;
+pub(super) const ARTWORK_BYTES: usize = 8 * 1024 * 1024;
+pub(super) const LYRICS_BYTES: usize = 128 * 1024;
 
 #[derive(Default)]
 pub(super) struct AudioMetadata {
@@ -47,7 +46,37 @@ pub(super) struct AudioDetails {
 }
 
 impl AudioMetadata {
-    pub(super) fn read(vault: &Dir, relative: &Path, file: &mut File, mime: &str) -> Option<Self> {
+    pub(super) fn read(
+        vault: &Dir,
+        relative: &Path,
+        file: impl Read + Seek,
+        mime: &str,
+    ) -> Option<Self> {
+        let mut result = Self::from_reader(file, mime)?;
+        if let Some(lyrics) = read_limited(vault, &relative.with_extension("lrc"), LYRICS_BYTES) {
+            result.add_sidecar_lyrics(lyrics);
+        }
+        if result.artwork.is_none() {
+            result.artwork = [
+                "cover.jpg",
+                "cover.jpeg",
+                "cover.png",
+                "folder.jpg",
+                "folder.png",
+            ]
+            .into_iter()
+            .find_map(|name| {
+                thumbnail(&read_limited(
+                    vault,
+                    &relative.with_file_name(name),
+                    ARTWORK_BYTES,
+                )?)
+            });
+        }
+        Some(result)
+    }
+
+    pub(super) fn from_reader(mut file: impl Read + Seek, mime: &str) -> Option<Self> {
         let file_type = match mime {
             "audio/mpeg" => FileType::Mpeg,
             "audio/flac" => FileType::Flac,
@@ -55,20 +84,9 @@ impl AudioMetadata {
             _ => return None,
         };
         let mut result = Self::default();
-        if let Some(text) = bounded_text(
-            read_limited(vault, &relative.with_extension("lrc"), LYRICS_BYTES)
-                .and_then(decode_lyrics)
-                .as_deref(),
-            LYRICS_BYTES,
-        ) {
-            result.lyrics.push(Lyrics {
-                label: "LRC file",
-                text,
-            });
-        }
         if file.seek(SeekFrom::Start(0)).is_ok() {
             let reader = MetadataReader {
-                file,
+                input: file,
                 remaining: TAG_READ_BUDGET,
             };
             if let Ok(tagged) = Probe::new(BufReader::new(reader))
@@ -110,24 +128,28 @@ impl AudioMetadata {
                 }
             }
         }
-        if result.artwork.is_none() {
-            result.artwork = [
-                "cover.jpg",
-                "cover.jpeg",
-                "cover.png",
-                "folder.jpg",
-                "folder.png",
-            ]
-            .into_iter()
-            .find_map(|name| {
-                thumbnail(&read_limited(
-                    vault,
-                    &relative.with_file_name(name),
-                    ARTWORK_BYTES,
-                )?)
-            });
-        }
         Some(result)
+    }
+
+    pub(super) fn add_sidecar_lyrics(&mut self, bytes: Vec<u8>) {
+        if bytes.len() > LYRICS_BYTES {
+            return;
+        }
+        if let Some(text) = bounded_text(decode_lyrics(bytes).as_deref(), LYRICS_BYTES) {
+            self.lyrics.insert(
+                0,
+                Lyrics {
+                    label: "LRC file",
+                    text,
+                },
+            );
+        }
+    }
+
+    pub(super) fn add_folder_artwork(&mut self, bytes: &[u8]) {
+        if self.artwork.is_none() {
+            self.artwork = thumbnail(bytes);
+        }
     }
 
     pub(super) fn details(&self, base: &str) -> AudioDetails {
@@ -142,26 +164,26 @@ impl AudioMetadata {
 }
 
 // Permit seeking past audio blocks, including WAV data, while bounding tag reads.
-struct MetadataReader<'a> {
-    file: &'a mut File,
+struct MetadataReader<R> {
+    input: R,
     remaining: usize,
 }
 
-impl Read for MetadataReader<'_> {
+impl<R: Read> Read for MetadataReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.remaining == 0 && !buffer.is_empty() {
             return Err(io::Error::other("Audio metadata read limit reached"));
         }
         let available = buffer.len().min(self.remaining);
-        let count = self.file.read(&mut buffer[..available])?;
+        let count = self.input.read(&mut buffer[..available])?;
         self.remaining -= count;
         Ok(count)
     }
 }
 
-impl Seek for MetadataReader<'_> {
+impl<R: Seek> Seek for MetadataReader<R> {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-        self.file.seek(position)
+        self.input.seek(position)
     }
 }
 

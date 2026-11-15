@@ -13,6 +13,7 @@ export type LibraryMediaKind = 'image' | 'svg' | 'video' | 'audio';
 export interface LibraryMediaDetails {
   image?: string;
   duration?: number;
+  title?: string;
   artist?: string;
   album?: string;
 }
@@ -125,12 +126,17 @@ async function inspectPlayable(
       if (active.aborted) throw previewCancelled();
       const metadata = source.audioMetadata;
       const [details, cover] = await Promise.all([
-        captureFrame(source.url, kind, active),
+        captureFrame(source.url, kind, active).catch(() => null),
         metadata?.artworkUrl ? loadCover(metadata.artworkUrl, active) : Promise.resolve(undefined),
       ]);
+      if (active.aborted) throw previewCancelled();
+      if (!details && !cover && !metadata?.title && !metadata?.artist && !metadata?.album) {
+        throw new Error('Media preview unavailable.');
+      }
       return {
         ...details,
-        image: details.image ?? cover,
+        image: details?.image ?? cover,
+        title: metadata?.title ?? undefined,
         artist: metadata?.artist ?? undefined,
         album: metadata?.album ?? undefined,
       };

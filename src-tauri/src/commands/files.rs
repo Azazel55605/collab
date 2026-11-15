@@ -173,6 +173,7 @@ fn guess_mime_type(relative_path: &str) -> &'static str {
         Some("ico") => "image/x-icon",
         Some("avif") => "image/avif",
         Some("pdf") => "application/pdf",
+        Some("lrc") => "text/plain",
         _ => "application/octet-stream",
     }
 }

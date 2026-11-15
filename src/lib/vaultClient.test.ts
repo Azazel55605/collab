@@ -461,6 +461,34 @@ describe('HostedVaultClient', () => {
     );
   });
 
+  it('pins matching hosted audio sidecars and ignores lookalikes from other folders', async () => {
+    const audio = { ...hostedImage, name: 'Track.mp3', relativePath: 'Music/Track.mp3' };
+    const lyrics = { ...audio, id: 'lyrics', name: 'Track.LRC', relativePath: 'Music/Track.LRC' };
+    const cover = { ...audio, id: 'cover', name: 'cover.png', relativePath: 'Music/cover.png' };
+    const unrelated = {
+      ...lyrics,
+      id: 'other',
+      parentId: 'other-folder',
+      relativePath: 'Other/Track.LRC',
+    };
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce({
+      ...mockHostedManifest(),
+      files: [audio, lyrics, cover, unrelated],
+    });
+    await new HostedVaultClient(hostedVault).runtime.hostedPlayback!.open(audio.relativePath);
+    expect(tauriCommands.openHostedPlayback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lyrics: expect.objectContaining({
+          fileId: 'lyrics',
+          revisionId: lyrics.currentRevision.id,
+        }),
+        covers: [
+          expect.objectContaining({ fileId: 'cover', revisionId: cover.currentRevision.id }),
+        ],
+      }),
+    );
+  });
+
   it('derives a lightweight note index from the manifest documents', async () => {
     vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest(8));
     vi.mocked(tauriCommands.replicaReadSyncState).mockResolvedValue({

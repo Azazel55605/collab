@@ -389,6 +389,13 @@ export interface LocalAudioMetadata {
   lyrics: { label: string; text: string }[];
 }
 
+export interface HostedPlaybackSidecar {
+  fileId: string;
+  revisionId: string;
+  size: number;
+  path: string;
+}
+
 export interface LocalPlaybackSource {
   id: string;
   url: string;
@@ -434,6 +441,8 @@ export const tauriCommands = {
     size: number;
     path: string;
     preview?: boolean;
+    lyrics?: HostedPlaybackSidecar;
+    covers?: HostedPlaybackSidecar[];
   }) => invoke<LocalPlaybackSource>('open_hosted_playback', { file }),
   downloadHostedPlayback: (id: string) => invoke<void>('download_hosted_playback', { id }),
   clearHostedPlayback: (serverUrl: string, vaultId: string) =>

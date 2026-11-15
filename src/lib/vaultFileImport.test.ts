@@ -98,6 +98,21 @@ describe('importExternalFilesIntoVault', () => {
     useSyncTransferStore.getState().reset();
   });
 
+  it('imports hosted LRC lyrics as an asset and keeps video captions local-only', async () => {
+    const { client, importMock } = makeClient({
+      kind: 'hosted',
+      importMock: vi.fn(async () => 'Music/Song.LRC'),
+    });
+    const result = await importExternalFilesIntoVault(client, ['/tmp/Song.LRC', '/tmp/Clip.srt'], {
+      targetFolder: 'Music',
+    });
+    expect(result.imported).toEqual(['Music/Song.LRC']);
+    expect(importMock).toHaveBeenCalledExactlyOnceWith('/tmp/Song.LRC', 'Music');
+    expect(result.failed).toEqual([
+      { name: 'Clip.srt', error: expect.stringContaining('local vaults') },
+    ]);
+  });
+
   it('converts an .xlsx into a new .sheet document and reports what changed', async () => {
     const report = {
       notes: [

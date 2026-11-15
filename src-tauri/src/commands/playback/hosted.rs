@@ -1,6 +1,7 @@
+use super::audio_metadata::{AudioMetadata, ARTWORK_BYTES, LYRICS_BYTES, TAG_READ_BUDGET};
 use super::{
-    empty, extension, range, reply, Playback, PlaybackSource, PreviewBudget, Reply, MAX_SESSIONS,
-    SOURCE_IDLE,
+    artwork_reply, empty, extension, range, reply, Playback, PlaybackSource, PreviewBudget, Reply,
+    MAX_SESSIONS, SOURCE_IDLE,
 };
 use crate::{
     commands::replica,
@@ -18,9 +19,9 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
-    io,
+    io::{self, Cursor, Read, Seek, SeekFrom},
     path::Path,
-    sync::{Arc, LazyLock},
+    sync::{Arc, LazyLock, OnceLock},
     time::Duration,
 };
 use tauri::{State, WebviewWindow};
@@ -49,6 +50,26 @@ pub struct HostedPlaybackFile {
     path: String,
     #[serde(default)]
     preview: bool,
+    lyrics: Option<HostedSidecar>,
+    #[serde(default)]
+    covers: Vec<HostedSidecar>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HostedSidecar {
+    file_id: Uuid,
+    revision_id: Uuid,
+    size: u64,
+    path: String,
+}
+
+#[derive(Clone, Copy)]
+struct HostedAsset {
+    id: Uuid,
+    revision: Uuid,
+    size: u64,
+    mime: &'static str,
 }
 
 #[derive(Default)]
@@ -105,6 +126,7 @@ pub(super) struct HostedSource {
     authorized: AsyncMutex<tokio::time::Instant>,
     failure: Mutex<Option<String>>,
     preview_budget: PreviewBudget,
+    audio_metadata: OnceLock<AudioMetadata>,
 }
 
 enum Failure {
@@ -142,8 +164,13 @@ impl Failure {
 }
 
 impl HostedSource {
-    fn etag(&self) -> String {
-        format!("\"{}\"", self.file.revision_id)
+    fn media_asset(&self) -> HostedAsset {
+        HostedAsset {
+            id: self.file.file_id,
+            revision: self.file.revision_id,
+            size: self.file.size,
+            mime: self.mime,
+        }
     }
 
     fn cache_prefix(&self) -> String {
@@ -175,11 +202,22 @@ impl HostedSource {
         range: Option<(u64, u64)>,
         require_offline: bool,
     ) -> Result<reqwest::Response, Failure> {
+        self.request_asset(self.media_asset(), range, require_offline)
+            .await
+    }
+
+    async fn request_asset(
+        &self,
+        asset: HostedAsset,
+        range: Option<(u64, u64)>,
+        require_offline: bool,
+    ) -> Result<reqwest::Response, Failure> {
         self.validate_account()?;
         let url = format!(
             "{}/api/v1/vaults/{}/files/{}/playback",
-            self.file.server_url, self.file.vault_id, self.file.file_id,
+            self.file.server_url, self.file.vault_id, asset.id,
         );
+        let etag = format!("\"{}\"", asset.revision);
         let work = async {
             let mut session = session_for(&self.runtime, &self.file.server_url, NO_SESSION)
                 .map_err(|_| Failure::NoAccess)?;
@@ -214,7 +252,7 @@ impl HostedSource {
                 None => client.head(&url),
             };
             request = request
-                .header(header::IF_MATCH, self.etag())
+                .header(header::IF_MATCH, etag.as_str())
                 .bearer_auth(&session.access_token)
                 .timeout(Duration::from_secs(8));
             let response = request.send().await.map_err(|error| {
@@ -246,7 +284,7 @@ impl HostedSource {
             }
             let (status, length) = match range {
                 Some((start, end)) => {
-                    let expected = format!("bytes {start}-{end}/{}", self.file.size);
+                    let expected = format!("bytes {start}-{end}/{}", asset.size);
                     if response
                         .headers()
                         .get(header::CONTENT_RANGE)
@@ -257,16 +295,15 @@ impl HostedSource {
                     }
                     (StatusCode::PARTIAL_CONTENT, end - start + 1)
                 }
-                None => (StatusCode::OK, self.file.size),
+                None => (StatusCode::OK, asset.size),
             };
             let headers = response.headers();
             if response.status() != status
-                || headers.get(header::ETAG).and_then(|v| v.to_str().ok())
-                    != Some(self.etag().as_str())
+                || headers.get(header::ETAG).and_then(|v| v.to_str().ok()) != Some(etag.as_str())
                 || headers
                     .get(header::CONTENT_TYPE)
                     .and_then(|v| v.to_str().ok())
-                    != Some(self.mime)
+                    != Some(asset.mime)
                 || headers
                     .get(header::CONTENT_LENGTH)
                     .and_then(|v| v.to_str().ok())
@@ -295,8 +332,29 @@ impl HostedSource {
                 &offline[start as usize..=end as usize],
             ));
         }
-        let result = async {
-            let mut response = self.request(Some((start, end)), download).await?;
+        let result = self
+            .fetch_range(self.media_asset(), start, end, download)
+            .await;
+        if let Err(error) = &result {
+            if !download {
+                *self.failure.lock() = Some(error.message());
+            }
+            self.invalidate_if_denied(error).await;
+        }
+        result
+    }
+
+    async fn fetch_range(
+        &self,
+        asset: HostedAsset,
+        start: u64,
+        end: u64,
+        download: bool,
+    ) -> Result<Bytes, Failure> {
+        let work = async {
+            let mut response = self
+                .request_asset(asset, Some((start, end)), download)
+                .await?;
             let length = (end - start + 1) as usize;
             let mut bytes = Vec::with_capacity(length);
             while let Some(chunk) = response.chunk().await.map_err(|_| {
@@ -315,18 +373,11 @@ impl HostedSource {
             }
             Ok(Bytes::from(bytes))
         };
-        let result = tokio::select! {
+        tokio::select! {
             biased;
-            _ = self.cancel.cancelled() => return Err(Failure::Closed),
-            result = result => result,
-        };
-        if let Err(error) = &result {
-            if !download {
-                *self.failure.lock() = Some(error.message());
-            }
-            self.invalidate_if_denied(error).await;
+            _ = self.cancel.cancelled() => Err(Failure::Closed),
+            result = work => result,
         }
-        result
     }
 
     async fn invalidate_if_denied(&self, error: &Failure) {
@@ -423,6 +474,7 @@ pub async fn open_hosted_playback(
         authorized: AsyncMutex::new(now),
         failure: Mutex::new(None),
         preview_budget,
+        audio_metadata: OnceLock::new(),
     };
     match source.request(None, false).await {
         Ok(response) => {
@@ -465,6 +517,10 @@ pub async fn open_hosted_playback(
     let address = state.playback.address().await?;
     let id = Uuid::new_v4().simple().to_string();
     let source = Arc::new(source);
+    if source.mime.starts_with("audio/") {
+        let metadata = read_audio_metadata(source.clone()).await;
+        let _ = source.audio_metadata.set(metadata);
+    }
     {
         let mut registry = state.playback.hosted.lock();
         if registry.epoch != epoch {
@@ -504,16 +560,177 @@ pub async fn open_hosted_playback(
             playback.hosted.lock().remove(&expire);
         }
     });
+    let base = format!("http://{address}/{id}");
     Ok(PlaybackSource {
-        url: format!("http://{address}/{id}/media"),
+        url: format!("{base}/media"),
         id,
         revision: source.file.revision_id.to_string(),
         captions: Vec::new(),
         audio_tracks: Vec::new(),
-        audio_metadata: None,
+        audio_metadata: source
+            .audio_metadata
+            .get()
+            .map(|metadata| metadata.details(&base)),
         offline: Some(source.offline.is_some()),
         can_download_offline: Some(source.can_download),
     })
+}
+
+async fn read_audio_metadata(source: Arc<HostedSource>) -> AudioMetadata {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    let runtime = tokio::runtime::Handle::current();
+    let worker = source.clone();
+    let parse = tokio::task::spawn_blocking(move || {
+        if let Some(bytes) = &worker.offline {
+            AudioMetadata::from_reader(Cursor::new(bytes.as_slice()), worker.mime)
+        } else {
+            AudioMetadata::from_reader(
+                HostedTagReader {
+                    source: &worker,
+                    runtime,
+                    deadline,
+                    position: 0,
+                    window_start: 0,
+                    window: Bytes::new(),
+                    remaining: TAG_READ_BUDGET as u64,
+                },
+                worker.mime,
+            )
+        }
+    });
+    let lyrics = async {
+        let sidecar = source.file.lyrics.as_ref()?;
+        read_sidecar(&source, sidecar, LYRICS_BYTES, true, deadline).await
+    };
+    let (parsed, lyrics) = tokio::join!(tokio::time::timeout_at(deadline, parse), lyrics);
+    let mut metadata = parsed
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
+        .unwrap_or_default();
+    if let Some(lyrics) = lyrics {
+        metadata.add_sidecar_lyrics(lyrics);
+    }
+    for cover in source.file.covers.iter().take(5) {
+        if metadata.artwork.is_some() || tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        if let Some(bytes) = read_sidecar(&source, cover, ARTWORK_BYTES, false, deadline).await {
+            let worker = tokio::task::spawn_blocking(move || {
+                let mut cover = AudioMetadata::default();
+                cover.add_folder_artwork(&bytes);
+                cover.artwork
+            });
+            metadata.artwork = tokio::time::timeout_at(deadline, worker)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
+        }
+    }
+    metadata
+}
+
+async fn read_sidecar(
+    source: &HostedSource,
+    file: &HostedSidecar,
+    limit: usize,
+    lyrics: bool,
+    deadline: tokio::time::Instant,
+) -> Option<Vec<u8>> {
+    if source.offline.is_some() || file.size == 0 || file.size > limit as u64 {
+        return None;
+    }
+    let extension = extension(Path::new(&file.path));
+    if lyrics != (extension == "lrc") {
+        return None;
+    }
+    let mime = collab_protocol::media::sidecar_mime_for_extension(&extension)?;
+    let asset = HostedAsset {
+        id: file.file_id,
+        revision: file.revision_id,
+        size: file.size,
+        mime,
+    };
+    tokio::time::timeout_at(deadline, async {
+        let mut bytes = Vec::with_capacity(file.size as usize);
+        while (bytes.len() as u64) < file.size {
+            let start = bytes.len() as u64;
+            let end = (start + MAX_RANGE_BYTES).min(file.size) - 1;
+            bytes.extend_from_slice(&source.fetch_range(asset, start, end, false).await.ok()?);
+        }
+        Some(bytes)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+// Lofty seeks over audio payloads to read format tags. Keep only a single
+// range in memory and charge repeated range reads to the same lifetime budget.
+struct HostedTagReader<'a> {
+    source: &'a HostedSource,
+    runtime: tokio::runtime::Handle,
+    deadline: tokio::time::Instant,
+    position: u64,
+    window_start: u64,
+    window: Bytes,
+    remaining: u64,
+}
+
+impl Read for HostedTagReader<'_> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let size = self.source.file.size;
+        if output.is_empty() || self.position >= size {
+            return Ok(0);
+        }
+        if self.position < self.window_start
+            || self.position >= self.window_start + self.window.len() as u64
+        {
+            let count = (size - self.position).min(self.remaining).min(256 * 1024);
+            if count == 0 || tokio::time::Instant::now() >= self.deadline {
+                return Err(io::Error::other("Audio metadata read limit reached"));
+            }
+            self.remaining -= count;
+            self.window_start = self.position;
+            self.window = self
+                .runtime
+                .block_on(async {
+                    tokio::time::timeout_at(
+                        self.deadline,
+                        self.source.fetch_range(
+                            self.source.media_asset(),
+                            self.position,
+                            self.position + count - 1,
+                            false,
+                        ),
+                    )
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                })
+                .ok_or_else(|| io::Error::other("Could not read hosted audio metadata"))?;
+        }
+        let offset = (self.position - self.window_start) as usize;
+        let count = output.len().min(self.window.len() - offset);
+        output[..count].copy_from_slice(&self.window[offset..offset + count]);
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+
+impl Seek for HostedTagReader<'_> {
+    fn seek(&mut self, from: SeekFrom) -> io::Result<u64> {
+        self.position = match from {
+            SeekFrom::Start(offset) => Some(offset),
+            SeekFrom::Current(offset) => self.position.checked_add_signed(offset),
+            SeekFrom::End(offset) => self.source.file.size.checked_add_signed(offset),
+        }
+        .ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "Invalid audio metadata offset")
+        })?;
+        Ok(self.position)
+    }
 }
 
 fn authenticate_offline_payload(
@@ -605,11 +822,14 @@ pub(super) async fn serve(
     method: Method,
     headers: HeaderMap,
 ) -> Reply {
-    if asset != "media" {
-        return empty(StatusCode::NOT_FOUND);
-    }
     if let Err(error) = source.validate_account() {
         return empty(error.status());
+    }
+    if asset == "artwork" {
+        return artwork_reply(source.audio_metadata.get(), method);
+    }
+    if asset != "media" {
+        return empty(StatusCode::NOT_FOUND);
     }
     let size = source.file.size;
     let bounds = match headers.get(header::RANGE).filter(|_| method == Method::GET) {
@@ -716,6 +936,142 @@ mod tests {
         assert!(authenticate_offline_payload(data, b"account-and-revision", 7, &hash).is_none());
     }
 
+    fn source_for_test(file: HostedPlaybackFile, mime: &'static str) -> Arc<HostedSource> {
+        let url = &file.server_url;
+        let account = Uuid::new_v4().to_string();
+        let runtime = Arc::new(HostedSessionRuntime::new());
+        runtime.server_sessions.write().insert(
+            url.to_owned(),
+            ServerSessionState {
+                server_url: url.to_owned(),
+                access_token: "fixture-token".into(),
+                refresh_token: String::new(),
+                allow_invalid_certificates: false,
+                persist_across_reboots: false,
+                access_expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                user: serde_json::from_value(serde_json::json!({
+                    "id": account, "username": "fixture", "displayName":"fixture", "role":"admin",
+                    "status":"active", "createdAt":"", "activeSessions":1, "isPrimaryAdmin":true,
+                }))
+                .unwrap(),
+            },
+        );
+        Arc::new(HostedSource {
+            file,
+            account,
+            runtime,
+            mime,
+            can_download: false,
+            offline: None,
+            cancel: CancellationToken::new(),
+            touched: Mutex::new(tokio::time::Instant::now()),
+            authorized: AsyncMutex::new(tokio::time::Instant::now()),
+            failure: Mutex::new(None),
+            preview_budget: PreviewBudget::default(),
+            audio_metadata: OnceLock::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn reads_hosted_audio_tags_and_matching_sidecars_from_pinned_ranges() {
+        use axum::extract::Path as RoutePath;
+
+        // A tiny RIFF INFO tag is sufficient to verify the remote seek adapter.
+        let mut wave = b"RIFF\x1c\0\0\0WAVELIST\x10\0\0\0INFOINAM\x04\0\0\0Tag\0".to_vec();
+        let id = Uuid::new_v4();
+        let revision = Uuid::new_v4();
+        let lyric_id = Uuid::new_v4();
+        let lyric_revision = Uuid::new_v4();
+        let cover_id = Uuid::new_v4();
+        let cover_revision = Uuid::new_v4();
+        let lyrics = b"[00:01.00]A line".to_vec();
+        let mut cover = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut cover, image::ImageFormat::Png)
+            .unwrap();
+        let cover = cover.into_inner();
+        let (size, lyric_size, cover_size) =
+            (wave.len() as u64, lyrics.len() as u64, cover.len() as u64);
+        let assets = Arc::new(HashMap::from([
+            (id, (revision, "audio/wav", std::mem::take(&mut wave))),
+            (lyric_id, (lyric_revision, "text/plain", lyrics)),
+            (cover_id, (cover_revision, "image/png", cover)),
+        ]));
+        let handler = move |RoutePath((_vault, asset_id)): RoutePath<(Uuid, Uuid)>,
+                            headers: HeaderMap| {
+            let assets = assets.clone();
+            async move {
+                let (revision, mime, bytes) = &assets[&asset_id];
+                let etag = format!("\"{revision}\"");
+                assert_eq!(headers[header::AUTHORIZATION], "Bearer fixture-token");
+                assert_eq!(headers[header::IF_MATCH], etag.as_str());
+                let size = bytes.len() as u64;
+                let (start, end) = range(headers[header::RANGE].to_str().unwrap(), size).unwrap();
+                axum::http::Response::builder()
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header(header::ETAG, etag)
+                    .header(header::CONTENT_TYPE, *mime)
+                    .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
+                    .header(header::CONTENT_LENGTH, end - start + 1)
+                    .body(Body::from(bytes[start as usize..=end as usize].to_vec()))
+                    .unwrap()
+            }
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new().route("/api/v1/vaults/{vault}/files/{file}/playback", get(handler));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let source = source_for_test(
+            HostedPlaybackFile {
+                server_url: url,
+                vault_id: Uuid::new_v4(),
+                file_id: id,
+                revision_id: revision,
+                content_hash: "0".repeat(64),
+                size,
+                path: "audio.wav".into(),
+                preview: false,
+                lyrics: Some(HostedSidecar {
+                    file_id: lyric_id,
+                    revision_id: lyric_revision,
+                    size: lyric_size,
+                    path: "audio.LRC".into(),
+                }),
+                covers: vec![HostedSidecar {
+                    file_id: cover_id,
+                    revision_id: cover_revision,
+                    size: cover_size,
+                    path: "cover.png".into(),
+                }],
+            },
+            "audio/wav",
+        );
+        let metadata = read_audio_metadata(source.clone()).await;
+        let details = serde_json::to_value(metadata.details("http://example.test")).unwrap();
+        assert_eq!(details["title"], "Tag");
+        assert_eq!(details["lyrics"][0]["text"], "[00:01.00]A line");
+        assert_eq!(details["artworkUrl"], "http://example.test/artwork");
+        assert!(source.audio_metadata.set(metadata).is_ok());
+        let slots = Arc::new(Semaphore::new(1));
+        let art = serve(
+            source.clone(),
+            slots.clone(),
+            "artwork",
+            Method::GET,
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(art.headers()[header::CONTENT_TYPE], "image/png");
+        source.cancel.cancel();
+        assert_ne!(
+            serve(source, slots, "artwork", Method::GET, HeaderMap::new())
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        server.abort();
+    }
+
     #[tokio::test]
     async fn native_proxy_seeks_without_prefetch_and_rejects_revocation() {
         const SIZE: u64 = 36_100_000_000;
@@ -767,26 +1123,8 @@ mod tests {
             .route("/api/v1/vaults/{vault}/files/{file}/playback", get(handler))
             .with_state(fixture.clone());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let account = Uuid::new_v4().to_string();
-        let runtime = Arc::new(HostedSessionRuntime::new());
-        runtime.server_sessions.write().insert(
-            url.clone(),
-            ServerSessionState {
-                server_url: url.clone(),
-                access_token: "fixture-token".into(),
-                refresh_token: String::new(),
-                allow_invalid_certificates: false,
-                persist_across_reboots: false,
-                access_expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
-                user: serde_json::from_value(serde_json::json!({
-                    "id": account, "username": "fixture", "displayName":"fixture", "role":"admin",
-                    "status":"active", "createdAt":"", "activeSessions":1, "isPrimaryAdmin":true,
-                }))
-                .unwrap(),
-            },
-        );
-        let source = Arc::new(HostedSource {
-            file: HostedPlaybackFile {
+        let source = source_for_test(
+            HostedPlaybackFile {
                 server_url: url,
                 vault_id: Uuid::new_v4(),
                 file_id: Uuid::new_v4(),
@@ -795,18 +1133,11 @@ mod tests {
                 size: SIZE,
                 path: "clip.mp4".into(),
                 preview: false,
+                lyrics: None,
+                covers: Vec::new(),
             },
-            account,
-            runtime,
-            mime: "video/mp4",
-            can_download: false,
-            offline: None,
-            cancel: CancellationToken::new(),
-            touched: Mutex::new(tokio::time::Instant::now()),
-            authorized: AsyncMutex::new(tokio::time::Instant::now()),
-            failure: Mutex::new(None),
-            preview_budget: PreviewBudget::default(),
-        });
+            "video/mp4",
+        );
         assert!(source.request(None, false).await.is_ok());
         assert_eq!(fixture.bytes.load(Ordering::Relaxed), 0);
 

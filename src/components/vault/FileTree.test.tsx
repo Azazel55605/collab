@@ -860,6 +860,29 @@ describe('FileTree folder collapse state', () => {
     await waitFor(() => expect(importExternalFilesIntoVault).toHaveBeenCalled());
     expect(importExternalFilesIntoVault.mock.calls[0][1]).toEqual(['/desktop/cat.png']);
   });
+  it('offers LRC files in the hosted Add files dialog', async () => {
+    useVaultStore.setState({
+      vault: {
+        kind: 'hosted',
+        id: 'v',
+        hostedVaultId: 'v',
+        path: 'hosted://v',
+        name: 'Hosted',
+        serverUrl: 'https://example.test',
+        role: 'editor',
+        lastOpened: 0,
+        isEncrypted: false,
+      },
+    });
+    vi.mocked(tauriCommands.showOpenFilesDialog).mockResolvedValue(null);
+    render(<FileTree />);
+    fireEvent.click(screen.getByLabelText('Add files to vault'));
+    await waitFor(() =>
+      expect(tauriCommands.showOpenFilesDialog).toHaveBeenCalledWith(
+        expect.arrayContaining(['lrc', 'mp3', 'flac']),
+      ),
+    );
+  });
   it('mounts a bounded window for 10k rows and retains offscreen range selection', async () => {
     const files = Array.from({ length: 10000 }, (_, i) => ({
       relativePath: `${i}.md`,
