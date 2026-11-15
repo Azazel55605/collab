@@ -14,7 +14,6 @@ import { formatDate, useUiStore } from '../../store/uiStore';
 import type { KanbanCard } from '../../types/kanban';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
-import { Calendar } from '../ui/calendar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +21,8 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { PickerDialog } from '../ui/picker-dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { DatePanel, PopoverPanel } from '../ui/popover-patterns';
 
 import CardDialog from './CardDialog';
 
@@ -827,24 +827,37 @@ export default function CalendarView() {
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label="Jump to date"
                 className="h-7 w-7 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
               >
                 <CalendarIcon size={13} />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={anchorDate}
-                onSelect={(d) => {
-                  if (d) {
-                    setAnchorDate(d);
-                    setPickerOpen(false);
-                  }
-                }}
+            <PopoverPanel className="w-auto" align="start">
+              <DatePanel
+                value={`${anchorDate.getFullYear()}-${String(anchorDate.getMonth() + 1).padStart(2, '0')}-${String(anchorDate.getDate()).padStart(2, '0')}`}
+                quickPicks={false}
                 weekStartsOn={weekStart}
+                onChange={(next) => {
+                  if (!next) return;
+                  setAnchorDate(new Date(`${next}T12:00:00`));
+                  setPickerOpen(false);
+                }}
+                footerStart={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      goToday();
+                      setPickerOpen(false);
+                    }}
+                  >
+                    Today
+                  </Button>
+                }
               />
-            </PopoverContent>
+            </PopoverPanel>
           </Popover>
         </div>
 

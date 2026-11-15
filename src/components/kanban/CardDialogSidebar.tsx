@@ -16,8 +16,8 @@ import { formatDate } from '../../store/uiStore';
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
 import { FULL_KANBAN_CAPABILITIES, type KanbanCapabilities } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
-import { Calendar as CalendarUI } from '../ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { DatePanel, PopoverPanel } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 type PriorityOption = {
@@ -81,8 +81,6 @@ export function CardDialogSidebar({
   const pickerButtonClass = cn(
     'h-8 w-full justify-start gap-1.5 rounded-lg border border-border/40 bg-background/55 px-2.5 text-left text-xs transition-colors hover:border-border/70',
   );
-  const quietActionClass =
-    'mt-1 h-6 px-0 text-[10px] text-muted-foreground/60 hover:text-muted-foreground';
 
   return (
     <div className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border/50 bg-muted/15 px-4 py-5">
@@ -136,28 +134,17 @@ export function CardDialogSidebar({
                     : 'Pick a date'}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-auto p-0" sideOffset={4}>
-                <CalendarUI
-                  mode="single"
-                  selected={draft.startDate ? new Date(draft.startDate + 'T12:00:00') : undefined}
-                  onSelect={(date) => {
-                    patchDraft({ startDate: date ? format(date, 'yyyy-MM-dd') : undefined });
+              <PopoverPanel align="end" className="w-auto" sideOffset={4}>
+                <DatePanel
+                  value={draft.startDate ?? ''}
+                  clearable
+                  onChange={(next) => {
+                    patchDraft({ startDate: next || undefined });
                     setStartDateOpen(false);
                   }}
                 />
-              </PopoverContent>
+              </PopoverPanel>
             </Popover>
-            {draft.startDate && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => patchDraft({ startDate: undefined })}
-                className={quietActionClass}
-              >
-                Clear
-              </Button>
-            )}
             {!draft.startDate && !draft.dueDate && (
               <p className="text-[10px] text-muted-foreground/40 mt-0.5">
                 No date — hidden from Calendar & Timeline
@@ -185,28 +172,17 @@ export function CardDialogSidebar({
                     : 'Pick a date'}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-auto p-0" sideOffset={4}>
-                <CalendarUI
-                  mode="single"
-                  selected={draft.dueDate ? new Date(draft.dueDate + 'T12:00:00') : undefined}
-                  onSelect={(date) => {
-                    patchDraft({ dueDate: date ? format(date, 'yyyy-MM-dd') : undefined });
+              <PopoverPanel align="end" className="w-auto" sideOffset={4}>
+                <DatePanel
+                  value={draft.dueDate ?? ''}
+                  clearable
+                  onChange={(next) => {
+                    patchDraft({ dueDate: next || undefined });
                     setDueDateOpen(false);
                   }}
                 />
-              </PopoverContent>
+              </PopoverPanel>
             </Popover>
-            {draft.dueDate && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => patchDraft({ dueDate: undefined })}
-                className={quietActionClass}
-              >
-                Clear date
-              </Button>
-            )}
           </section>
 
           <section>

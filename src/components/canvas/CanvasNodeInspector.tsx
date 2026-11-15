@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 
-import { format } from 'date-fns';
 import { Box, Calendar, Tag, Trash2, Users } from 'lucide-react';
 
 import { formatDate } from '../../store/uiStore';
@@ -13,9 +12,9 @@ import type {
 } from '../../types/canvas';
 import type { KnownUser } from '../../types/vault';
 import { Button } from '../ui/button';
-import { Calendar as CalendarUI } from '../ui/calendar';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { DatePanel, PopoverPanel } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
@@ -328,23 +327,16 @@ export function CanvasNodeInspector({
                               : 'Pick a date'}
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent align="end" className="w-auto p-0" sideOffset={4}>
-                          <CalendarUI
-                            mode="single"
-                            selected={
-                              planning.dueDate
-                                ? new Date(`${planning.dueDate}T12:00:00`)
-                                : undefined
-                            }
-                            onSelect={(date) => {
-                              onPlanningChange({
-                                ...planning,
-                                dueDate: date ? format(date, 'yyyy-MM-dd') : undefined,
-                              });
+                        <PopoverPanel align="end" className="w-auto" sideOffset={4}>
+                          <DatePanel
+                            value={planning.dueDate ?? ''}
+                            clearable
+                            onChange={(next) => {
+                              onPlanningChange({ ...planning, dueDate: next || undefined });
                               setDueDateOpen(false);
                             }}
                           />
-                        </PopoverContent>
+                        </PopoverPanel>
                       </Popover>
                     </div>
                   </div>
