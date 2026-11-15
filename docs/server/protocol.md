@@ -260,7 +260,8 @@ The binary and structural-operation slice also implements:
 - `GET /files/{fileId}/content` for authenticated raw content downloads with
   digest verification.
 - `HEAD /files/{fileId}/playback` returns the size and type of the current
-  eligible media revision. `GET` on the same path requires one closed byte
+  eligible media revision. The same endpoint serves pinned LRC and raster
+  artwork attachments for hosted audio. `GET` requires one closed byte
   range (maximum 1 MiB). Both require `If-Match: "<revision UUID>"` and a
   current vault-read grant. A stale revision returns `412`. Invalid or
   oversized ranges return `416`. The response exposes offline-copy permission

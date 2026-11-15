@@ -21,6 +21,7 @@ import type {
 import { vaultCan, vaultKind } from '../types/vault';
 
 import { documentVaultIdentity } from './documentPaneContext';
+import { mediaKindForPath } from './mediaFiles';
 import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
 import { shareAbortableDocumentRead, shareDocumentRead } from './sharedDocumentResources';
 import { type LocalPlaybackSource, tauriCommands } from './tauri';
@@ -312,6 +313,43 @@ interface HostedManifest {
   vaultId: string;
   sequence: number;
   files: HostedFileEntry[];
+}
+
+function hostedAudioSidecars(manifest: HostedManifest, audio: HostedFileEntry) {
+  const lyricsName = audio.name.replace(/\.[^.]+$/, '.lrc').toLowerCase();
+  const coverNames = ['cover.jpg', 'cover.jpeg', 'cover.png', 'folder.jpg', 'folder.png'];
+  const candidates = new Map(
+    manifest.files.flatMap((file) => {
+      const revision = file.currentRevision;
+      const name = file.name.toLowerCase();
+      if (
+        file.parentId !== audio.parentId ||
+        file.kind !== 'asset' ||
+        file.state !== 'active' ||
+        !revision ||
+        revision.contentHash === 'offline' ||
+        (name !== lyricsName && !coverNames.includes(name))
+      )
+        return [];
+      return [
+        [
+          name,
+          {
+            fileId: file.id,
+            revisionId: revision.id,
+            size: revision.sizeBytes,
+            path: file.relativePath,
+          },
+        ],
+      ] as const;
+    }),
+  );
+  const lyrics = candidates.get(lyricsName);
+  const covers = coverNames.flatMap((name) => {
+    const cover = candidates.get(name);
+    return cover ? [cover] : [];
+  });
+  return { ...(lyrics ? { lyrics } : {}), ...(covers.length ? { covers } : {}) };
 }
 
 const manifestIndexes = new WeakMap<
@@ -718,6 +756,10 @@ export class HostedVaultClient implements VaultClient {
         if (file.kind !== 'asset' || !revision || revision.contentHash === 'offline') {
           throw new Error('This media must finish syncing before it can be opened.');
         }
+        const sidecars =
+          mediaKindForPath(file.relativePath) === 'audio'
+            ? hostedAudioSidecars(manifest, file)
+            : {};
         return tauriCommands.openHostedPlayback({
           serverUrl: this.vault.serverUrl,
           vaultId: this.vault.hostedVaultId,
@@ -727,6 +769,7 @@ export class HostedVaultClient implements VaultClient {
           size: revision.sizeBytes,
           path: file.relativePath,
           ...(preview ? { preview } : {}),
+          ...sidecars,
         });
       },
       saveCopy: async (relativePath) => {

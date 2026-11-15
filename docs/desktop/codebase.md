@@ -479,7 +479,11 @@ and fixed-size upstream requests bound each stream. Hosted account changes,
 vault transitions and playback closure revoke the loopback handle. Explicit
 offline media is cached inside the encrypted replica, bound to the account
 and revision, and decrypted into bounded native memory after transport failure.
-Permission and revision failures invalidate the hosted source.
+Permission and revision failures invalidate the hosted source. Hosted audio
+passes a bounded, revision-pinned seek reader to the shared tag parser.
+Matching lyrics and fallback folder artwork are resolved from the same folder
+and fetched under their own revision pins. Offline audio parses embedded tags
+from the verified copy.
 
 The deferred `MediaLibraryView` reads the shared vault tree index and opens
 regular editor tabs. `lib/mediaResume.ts` shares the bounded in-session resume

@@ -4641,7 +4641,10 @@ pub async fn play_vault_file(
         .map(|(_, extension)| extension.to_ascii_lowercase());
     let mime = extension
         .as_deref()
-        .and_then(collab_protocol::media::mime_for_extension)
+        .and_then(|ext| {
+            collab_protocol::media::mime_for_extension(ext)
+                .or_else(|| collab_protocol::media::sidecar_mime_for_extension(ext))
+        })
         .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
     let revision: Uuid = row.get("id");
     let etag = format!("\"{revision}\"");

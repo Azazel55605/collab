@@ -119,6 +119,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
       by file revision and renderer version.
 - [x] Add an optional Continue watching and listening section using in-session
       resume data. Every item opens or focuses its regular file tab.
+- [x] Use hosted audio tags, embedded artwork and same-folder LRC in the player and library preview.
 - [ ] Qualify artwork and video still previews on installed desktop WebViews.
 
 ### Phase 4 — Follow-on Surfaces And Polish

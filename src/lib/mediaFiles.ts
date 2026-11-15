@@ -1,12 +1,8 @@
 export const VIDEO_EXTENSIONS = ['mp4', 'webm'];
 export const AUDIO_EXTENSIONS = ['mp3', 'wav', 'flac'];
 export const CAPTION_EXTENSIONS = ['vtt', 'srt'];
-export const LOCAL_MEDIA_EXTENSIONS = [
-  ...VIDEO_EXTENSIONS,
-  ...AUDIO_EXTENSIONS,
-  ...CAPTION_EXTENSIONS,
-  'lrc',
-];
+export const HOSTED_MEDIA_EXTENSIONS = [...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS, 'lrc'];
+export const LOCAL_MEDIA_EXTENSIONS = [...HOSTED_MEDIA_EXTENSIONS, ...CAPTION_EXTENSIONS];
 
 function extensionOf(path: string) {
   return path.match(/\.([^./\\]+)$/)?.[1].toLowerCase() ?? '';

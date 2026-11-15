@@ -696,6 +696,22 @@ fn reply(status: StatusCode, mime: &str, body: Body) -> Reply {
         .expect("static media headers")
 }
 
+fn artwork_reply(metadata: Option<&AudioMetadata>, method: Method) -> Reply {
+    let Some(artwork) = metadata.and_then(|metadata| metadata.artwork.as_ref()) else {
+        return empty(StatusCode::NOT_FOUND);
+    };
+    let body = if method == Method::HEAD {
+        Body::empty()
+    } else {
+        Body::from(artwork.clone())
+    };
+    let mut response = reply(StatusCode::OK, "image/png", body);
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LENGTH, artwork.len().into());
+    response
+}
+
 fn empty(status: StatusCode) -> Reply {
     reply(status, "text/plain", Body::empty())
 }
@@ -793,25 +809,7 @@ async fn serve(
         };
     }
     if asset == "artwork" {
-        return source
-            .audio_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.artwork.as_ref())
-            .map_or_else(
-                || empty(StatusCode::NOT_FOUND),
-                |artwork| {
-                    let body = if method == Method::HEAD {
-                        Body::empty()
-                    } else {
-                        Body::from(artwork.clone())
-                    };
-                    let mut response = reply(StatusCode::OK, "image/png", body);
-                    response
-                        .headers_mut()
-                        .insert(header::CONTENT_LENGTH, artwork.len().into());
-                    response
-                },
-            );
+        return artwork_reply(source.audio_metadata.as_ref(), method);
     }
     if asset != "media" {
         return asset
