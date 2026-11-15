@@ -29,8 +29,8 @@ export function DatePicker({ value, onChange, label, min, className }: Props) {
   const selected = parseDate(value);
   const minimum = parseDate(min ?? '');
   return (
-    <div className={cn('space-y-1', className)}>
-      {label && <span className="text-xs font-medium">{label}</span>}
+    <div className={cn('flex flex-col gap-1.5', className)}>
+      {label && <span className="text-[12.5px] font-medium text-foreground/85">{label}</span>}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
