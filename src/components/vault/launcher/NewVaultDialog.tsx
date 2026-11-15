@@ -1,6 +1,6 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
-import { HardDrive, Loader2, Server } from 'lucide-react';
+import { FolderPlus, HardDrive, Server } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { tauriCommands } from '../../../lib/tauri';
@@ -9,14 +9,7 @@ import { useServerStore } from '../../../store/serverStore';
 import { useVaultStore } from '../../../store/vaultStore';
 import { hostedVaultMeta } from '../../../types/vault';
 import { Button } from '../../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../../ui/dialog';
+import { FormDialog } from '../../ui/form-dialog';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 
@@ -71,8 +64,7 @@ export function NewVaultDialog({
     }
   };
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!canSubmit) return;
     const vaultName = name.trim();
     setBusy(true);
@@ -97,102 +89,89 @@ export function NewVaultDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={submit} className="grid gap-5">
-          <DialogHeader>
-            <DialogTitle>New vault</DialogTitle>
-            <DialogDescription>
-              Choose where it lives. You can add people to hosted vaults later.
-            </DialogDescription>
-          </DialogHeader>
-
-          <fieldset className="grid gap-2">
-            <legend className="mb-2 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">
-              Location
-            </legend>
-            <LocationOption
-              selected={isLocal}
-              onSelect={() => setLocation('local')}
-              icon={<HardDrive size={15} />}
-              title="This device"
-              description="A folder on disk. Works fully offline."
-            />
-            {creatableServers.map((server) => (
-              <LocationOption
-                key={server.serverUrl}
-                selected={location === server.serverUrl}
-                onSelect={() => setLocation(server.serverUrl)}
-                icon={<Server size={15} />}
-                title={server.host}
-                description="Hosted vault. Shared and synced through the server."
-              />
-            ))}
-            {signedOutServers.map((server) => (
-              <div
-                key={server.serverUrl}
-                className="flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2.5"
-              >
-                <Server size={15} className="shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-muted-foreground">
-                    {server.host}
-                  </p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400">Signed out</p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onSignIn(server)}
-                  aria-label={`Sign in to ${server.host}`}
-                >
-                  Sign in
-                </Button>
-              </div>
-            ))}
-          </fieldset>
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="new-vault-name">Name</Label>
-            <Input
-              id="new-vault-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Research notes"
-              autoFocus={!isLocal}
-            />
-          </div>
-
-          {isLocal && (
-            <div className="grid gap-1.5">
-              <span className="text-sm font-medium">Folder</span>
-              <div className="flex gap-2">
-                <span
-                  className="flex h-8 min-w-0 flex-1 items-center truncate rounded-lg border border-border bg-muted/40 px-2.5 font-mono text-xs text-muted-foreground"
-                  title={folder ?? undefined}
-                >
-                  {folder ?? 'No folder chosen'}
-                </span>
-                <Button type="button" variant="outline" onClick={chooseFolder}>
-                  Choose…
-                </Button>
-              </div>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<FolderPlus />}
+      title="New vault"
+      description="Choose where it lives. You can add people to hosted vaults later."
+      submitLabel="Create vault"
+      submitDisabled={!canSubmit}
+      busy={busy}
+      onSubmit={submit}
+    >
+      <fieldset className="grid gap-2">
+        <legend className="mb-2 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">
+          Location
+        </legend>
+        <LocationOption
+          selected={isLocal}
+          onSelect={() => setLocation('local')}
+          icon={<HardDrive size={15} />}
+          title="This device"
+          description="A folder on disk. Works fully offline."
+        />
+        {creatableServers.map((server) => (
+          <LocationOption
+            key={server.serverUrl}
+            selected={location === server.serverUrl}
+            onSelect={() => setLocation(server.serverUrl)}
+            icon={<Server size={15} />}
+            title={server.host}
+            description="Hosted vault. Shared and synced through the server."
+          />
+        ))}
+        {signedOutServers.map((server) => (
+          <div
+            key={server.serverUrl}
+            className="flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2.5"
+          >
+            <Server size={15} className="shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-muted-foreground">{server.host}</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">Signed out</p>
             </div>
-          )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onSignIn(server)}
+              aria-label={`Sign in to ${server.host}`}
+            >
+              Sign in
+            </Button>
+          </div>
+        ))}
+      </fieldset>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+      <div className="grid gap-1.5">
+        <Label htmlFor="new-vault-name">Name</Label>
+        <Input
+          id="new-vault-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="e.g. Research notes"
+          autoFocus={!isLocal}
+        />
+      </div>
+
+      {isLocal && (
+        <div className="grid gap-1.5">
+          <span className="text-sm font-medium">Folder</span>
+          <div className="flex gap-2">
+            <span
+              className="flex h-8 min-w-0 flex-1 items-center truncate rounded-lg border border-border bg-muted/40 px-2.5 font-mono text-xs text-muted-foreground"
+              title={folder ?? undefined}
+            >
+              {folder ?? 'No folder chosen'}
+            </span>
+            <Button type="button" variant="outline" onClick={chooseFolder}>
+              Choose…
             </Button>
-            <Button type="submit" disabled={!canSubmit}>
-              {busy && <Loader2 className="animate-spin" />}
-              Create vault
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </div>
+      )}
+    </FormDialog>
   );
 }
 

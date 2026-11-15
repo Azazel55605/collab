@@ -36,6 +36,7 @@ import {
   Save,
   Shapes,
   SlidersHorizontal,
+  Table,
   Table2,
   Trash2,
   Ungroup,
@@ -103,13 +104,7 @@ import {
 } from '../components/ui/app-dialog';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
+import { Dialog } from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -5676,114 +5671,114 @@ function LogicDiagramEditor({ relativePath }: Props) {
         </FormField>
       </FormDialog>
       <Dialog open={truthTableOpen} onOpenChange={setTruthTableOpen}>
-        <DialogContent className="max-w-[min(92vw,960px)] sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Logic value table</DialogTitle>
-            <DialogDescription>
-              Every input combination is evaluated against the current circuit. Clock sources are
-              treated as input columns here.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Scope</span>
-            <Select value={truthTableScope} onValueChange={setTruthTableScope}>
-              <SelectTrigger size="sm" className="h-8 min-w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="document">Entire logic file</SelectItem>
-                {availableComponents.map((component) => (
-                  <SelectItem key={component.id} value={component.id}>
-                    {component.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-muted-foreground">
-              {truthTable.inputs.length} inputs · {truthTable.outputs.length} outputs ·{' '}
-              {truthTable.rows.length} rows
-            </span>
-          </div>
-          {truthTable.error ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {truthTable.error}
+        <AppDialogContent size="m" className="sm:max-w-4xl">
+          <AppDialogHeader
+            icon={<Table />}
+            title="Logic value table"
+            description="Every input combination is evaluated against the current circuit. Clock sources are treated as input columns here."
+          />
+          <AppDialogBody>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Scope</span>
+              <Select value={truthTableScope} onValueChange={setTruthTableScope}>
+                <SelectTrigger size="sm" className="h-8 min-w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="document">Entire logic file</SelectItem>
+                  {availableComponents.map((component) => (
+                    <SelectItem key={component.id} value={component.id}>
+                      {component.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                {truthTable.inputs.length} inputs · {truthTable.outputs.length} outputs ·{' '}
+                {truthTable.rows.length} rows
+              </span>
             </div>
-          ) : truthTable.outputs.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
-              Add at least one output node to calculate a value table.
-            </div>
-          ) : (
-            <div className="max-h-[60vh] overflow-auto rounded-md border border-border/70">
-              <table className="w-full min-w-max border-collapse text-center text-xs tabular-nums">
-                <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
-                  <tr className="border-b border-border/70">
-                    {truthTable.inputs.length > 0 && (
+            {truthTable.error ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {truthTable.error}
+              </div>
+            ) : truthTable.outputs.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
+                Add at least one output node to calculate a value table.
+              </div>
+            ) : (
+              <div className="max-h-[60vh] overflow-auto rounded-md border border-border/70">
+                <table className="w-full min-w-max border-collapse text-center text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+                    <tr className="border-b border-border/70">
+                      {truthTable.inputs.length > 0 && (
+                        <th
+                          colSpan={truthTable.inputs.length}
+                          className="border-r border-border/70 px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
+                        >
+                          Inputs
+                        </th>
+                      )}
                       <th
-                        colSpan={truthTable.inputs.length}
-                        className="border-r border-border/70 px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
+                        colSpan={truthTable.outputs.length}
+                        className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
                       >
-                        Inputs
+                        Outputs
                       </th>
-                    )}
-                    <th
-                      colSpan={truthTable.outputs.length}
-                      className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
-                    >
-                      Outputs
-                    </th>
-                  </tr>
-                  <tr className="border-b border-border/70">
-                    {truthTable.inputs.map((column, index) => (
-                      <th
-                        key={column.id}
-                        className={cn(
-                          'px-4 py-2 font-semibold',
-                          index === truthTable.inputs.length - 1 && 'border-r border-border/70',
-                        )}
-                      >
-                        {column.label}
-                      </th>
-                    ))}
-                    {truthTable.outputs.map((column) => (
-                      <th key={column.id} className="px-4 py-2 font-semibold text-primary">
-                        {column.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {truthTable.rows.map((row, rowIndex) => (
-                    <tr
-                      key={rowIndex}
-                      className="border-b border-border/40 last:border-0 odd:bg-muted/20"
-                    >
+                    </tr>
+                    <tr className="border-b border-border/70">
                       {truthTable.inputs.map((column, index) => (
-                        <td
+                        <th
                           key={column.id}
                           className={cn(
-                            'px-4 py-2 text-muted-foreground',
+                            'px-4 py-2 font-semibold',
                             index === truthTable.inputs.length - 1 && 'border-r border-border/70',
                           )}
                         >
-                          {row.inputs[column.id] ? '1' : '0'}
-                        </td>
+                          {column.label}
+                        </th>
                       ))}
                       {truthTable.outputs.map((column) => (
-                        <td key={column.id} className="px-4 py-2 font-semibold text-foreground">
-                          {typeof row.outputs[column.id] === 'boolean'
-                            ? row.outputs[column.id]
-                              ? '1'
-                              : '0'
-                            : '–'}
-                        </td>
+                        <th key={column.id} className="px-4 py-2 font-semibold text-primary">
+                          {column.label}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </DialogContent>
+                  </thead>
+                  <tbody>
+                    {truthTable.rows.map((row, rowIndex) => (
+                      <tr
+                        key={rowIndex}
+                        className="border-b border-border/40 last:border-0 odd:bg-muted/20"
+                      >
+                        {truthTable.inputs.map((column, index) => (
+                          <td
+                            key={column.id}
+                            className={cn(
+                              'px-4 py-2 text-muted-foreground',
+                              index === truthTable.inputs.length - 1 && 'border-r border-border/70',
+                            )}
+                          >
+                            {row.inputs[column.id] ? '1' : '0'}
+                          </td>
+                        ))}
+                        {truthTable.outputs.map((column) => (
+                          <td key={column.id} className="px-4 py-2 font-semibold text-foreground">
+                            {typeof row.outputs[column.id] === 'boolean'
+                              ? row.outputs[column.id]
+                                ? '1'
+                                : '0'
+                              : '–'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </AppDialogBody>
+        </AppDialogContent>
       </Dialog>
       <Dialog
         open={clockSettingsNodeId !== null}

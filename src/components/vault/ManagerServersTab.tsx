@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { Plus } from 'lucide-react';
+import { Plus, Server } from 'lucide-react';
 
 import { type KnownServer, listKnownServers } from '../../lib/hostedServers';
 import { listHostedVaultReplicas, type ReplicaSummary } from '../../lib/vaultReplica';
@@ -8,8 +8,9 @@ import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { HostedLoginForm } from '../server/HostedLoginForm';
 import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 
 import { ServerDetailsDialog } from './launcher/ServerDetailsDialog';
 import { ServerStatusDot } from './launcher/ServerStatus';
@@ -120,15 +121,16 @@ export function ManagerServersTab({ onNewVault }: { onNewVault: () => void }) {
         }}
       />
       <Dialog open={connecting} onOpenChange={setConnecting}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Connect a Collab server</DialogTitle>
-            <DialogDescription>
-              Sign in to open hosted vaults, chats and databases.
-            </DialogDescription>
-          </DialogHeader>
-          <HostedLoginForm onConnected={() => setConnecting(false)} />
-        </DialogContent>
+        <AppDialogContent size="m">
+          <AppDialogHeader
+            icon={<Server />}
+            title="Connect a Collab server"
+            description="Sign in to open hosted vaults, chats and databases."
+          />
+          <AppDialogBody>
+            <HostedLoginForm onConnected={() => setConnecting(false)} />
+          </AppDialogBody>
+        </AppDialogContent>
       </Dialog>
     </div>
   );

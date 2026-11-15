@@ -114,6 +114,7 @@ Current regression coverage includes:
 - `src/components/editor/MarkdownEditorContextMenu.test.tsx`
 - `src/lib/frontmatter.test.ts`
 - `src/lib/pdfWorkspace.test.ts`
+- `src/components/kanban/KanbanAutomationsDialog.test.tsx`
 - `src/components/kanban/useCardDialogDraftSession.test.tsx`
 - `src/components/kanban/useCardDialogActions.test.tsx`
 - `src/components/kanban/useCardDialogChecklistComments.test.tsx`
@@ -610,7 +611,7 @@ missing a control, add it there using the interaction and theming rules in
 | `components/pdf/PdfSendTargetDialog.tsx`             | Reusable choose-target dialog for sending PDF quotes and snapshots into notes or the current canvas                                                                                                     | Dialog, Button                                                                    |
 | `components/editor/useMarkdownEditorHandle.ts`       | Shared Markdown editor imperative handle hook and editing helpers for wrap/line/snippet/range mutations                                                                                                 | React imperative handle, CodeMirror selection mutations                           |
 | `components/editor/MarkdownEditorContextMenu.tsx`    | Shared Markdown editor context-menu component and clipboard/formatting helpers for cut/copy/paste/select-all and inline formatting actions                                                              | Context menu primitives, clipboard integration                                    |
-| `components/editor/NoteSnippetsDialog.tsx`           | CRUD dialog for vault/app reusable note snippets with placeholder-aware markdown bodies                                                                                                                 | Dialog, Button, Input, Select, Textarea                                           |
+| `components/editor/NoteSnippetsDialog.tsx`           | List-detail dialog for vault/app reusable note snippets with placeholder-aware markdown bodies                                                                                                          | Dialog, Button, Input, Select, Textarea                                           |
 
 Performance Batch 6 ownership and budgets are documented in
 [Markdown, Math And Graph Performance](./markdown-math-graph-performance.md).
@@ -661,6 +662,7 @@ Icon search uses a sliced posting-index build and bounded LRU in `lib/nerdFontIc
 | `components/kanban/KanbanBoard.tsx`                   | Board + Calendar + Timeline tabs, archive panel                                                                                                       | —                                                            | KanbanContext                                                                 | —                                          |
 | `components/kanban/KanbanColumn.tsx`                  | Column with sortable cards, column settings                                                                                                           | column: KanbanColumn                                         | KanbanContext                                                                 | DropdownMenu, Popover, Dialog              |
 | `components/kanban/KanbanCard.tsx`                    | Card visual + sortable + context menu                                                                                                                 | card, columnId, isOverlay?                                   | KanbanContext, kanbanStore, uiStore                                           | ContextMenu, Dialog                        |
+| `components/kanban/KanbanAutomationsDialog.tsx`       | Board automations as a list-detail dialog; each rule edited as a When / If / Then sentence, presets                                                   | —                                                            | —                                                                             | list-detail-dialog, Select                 |
 | `components/kanban/CardDialog.tsx`                    | Full card editor modal                                                                                                                                | card, columnId, onClose                                      | KanbanContext, kanbanStore, collabStore, noteIndexStore, editorStore, uiStore | Dialog, Popover, Calendar, Command, Select |
 | `components/kanban/useCardDialogDraftSession.ts`      | Shared CardDialog draft/session hook for draft restore, debounced board flush, and current-column tracking                                            | KanbanContext updater, kanbanStore draft state               | —                                                                             |
 | `components/kanban/useCardDialogActions.ts`           | Shared CardDialog move/archive/done/delete actions hook plus move-tags prompt state and pure board-mutation helpers                                   | KanbanContext updater, kanbanStore draft state, kanban types | —                                                                             |
@@ -919,15 +921,16 @@ Pure helpers, not React components, except `CircuitSweepPlot`. Runtime job
 contracts live in `src/types/circuitRuntime.ts`; job polling is shared with
 Android via `src/lib/circuitJobRunner.ts`.
 
-| File                                         | Purpose                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `components/logic/logicDiagramComponents.ts` | Component definitions and port metadata for diagram nodes                  |
-| `components/logic/logicDiagramFlow.ts`       | Mapping between persisted logic documents and React Flow models            |
-| `components/logic/logicDiagramEvaluator.ts`  | Digital logic evaluation including clock configuration                     |
-| `components/logic/logicTruthTable.ts`        | Truth-table derivation from nodes and wires                                |
-| `components/logic/logicDiagramTemplates.ts`  | Built-in starter diagrams (`LogicDiagramTemplate`)                         |
-| `components/logic/schematicSymbols.ts`       | Schematic symbol geometry per `SchematicSymbolSet` and rotation            |
-| `components/logic/CircuitSweepPlot.tsx`      | Plot for DC-sweep and transient circuit results (+ `CircuitSweepPlot.css`) |
+| File                                         | Purpose                                                                                   |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `components/logic/logicDiagramComponents.ts` | Component definitions and port metadata for diagram nodes                                 |
+| `components/logic/LogicPickers.tsx`          | Insert template and Insert component pickers (picker template, snapshot or linked insert) |
+| `components/logic/logicDiagramFlow.ts`       | Mapping between persisted logic documents and React Flow models                           |
+| `components/logic/logicDiagramEvaluator.ts`  | Digital logic evaluation including clock configuration                                    |
+| `components/logic/logicTruthTable.ts`        | Truth-table derivation from nodes and wires                                               |
+| `components/logic/logicDiagramTemplates.ts`  | Built-in starter diagrams (`LogicDiagramTemplate`)                                        |
+| `components/logic/schematicSymbols.ts`       | Schematic symbol geometry per `SchematicSymbolSet` and rotation                           |
+| `components/logic/CircuitSweepPlot.tsx`      | Plot for DC-sweep and transient circuit results (+ `CircuitSweepPlot.css`)                |
 
 ### Calendar
 
@@ -944,6 +947,11 @@ only the relations editor.
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `components/ui/app-dialog.tsx`                    | The shared dialog shape: sizes s/m/l, header with tinted glyph, scrolling body, footer strip, choice cards                             | Dialog, RadioGroup                                         |
 | `components/ui/confirm-dialog.tsx`                | `confirmAction()` and its host: the themed replacement for `window.confirm`                                                            | app-dialog, zustand                                        |
+| `components/ui/form-dialog.tsx`                   | Templates 2–3: `FormDialog`, `FormField`, `FormRow`, `FormSection` and `PromptDialog`                                                  | app-dialog                                                 |
+| `components/ui/list-detail-dialog.tsx`            | Template 4: `ListDetailDialog`, `ListDetailRow`, `DetailRow`, `useKeepSelection`                                                       | app-dialog                                                 |
+| `components/ui/picker-dialog.tsx`                 | Template 5: `PickerDialog` and `PickerRow` (search, scopes, list or grid, preview, keyboard picking)                                   | app-dialog, Input                                          |
+| `components/ui/export-dialog.tsx`                 | Template 6: `ExportDialog` with format cards, option rows and a summary                                                                | form-dialog, RadioGroup                                    |
+| `components/ui/review-dialog.tsx`                 | Template 7: `ChangeReviewDialog`, `ReportDialog`, `ReviewList`, `ReviewChip`                                                           | app-dialog                                                 |
 | `components/layout/SyncCenter.tsx`                | One status-bar chip and panel for vault sync, hosted calendars, the server connection and document conflicts (hooks in `layout/sync/`) | syncStore, calendarStore, serverStore, documentStatusStore |
 | `components/layout/DocumentReconciler.tsx`        | `useDocumentReconciliation` and the side-by-side review dialog (keep mine / use theirs / keep both)                                    | documentSessionController                                  |
 | `components/notifications/NotificationCenter.tsx` | Notifications grouped by day with kind filters, unread marks, Mark all read and hover actions                                          | Popover, Button, ScrollArea                                |

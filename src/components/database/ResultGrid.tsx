@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { Braces } from 'lucide-react';
+
 import type { ResultSet } from '../../lib/database/queryStore';
 import { valueText } from '../../lib/database/values';
 import type { DatabaseValue } from '../../types/database';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
+import { Dialog } from '../ui/dialog';
 
 const HEIGHT = 28,
   WIDTH = 170;
@@ -123,18 +126,21 @@ export default function ResultGrid({
             if (!open) setInspector(null);
           }}
         >
-          <DialogContent className="max-h-[85vh] overflow-auto">
-            <DialogHeader>
-              <DialogTitle>{inspector.name}</DialogTitle>
-              <DialogDescription>Read-only value · {inspector.value.kind}</DialogDescription>
-            </DialogHeader>
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
-              {valueText(inspector.value)}
-            </pre>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">
-              {JSON.stringify(inspector.value, null, 2)}
-            </pre>
-          </DialogContent>
+          <AppDialogContent size="m" className="sm:max-w-[640px]">
+            <AppDialogHeader
+              icon={<Braces />}
+              title={inspector.name}
+              description={<>Read-only value · {inspector.value.kind}</>}
+            />
+            <AppDialogBody>
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
+                {valueText(inspector.value)}
+              </pre>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">
+                {JSON.stringify(inspector.value, null, 2)}
+              </pre>
+            </AppDialogBody>
+          </AppDialogContent>
         </Dialog>
       )}
     </>

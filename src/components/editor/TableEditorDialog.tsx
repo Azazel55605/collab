@@ -3,15 +3,14 @@ import type { DragEvent } from 'react';
 
 import { Grid2x2Plus, GripVertical, Minus, Plus, Table, Trash2 } from 'lucide-react';
 
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 
 import type { MarkdownTableAlignment, MarkdownTableModel } from './tableMarkdown';
@@ -324,104 +323,191 @@ export function TableEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="border-b border-border/40 px-5 py-4">
-          <DialogTitle className="flex items-center gap-2">
-            <Table size={16} />
-            {mode === 'edit' ? 'Edit table' : 'Insert table'}
-          </DialogTitle>
-          <DialogDescription>
-            Edit headers, cell values, size, and column alignment, then insert markdown into the
-            note.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex items-center gap-2 border-b border-border/30 px-5 py-3">
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={addColumn}>
-            <Plus size={13} />
-            Column
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={removeColumn}
-            disabled={colCount <= 1}
-          >
-            <Minus size={13} />
-            Column
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={addRow}>
-            <Grid2x2Plus size={13} />
-            Row
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={removeRow}
-            disabled={draft.rows.length <= 1}
-          >
-            <Minus size={13} />
-            Row
-          </Button>
-          <div className="ml-auto text-right text-xs text-muted-foreground">
-            <div>
-              {draft.headers.length} columns, {draft.rows.length} rows
+      <AppDialogContent size="m" className="sm:max-w-6xl">
+        <AppDialogHeader
+          icon={<Table />}
+          title={mode === 'edit' ? 'Edit table' : 'Insert table'}
+          description="Edit headers, cell values, size, and column alignment, then insert markdown into the note."
+        />
+        <AppDialogBody className="p-0 gap-0">
+          <div className="flex items-center gap-2 border-b border-border/30 px-5 py-3">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={addColumn}>
+              <Plus size={13} />
+              Column
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={removeColumn}
+              disabled={colCount <= 1}
+            >
+              <Minus size={13} />
+              Column
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={addRow}>
+              <Grid2x2Plus size={13} />
+              Row
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={removeRow}
+              disabled={draft.rows.length <= 1}
+            >
+              <Minus size={13} />
+              Row
+            </Button>
+            <div className="ml-auto text-right text-xs text-muted-foreground">
+              <div>
+                {draft.headers.length} columns, {draft.rows.length} rows
+              </div>
+              <div>Drag headers or row labels to reorder.</div>
             </div>
-            <div>Drag headers or row labels to reorder.</div>
           </div>
-        </div>
 
-        <div className="max-h-[65vh] overflow-auto px-5 py-4">
-          <div
-            className="inline-grid gap-2"
-            style={{ gridTemplateColumns: `88px repeat(${colCount}, minmax(140px, 1fr))` }}
-          >
-            <div className="rounded-xl border border-dashed border-border/40 bg-muted/25 p-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Rows
-            </div>
+          <div className="max-h-[65vh] overflow-auto px-5 py-4">
+            <div
+              className="inline-grid gap-2"
+              style={{ gridTemplateColumns: `88px repeat(${colCount}, minmax(140px, 1fr))` }}
+            >
+              <div className="rounded-xl border border-dashed border-border/40 bg-muted/25 p-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Rows
+              </div>
 
-            {draft.headers.map((header, colIndex) => {
-              const isDropTarget = dropTarget?.kind === 'column' && dropTarget.index === colIndex;
-              const isDragging = dragState?.kind === 'column' && dragState.index === colIndex;
-              return (
-                <div
-                  key={`header-${colIndex}`}
-                  className={[
-                    'space-y-2 rounded-xl border bg-card/35 p-3 transition-[transform,opacity,box-shadow,border-color,background-color] duration-150',
-                    isDropTarget
-                      ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10'
-                      : 'border-border/40',
-                    isDragging ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15' : '',
-                  ].join(' ')}
-                  style={{
-                    gridColumn: colIndex + 2,
-                    gridRow: 1,
-                    viewTransitionName: columnMotionIds[colIndex],
-                  }}
-                  data-table-drag-surface="true"
-                  onDragOver={allowDrop('column', colIndex)}
-                  onDragLeave={clearDropTarget('column', colIndex)}
-                  onDrop={applyDrop('column')}
-                >
-                  <div className="flex items-center justify-between gap-2">
+              {draft.headers.map((header, colIndex) => {
+                const isDropTarget = dropTarget?.kind === 'column' && dropTarget.index === colIndex;
+                const isDragging = dragState?.kind === 'column' && dragState.index === colIndex;
+                return (
+                  <div
+                    key={`header-${colIndex}`}
+                    className={[
+                      'space-y-2 rounded-xl border bg-card/35 p-3 transition-[transform,opacity,box-shadow,border-color,background-color] duration-150',
+                      isDropTarget
+                        ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10'
+                        : 'border-border/40',
+                      isDragging
+                        ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15'
+                        : '',
+                    ].join(' ')}
+                    style={{
+                      gridColumn: colIndex + 2,
+                      gridRow: 1,
+                      viewTransitionName: columnMotionIds[colIndex],
+                    }}
+                    data-table-drag-surface="true"
+                    onDragOver={allowDrop('column', colIndex)}
+                    onDragLeave={clearDropTarget('column', colIndex)}
+                    onDrop={applyDrop('column')}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Header {colIndex + 1}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          draggable
+                          aria-label={`Drag column ${colIndex + 1}`}
+                          className={[
+                            'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-all hover:text-foreground',
+                            isDragging
+                              ? 'cursor-grabbing bg-primary/10 text-primary'
+                              : 'cursor-grab',
+                          ].join(' ')}
+                          {...createDragHandlers(
+                            'column',
+                            colIndex,
+                            columnMotionIds[colIndex] ?? `table-column-fallback-${colIndex}`,
+                            setDragState,
+                            dragPreviewRef,
+                          )}
+                        >
+                          <GripVertical size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Delete column ${colIndex + 1}`}
+                          disabled={draft.headers.length <= 1}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => removeColumnAt(colIndex)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    <TableCellInput
+                      value={header}
+                      onChange={(value) => updateHeader(colIndex, value)}
+                    />
+                    <div className="flex gap-1">
+                      {(
+                        [
+                          ['left', 'L'],
+                          ['center', 'C'],
+                          ['right', 'R'],
+                        ] as const
+                      ).map(([align, label]) => (
+                        <Button
+                          key={align}
+                          size="sm"
+                          variant={draft.aligns[colIndex] === align ? 'default' : 'outline'}
+                          className="h-7 min-w-0 flex-1 px-0 text-[11px]"
+                          onClick={() => setAlignment(colIndex, align)}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {draft.rows.map((_, rowIndex) => {
+                const isRowDropTarget = dropTarget?.kind === 'row' && dropTarget.index === rowIndex;
+                const isRowDragging = dragState?.kind === 'row' && dragState.index === rowIndex;
+
+                return (
+                  <div
+                    key={`row-handle-${rowIndex}`}
+                    className={[
+                      'flex min-h-[90px] flex-col items-start justify-between rounded-xl border p-3 text-left transition-[transform,opacity,box-shadow,border-color,background-color] duration-150',
+                      isRowDropTarget
+                        ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10'
+                        : 'border-border/40 bg-muted/20',
+                      isRowDragging
+                        ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15'
+                        : '',
+                    ].join(' ')}
+                    style={{
+                      gridColumn: 1,
+                      gridRow: rowIndex + 2,
+                      viewTransitionName: rowMotionIds[rowIndex],
+                    }}
+                    data-table-drag-surface="true"
+                    onDragOver={allowDrop('row', rowIndex)}
+                    onDragLeave={clearDropTarget('row', rowIndex)}
+                    onDrop={applyDrop('row')}
+                  >
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Header {colIndex + 1}
+                      Row {rowIndex + 1}
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
                         draggable
-                        aria-label={`Drag column ${colIndex + 1}`}
+                        aria-label={`Drag row ${rowIndex + 1}`}
                         className={[
                           'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-all hover:text-foreground',
-                          isDragging ? 'cursor-grabbing bg-primary/10 text-primary' : 'cursor-grab',
+                          isRowDragging
+                            ? 'cursor-grabbing bg-primary/10 text-primary'
+                            : 'cursor-grab',
                         ].join(' ')}
                         {...createDragHandlers(
-                          'column',
-                          colIndex,
-                          columnMotionIds[colIndex] ?? `table-column-fallback-${colIndex}`,
+                          'row',
+                          rowIndex,
+                          rowMotionIds[rowIndex] ?? `table-row-fallback-${rowIndex}`,
                           setDragState,
                           dragPreviewRef,
                         )}
@@ -430,142 +516,54 @@ export function TableEditorDialog({
                       </button>
                       <button
                         type="button"
-                        aria-label={`Delete column ${colIndex + 1}`}
-                        disabled={draft.headers.length <= 1}
+                        aria-label={`Delete row ${rowIndex + 1}`}
+                        disabled={draft.rows.length <= 1}
                         className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={() => removeColumnAt(colIndex)}
+                        onClick={() => removeRowAt(rowIndex)}
                       >
                         <Trash2 size={13} />
                       </button>
                     </div>
                   </div>
-                  <TableCellInput
-                    value={header}
-                    onChange={(value) => updateHeader(colIndex, value)}
-                  />
-                  <div className="flex gap-1">
-                    {(
-                      [
-                        ['left', 'L'],
-                        ['center', 'C'],
-                        ['right', 'R'],
-                      ] as const
-                    ).map(([align, label]) => (
-                      <Button
-                        key={align}
-                        size="sm"
-                        variant={draft.aligns[colIndex] === align ? 'default' : 'outline'}
-                        className="h-7 min-w-0 flex-1 px-0 text-[11px]"
-                        onClick={() => setAlignment(colIndex, align)}
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-
-            {draft.rows.map((_, rowIndex) => {
-              const isRowDropTarget = dropTarget?.kind === 'row' && dropTarget.index === rowIndex;
-              const isRowDragging = dragState?.kind === 'row' && dragState.index === rowIndex;
-
-              return (
-                <div
-                  key={`row-handle-${rowIndex}`}
-                  className={[
-                    'flex min-h-[90px] flex-col items-start justify-between rounded-xl border p-3 text-left transition-[transform,opacity,box-shadow,border-color,background-color] duration-150',
-                    isRowDropTarget
-                      ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10'
-                      : 'border-border/40 bg-muted/20',
-                    isRowDragging
-                      ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15'
-                      : '',
-                  ].join(' ')}
-                  style={{
-                    gridColumn: 1,
-                    gridRow: rowIndex + 2,
-                    viewTransitionName: rowMotionIds[rowIndex],
-                  }}
-                  data-table-drag-surface="true"
-                  onDragOver={allowDrop('row', rowIndex)}
-                  onDragLeave={clearDropTarget('row', rowIndex)}
-                  onDrop={applyDrop('row')}
-                >
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Row {rowIndex + 1}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      draggable
-                      aria-label={`Drag row ${rowIndex + 1}`}
-                      className={[
-                        'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-all hover:text-foreground',
-                        isRowDragging
-                          ? 'cursor-grabbing bg-primary/10 text-primary'
-                          : 'cursor-grab',
-                      ].join(' ')}
-                      {...createDragHandlers(
-                        'row',
-                        rowIndex,
-                        rowMotionIds[rowIndex] ?? `table-row-fallback-${rowIndex}`,
-                        setDragState,
-                        dragPreviewRef,
-                      )}
-                    >
-                      <GripVertical size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete row ${rowIndex + 1}`}
-                      disabled={draft.rows.length <= 1}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => removeRowAt(rowIndex)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {draft.rows.reduce<React.ReactNode[]>((cells, row, rowIndex) => {
-              row.forEach((value, colIndex) => {
-                cells.push(
-                  <div
-                    key={`cell-${rowIndex}-${colIndex}`}
-                    className="space-y-1 rounded-xl border border-border/30 bg-background/35 p-3"
-                    style={{
-                      gridColumn: colIndex + 2,
-                      gridRow: rowIndex + 2,
-                      viewTransitionName: `${rowMotionIds[rowIndex]}-${columnMotionIds[colIndex]}`,
-                    }}
-                  >
-                    <div className="text-[11px] text-muted-foreground">
-                      Row {rowIndex + 1}, Col {colIndex + 1}
-                    </div>
-                    <TableCellInput
-                      value={value}
-                      onChange={(nextValue) => updateCell(rowIndex, colIndex, nextValue)}
-                    />
-                  </div>,
                 );
-              });
-              return cells;
-            }, [])}
-          </div>
-        </div>
+              })}
 
-        <DialogFooter className="-mx-0 -mb-0 border-none bg-transparent px-5 pb-5 pt-3 gap-2 sm:justify-between">
+              {draft.rows.reduce<React.ReactNode[]>((cells, row, rowIndex) => {
+                row.forEach((value, colIndex) => {
+                  cells.push(
+                    <div
+                      key={`cell-${rowIndex}-${colIndex}`}
+                      className="space-y-1 rounded-xl border border-border/30 bg-background/35 p-3"
+                      style={{
+                        gridColumn: colIndex + 2,
+                        gridRow: rowIndex + 2,
+                        viewTransitionName: `${rowMotionIds[rowIndex]}-${columnMotionIds[colIndex]}`,
+                      }}
+                    >
+                      <div className="text-[11px] text-muted-foreground">
+                        Row {rowIndex + 1}, Col {colIndex + 1}
+                      </div>
+                      <TableCellInput
+                        value={value}
+                        onChange={(nextValue) => updateCell(rowIndex, colIndex, nextValue)}
+                      />
+                    </div>,
+                  );
+                });
+                return cells;
+              }, [])}
+            </div>
+          </div>
+        </AppDialogBody>
+        <AppDialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={() => onApply(draft)}>
             {mode === 'edit' ? 'Update table' : 'Insert table'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </AppDialogFooter>
+      </AppDialogContent>
     </Dialog>
   );
 }

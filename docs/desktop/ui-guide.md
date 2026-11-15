@@ -478,6 +478,28 @@ Reach for a template before building a dialog by hand:
 3. **Form** — `FormDialog` with `FormField` (label above, hint or error below),
    `FormRow` (side by side) and `FormSection`. The body is a real form, so Enter
    submits; `busy` keeps it open with a spinner.
+4. **List and detail** — `ListDetailDialog` from `ui/list-detail-dialog.tsx`:
+   rows on the left (`ListDetailRow`: title, one-line summary, an optional
+   switch), the selected item on the right as `DetailRow`s, New under the list,
+   a destructive action on the left of the footer and Done. Edits apply as the
+   person makes them; a `detailOverride` shows the form for a new item. With no
+   items an empty state replaces both panes. `useKeepSelection` keeps a valid
+   selection. Examples: automations (the rule as a When / If / Then sentence),
+   calendar mirrors, CalDAV access, published links, snippets, named ranges.
+5. **Picker** — `PickerDialog` from `ui/picker-dialog.tsx`: search and scope
+   chips, results as a list (`PickerRow`) or a grid in groups, an optional
+   preview on the right. Arrow keys move, Enter or a double-click picks, and the
+   primary button names the item ("Insert Half adder").
+6. **Export** — `ExportDialog` from `ui/export-dialog.tsx`: formats as cards,
+   option rows for the chosen format, a summary of what will be written; the
+   button names the format ("Export PDF").
+7. **Review and report** — `ChangeReviewDialog` (before a change: the change in
+   one line, chips, every affected item, a blocking reason that disables the
+   action) and `ReportDialog` (after: outcome, a few numbers, what changed or
+   failed) from `ui/review-dialog.tsx`.
+8. **Frame only** — editors with their own layout (math, tables, chart data,
+   schema, analysis) use the `AppDialog*` parts directly: header with glyph,
+   scrolling body, footer strip with Cancel and the primary action.
 
 ### Sync center
 
