@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'react';
 
-import { Link2Off, RefreshCw } from 'lucide-react';
+import { DatabaseZap, Link2Off, RefreshCw } from 'lucide-react';
 
 import { flattenVaultFiles } from '../../lib/vaultLinks';
 import type { CalendarDefinition } from '../../types/calendar';
 import type { SheetDataConnection } from '../../types/sheet';
 import type { NoteFile } from '../../types/vault';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { DetailRow, ListDetailDialog, ListDetailRow } from '../ui/list-detail-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface Props {
@@ -44,6 +38,9 @@ export default function SheetDataConnectionsDialog({
 }: Props) {
   const [kanbanPath, setKanbanPath] = useState('');
   const [calendarId, setCalendarId] = useState('');
+  const [sourceKind, setSourceKind] = useState<'kanban' | 'calendar'>('kanban');
+  const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const kanbanFiles = flattenVaultFiles(fileTree).filter((file) =>
     /\.kanban$/i.test(file.relativePath),
   );
@@ -51,114 +48,158 @@ export default function SheetDataConnectionsDialog({
     if (!open) return;
     setKanbanPath('');
     setCalendarId('');
+    setCreating(false);
   }, [open]);
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Data snapshots</DialogTitle>
-          <DialogDescription>
-            Import read-only snapshots from Collab tasks or calendars. Refreshing replaces only the
-            managed range.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <Select value={kanbanPath} onValueChange={setKanbanPath}>
-              <SelectTrigger className="w-full" aria-label="Kanban board source">
-                <SelectValue placeholder="Choose a Kanban board" />
-              </SelectTrigger>
-              <SelectContent>
-                {kanbanFiles.map((file) => (
-                  <SelectItem key={file.relativePath} value={file.relativePath}>
-                    {file.relativePath}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              disabled={readOnly || !kanbanPath}
-              onClick={() => onAddKanban(kanbanPath)}
-            >
-              Import tasks
-            </Button>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <Select value={calendarId} onValueChange={setCalendarId}>
-              <SelectTrigger className="w-full" aria-label="Calendar source">
-                <SelectValue placeholder="Choose a calendar" />
-              </SelectTrigger>
-              <SelectContent>
-                {calendars.map((calendar) => (
-                  <SelectItem key={calendar.id} value={calendar.id}>
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ backgroundColor: calendar.color }}
-                    />
-                    {calendar.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              disabled={readOnly || !calendarId}
-              onClick={() => onAddCalendar(calendarId)}
-            >
-              Import items
-            </Button>
-          </div>
-          <div className="max-h-64 space-y-1 overflow-y-auto">
-            {connections.map((connection) => (
-              <div
-                key={connection.id}
-                className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-medium">
-                    {connection.kind === 'kanbanTasks'
-                      ? connection.sourcePath
-                      : (calendars.find((calendar) => calendar.id === connection.calendarId)
-                          ?.name ?? connection.calendarId)}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {connection.itemCount} rows · refreshed{' '}
-                    {new Date(connection.refreshedAt).toLocaleString()}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  disabled={readOnly}
-                  aria-label="Refresh data snapshot"
-                  onClick={() => onRefresh(connection)}
-                >
-                  <RefreshCw />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  disabled={readOnly}
-                  aria-label="Remove data connection"
-                  onClick={() => onRemove(connection.id)}
-                >
-                  <Link2Off />
-                </Button>
-              </div>
-            ))}
-            {connections.length === 0 && (
-              <div className="py-5 text-center text-xs text-muted-foreground">
-                No data snapshots in this workbook.
-              </div>
-            )}
-          </div>
+  const sourceName = (connection: SheetDataConnection) =>
+    connection.kind === 'kanbanTasks'
+      ? (connection.sourcePath ?? 'Kanban board')
+      : (calendars.find((calendar) => calendar.id === connection.calendarId)?.name ??
+        connection.calendarId ??
+        'Calendar');
+  const selected = connections.find((connection) => connection.id === selectedId) ?? null;
+  const createForm = (
+    <div className="flex flex-col gap-3">
+      <p className="text-[13px] font-semibold">New snapshot</p>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        A read-only copy of tasks or calendar items, written at the selection. Refreshing replaces
+        only that range.
+      </p>
+      <ChoiceGroup
+        value={sourceKind}
+        onValueChange={(value) => setSourceKind(value as 'kanban' | 'calendar')}
+        aria-label="Source"
+        className="sm:grid-cols-2"
+      >
+        <ChoiceCard value="kanban" title="Kanban tasks" description="Cards from a board" />
+        <ChoiceCard value="calendar" title="Calendar items" description="Events and tasks" />
+      </ChoiceGroup>
+      {sourceKind === 'kanban' ? (
+        <div className="flex gap-2">
+          <Select value={kanbanPath} onValueChange={setKanbanPath}>
+            <SelectTrigger className="h-9 min-w-0 flex-1" aria-label="Kanban board source">
+              <SelectValue placeholder="Choose a Kanban board" />
+            </SelectTrigger>
+            <SelectContent>
+              {kanbanFiles.map((file) => (
+                <SelectItem key={file.relativePath} value={file.relativePath}>
+                  {file.relativePath}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            disabled={readOnly || !kanbanPath}
+            onClick={() => {
+              onAddKanban(kanbanPath);
+              setCreating(false);
+            }}
+          >
+            Import tasks
+          </Button>
         </div>
-        <DialogFooter showCloseButton />
-      </DialogContent>
-    </Dialog>
+      ) : (
+        <div className="flex gap-2">
+          <Select value={calendarId} onValueChange={setCalendarId}>
+            <SelectTrigger className="h-9 min-w-0 flex-1" aria-label="Calendar source">
+              <SelectValue placeholder="Choose a calendar" />
+            </SelectTrigger>
+            <SelectContent>
+              {calendars.map((calendar) => (
+                <SelectItem key={calendar.id} value={calendar.id}>
+                  <span
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: calendar.color }}
+                  />
+                  {calendar.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            disabled={readOnly || !calendarId}
+            onClick={() => {
+              onAddCalendar(calendarId);
+              setCreating(false);
+            }}
+          >
+            Import items
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <ListDetailDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<DatabaseZap />}
+      title="Data snapshots"
+      description="Read-only copies of Collab tasks or calendars inside this workbook."
+      items={connections}
+      getKey={(connection) => connection.id}
+      selectedKey={selectedId}
+      onSelect={(key) => {
+        setSelectedId(key);
+        setCreating(false);
+      }}
+      renderRow={(connection) => (
+        <ListDetailRow
+          title={sourceName(connection)}
+          summary={`${connection.itemCount} rows · ${connection.kind === 'kanbanTasks' ? 'tasks' : 'calendar'}`}
+        />
+      )}
+      detailOverride={creating || connections.length === 0 ? createForm : undefined}
+      renderDetail={(connection) => (
+        <>
+          <DetailRow
+            label="Source"
+            description={connection.kind === 'kanbanTasks' ? 'Kanban board' : 'Calendar'}
+          >
+            <span className="max-w-56 truncate text-[13px]">{sourceName(connection)}</span>
+          </DetailRow>
+          <DetailRow label="Rows">
+            <span className="text-[13px] tabular-nums">{connection.itemCount}</span>
+          </DetailRow>
+          <DetailRow label="Refreshed" description="Refreshing replaces only the managed range.">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={readOnly}
+              aria-label="Refresh data snapshot"
+              onClick={() => onRefresh(connection)}
+            >
+              <RefreshCw />
+              {new Date(connection.refreshedAt).toLocaleString()}
+            </Button>
+          </DetailRow>
+          <DetailRow label="Columns">
+            <span className="max-w-64 text-right text-[12.5px] text-muted-foreground">
+              {connection.columns.map((column) => column.label).join(', ')}
+            </span>
+          </DetailRow>
+        </>
+      )}
+      onNew={() => setCreating(true)}
+      newLabel="New snapshot"
+      newDisabled={readOnly}
+      footerStart={
+        selected && !creating ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={readOnly}
+            aria-label="Remove data connection"
+            onClick={() => onRemove(selected.id)}
+          >
+            <Link2Off />
+            Remove snapshot
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
