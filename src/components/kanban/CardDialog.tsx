@@ -83,7 +83,7 @@ function getTabTypeForPath(path: string): 'note' | 'canvas' | 'kanban' | 'image'
 export default function CardDialog({ card: initialCard, columnId, onClose }: Props) {
   const { updateBoard, knownUsers, board, caps } = useKanbanContext();
   const { myUserId, myUserName, myUserColor } = useCollabStore();
-  const { openTab } = useEditorStore();
+  const openTab = useEditorStore((state) => state.openTab);
   const { setActiveView, dateFormat } = useUiStore();
   const { fileTree } = useVaultStore();
   const { draft: storedDraft, updateDraft: storeUpdateDraft } = useKanbanStore();

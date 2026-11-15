@@ -994,14 +994,12 @@ export default function PdfView({ relativePath }: Props) {
   // bookmarks/highlights/text annotations need `pdf.annotate`.
   const canComment = useMemo(() => vaultCan(vault, 'pdf.comment'), [vault]);
   const canAnnotate = useMemo(() => vaultCan(vault, 'pdf.annotate'), [vault]);
-  const {
-    openTabs,
-    activeTabPath,
-    openTab: openEditorTab,
-    setActiveTab,
-    setForceReloadPath,
-    setRevealEditorPath,
-  } = useEditorStore();
+  const openTabs = useEditorStore((state) => state.openTabs);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openEditorTab = useEditorStore((state) => state.openTab);
+  const setActiveTab = useEditorStore((state) => state.setActiveTab);
+  const setForceReloadPath = useEditorStore((state) => state.setForceReloadPath);
+  const setRevealEditorPath = useEditorStore((state) => state.setRevealEditorPath);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRef = useRef<{ top: number; left: number } | null>(null);
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});

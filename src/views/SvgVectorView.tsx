@@ -59,7 +59,8 @@ function useElementSize<T extends HTMLElement>(ref: { current: T | null }) {
  */
 export default function SvgVectorView({ relativePath }: Props) {
   const { vault } = useVaultStore();
-  const { markDirty, markSaved } = useEditorStore();
+  const markDirty = useEditorStore((state) => state.markDirty);
+  const markSaved = useEditorStore((state) => state.markSaved);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const viewportSize = useElementSize(viewportRef);
 

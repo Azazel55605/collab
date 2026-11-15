@@ -59,6 +59,7 @@ import {
   siYaml,
 } from 'simple-icons';
 
+import { registerMediaCleanup } from '../../lib/mediaLifecycle';
 import {
   isMermaidLanguage,
   type MermaidRenderJob,
@@ -69,8 +70,10 @@ import {
   type NoteAssetTarget,
   resolveNoteAssetTarget,
 } from '../../lib/noteAssets';
+import { previewIdentity } from '../../lib/previewIdentity';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useVaultStore } from '../../store/vaultStore';
+import type { VaultMeta } from '../../types/vault';
 import { Checkbox } from '../ui/checkbox';
 
 import { MathPlot2D } from './MathPlot2D';
@@ -147,6 +150,61 @@ function createInlineTableCellFragment(value: string) {
 
 // ─── Widgets ──────────────────────────────────────────────────────────────────
 
+// ─── Scroll stability ─────────────────────────────────────────────────────────
+//
+// CodeMirror only renders widgets near the viewport and rebuilds them when they
+// scroll back in. Block widgets report a height estimate (the last measured
+// height when there is one) so the document does not shift while scrolling,
+// and expensive output (KaTeX, image data) is cached instead of recomputed.
+
+const LRU_LIMIT = 400;
+function lruSet<V>(map: Map<string, V>, key: string, value: V, limit = LRU_LIMIT) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > limit) map.delete(map.keys().next().value!);
+}
+
+const widgetHeights = new Map<string, number>();
+
+/** Records the rendered height of a widget once it is laid out. */
+function rememberWidgetHeight(key: string, el: HTMLElement) {
+  if (typeof requestAnimationFrame !== 'function') return;
+  requestAnimationFrame(() => {
+    if (!el.isConnected) return;
+    const height = el.getBoundingClientRect().height;
+    if (height > 0) lruSet(widgetHeights, key, height);
+  });
+}
+
+const katexHtml = new Map<string, string>();
+function renderKatex(source: string, display: boolean) {
+  const key = `${display ? 'd' : 'i'}\0${source}`;
+  let html = katexHtml.get(key);
+  if (html === undefined) {
+    html = katex.renderToString(source, { displayMode: display, throwOnError: false });
+    lruSet(katexHtml, key, html);
+  }
+  return html;
+}
+
+const imageSources = new Map<string, Promise<string>>();
+function readNoteImage(vault: VaultMeta, path: string) {
+  const client = createVaultClient(vault);
+  // The identity includes the file's revision, so an edited image is read again.
+  const key = previewIdentity(client, path, 'note-image');
+  let pending = imageSources.get(key);
+  if (!pending) {
+    pending = client.readAssetDataUrl(path);
+    pending.catch(() => imageSources.delete(key));
+  }
+  lruSet(imageSources, key, pending, 48);
+  return pending;
+}
+registerMediaCleanup(() => {
+  imageSources.clear();
+  widgetHeights.clear();
+});
+
 class MathWidget extends WidgetType {
   constructor(
     readonly src: string,
@@ -159,13 +217,17 @@ class MathWidget extends WidgetType {
     return o.src === this.src && o.display === this.display;
   }
 
+  get estimatedHeight() {
+    return this.display ? (widgetHeights.get(`math\0${this.src}`) ?? 56) : -1;
+  }
+
   toDOM() {
     const el = document.createElement(this.display ? 'div' : 'span');
     el.className = this.display ? 'cm-lp-math-block' : 'cm-lp-math-inline';
     const parsed = this.display ? parseMathPlots(this.src) : null;
     const mathSource = parsed?.mathSource ?? this.src;
     try {
-      katex.render(mathSource.trim(), el, { displayMode: this.display, throwOnError: false });
+      el.innerHTML = renderKatex(mathSource.trim(), this.display);
     } catch {
       el.textContent = this.display ? `$$\n${mathSource}\n$$` : `$${this.src}$`;
     }
@@ -178,6 +240,7 @@ class MathWidget extends WidgetType {
       root.render(React.createElement(MathPlotPreviewStack, { parsed }));
       (el as HTMLElement & { __cmReactRoot?: Root }).__cmReactRoot = root;
     }
+    if (this.display) rememberWidgetHeight(`math\0${this.src}`, el);
     return el;
   }
 
@@ -288,6 +351,17 @@ class CodeBlockWidget extends WidgetType {
     return o.code === this.code && o.language === this.language;
   }
 
+  private get heightKey() {
+    return `code\0${this.language}\0${this.code}`;
+  }
+
+  get estimatedHeight() {
+    const measured = widgetHeights.get(this.heightKey);
+    if (measured !== undefined) return measured;
+    if (isMermaidLanguage(this.language)) return 192;
+    return (this.code.split('\n').length + (this.language ? 1 : 0)) * 21 + 24;
+  }
+
   private renderHighlightedContent() {
     const fragment = document.createDocumentFragment();
     const languageName = this.language.split(/\s+/, 1)[0]?.trim();
@@ -367,7 +441,10 @@ class CodeBlockWidget extends WidgetType {
       const job = renderMermaidInto(diagram, this.code);
       mermaidWidgetJobs.set(wrap, job);
       wrap.appendChild(diagram);
-      void job.ready.then(() => view?.requestMeasure());
+      void job.ready.then(() => {
+        view?.requestMeasure();
+        rememberWidgetHeight(this.heightKey, wrap);
+      });
       return wrap;
     }
 
@@ -384,6 +461,7 @@ class CodeBlockWidget extends WidgetType {
       view?.requestMeasure();
     });
 
+    rememberWidgetHeight(this.heightKey, wrap);
     return wrap;
   }
 
@@ -436,6 +514,14 @@ class TableWidget extends WidgetType {
     );
   }
 
+  private get heightKey() {
+    return `table\0${this.headers.join('\x00')}\0${this.rows.map((r) => r.join('\x00')).join('\n')}`;
+  }
+
+  get estimatedHeight() {
+    return widgetHeights.get(this.heightKey) ?? (this.rows.length + 1) * 33 + 8;
+  }
+
   toDOM() {
     const wrap = document.createElement('div');
     wrap.className = 'cm-lp-table-wrap';
@@ -472,6 +558,7 @@ class TableWidget extends WidgetType {
     }
 
     wrap.appendChild(table);
+    rememberWidgetHeight(this.heightKey, wrap);
     return wrap;
   }
 
@@ -578,18 +665,35 @@ class ImageWidget extends WidgetType {
     );
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement('span');
     wrap.className = 'cm-lp-image-wrap';
     wrap.dataset.assetKind = this.target.kind;
     wrap.dataset.assetValue = this.target.value;
 
+    // Keep the space of an image seen before, so lines below it do not jump
+    // while it decodes again.
+    const heightKey = `image\0${this.target.kind}\0${this.target.value}`;
+    const knownHeight = widgetHeights.get(heightKey);
+    if (knownHeight) wrap.style.minHeight = `${knownHeight}px`;
+
     const img = document.createElement('img');
     img.className = 'cm-lp-image';
     img.alt = this.alt;
-    img.loading = 'lazy';
+    img.decoding = 'async';
     img.dataset.assetKind = this.target.kind;
     img.dataset.assetValue = this.target.value;
+    img.addEventListener(
+      'load',
+      () => {
+        wrap.style.minHeight = '';
+        const height = img.getBoundingClientRect().height;
+        if (height > 0) lruSet(widgetHeights, heightKey, height);
+        if (height !== knownHeight) view.requestMeasure();
+      },
+      { once: true },
+    );
+    img.addEventListener('error', () => (wrap.style.minHeight = ''), { once: true });
     wrap.appendChild(img);
 
     if (this.target.kind === 'direct') {
@@ -602,8 +706,7 @@ class ImageWidget extends WidgetType {
     const vault = useVaultStore.getState().vault;
     if (!vault) return wrap;
 
-    void createVaultClient(vault)
-      .readAssetDataUrl(this.target.value)
+    void readNoteImage(vault, this.target.value)
       .then((src) => {
         if (!src || !img.isConnected) return;
         img.src = src;
@@ -611,6 +714,7 @@ class ImageWidget extends WidgetType {
       })
       .catch((err) => {
         if (!img.isConnected) return;
+        wrap.style.minHeight = '';
         img.title = String(err);
         img.dataset.pending = 'false';
       });

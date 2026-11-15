@@ -697,8 +697,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         });
       };
 
+      // Scrolling only needs the position once it settles. Reporting it every
+      // frame updated the editor store (and its subscribers) during a fast
+      // wheel spin, which made scrolling stutter.
+      let scrollTimer: ReturnType<typeof setTimeout> | null = null;
       const handleScroll = () => {
-        emitViewState();
+        if (scrollTimer !== null) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+          scrollTimer = null;
+          emitViewState();
+        }, 150);
       };
 
       view.scrollDOM.addEventListener('scroll', handleScroll, { passive: true });
@@ -715,6 +723,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
       return () => {
         view.scrollDOM.removeEventListener('scroll', handleScroll);
+        if (scrollTimer !== null) {
+          clearTimeout(scrollTimer);
+          onViewStateChangeRef.current?.(captureEditorViewState(view));
+        }
         if (frame !== null) window.cancelAnimationFrame(frame);
         cancelMathEvaluation(view);
         view.destroy();

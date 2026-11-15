@@ -184,7 +184,9 @@ function renderCanvasToElement(
 
 export default function ImageView({ relativePath }: Props) {
   const { vault, refreshFileTree } = useVaultStore();
-  const { openTab, markDirty, markSaved } = useEditorStore();
+  const openTab = useEditorStore((state) => state.openTab);
+  const markDirty = useEditorStore((state) => state.markDirty);
+  const markSaved = useEditorStore((state) => state.markSaved);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayViewportSize = useElementSize(viewportRef);

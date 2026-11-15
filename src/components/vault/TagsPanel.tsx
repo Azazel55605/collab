@@ -40,7 +40,8 @@ async function patchNoteTag(
 
 export default function TagsPanel() {
   const { notes, updateNote } = useNoteIndexStore();
-  const { openTab, activeTabPath } = useEditorStore();
+  const openTab = useEditorStore((state) => state.openTab);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
   const { setActiveView } = useUiStore();
   const { vault } = useVaultStore();
 
