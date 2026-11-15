@@ -6,6 +6,7 @@ import { flushEditorPersistence } from '../store/editorStore';
 
 import { hasDatabaseDrafts } from './databaseLifecycle';
 import { runDocumentNavigation } from './documentNavigation';
+import { checkpointMediaPlayback } from './mediaLifecycle';
 import { listenSafely } from './nativeSubscription';
 import { tauriCommands } from './tauri';
 
@@ -27,7 +28,10 @@ export function useDesktopQuitGuard() {
               'Save SQL drafts and resolve staged row changes before quitting. Resolve open transactions or explicitly close their database sessions.',
             );
           const allowed = documentsReady && databasesReady;
-          if (allowed && !disposed) flushEditorPersistence();
+          if (allowed && !disposed) {
+            checkpointMediaPlayback();
+            flushEditorPersistence();
+          }
           await tauriCommands.backgroundCompleteQuit(allowed && !disposed);
         } catch (error) {
           toast.error('Could not finish closing Collab. Your documents remain open.', {

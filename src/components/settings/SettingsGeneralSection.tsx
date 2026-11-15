@@ -1,4 +1,5 @@
 import { cn } from '../../lib/utils';
+import { useUiStore } from '../../store/uiStore';
 import { Separator } from '../ui/separator';
 
 import PerformanceDiagnosticsControls from './PerformanceDiagnosticsControls';
@@ -37,6 +38,8 @@ export default function SettingsGeneralSection({
   liveCollabDebug,
   setLiveCollabDebug,
 }: Props) {
+  const rememberMedia = useUiStore((state) => state.rememberMediaOnRestart);
+  const setRememberMedia = useUiStore((state) => state.setRememberMediaOnRestart);
   return (
     <div>
       <SectionLabel>Startup</SectionLabel>
@@ -48,6 +51,12 @@ export default function SettingsGeneralSection({
           checked={restorePreviousSession}
           onToggle={() => setRestorePreviousSession(!restorePreviousSession)}
         />
+      </OptionRow>
+      <OptionRow
+        label="Remember media playback"
+        description="Resume audio and video from the saved position when reopened after a restart"
+      >
+        <ToggleSwitch checked={rememberMedia} onToggle={() => setRememberMedia(!rememberMedia)} />
       </OptionRow>
 
       <Separator className="bg-border/40 my-4" />

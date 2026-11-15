@@ -71,6 +71,11 @@ vi.mock('../../views/SettingsPage', () => ({ default: () => <div>settings</div> 
 vi.mock('../../views/GridView', () => ({ default: () => <div>grid</div> }));
 vi.mock('../../views/ImageView', () => ({ default: () => <div>image</div> }));
 vi.mock('../../views/PdfView', () => ({ default: () => <div>pdf</div> }));
+vi.mock('../../views/MediaView', () => ({
+  default: ({ relativePath, visible }: { relativePath: string; visible: boolean }) => (
+    <div data-testid={relativePath} data-visible={visible} />
+  ),
+}));
 vi.mock('../../views/NoteView', () => ({
   default: ({ relativePath }: { relativePath: string }) => {
     // A mock component, so the hook is used correctly — the rule cannot tell,
@@ -144,6 +149,50 @@ describe('AppShell document remounting', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('keeps recent media tabs mounted across switches and drops closed or evicted panes', async () => {
+    const mediaPaths = ['one.mp4', 'two.mp4', 'three.mp4'];
+    act(() =>
+      useEditorStore.setState((state) => ({
+        openTabs: [
+          ...state.openTabs,
+          ...mediaPaths.map((relativePath) => ({
+            relativePath,
+            title: relativePath,
+            type: 'media' as const,
+            isDirty: false,
+            savedHash: null,
+          })),
+        ],
+        activeTabPath: mediaPaths[0],
+      })),
+    );
+    render(<AppShell />, { wrapper: TooltipProvider });
+    const first = await screen.findByTestId(mediaPaths[0]);
+    const activate = (activeTabPath: string) =>
+      act(() => useEditorStore.setState({ activeTabPath }));
+    expect(first.getAttribute('data-visible')).toBe('true');
+    activate('Notes/a.md');
+    expect(screen.getByTestId(mediaPaths[0])).toBe(first);
+    expect(first.getAttribute('data-visible')).toBe('false');
+    expect(first.parentElement?.hidden).toBe(true);
+
+    activate(mediaPaths[1]);
+    const second = await screen.findByTestId(mediaPaths[1]);
+    activate(mediaPaths[0]);
+    expect(screen.getByTestId(mediaPaths[0])).toBe(first);
+    activate(mediaPaths[2]);
+    await screen.findByTestId(mediaPaths[2]);
+    expect(screen.queryByTestId(mediaPaths[1])).toBeNull();
+    expect(second.isConnected).toBe(false);
+
+    act(() =>
+      useEditorStore.setState((state) => ({
+        openTabs: state.openTabs.filter((tab) => tab.relativePath !== mediaPaths[0]),
+      })),
+    );
+    expect(first.isConnected).toBe(false);
   });
 
   it('remounts the active note view when switching between note tabs', async () => {

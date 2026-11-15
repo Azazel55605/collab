@@ -93,7 +93,7 @@ export default function MediaLibraryView() {
 
 function Library({ vault }: { vault: VaultMeta }) {
   const tree = useVaultStore((state) => state.fileTree);
-  const recent = useRecentMedia();
+  const recent = useRecentMedia(vault);
   const [options, setOptions] = useState(readOptions);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -161,12 +161,10 @@ function Library({ vault }: { vault: VaultMeta }) {
     else groups.set(name, [item]);
   }
 
-  const identity = documentVaultIdentity(vault);
   const continuation = recent
     .flatMap((entry) => {
       const item = byPath.get(entry.path);
-      return entry.vault === identity &&
-        item &&
+      return item &&
         mediaFileVersion(item.file) === entry.fileVersion &&
         entry.position >= 1 &&
         entry.duration > entry.position
@@ -187,6 +185,7 @@ function Library({ vault }: { vault: VaultMeta }) {
     setSelected(path);
   }, []);
 
+  const identity = documentVaultIdentity(vault);
   const openFile = useCallback(
     (file: NoteFile) => {
       if (
