@@ -33,7 +33,8 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverField, PopoverForm, PopoverPanel } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
@@ -119,6 +120,8 @@ export default function SheetFormattingToolbar({
 }: Props) {
   const [customPattern, setCustomPattern] = useState(style.numberFormat?.pattern ?? '0.00');
   const [noteDraft, setNoteDraft] = useState(note ?? '');
+  const [patternOpen, setPatternOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   useEffect(() => setNoteDraft(note ?? ''), [note]);
   const numberFormat: SheetNumberFormat = style.numberFormat ?? { kind: 'general' };
   const updateNumberFormat = (patch: Partial<SheetNumberFormat>) => {
@@ -383,33 +386,49 @@ export default function SheetFormattingToolbar({
           </div>
         )}
         {numberFormat.kind === 'custom' && (
-          <Popover>
+          <Popover open={patternOpen} onOpenChange={setPatternOpen}>
             <PopoverTrigger asChild>
               <Button type="button" size="sm" variant="outline" disabled={disabled}>
                 Pattern
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-64">
-              <label className="text-xs font-medium" htmlFor="sheet-custom-format">
-                Custom number pattern
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  id="sheet-custom-format"
-                  value={customPattern}
-                  onChange={(event) => setCustomPattern(event.target.value)}
-                  className="h-8 font-mono text-xs"
-                />
-                <Button size="sm" onClick={() => updateNumberFormat({ pattern: customPattern })}>
-                  Apply
-                </Button>
-              </div>
-            </PopoverContent>
+            <PopoverPanel align="start" className="w-72">
+              <PopoverForm
+                title="Custom number format"
+                submitLabel="Apply"
+                submitDisabled={!customPattern.trim()}
+                onCancel={() => setPatternOpen(false)}
+                onSubmit={() => {
+                  updateNumberFormat({ pattern: customPattern });
+                  setPatternOpen(false);
+                }}
+              >
+                <PopoverField label="Pattern" htmlFor="sheet-custom-format">
+                  <Input
+                    id="sheet-custom-format"
+                    autoFocus
+                    value={customPattern}
+                    onChange={(event) => setCustomPattern(event.target.value)}
+                    placeholder='#,##0.00 "€"'
+                    className="font-mono text-xs"
+                  />
+                </PopoverField>
+                <p className="text-xs text-muted-foreground">
+                  0 digit · # optional digit · , thousands · &quot;text&quot; literal
+                </p>
+              </PopoverForm>
+            </PopoverPanel>
           </Popover>
         )}
       </div>
       <div className={documentTopBarGroupClass} role="group" aria-label="Notes">
-        <Popover>
+        <Popover
+          open={noteOpen}
+          onOpenChange={(next) => {
+            setNoteOpen(next);
+            if (next) setNoteDraft(note ?? '');
+          }}
+        >
           <PopoverTrigger asChild>
             <ToolButton
               aria-label={note ? 'Edit cell note' : 'Add cell note'}
@@ -420,41 +439,52 @@ export default function SheetFormattingToolbar({
               <MessageSquare />
             </ToolButton>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-72">
-            <label className="text-xs font-medium" htmlFor="sheet-cell-note">
-              Cell note
-            </label>
-            <Textarea
-              id="sheet-cell-note"
-              value={noteDraft}
-              maxLength={32768}
-              placeholder="Add context without changing the cell value"
-              onChange={(event) => setNoteDraft(event.target.value)}
-            />
-            <div className="mt-2 flex justify-end gap-2">
-              {note && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setNoteDraft('');
-                    onNoteChange(null);
-                  }}
-                >
-                  Remove
-                </Button>
-              )}
-              <Button
-                type="button"
-                size="sm"
-                aria-label="Save cell note"
-                onClick={() => onNoteChange(noteDraft.trim() || null)}
-              >
-                Save
-              </Button>
-            </div>
-          </PopoverContent>
+          <PopoverPanel align="start" className="w-80">
+            <PopoverForm
+              title="Cell note"
+              meta="Shown on hover"
+              submitLabel="Save note"
+              onCancel={() => setNoteOpen(false)}
+              onSubmit={() => {
+                onNoteChange(noteDraft.trim() || null);
+                setNoteOpen(false);
+              }}
+              start={
+                note ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      setNoteDraft('');
+                      onNoteChange(null);
+                      setNoteOpen(false);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                ) : undefined
+              }
+            >
+              <Textarea
+                aria-label="Cell note"
+                autoFocus
+                rows={4}
+                value={noteDraft}
+                maxLength={32768}
+                placeholder="Add context without changing the cell value"
+                onChange={(event) => setNoteDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  // Ctrl+Enter saves; plain Enter adds a line.
+                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+              />
+            </PopoverForm>
+          </PopoverPanel>
         </Popover>
         <ToolButton
           aria-label="Clear formatting"

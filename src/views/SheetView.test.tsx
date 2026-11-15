@@ -332,7 +332,7 @@ describe('SheetView editor', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Cell note' }), {
       target: { value: 'Verify this total' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save cell note' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save note' }));
     await clickSave();
 
     const written = await writtenDocument();

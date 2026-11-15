@@ -4,7 +4,8 @@ import { cn } from '../../lib/utils';
 import type { ImageLineStyle, ImageOverlayTool } from '../../types/image';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverField, PopoverForm, PopoverPanel } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface ImageAdditiveToolbarProps {
@@ -86,6 +87,7 @@ export function ImageAdditiveToolbar({
             <Button
               size="sm"
               variant="outline"
+              aria-label="Overlay colour"
               className="h-7 w-9 border-border/50 bg-background/70 px-1.5"
             >
               <span
@@ -94,46 +96,53 @@ export function ImageAdditiveToolbar({
               />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="flex w-auto flex-col gap-2 p-2.5">
-            <div className="grid grid-cols-5 gap-2">
-              {overlayColors.map((swatch) => (
-                <button
-                  key={swatch}
-                  type="button"
-                  onClick={() => onColorSelect(swatch)}
-                  className={cn(
-                    'h-7 w-7 rounded-full border border-white/10 transition-transform hover:scale-110',
-                    activeColor === swatch &&
-                      'ring-2 ring-white/60 ring-offset-1 ring-offset-popover',
-                  )}
-                  style={{ backgroundColor: swatch }}
-                  aria-label={`Select color ${swatch}`}
-                />
-              ))}
-            </div>
-            <div className="flex items-center gap-2 border-t border-border/40 pt-2">
-              <div
-                className="h-6 w-6 shrink-0 rounded-md border border-white/15"
-                style={{
-                  backgroundColor: /^#[0-9a-f]{6}$/i.test(hexDraft) ? hexDraft : activeColor,
-                }}
-              />
-              <Input
-                value={hexDraft}
-                onChange={(event) => onHexDraftChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    onApplyHexColor();
-                  }
-                }}
-                onBlur={onApplyHexColor}
-                placeholder="#rrggbb"
-                className="h-7 w-28 px-2 font-mono text-xs"
-                maxLength={7}
-                spellCheck={false}
-              />
-            </div>
-          </PopoverContent>
+          <PopoverPanel align="start" className="w-60">
+            <PopoverForm title="Colour" meta="Applies at once">
+              <div className="grid grid-cols-5 gap-2" role="group" aria-label="Swatches">
+                {overlayColors.map((swatch) => (
+                  <button
+                    key={swatch}
+                    type="button"
+                    onClick={() => onColorSelect(swatch)}
+                    aria-pressed={activeColor === swatch}
+                    className={cn(
+                      'h-7 rounded-md border border-white/10 transition-transform hover:scale-105',
+                      activeColor === swatch &&
+                        'ring-2 ring-primary ring-offset-2 ring-offset-popover',
+                    )}
+                    style={{ backgroundColor: swatch }}
+                    aria-label={`Select color ${swatch}`}
+                  />
+                ))}
+              </div>
+              <PopoverField label="Hex" htmlFor="image-overlay-hex">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="size-7 shrink-0 rounded-md border border-white/15"
+                    style={{
+                      backgroundColor: /^#[0-9a-f]{6}$/i.test(hexDraft) ? hexDraft : activeColor,
+                    }}
+                  />
+                  <Input
+                    id="image-overlay-hex"
+                    value={hexDraft}
+                    onChange={(event) => onHexDraftChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onApplyHexColor();
+                      }
+                    }}
+                    onBlur={onApplyHexColor}
+                    placeholder="#rrggbb"
+                    className="font-mono text-xs"
+                    maxLength={7}
+                    spellCheck={false}
+                  />
+                </div>
+              </PopoverField>
+            </PopoverForm>
+          </PopoverPanel>
         </Popover>
       </label>
 
