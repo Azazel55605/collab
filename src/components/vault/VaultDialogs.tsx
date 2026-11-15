@@ -1,35 +1,32 @@
 import { useEffect, useState } from 'react';
 
 import {
+  ArrowRight,
+  Check,
   CircuitBoard,
   FilePlus,
+  FileText,
+  FolderInput,
   FolderPlus,
   Layout,
   LayoutDashboard,
+  Link2,
+  PanelTop,
   Pencil,
   PenLine,
   Presentation,
   Table2,
   Trash2,
   Undo2,
-  FolderInput,
-  ArrowRight,
-  Link2,
-  PanelTop,
-  Check,
-  FileText,
 } from 'lucide-react';
 
 import type { PathChangePreview, TrashEntry } from '../../types/vault';
 import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
-
 import { Checkbox } from '../ui/checkbox';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { FormDialog, FormField, PromptDialog } from '../ui/form-dialog';
 import { Input } from '../ui/input';
-import {
-  ChangeReviewDialog,
-} from '../ui/review-dialog';
+import { ChangeReviewDialog } from '../ui/review-dialog';
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
@@ -280,9 +277,14 @@ export function RenameMovePreviewDialog({
   const references = preview?.affectedReferencePaths ?? [];
   const blocked = preview?.blockedReason;
   const name = (path: string) => path.split('/').pop() ?? path;
-  const folder = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
+  const folder = (path: string) =>
+    path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
   const verb =
-    preview?.operation === 'rename' ? 'Rename' : preview?.operation === 'move' ? 'Move' : 'Move and rename';
+    preview?.operation === 'rename'
+      ? 'Rename'
+      : preview?.operation === 'move'
+        ? 'Move'
+        : 'Move and rename';
   const linkWord = (count: number) => `${count} link${count === 1 ? '' : 's'}`;
   return (
     <ChangeReviewDialog
@@ -296,7 +298,9 @@ export function RenameMovePreviewDialog({
           <>
             <span>
               <span className="text-muted-foreground">{folder(preview.oldRelativePath)}</span>
-              <span className="text-muted-foreground line-through">{name(preview.oldRelativePath)}</span>
+              <span className="text-muted-foreground line-through">
+                {name(preview.oldRelativePath)}
+              </span>
             </span>
             <ArrowRight className="size-3.5 shrink-0 text-primary" />
             <span>
@@ -311,7 +315,9 @@ export function RenameMovePreviewDialog({
           ? [
               {
                 key: 'links',
-                label: references.length ? `${linkWord(references.length)} updated` : 'no links to update',
+                label: references.length
+                  ? `${linkWord(references.length)} updated`
+                  : 'no links to update',
                 tone: references.length ? 'info' : 'neutral',
                 icon: <Link2 />,
               },
@@ -327,7 +333,11 @@ export function RenameMovePreviewDialog({
               ...(preview.itemKind === 'folder'
                 ? [{ key: 'nested', label: `${preview.nestedItemCount} items inside` }]
                 : []),
-              ...(blocked ? [] : [{ key: 'ok', label: 'no conflicts', tone: 'success' as const, icon: <Check /> }]),
+              ...(blocked
+                ? []
+                : [
+                    { key: 'ok', label: 'no conflicts', tone: 'success' as const, icon: <Check /> },
+                  ]),
             ]
           : []
       }
@@ -340,9 +350,7 @@ export function RenameMovePreviewDialog({
         detail: folder(path) || 'Vault root',
         chip: { label: 'link', tone: 'info' as const },
       }))}
-      confirmLabel={
-        references.length ? `${verb} and update ${linkWord(references.length)}` : verb
-      }
+      confirmLabel={references.length ? `${verb} and update ${linkWord(references.length)}` : verb}
       onConfirm={onConfirm}
     />
   );
