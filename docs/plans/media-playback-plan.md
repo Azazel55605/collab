@@ -91,7 +91,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Show album artwork and embedded or matching LRC lyrics in the audio
       player. Apply artwork-based ambiance and synchronize timestamped lines.
 - [x] Qualify album artwork and lyric sync in installed desktop builds.
-- [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
+- [X] Verify seek, tab reopen, media replacement, permission loss and cleanup
       when closing the player or leaving its vault in an installed build.
       Automated coverage exercises overlapping seeks, same-revision resume,
       stale track selections, permissions revoked mid-range and source teardown.
@@ -110,7 +110,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
       remains excluded.
 - [x] Automate checks for bounded tail seeks, stale revisions, authorization loss
       and authenticated offline storage.
-- [ ] Qualify first play and long seeks, reconnect, offline playback and lock
+- [X] Qualify first play and long seeks, reconnect, offline playback and lock
       cleanup in installed builds.
 
 ### Phase 3 — Media Library
