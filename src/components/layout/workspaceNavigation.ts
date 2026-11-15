@@ -1,6 +1,13 @@
 import type { ActiveView } from '../../store/uiStore';
 
-export const WORKSPACE_ORDER = ['editor', 'chats', 'calendar', 'databases', 'grid'] as const;
+export const WORKSPACE_ORDER = [
+  'editor',
+  'chats',
+  'calendar',
+  'databases',
+  'media',
+  'grid',
+] as const;
 
 export type WorkspaceView = (typeof WORKSPACE_ORDER)[number];
 

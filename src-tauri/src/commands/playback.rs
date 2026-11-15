@@ -37,6 +37,28 @@ use tokio_util::sync::CancellationToken;
 const CHUNK: usize = 256 * 1024;
 const MAX_STREAMS: usize = 4;
 const MAX_SESSIONS: usize = 4;
+// An inspector can decode one frame under a lifetime range-read budget.
+const MAX_PREVIEW_BYTES: u64 = 8 * 1024 * 1024;
+
+#[derive(Default)]
+struct PreviewBudget(Option<Mutex<u64>>);
+
+impl PreviewBudget {
+    fn new(enabled: bool) -> Self {
+        Self(enabled.then(|| Mutex::new(MAX_PREVIEW_BYTES)))
+    }
+
+    fn consume(&self, bytes: u64) -> io::Result<()> {
+        if let Some(remaining) = &self.0 {
+            let mut remaining = remaining.lock();
+            *remaining = remaining
+                .checked_sub(bytes)
+                .ok_or_else(|| io::Error::other("Media preview byte budget reached"))?;
+        }
+        Ok(())
+    }
+}
+
 const MAX_CAPTION_BYTES: u64 = 1024 * 1024;
 const CHUNK_INTERVAL: Duration = Duration::from_millis(8);
 const SOURCE_IDLE: Duration = Duration::from_secs(30);
@@ -122,6 +144,7 @@ struct Source {
     embedded: Vec<mp4::Track>,
     audio: Vec<String>,
     audio_metadata: Option<AudioMetadata>,
+    preview_budget: PreviewBudget,
 }
 
 struct Caption {
@@ -243,6 +266,7 @@ impl Source {
             embedded,
             audio,
             audio_metadata,
+            preview_budget: PreviewBudget::default(),
         })
     }
 
@@ -496,6 +520,7 @@ pub async fn open_local_playback(
     caption_path: Option<String>,
     compatibility: Option<bool>,
     audio_track: Option<usize>,
+    preview: Option<bool>,
 ) -> Result<PlaybackSource, String> {
     if window.label() != "main" {
         return Err("Playback is available from the main window.".into());
@@ -512,6 +537,7 @@ pub async fn open_local_playback(
             caption_path.as_deref(),
             compatibility.unwrap_or(false),
             audio_track,
+            preview.unwrap_or(false),
         )
     })
     .await
@@ -526,17 +552,20 @@ fn register(
     caption_path: Option<&str>,
     compatibility: bool,
     audio_track: Option<usize>,
+    preview: bool,
 ) -> Result<PlaybackSource, String> {
     let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     let active = state.active_vault.read();
     authorize_active(state, active.as_ref(), vault_path)?;
-    let source = Arc::new(Source::open_with_mode(
+    let mut source = Source::open_with_mode(
         vault_path,
         relative_path,
         caption_path,
         compatibility,
         audio_track,
-    )?);
+    )?;
+    source.preview_budget = PreviewBudget::new(preview);
+    let source = Arc::new(source);
     let mut sessions = state.playback.sessions.lock();
     if sessions.len() >= MAX_SESSIONS {
         return Err("Too many local playback sessions. Close another player and try again.".into());
@@ -841,6 +870,7 @@ async fn serve(
                     _ = source.cancel.cancelled() => return Err(cancelled()),
                     _ = source.pace() => {}
                 }
+                source.preview_budget.consume(count as u64)?;
                 let read_source = source.clone();
                 let pending = slot.clone();
                 let bytes = tokio::task::spawn_blocking(move || {
@@ -886,6 +916,16 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_budget_counts_all_ranges_and_leaves_regular_sessions_unlimited() {
+        let preview = PreviewBudget::new(true);
+        assert!(preview.consume(MAX_PREVIEW_BYTES - 2).is_ok());
+        assert!(preview.consume(3).is_err());
+        assert!(preview.consume(2).is_ok());
+        assert!(preview.consume(1).is_err());
+        assert!(PreviewBudget::default().consume(u64::MAX).is_ok());
+    }
 
     #[test]
     fn validates_byte_ranges_and_converts_subrip() {

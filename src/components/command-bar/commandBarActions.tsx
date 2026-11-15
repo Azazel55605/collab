@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   Layers,
   LayoutDashboard,
+  LibraryBig,
   Link2,
   ListTodo,
   PenLine,
@@ -78,6 +79,16 @@ export const ACTIONS: Action[] = [
     onSelect: (ctx) => {
       ctx.openTab('__graph__', 'Graph', 'graph');
       ctx.setActiveView('graph');
+      ctx.close();
+    },
+  },
+  {
+    id: 'media-library',
+    keywords: ['media', 'library', 'video', 'audio', 'gallery'],
+    label: 'Open Media Library',
+    icon: <LibraryBig className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      ctx.setActiveView('media');
       ctx.close();
     },
   },

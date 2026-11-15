@@ -106,7 +106,7 @@ export interface VaultRuntimeCapabilities {
   members?: VaultMembersCapability;
   logicComponents?: LogicComponentsCapability;
   hostedPlayback?: {
-    open(relativePath: string): Promise<LocalPlaybackSource>;
+    open(relativePath: string, preview?: boolean): Promise<LocalPlaybackSource>;
     saveCopy(relativePath: string): Promise<boolean>;
   };
 }
@@ -711,7 +711,7 @@ export class HostedVaultClient implements VaultClient {
       },
     };
     this.runtime.hostedPlayback = {
-      open: async (relativePath) => {
+      open: async (relativePath, preview) => {
         const manifest = await this.onlineOrCachedManifest();
         const file = this.findByPath(manifest, relativePath);
         const revision = file.currentRevision;
@@ -726,6 +726,7 @@ export class HostedVaultClient implements VaultClient {
           contentHash: revision.contentHash,
           size: revision.sizeBytes,
           path: file.relativePath,
+          ...(preview ? { preview } : {}),
         });
       },
       saveCopy: async (relativePath) => {

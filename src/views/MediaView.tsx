@@ -23,6 +23,12 @@ import {
 } from '../components/layout/DocumentTopBar';
 import { Button } from '../components/ui/button';
 import { isCaptionPath, mediaKindForPath } from '../lib/mediaFiles';
+import {
+  forgetMediaResume,
+  mediaFileVersion,
+  readMediaResume,
+  rememberMediaResume,
+} from '../lib/mediaResume';
 import { listenSafely } from '../lib/nativeSubscription';
 import { type LocalPlaybackSource, tauriCommands } from '../lib/tauri';
 import { cn } from '../lib/utils';
@@ -49,18 +55,6 @@ import { formatTime, speedLabel, SPEEDS } from './mediaFormat';
 import { useFullscreenMediaDock } from './useFullscreenMediaDock';
 import { controlsBox, useVideoBox } from './useVideoBox';
 
-interface Resume {
-  revision: string;
-  position: number;
-  rate: number;
-  volume: number;
-  muted: boolean;
-  caption: string;
-  captionPath: string | null;
-  audio: string;
-  isolatedAudio: number | null;
-  compatibility: boolean;
-}
 interface AudioTrack {
   label: string;
   language: string;
@@ -69,7 +63,6 @@ interface AudioTrack {
 type AudioTrackList = ArrayLike<AudioTrack> & EventTarget;
 
 const AMBIANCE_KEY = 'collab-media-ambiance';
-const recent = new Map<string, Resume>();
 useVaultStore.subscribe((next, previous) => {
   const before = previous.vault;
   const after = next.vault;
@@ -78,7 +71,6 @@ useVaultStore.subscribe((next, previous) => {
     (before?.kind === 'hosted' &&
       (after?.kind !== 'hosted' || before.serverUrl !== after.serverUrl));
   if (switched || next.isVaultLocked) {
-    recent.clear();
     if (before?.kind === 'hosted')
       void tauriCommands
         .clearHostedPlayback(before.serverUrl, before.hostedVaultId)
@@ -152,17 +144,17 @@ function Player({
   const vaultPath = vault.path;
   const hosted = vault.kind === 'hosted';
   const serverUrl = hosted ? vault.serverUrl : null;
-  const scope = JSON.stringify([serverUrl, vaultPath, relativePath]);
+  const fileVersion = useRef<string | null>(null);
   const [captionPath, setCaptionPath] = useState<string | null>(
-    () => recent.get(scope)?.captionPath ?? null,
+    () => readMediaResume(vault, relativePath)?.captionPath ?? null,
   );
   const [attempt, setAttempt] = useState(0);
   const [offlineDownload, setOfflineDownload] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [compatibility, setCompatibility] = useState(
-    () => recent.get(scope)?.compatibility ?? false,
+    () => readMediaResume(vault, relativePath)?.compatibility ?? false,
   );
   const [isolatedAudio, setIsolatedAudio] = useState<number | null>(
-    () => recent.get(scope)?.isolatedAudio ?? null,
+    () => readMediaResume(vault, relativePath)?.isolatedAudio ?? null,
   );
   const isMp4 = !hosted && /\.mp4$/i.test(relativePath);
   const [source, setSource] = useState<LocalPlaybackSource | null>(null);
@@ -266,10 +258,13 @@ function Player({
     setStatus(compatibility ? 'Opening with compatible subtitles…' : 'Opening media…');
     setCaptionChoices([]);
     setAudioChoices([]);
-    const restore = recent.get(scope);
+    const currentVault = useVaultStore.getState().vault;
+    fileVersion.current = mediaFileVersion(
+      vaultTreeIndex(useVaultStore.getState().fileTree).byPath.get(relativePath),
+    );
+    const restore = currentVault ? readMediaResume(currentVault, relativePath) : undefined;
     autoCaption.current = captionPath !== null && captionPath !== restore?.captionPath;
     selection.current = { caption: restore?.caption ?? 'off', audio: restore?.audio ?? '0' };
-    const currentVault = useVaultStore.getState().vault;
     const opening = hosted
       ? currentVault?.kind === 'hosted' &&
         currentVault.serverUrl === serverUrl &&
@@ -293,7 +288,7 @@ function Player({
         liveId.current = id;
         if (restore?.revision !== opened.revision) {
           selection.current = { caption: 'off', audio: '0' };
-          recent.delete(scope);
+          if (currentVault) forgetMediaResume(currentVault, relativePath);
           if (restore && isolatedAudio !== null) {
             void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
             setIsolatedAudio(null);
@@ -354,7 +349,6 @@ function Player({
     isMp4,
     isolatedAudio,
     relativePath,
-    scope,
     serverUrl,
     vaultPath,
   ]);
@@ -368,10 +362,11 @@ function Player({
       useVaultStore.getState().vault !== vault
     )
       return;
-    recent.delete(scope);
-    recent.set(scope, {
+    rememberMediaResume(vault, relativePath, {
       revision: source.revision,
       position: media.ended ? 0 : media.currentTime,
+      duration: media.duration,
+      fileVersion: fileVersion.current,
       rate: media.playbackRate,
       volume: media.volume,
       muted: media.muted,
@@ -380,7 +375,6 @@ function Player({
       isolatedAudio,
       compatibility,
     });
-    if (recent.size > 64) recent.delete(recent.keys().next().value!);
   }
 
   function chooseCaption(media: HTMLMediaElement, value: string) {
@@ -467,7 +461,7 @@ function Player({
   function metadata(media: HTMLMediaElement) {
     if (!Number.isFinite(media.duration)) return;
     setDuration(media.duration);
-    const restore = source && recent.get(scope);
+    const restore = source && readMediaResume(vault, relativePath);
     media.playbackRate = restore?.rate ?? 1;
     media.volume = restore?.volume ?? 1;
     media.muted = restore?.muted ?? false;

@@ -415,6 +415,7 @@ export const tauriCommands = {
     captionPath: string | null,
     compatibility = false,
     audioTrack: number | null = null,
+    preview = false,
   ) =>
     invoke<LocalPlaybackSource>('open_local_playback', {
       vaultPath,
@@ -422,6 +423,7 @@ export const tauriCommands = {
       captionPath,
       compatibility,
       audioTrack,
+      ...(preview ? { preview } : {}),
     }),
   openHostedPlayback: (file: {
     serverUrl: string;
@@ -431,6 +433,7 @@ export const tauriCommands = {
     contentHash: string;
     size: number;
     path: string;
+    preview?: boolean;
   }) => invoke<LocalPlaybackSource>('open_hosted_playback', { file }),
   downloadHostedPlayback: (id: string) => invoke<void>('download_hosted_playback', { id }),
   clearHostedPlayback: (serverUrl: string, vaultId: string) =>

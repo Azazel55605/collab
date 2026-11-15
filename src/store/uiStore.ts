@@ -7,7 +7,7 @@ import type { InkBrushKind } from '../types/ink';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
 
 export type ActiveView =
-  'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid' | 'chats' | 'databases';
+  'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid' | 'chats' | 'databases' | 'media';
 export type WorkspaceSidebarView = 'calendar' | 'chats' | 'databases';
 
 export function hasWorkspaceSidebar(view: ActiveView): view is WorkspaceSidebarView {

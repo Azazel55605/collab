@@ -5,6 +5,7 @@ import {
   Database,
   Files,
   LayoutGrid,
+  LibraryBig,
   MessageCircle,
   PanelLeft,
   PanelLeftClose,
@@ -27,6 +28,7 @@ const NAV_ITEMS: Record<WorkspaceView, { icon: React.ReactNode; label: string }>
   chats: { icon: <MessageCircle size={18} />, label: 'Chats' },
   calendar: { icon: <CalendarDays size={18} />, label: 'Calendar' },
   databases: { icon: <Database size={18} />, label: 'Databases' },
+  media: { icon: <LibraryBig size={18} />, label: 'Media' },
   grid: { icon: <LayoutGrid size={18} />, label: 'Grid View' },
 };
 const ACTIVITY_INDICATOR_INSET = 2;
@@ -48,7 +50,10 @@ export default function ActivityBar() {
       ? state.workspaceSidebars[state.activeView]
       : state.isSidebarOpen,
   );
-  const sidebarLabel = `${sidebarOpen ? 'Hide' : 'Show'} ${hasWorkspaceSidebar(activeView) ? SIDEBAR_LABELS[activeView] : 'vault sidebar'}`;
+  const sidebarLabel =
+    activeView === 'media'
+      ? 'Media library uses the whole pane'
+      : `${sidebarOpen ? 'Hide' : 'Show'} ${hasWorkspaceSidebar(activeView) ? SIDEBAR_LABELS[activeView] : 'vault sidebar'}`;
   const sidebarPanel = useUiStore((state) => state.sidebarPanel);
   const isSettingsOpen = useUiStore((state) => state.isSettingsOpen);
   const openSettings = useUiStore((state) => state.openSettings);
@@ -154,8 +159,9 @@ export default function ActivityBar() {
           <button
             onClick={toggleSidebar}
             aria-label={sidebarLabel}
-            aria-expanded={sidebarOpen}
-            className="w-9 h-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-150 app-motion-base"
+            aria-expanded={activeView === 'media' ? undefined : sidebarOpen}
+            disabled={activeView === 'media'}
+            className="w-9 h-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-150 app-motion-base disabled:opacity-35"
           >
             {sidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
           </button>

@@ -16,6 +16,7 @@ export function previewIdentity(client: VaultClient, path: string, variant: stri
     state.vault?.id === vault.id ? vaultTreeIndex(state.fileTree).byPath.get(path) : undefined;
   return JSON.stringify([
     client.id,
+    vault.kind === 'hosted' ? vault.serverUrl : vault.path,
     account,
     path,
     entry?.contentRevision,
