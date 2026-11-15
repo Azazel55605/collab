@@ -33,8 +33,9 @@ import { useVaultStore } from '../../store/vaultStore';
 import { hostedVaultMeta, type HostedVaultMeta, vaultCan } from '../../types/vault';
 import { HostedLoginForm } from '../server/HostedLoginForm';
 import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -521,15 +522,16 @@ export default function VaultPicker() {
         }}
       />
       <Dialog open={showAddServer} onOpenChange={setShowAddServer}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Connect a Collab server</DialogTitle>
-            <DialogDescription>
-              Sign in to open hosted vaults, chats and databases.
-            </DialogDescription>
-          </DialogHeader>
-          <HostedLoginForm onConnected={() => setShowAddServer(false)} />
-        </DialogContent>
+        <AppDialogContent size="m">
+          <AppDialogHeader
+            icon={<Server />}
+            title="Connect a Collab server"
+            description="Sign in to open hosted vaults, chats and databases."
+          />
+          <AppDialogBody>
+            <HostedLoginForm onConnected={() => setShowAddServer(false)} />
+          </AppDialogBody>
+        </AppDialogContent>
       </Dialog>
     </div>
   );
