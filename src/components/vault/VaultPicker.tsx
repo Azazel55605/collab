@@ -2,9 +2,13 @@ import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useStat
 
 import {
   CircleAlert,
+  CloudCheck,
+  CloudDownload,
   CloudOff,
+  Download,
   Folder,
   FolderOpen,
+  LoaderCircle,
   MoreHorizontal,
   Plus,
   Search,
@@ -17,18 +21,21 @@ import { type KnownServer, listKnownServers } from '../../lib/hostedServers';
 import { readHostedVaultLastOpened } from '../../lib/hostedVaultActivity';
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
+import { createVaultClient, requireRuntimeCapability } from '../../lib/vaultClient';
 import {
   deleteHostedVaultReplica,
   listHostedVaultReplicas,
   type ReplicaSummary,
 } from '../../lib/vaultReplica';
 import { useServerStore } from '../../store/serverStore';
+import { useSyncStore } from '../../store/syncStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { hostedVaultMeta } from '../../types/vault';
+import { hostedVaultMeta, type HostedVaultMeta, vaultCan } from '../../types/vault';
 import { HostedLoginForm } from '../server/HostedLoginForm';
 import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +45,7 @@ import {
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
 
+import { confirmRemoveOfflineCopy } from './confirmRemoveOfflineCopy';
 import { LauncherRail } from './launcher/LauncherRail';
 import { NewVaultDialog, type NewVaultLocation } from './launcher/NewVaultDialog';
 import { ServerDetailsDialog } from './launcher/ServerDetailsDialog';
@@ -60,7 +68,7 @@ const KIND_FILTERS: { id: VaultKindFilter; label: string }[] = [
   { id: 'offline', label: 'Offline copies' },
 ];
 
-const RECENT_CARD_COUNT = 3;
+const RECENT_CARD_COUNT = 6;
 
 /**
  * The start screen shown while no vault is open: a navigation rail (vaults,
@@ -173,17 +181,49 @@ export default function VaultPicker() {
     }
   };
 
+  const [rowWork, setRowWork] = useState<Record<string, string>>({});
+  const withRowWork = async (entry: VaultEntry, label: string, run: () => Promise<void>) => {
+    setRowWork((current) => ({ ...current, [entry.key]: label }));
+    try {
+      await run();
+    } finally {
+      setRowWork(({ [entry.key]: _done, ...rest }) => rest);
+    }
+  };
+
+  const makeOffline = (entry: VaultEntry) =>
+    withRowWork(entry, 'Downloading…', async () => {
+      const meta = entryHostedMeta(entry);
+      if (!meta) return;
+      try {
+        const report = await useSyncStore.getState().makeAvailableOffline(meta);
+        refreshReplicas();
+        toast.success(
+          `"${entry.name}" is available offline: ${report.documentsCached} documents and ${report.assetsCached} assets`,
+        );
+      } catch (reason) {
+        toast.error(`Could not make "${entry.name}" available offline: ${reason}`);
+      }
+    });
+
+  const downloadZip = (entry: VaultEntry) =>
+    withRowWork(entry, 'Exporting…', async () => {
+      const meta = entry.kind === 'local' ? (entry.local ?? null) : entryHostedMeta(entry);
+      if (!meta) return;
+      try {
+        const destination = await tauriCommands.showSaveDialog(`${entry.name}.zip`);
+        if (!destination) return;
+        await requireRuntimeCapability(createVaultClient(meta), 'archiveExport').exportTo(
+          destination,
+        );
+        toast.success(`Saved "${entry.name}" to ${destination}`);
+      } catch (reason) {
+        toast.error(`Could not download "${entry.name}": ${reason}`);
+      }
+    });
+
   const removeOfflineCopy = async (replica: ReplicaSummary) => {
-    const pendingText =
-      replica.pendingCount > 0
-        ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
-        : '';
-    if (
-      !window.confirm(
-        `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
-      )
-    )
-      return;
+    if (!(await confirmRemoveOfflineCopy(replica))) return;
     try {
       await deleteHostedVaultReplica(replica);
       refreshReplicas();
@@ -351,7 +391,10 @@ export default function VaultPicker() {
               </section>
             )}
 
-            <section aria-labelledby="all-vaults-heading" className="flex min-h-0 flex-col gap-2.5">
+            <section
+              aria-labelledby="all-vaults-heading"
+              className="flex min-h-48 flex-1 flex-col gap-2.5"
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <SectionHeading id="all-vaults-heading" className="mr-2">
                   All vaults
@@ -387,18 +430,24 @@ export default function VaultPicker() {
                 )}
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-border/70 bg-card/40">
+              {/* The list scrolls inside its card so the header and recent cards stay in view. */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/40">
                 <div
                   aria-hidden="true"
-                  className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_2rem] gap-4 px-5 pt-3 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:grid"
+                  className="hidden gap-4 px-5 pt-3 pb-1.5 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7rem_6.5rem] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:grid"
                 >
                   <span>Name</span>
                   <span>Location</span>
                   <span>Access</span>
+                  <span>Offline</span>
                   <span>Opened</span>
                   <span />
                 </div>
-                <ul id="vault-list" aria-label="Vaults" className="grid gap-0.5 p-1.5">
+                <ul
+                  id="vault-list"
+                  aria-label="Vaults"
+                  className="grid min-h-0 flex-1 content-start gap-0.5 overflow-y-auto overscroll-contain p-1.5"
+                >
                   {visible.map((entry, index) => (
                     <VaultRow
                       key={entry.key}
@@ -411,6 +460,13 @@ export default function VaultPicker() {
                       onServerDetails={() =>
                         entry.serverUrl && setDetailsServerUrl(entry.serverUrl)
                       }
+                      onMakeOffline={
+                        canMakeOffline(entry) ? () => void makeOffline(entry) : undefined
+                      }
+                      onDownloadZip={
+                        canDownloadZip(entry) ? () => void downloadZip(entry) : undefined
+                      }
+                      working={rowWork[entry.key] ?? null}
                     />
                   ))}
                 </ul>
@@ -466,15 +522,16 @@ export default function VaultPicker() {
         }}
       />
       <Dialog open={showAddServer} onOpenChange={setShowAddServer}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Connect a Collab server</DialogTitle>
-            <DialogDescription>
-              Sign in to open hosted vaults, chats and databases.
-            </DialogDescription>
-          </DialogHeader>
-          <HostedLoginForm onConnected={() => setShowAddServer(false)} />
-        </DialogContent>
+        <AppDialogContent size="m">
+          <AppDialogHeader
+            icon={<Server />}
+            title="Connect a Collab server"
+            description="Sign in to open hosted vaults, chats and databases."
+          />
+          <AppDialogBody>
+            <HostedLoginForm onConnected={() => setShowAddServer(false)} />
+          </AppDialogBody>
+        </AppDialogContent>
       </Dialog>
     </div>
   );
@@ -521,6 +578,25 @@ function KindIcon({ kind, size = 'sm' }: { kind: VaultEntryKind; size?: 'sm' | '
   );
 }
 
+function entryHostedMeta(entry: VaultEntry): HostedVaultMeta | null {
+  if (entry.hosted && entry.serverUrl) return hostedVaultMeta(entry.serverUrl, entry.hosted);
+  if (entry.replica) return replicaToHostedVaultMeta(entry.replica);
+  return null;
+}
+
+/** A live hosted vault this account may copy offline, without a full copy yet. */
+function canMakeOffline(entry: VaultEntry): boolean {
+  if (entry.kind !== 'hosted') return false;
+  if (entry.replica?.offlineAvailableAt) return false;
+  return vaultCan(entryHostedMeta(entry), 'vault.offlineCopy');
+}
+
+/** Local vaults always; hosted ones only for admins, as the server requires. */
+function canDownloadZip(entry: VaultEntry): boolean {
+  if (entry.kind === 'local') return Boolean(entry.local);
+  return entry.kind === 'hosted' && entry.hosted?.role === 'admin';
+}
+
 function VaultRow({
   entry,
   highlighted,
@@ -529,6 +605,9 @@ function VaultRow({
   onRemoveFromList,
   onRemoveOfflineCopy,
   onServerDetails,
+  onMakeOffline,
+  onDownloadZip,
+  working,
 }: {
   entry: VaultEntry;
   highlighted: boolean;
@@ -537,11 +616,20 @@ function VaultRow({
   onRemoveFromList: () => void;
   onRemoveOfflineCopy: () => void;
   onServerDetails: () => void;
+  /** Present when this vault can get a full offline copy it does not have yet. */
+  onMakeOffline?: () => void;
+  /** Present when this vault can be downloaded as a ZIP archive. */
+  onDownloadZip?: () => void;
+  /** Label of a running row action ("Making offline copy…"). */
+  working?: string | null;
 }) {
+  // Offline-only entries are themselves a cached copy.
+  const offlineReady =
+    entry.kind === 'offline' || (entry.kind === 'hosted' && !!entry.replica?.offlineAvailableAt);
   return (
     <li
       className={cn(
-        'group relative grid grid-cols-[minmax(0,1fr)_auto_2rem] items-center gap-4 rounded-lg px-3.5 py-2 transition-colors app-motion-base hover:bg-muted/60 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_2rem]',
+        'group relative grid grid-cols-[minmax(0,1fr)_auto_6.5rem] items-center gap-4 rounded-lg px-3.5 py-2 transition-colors app-motion-base hover:bg-muted/60 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7rem_6.5rem]',
         highlighted && 'bg-muted/70',
       )}
     >
@@ -554,6 +642,12 @@ function VaultRow({
       >
         <KindIcon kind={entry.kind} />
         <span className="truncate font-medium">{entry.name}</span>
+        {offlineReady && (
+          <CloudCheck
+            className="size-3.5 shrink-0 text-emerald-600 lg:hidden dark:text-emerald-400"
+            aria-hidden="true"
+          />
+        )}
         {entry.pendingCount > 0 && (
           <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-px text-[11px] font-medium text-amber-700 dark:text-amber-300">
             {entry.pendingCount} pending
@@ -569,43 +663,103 @@ function VaultRow({
       <span className="hidden truncate text-[13px] text-muted-foreground lg:block">
         {entry.detail}
       </span>
-      <span className="text-[13px] text-muted-foreground">
-        {formatLastOpened(entry.lastOpened)}
+      <span
+        className="hidden min-w-0 items-center gap-1.5 text-[13px] lg:flex"
+        title={
+          offlineReady && entry.replica?.offlineAvailableAt
+            ? `Full copy on this device since ${new Date(entry.replica.offlineAvailableAt).toLocaleString()}`
+            : undefined
+        }
+      >
+        {offlineReady ? (
+          <>
+            <CloudCheck className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span className="truncate">Available</span>
+          </>
+        ) : entry.kind === 'hosted' ? (
+          <span className="truncate text-muted-foreground">Online only</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </span>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <span className="text-[13px] text-muted-foreground">
+        {working ?? formatLastOpened(entry.lastOpened)}
+      </span>
+      <span className="relative z-10 flex items-center justify-end gap-0.5">
+        {onMakeOffline && (
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={`More actions for ${entry.name}`}
-            className="relative z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+            aria-label={`Make ${entry.name} available offline`}
+            title="Make available offline"
+            disabled={Boolean(working)}
+            onClick={onMakeOffline}
+            className={cn(
+              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+              working && 'opacity-100',
+            )}
           >
-            <MoreHorizontal />
+            {working ? <LoaderCircle className="animate-spin" /> : <CloudDownload />}
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={onOpen} disabled={disabled}>
-            Open
-          </DropdownMenuItem>
-          {entry.serverUrl && (
-            <DropdownMenuItem onSelect={onServerDetails}>Server details</DropdownMenuItem>
-          )}
-          {entry.kind === 'local' && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onRemoveFromList}>Remove from list</DropdownMenuItem>
-            </>
-          )}
-          {entry.kind === 'offline' && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={onRemoveOfflineCopy}>
-                Remove offline copy
+        )}
+        {onDownloadZip && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Download ${entry.name} as ZIP`}
+            title="Download as ZIP"
+            disabled={Boolean(working)}
+            onClick={onDownloadZip}
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <Download />
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`More actions for ${entry.name}`}
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onOpen} disabled={disabled}>
+              Open
+            </DropdownMenuItem>
+            {onMakeOffline && (
+              <DropdownMenuItem onSelect={onMakeOffline} disabled={Boolean(working)}>
+                Make available offline
               </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            )}
+            {onDownloadZip && (
+              <DropdownMenuItem onSelect={onDownloadZip} disabled={Boolean(working)}>
+                Download as ZIP…
+              </DropdownMenuItem>
+            )}
+            {entry.serverUrl && (
+              <DropdownMenuItem onSelect={onServerDetails}>Server details</DropdownMenuItem>
+            )}
+            {entry.kind === 'local' && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onRemoveFromList}>Remove from list</DropdownMenuItem>
+              </>
+            )}
+            {entry.kind === 'offline' && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={onRemoveOfflineCopy}>
+                  Remove offline copy
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </span>
     </li>
   );
 }

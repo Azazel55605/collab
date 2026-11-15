@@ -1,8 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import * as d3 from 'd3';
+import { Search, X } from 'lucide-react';
 
 import type { NoteMetadata } from '../../types/note';
+import { FloatingBar, ZoomPill } from '../layout/CanvasChrome';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
@@ -10,6 +12,7 @@ import {
   createGraphDataBuilder,
   GRAPH_LINK_LIMIT,
   type GraphLink,
+  graphNeighbourhood,
   type GraphNode,
 } from './graphData';
 import type { GraphLayoutRequest } from './graphLayout.worker';
@@ -18,16 +21,33 @@ export { buildGraphData } from './graphData';
 interface GraphViewProps {
   notes: NoteMetadata[];
   onNodeClick: (path: string, title: string) => void;
+  /** Show only this note and the notes linked to it. */
+  focusPath?: string | null;
+  /**
+   * When set, clicking a node opens a small card (Open / Show neighbours)
+   * instead of opening the note straight away.
+   */
+  onFocus?: (path: string) => void;
 }
 type Position = { id: string; x: number; y: number };
 
-export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
+export default function GraphView({ notes, onNodeClick, focusPath, onFocus }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const callback = useRef(onNodeClick);
   callback.current = onNodeClick;
   const [builder] = useState(createGraphDataBuilder);
-  const graph = useMemo(() => builder(notes), [builder, notes]);
+  const fullGraph = useMemo(() => builder(notes), [builder, notes]);
+  const graph = useMemo(
+    () => (focusPath ? graphNeighbourhood(fullGraph, focusPath) : fullGraph),
+    [focusPath, fullGraph],
+  );
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [card, setCard] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
+  const cardEnabled = useRef(Boolean(onFocus));
+  cardEnabled.current = Boolean(onFocus);
   const [search, setSearch] = useState('');
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const marker = useId().replace(/:/g, '');
@@ -98,8 +118,12 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
         scale = event.transform.k;
         group.attr('transform', event.transform.toString());
       })
-      .on('end', () => detail());
+      .on('end', () => {
+        detail();
+        setZoomPercent(Math.round(scale * 100));
+      });
     svg.call(zoom);
+    zoomRef.current = zoom;
     const send = (request: GraphLayoutRequest) => worker.current?.postMessage(request);
     const visibility = () =>
       send({ kind: 'visibility', hidden: document.visibilityState === 'hidden' });
@@ -159,15 +183,25 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
         .attr('aria-label', (node) => node.title)
         .attr('data-path', (node) => node.id)
         .attr('cursor', 'pointer');
-      const open = (node: GraphNode) => {
+      const open = (node: GraphNode, at?: { clientX: number; clientY: number }) => {
         selected.current = node.id;
         nodesLayer
           .selectAll('circle')
           .attr('stroke-width', (d) => ((d as GraphNode).id === node.id ? 4 : 1));
+        const container = containerRef.current;
+        if (cardEnabled.current && container) {
+          const bounds = container.getBoundingClientRect();
+          setCard({
+            node,
+            x: at ? at.clientX - bounds.left : bounds.width / 2,
+            y: at ? at.clientY - bounds.top : bounds.height / 2,
+          });
+          return;
+        }
         callback.current(node.relativePath, node.title);
       };
       node
-        .on('click', (_, node) => open(node))
+        .on('click', (event: MouseEvent, node) => open(node, event))
         .on('keydown', (event, node) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -231,6 +265,7 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
       worker.current?.terminate();
       worker.current = null;
       svg.on('.zoom', null);
+      zoomRef.current = null;
       group.remove();
       defs.remove();
       update.current = () => {};
@@ -238,6 +273,7 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
   }, [marker, attempt]);
   useEffect(() => {
     update.current();
+    setCard(null);
   }, [graph]);
   useEffect(() => {
     const query = search.trim().toLowerCase();
@@ -250,19 +286,40 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
           : 0.12,
       );
   }, [search, graph]);
+  const zoomBy = (factor: number) => {
+    const element = svgRef.current;
+    if (!element || !zoomRef.current) return;
+    d3.select(element).call(zoomRef.current.scaleBy, factor);
+  };
+  const resetZoom = () => {
+    const element = svgRef.current;
+    if (!element || !zoomRef.current) return;
+    d3.select(element).call(zoomRef.current.transform, d3.zoomIdentity);
+  };
   return (
-    <div className="relative h-full w-full bg-background">
-      <div className="absolute left-4 top-4 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-background/95 px-2.5 py-2">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full bg-background"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') setCard(null);
+      }}
+    >
+      <FloatingBar
+        role="search"
+        aria-label="Filter graph"
+        className="top-3 left-3 z-10 gap-2 pr-2.5"
+      >
+        <Search className="ml-1.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <Input
           aria-label="Filter graph nodes"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Filter nodes…"
-          className="w-56"
+          placeholder="Filter notes…"
+          className="h-8 w-56 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
         />
         <span
           title={`Showing up to 500 notes and ${GRAPH_LINK_LIMIT} links`}
-          className="text-xs text-muted-foreground"
+          className="text-xs whitespace-nowrap text-muted-foreground"
         >
           {graph.nodes.length} of {notes.length} notes · {graph.links.length} links
         </span>
@@ -276,13 +333,79 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
             </Button>
           </>
         )}
-      </div>
+      </FloatingBar>
       {!graph.nodes.length && (
         <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
           No notes found. Create some notes to see the graph.
         </p>
       )}
-      <svg ref={svgRef} role="group" aria-label="Note graph" className="h-full w-full" />
+      <svg
+        ref={svgRef}
+        role="group"
+        aria-label="Note graph"
+        className="h-full w-full"
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) setCard(null);
+        }}
+      />
+      {card && (
+        <div
+          role="dialog"
+          aria-label={card.node.title}
+          className="absolute z-20 flex w-60 flex-col gap-1 rounded-xl border border-border/70 bg-popover/95 p-3 text-popover-foreground shadow-lg"
+          style={{
+            left: Math.max(
+              8,
+              Math.min(card.x + 12, (containerRef.current?.clientWidth ?? 0) - 248),
+            ),
+            top: Math.max(
+              8,
+              Math.min(card.y + 12, (containerRef.current?.clientHeight ?? 0) - 140),
+            ),
+          }}
+        >
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold">{card.node.title}</p>
+            <Button variant="ghost" size="icon-xs" aria-label="Close" onClick={() => setCard(null)}>
+              <X />
+            </Button>
+          </div>
+          <p className="truncate text-xs text-muted-foreground">
+            {card.node.relativePath} · {card.node.linkCount}{' '}
+            {card.node.linkCount === 1 ? 'link' : 'links'}
+          </p>
+          <div className="mt-2 flex gap-1.5">
+            <Button
+              size="sm"
+              onClick={() => {
+                setCard(null);
+                callback.current(card.node.relativePath, card.node.title);
+              }}
+            >
+              Open
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setCard(null);
+                onFocus?.(card.node.relativePath);
+              }}
+            >
+              Show neighbours
+            </Button>
+          </div>
+        </div>
+      )}
+      {graph.nodes.length > 0 && (
+        <ZoomPill
+          label={`${zoomPercent}%`}
+          onZoomOut={() => zoomBy(1 / 1.25)}
+          onZoomIn={() => zoomBy(1.25)}
+          onReset={resetZoom}
+          className="z-10"
+        />
+      )}
     </div>
   );
 }

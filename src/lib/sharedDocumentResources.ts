@@ -11,12 +11,75 @@ export function shareDocumentRead<T>(key: string, read: () => Promise<T>): Promi
   void promise.then(remove, remove);
   return promise;
 }
+interface AbortableRead {
+  promise: Promise<unknown>;
+  controller: AbortController;
+  waiting: number;
+}
+const abortableReads = new Map<string, AbortableRead>();
+
+function abortError() {
+  return new DOMException('Cancelled', 'AbortError');
+}
+
+/**
+ * Like {@link shareDocumentRead}, for reads that can be cancelled. Callers of the
+ * same key share one request, but each keeps its own signal: a caller that aborts
+ * stops waiting without failing the others, and the shared request is cancelled
+ * only once nobody is waiting any more. An abandoned request is never handed to a
+ * later caller.
+ */
+export function shareAbortableDocumentRead<T>(
+  key: string,
+  signal: AbortSignal | undefined,
+  read: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (signal?.aborted) return Promise.reject(abortError());
+  let entry = abortableReads.get(key);
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = Promise.resolve().then(() => read(controller.signal));
+    const created: AbortableRead = { promise, controller, waiting: 0 };
+    const remove = () => {
+      if (abortableReads.get(key) === created) abortableReads.delete(key);
+    };
+    void promise.then(remove, remove);
+    abortableReads.set(key, created);
+    entry = created;
+  }
+  const shared = entry;
+  shared.waiting += 1;
+  return new Promise<T>((resolve, reject) => {
+    let done = false;
+    const leave = () => {
+      if (done) return false;
+      done = true;
+      signal?.removeEventListener('abort', onAbort);
+      shared.waiting -= 1;
+      return true;
+    };
+    const onAbort = () => {
+      if (!leave()) return;
+      reject(abortError());
+      if (shared.waiting === 0) {
+        if (abortableReads.get(key) === shared) abortableReads.delete(key);
+        shared.controller.abort();
+      }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    (shared.promise as Promise<T>).then(
+      (value) => leave() && resolve(value),
+      (error) => leave() && reject(error),
+    );
+  });
+}
 const clearers = new Set<() => void>();
 export function registerDocumentResourceCleanup(clear: () => void) {
   clearers.add(clear);
 }
 export function clearDocumentReads() {
   reads.clear();
+  abortableReads.clear();
   for (const clear of clearers) clear();
 }
 

@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { cn } from '../../lib/utils';
+import { Send } from 'lucide-react';
+
 import type { NoteFile } from '../../types/vault';
-import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 export type PdfSendTarget =
@@ -70,91 +64,53 @@ export function PdfSendTargetDialog({
     }
   };
 
-  const targetOptionClass = (selected: boolean) =>
-    cn(
-      'w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-colors app-motion-fast',
-      selected
-        ? 'border-primary/45 bg-primary/10 text-foreground shadow-sm shadow-primary/10'
-        : 'border-border/60 bg-card/35 text-muted-foreground hover:border-border hover:bg-accent/35 hover:text-foreground',
-    );
-
   return (
-    <Dialog
+    <FormDialog
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
+      size="s"
+      icon={<Send />}
+      title={mode === 'quote' ? 'Send quote' : 'Send snapshot'}
+      description={`Choose where to insert this PDF ${mode === 'quote' ? 'selection' : 'snapshot'}.`}
+      submitLabel="Insert"
+      submitDisabled={!canSubmit}
+      onSubmit={submit}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{mode === 'quote' ? 'Send quote' : 'Send snapshot'}</DialogTitle>
-          <DialogDescription>
-            Choose where to insert this PDF {mode === 'quote' ? 'selection' : 'snapshot'}.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          {currentNotePath && (
-            <button
-              type="button"
-              className={targetOptionClass(targetKind === 'note-current')}
-              onClick={() => setTargetKind('note-current')}
-            >
-              Current note
-              <div className="mt-1 text-xs text-muted-foreground">{currentNotePath}</div>
-            </button>
-          )}
-
-          {currentCanvasPath && (
-            <button
-              type="button"
-              className={targetOptionClass(targetKind === 'canvas-current')}
-              onClick={() => setTargetKind('canvas-current')}
-            >
-              Current canvas
-              <div className="mt-1 text-xs text-muted-foreground">{currentCanvasPath}</div>
-            </button>
-          )}
-
-          <div
-            className={cn(
-              'rounded-xl border px-3 py-3 transition-colors app-motion-fast',
-              targetKind === 'note-other'
-                ? 'border-primary/45 bg-primary/6 shadow-sm shadow-primary/10'
-                : 'border-border/60 bg-card/35',
-            )}
-          >
-            <button
-              type="button"
-              className="w-full text-left text-sm font-medium text-foreground"
-              onClick={() => setTargetKind('note-other')}
-            >
-              Another note
-            </button>
-            <Select value={notePath} onValueChange={setNotePath}>
-              <SelectTrigger className="mt-2 w-full justify-between bg-background/80">
-                <SelectValue placeholder="Choose a note" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableNotes.map((note) => (
-                  <SelectItem key={note.relativePath} value={note.relativePath}>
-                    {note.relativePath}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!canSubmit}>
-            Insert
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <ChoiceGroup
+        value={targetKind}
+        onValueChange={(value) => setTargetKind(value as typeof targetKind)}
+        aria-label="Insert into"
+      >
+        {currentNotePath && (
+          <ChoiceCard value="note-current" title="Current note" description={currentNotePath} />
+        )}
+        {currentCanvasPath && (
+          <ChoiceCard
+            value="canvas-current"
+            title="Current canvas"
+            description={currentCanvasPath}
+          />
+        )}
+        <ChoiceCard value="note-other" title="Another note" />
+      </ChoiceGroup>
+      {targetKind === 'note-other' && (
+        <FormField label="Note">
+          <Select value={notePath} onValueChange={setNotePath}>
+            <SelectTrigger className="w-full" aria-label="Note">
+              <SelectValue placeholder="Choose a note" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableNotes.map((note) => (
+                <SelectItem key={note.relativePath} value={note.relativePath}>
+                  {note.relativePath}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+    </FormDialog>
   );
 }

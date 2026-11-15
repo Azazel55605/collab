@@ -144,6 +144,7 @@ export function DeckTextToolbar({
         }
       >
         <SelectTrigger
+          variant="ghost"
           size="sm"
           className="w-40"
           aria-label="Font"
@@ -185,7 +186,7 @@ export function DeckTextToolbar({
           })
         }
       >
-        <SelectTrigger size="sm" className="w-[4.5rem]" aria-label="Font size">
+        <SelectTrigger variant="ghost" size="sm" className="w-[4.5rem]" aria-label="Font size">
           <SelectValue placeholder="–" />
         </SelectTrigger>
         <SelectContent>

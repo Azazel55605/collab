@@ -196,7 +196,7 @@ describe('calendar management', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Planning/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Planning/ }));
     expect(onOpenItem).toHaveBeenCalledWith(result);
     expect(screen.getByText(/Personal · Local/)).toBeTruthy();
   });

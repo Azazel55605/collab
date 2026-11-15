@@ -21,16 +21,10 @@ import {
   vaultCan,
   vaultKind,
 } from '../../types/vault';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { FormDialog } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -123,7 +117,7 @@ function CapabilityBadges({ member }: { member: HostedVaultMember }) {
   const shown = labels.slice(0, 6);
   const extra = labels.length - shown.length;
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       {source && (
         <span className="rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
           {source}
@@ -250,137 +244,108 @@ function PermissionEditorDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Permissions — {member.displayName}</DialogTitle>
-          <DialogDescription>
-            Choose how this member&apos;s capabilities are granted. The server enforces the
-            effective capability tokens on every request.
-          </DialogDescription>
-        </DialogHeader>
+    <FormDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      icon={<ShieldCheck />}
+      title={`Permissions — ${member.displayName}`}
+      description="Choose how this member's capabilities are granted. The server checks them on every request."
+      submitLabel="Save permissions"
+      submitDisabled={selfLockoutBlocked || (mode === 'template' && !templateId)}
+      busy={saving}
+      onSubmit={handleSave}
+    >
+      <ChoiceGroup
+        value={mode}
+        onValueChange={(value) => setMode(value as EditorMode)}
+        aria-label="Grant permissions by"
+        className="grid grid-cols-3 gap-2"
+      >
+        <ChoiceCard value="role" title="Role default" />
+        <ChoiceCard value="template" title="Template" />
+        <ChoiceCard value="custom" title="Custom" />
+      </ChoiceGroup>
 
-        <div className="flex gap-1.5">
-          {(
-            [
-              ['role', 'Role default'],
-              ['template', 'Template'],
-              ['custom', 'Custom'],
-            ] as [EditorMode, string][]
-          ).map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              size="sm"
-              variant={mode === value ? 'default' : 'outline'}
-              className="h-8 flex-1 text-xs"
-              onClick={() => setMode(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
+      {mode === 'role' && (
+        <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
+          Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
+          custom override or template assignment is cleared.
+        </p>
+      )}
 
-        {mode === 'role' && (
-          <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
-            Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
-            custom override or template assignment is cleared.
-          </p>
-        )}
-
-        {mode === 'template' && (
-          <div className="space-y-2">
-            {templates === null ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 size={14} className="animate-spin" /> Loading templates…
-              </div>
-            ) : templates.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No permission templates are available.
-              </p>
-            ) : (
-              <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select a template…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id} className="text-sm">
-                      {template.name}
-                      {template.isBuiltin ? ' (built-in)' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {selfLockoutBlocked && (
-              <p className="text-xs text-destructive">
-                This template would remove your own management permissions.
-              </p>
-            )}
-          </div>
-        )}
-
-        {mode === 'custom' && (
-          <ScrollArea className="max-h-72 rounded-md border border-border/50 p-2">
-            <div className="space-y-3">
-              {CAPABILITY_GROUPS.map((group) => (
-                <div key={group.domain}>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    {group.domain}
-                  </p>
-                  <div className="grid grid-cols-2 gap-1">
-                    {group.capabilities.map((capability) => {
-                      const locked =
-                        isSelf &&
-                        MANAGEMENT_CAPABILITIES.includes(
-                          capability.token as (typeof MANAGEMENT_CAPABILITIES)[number],
-                        );
-                      return (
-                        <label
-                          key={capability.token}
-                          className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
-                          title={
-                            locked
-                              ? 'You cannot remove your own management permissions.'
-                              : undefined
-                          }
-                        >
-                          <Checkbox
-                            checked={selected.has(capability.token)}
-                            disabled={locked}
-                            onCheckedChange={() => toggle(capability.token)}
-                            aria-label={capability.token}
-                          />
-                          <span className={locked ? 'text-muted-foreground' : ''}>
-                            {capability.label}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+      {mode === 'template' && (
+        <div className="space-y-2">
+          {templates === null ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" /> Loading templates…
             </div>
-          </ScrollArea>
-        )}
+          ) : templates.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No permission templates are available.</p>
+          ) : (
+            <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
+              <SelectTrigger className="w-full" aria-label="Template">
+                <SelectValue placeholder="Select a template…" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((template) => (
+                  <SelectItem key={template.id} value={template.id} className="text-sm">
+                    {template.name}
+                    {template.isBuiltin ? ' (built-in)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {selfLockoutBlocked && (
+            <p className="text-xs text-destructive">
+              This template would remove your own management permissions.
+            </p>
+          )}
+        </div>
+      )}
 
-        <DialogFooter>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void handleSave()}
-            disabled={saving || selfLockoutBlocked || (mode === 'template' && !templateId)}
-          >
-            {saving && <Loader2 size={13} className="mr-1.5 animate-spin" />}
-            Save permissions
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {mode === 'custom' && (
+        <ScrollArea className="max-h-72 rounded-md border border-border/50 p-2">
+          <div className="space-y-3">
+            {CAPABILITY_GROUPS.map((group) => (
+              <div key={group.domain}>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {group.domain}
+                </p>
+                <div className="grid grid-cols-2 gap-1">
+                  {group.capabilities.map((capability) => {
+                    const locked =
+                      isSelf &&
+                      MANAGEMENT_CAPABILITIES.includes(
+                        capability.token as (typeof MANAGEMENT_CAPABILITIES)[number],
+                      );
+                    return (
+                      <label
+                        key={capability.token}
+                        className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
+                        title={
+                          locked ? 'You cannot remove your own management permissions.' : undefined
+                        }
+                      >
+                        <Checkbox
+                          checked={selected.has(capability.token)}
+                          disabled={locked}
+                          onCheckedChange={() => toggle(capability.token)}
+                          aria-label={capability.token}
+                        />
+                        <span className={locked ? 'text-muted-foreground' : ''}>
+                          {capability.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+    </FormDialog>
   );
 }
 
@@ -500,53 +465,43 @@ export function HostedMembersPanel() {
     );
   }
 
+  const memberCount = list?.length ?? 0;
   return (
-    <div className="flex h-full max-w-[36rem] flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <div className="flex size-8 items-center justify-center rounded-lg border border-primary/25 bg-primary/10">
-          <ShieldCheck size={15} className="text-primary" />
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">Members &amp; permissions</h3>
-          <p className="text-xs text-muted-foreground">
-            Hosted access is server-authoritative. Invites and role changes require{' '}
-            <span className="font-mono">vault.manageMembers</span>; fine-grained permissions require{' '}
-            <span className="font-mono">vault.managePermissions</span>.
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            Members
+            {list !== null && (
+              <span className="rounded-full bg-muted px-2 py-px text-xs font-medium text-muted-foreground">
+                {memberCount}
+              </span>
+            )}
+          </h3>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            A member&apos;s role gives a baseline set of permissions; a permission template or
+            custom set overrides it. The server enforces access on every request.
+            {!canManagePermissions && ' You can view grants but not change them.'}
           </p>
         </div>
-      </div>
-
-      <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
-        <p className="font-medium text-foreground">Permission grants</p>
-        <p className="mt-1">
-          A member&apos;s role provides a baseline capability set. Assign a permission template or a
-          custom capability set to override that baseline; the server enforces the effective tokens
-          on every request.
-        </p>
-        <p className="mt-1">
-          {canManagePermissions
-            ? 'You can edit fine-grained permissions for each member below.'
-            : 'You do not currently have vault.managePermissions, so fine-grained grants are read-only here.'}
-        </p>
       </div>
 
       {canManageMembers && (
-        <div className="rounded-lg border border-border/50 p-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Add member
-          </p>
-          <div className="relative">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <UserPlus className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={selected ? `${selected.displayName} (@${selected.username})` : query}
               onChange={(e) => {
                 setSelected(null);
                 setQuery(e.target.value);
               }}
-              placeholder="Search users by name or username…"
-              className="h-8 text-sm"
+              placeholder="Add someone by name or username…"
+              aria-label="Add member"
+              className="h-8 pl-8 text-sm"
             />
             {!selected && results.length > 0 && (
-              <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border/60 bg-popover shadow-lg">
+              <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg bg-popover p-1 shadow-md ring-1 ring-foreground/10">
                 {results.map((entry) => {
                   const alreadyMember = memberIds.has(entry.userId);
                   return (
@@ -558,14 +513,16 @@ export function HostedMembersPanel() {
                           setSelected(entry);
                           setResults([]);
                         }}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/60 disabled:opacity-50"
+                        className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
                       >
                         <span className="truncate">
                           {entry.displayName}{' '}
                           <span className="text-muted-foreground">@{entry.username}</span>
                         </span>
                         {alreadyMember && (
-                          <span className="text-[10px] text-muted-foreground">member</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            already a member
+                          </span>
                         )}
                       </button>
                     </li>
@@ -574,57 +531,71 @@ export function HostedMembersPanel() {
               </ul>
             )}
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <RoleSelect value={addRole} onChange={setAddRole} />
-            <Button
-              size="sm"
-              className="h-8 gap-1.5"
-              disabled={!selected || adding}
-              onClick={() => void handleAdd()}
-            >
-              {adding ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />}
-              Add
-            </Button>
-          </div>
+          <RoleSelect value={addRole} onChange={setAddRole} />
+          <Button
+            size="sm"
+            className="h-8 gap-1.5"
+            disabled={!selected || adding}
+            onClick={() => void handleAdd()}
+          >
+            {adding ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />}
+            Add
+          </Button>
         </div>
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {list === null ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 size={14} className="animate-spin" /> Loading members…
-          </div>
-        ) : list.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No members yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {list.map((member) => (
-              <li
-                key={member.userId}
-                className="flex items-center gap-3 rounded-md border border-border/40 px-3 py-2"
-              >
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/60 text-[11px] font-semibold">
-                  {initials(member.displayName)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {member.displayName}
-                    {member.userId === identity.userId && (
-                      <span className="ml-1 text-[10px] text-muted-foreground">(you)</span>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card/30">
+        <div
+          aria-hidden="true"
+          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_4.5rem] gap-4 border-b border-border/50 px-4 py-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase"
+        >
+          <span>Person</span>
+          <span>Access</span>
+          <span />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {list === null ? (
+            <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" /> Loading members…
+            </div>
+          ) : list.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-muted-foreground">No members yet.</p>
+          ) : (
+            <ul className="flex flex-col p-1">
+              {list.map((member) => (
+                <li
+                  key={member.userId}
+                  className="group grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_4.5rem] items-center gap-4 rounded-lg px-3 py-2 transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+                      {initials(member.displayName)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {member.displayName}
+                        {member.userId === identity.userId && (
+                          <span className="ml-1 text-[11px] font-normal text-muted-foreground">
+                            (you)
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    {member.owner ? (
+                      <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+                        Owner
+                      </span>
+                    ) : (
+                      <CapabilityBadges member={member} />
                     )}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
-                  <CapabilityBadges member={member} />
-                </div>
-                {member.owner ? (
-                  <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
-                    Owner
-                  </span>
-                ) : (
-                  <>
-                    {canManagePermissions && (
+                  </div>
+                  <div className="flex justify-end gap-0.5">
+                    {!member.owner && canManagePermissions && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -637,7 +608,7 @@ export function HostedMembersPanel() {
                         <SlidersHorizontal size={14} />
                       </Button>
                     )}
-                    {canManageMembers && (
+                    {!member.owner && canManageMembers && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -645,16 +616,17 @@ export function HostedMembersPanel() {
                         disabled={busyUserId === member.userId}
                         onClick={() => void handleRemove(member)}
                         aria-label={`Remove ${member.displayName}`}
+                        title="Remove from vault"
                       >
                         <Trash2 size={14} />
                       </Button>
                     )}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {editing && (

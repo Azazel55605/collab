@@ -73,6 +73,11 @@ Animations should support orientation, state change, and spatial continuity. Avo
   surfaces use their app-owned counterpart over the same shared colour math in
   `src/lib/color.ts`; do not reintroduce a native colour input or a fixed-only
   palette as the sole way to choose a colour.
+- Pick-one-of-a-list controls use `ui/select.tsx`. Its menu opens as a popper
+  list under the trigger, styled like every other dropdown menu. In toolbars
+  and header strips use `<SelectTrigger variant="ghost">`, so the picker reads
+  as a toolbar button (font, size, number format) rather than a form field;
+  forms and inspectors keep the default bordered field.
 
 ### Surfaces
 
@@ -134,26 +139,61 @@ Bad density:
 
 ### Document headers
 
-All document-style views should follow `DocumentTopBar`.
+Every document and workspace view uses `DocumentTopBar`, including Calendar,
+Databases, Graph (standalone only; inside a grid cell the cell header names it),
+Grid and desktop Chats (`ConversationAccounts desktopHeader`; mobile keeps its
+compact toolbar). Workspace sidebars use uppercase 11 px section headings with
+an icon action on the right, and list rows carry a status dot instead of
+stacked buttons. Settings groups its sections (You, App, Documents, Sync) and
+titles the open section.
 
-Rules:
+The header is one 48 px row, in a fixed order:
 
-- row 1 contains icon, title, path/subtitle, and compact metadata
-- row 2 contains grouped controls when needed
-- row 2 controls should use the shared `DocumentTopBar` control primitives instead of bespoke per-view button sizing
-- controls in the secondary row should be horizontally scrollable rather than wrapping into chaos
-- do not create bespoke document headers unless the shared pattern is being evolved for everyone
+- kind icon, title, folder, then the `status` slot (save/sync pill, or a Save
+  button while the document has unsaved changes)
+- `meta` on the right: people on the document, a view switch when the view has
+  modes (Board / Calendar / Timeline, Day / Week / Month, Digital / Electronic),
+  at most one primary action (`variant="default"`), then the ⋯ `DocumentMoreMenu`
+- export, print, insert-elsewhere and other rare document actions belong in ⋯
+- do not create bespoke document headers unless the shared pattern is being
+  evolved for everyone
 
-### Tool groups
+### Tool strip and tool groups
 
-Toolbar controls should be visually chunked into small groups.
+The `secondary` slot is the single tool strip (`DocumentToolStrip`). Each child
+group uses `documentTopBarGroupClass`:
 
-Use:
+- groups are flat and separated by a thin divider, never boxed
+- the strip never scrolls sideways: groups that do not fit fold, whole and in
+  order, into a "More" popover
+- undo / redo first and find last, where the view has them; a `flex-1` spacer
+  pushes trailing groups right
+- labels only on menu buttons (`DocumentTopBarMenuButton`: Paragraph ▾,
+  Insert ▾, Data ▾); everything else is a 32 px icon button with a tooltip
+- rare actions go into named menus, not into an ever-longer row of icons
+- no hidden modifier-click features: visual editors get their own menu items
+- menus whose items open dialogs are non-modal (`modal={false}`)
 
-- rounded group containers
-- compact icon buttons sized through shared toolbar primitives when they live inside `DocumentTopBar`
-- consistent hover/focus treatment
-- tooltips for icon-only buttons
+Canvas-style editors (Logic, Canvas, Ink, Deck, SVG) keep tools on the canvas
+instead, built from `components/layout/CanvasChrome.tsx`: a tool rail
+(`FloatingBar` + `RailButton`) floating on the left, a selection bar that
+appears only while something is selected, a status chip bottom-left, a page pill
+bottom-centre and a `ZoomPill` bottom-right. Formatting for the current
+selection (Deck text and object formatting) floats above the stage and appears
+only when there is something to format.
+
+Keep rails short. Related tools share one button with a corner arrow that opens
+the rest of the group (Ink: Selection, Shape, Text, Insert, Measure, Inspect,
+plus brushes under Pen); the button shows the tool last used from its group.
+Insert actions in header strips are split by category (Deck: Text box, Media ▾,
+Shape ▾, Chart ▾, Placeholder ▾) rather than one long scrolling menu.
+
+Viewers (PDF, Image) read by default. Annotate and Edit are modes switched in
+the header; only then does a tool rail (PDF/image ink, vertical
+`PdfInkToolbar`) or the image edit bar appear. Page navigation, zoom, fit and
+page layout share one pill at the bottom centre. Rare page actions (bookmark,
+comment, snapshots, rotate, export annotated copy) live in ⋯. Undo / redo sit
+in the header, before the primary action, in every canvas editor.
 
 Avoid:
 
@@ -171,6 +211,28 @@ Rules:
 - empty states should be explicit and calm
 - search and filter inputs should match the app’s control styling
 - destructive actions should remain discoverable but not dominant
+
+Every sidebar panel starts with the same 48 px vault header
+(`layout/SidebarVaultHeader.tsx`), level with the document header. Its menu holds
+the vault manager and **Close vault**, the way back to the start screen. Below
+it, a segmented switch (`layout/sidebarSwitch.ts`: Files / Search / Tags, or
+People / History) and then the panel. Rare panel actions (Trash, Graph, vault
+manager) sit in a quiet 40 px footer rather than in the header. Files pinned from the
+context menu sit in a Pinned group above the tree; rows show an unsaved dot and the
+initials of whoever is editing.
+
+The collaboration panel groups people by where they are: in the open document,
+elsewhere in the vault (with a button that opens their document), offline
+(collapsed), then you. **Follow** opens each document the followed person opens; a small
+"Following" bar over the workspace shows it and stops it, and it ends on its own
+when they go offline. History is a timeline of versions grouped by day, with
+**Save version** as its one primary action.
+
+The vault manager uses the settings dialog shape (880 × 600): a navigation column
+grouped into **This vault** (Overview, then Members and Offline copy for hosted
+vaults or Encryption for local ones) and **All vaults** (Vaults, Servers), and setting rows with the
+label and description on the left and the control on the right. Password forms
+open in small dialogs instead of sitting on the page.
 
 ### Cards
 
@@ -382,6 +444,99 @@ Filter in the file tree because it opens a document tab.
 - Dialogs should be compact, structured, and not overly wide.
 - Menus and popovers should use the same border, blur, and shadow language as the rest of the app.
 - Confirmation flows should make the safe action easy to identify.
+
+### The dialog pattern
+
+Every dialog is built from `components/ui/app-dialog.tsx`:
+
+- **Sizes.** `AppDialogContent size="s"` (420 px) for confirmations and short
+  choices, `"m"` (520 px) for forms, `"l"` (880 × 600) for workspaces such as list
+  - detail or version history.
+- **Header.** `AppDialogHeader`: an optional tinted glyph (`tone` accent,
+  warning, danger, success, neutral), the title as a noun or a question, and one
+  line of description. The close button sits top right.
+- **Body and footer.** `AppDialogBody` scrolls; `AppDialogFooter` is a tinted
+  strip with an alternative path in `start` (left) and Cancel then the primary
+  action on the right. Danger buttons are red and name what they do.
+- **Choices.** Use `ChoiceGroup` / `ChoiceCard` (cards with a title and a line
+  of explanation), not small radio buttons.
+- **Confirmations.** Never call `window.confirm` or `window.alert`. Use
+  `await confirmAction({ title, description, confirmLabel, destructive })` from
+  `components/ui/confirm-dialog.tsx`; its host is mounted once in `App.tsx`.
+- **Workspaces.** Large dialogs put a list (filter, rows, New) on the left and
+  setting rows for the selected item on the right.
+
+Reach for a template before building a dialog by hand:
+
+1. **Confirm and choose** — `ConfirmDialog` (declarative, for a busy flag or
+   extra content such as a checkbox) and `confirmAction()` / `chooseAction()`
+   (one-off questions). Choices are `ChoiceCard`s; the confirm label follows the
+   choice ("Delete" / "Delete series").
+2. **Quick prompt** — `PromptDialog` from `ui/form-dialog.tsx`: one text field in
+   a small form, trimmed, optional `validate`, a thrown error shown inline;
+   `selectBaseName` selects a file name without its extension.
+3. **Form** — `FormDialog` with `FormField` (label above, hint or error below),
+   `FormRow` (side by side) and `FormSection`. The body is a real form, so Enter
+   submits; `busy` keeps it open with a spinner.
+4. **List and detail** — `ListDetailDialog` from `ui/list-detail-dialog.tsx`:
+   rows on the left (`ListDetailRow`: title, one-line summary, an optional
+   switch), the selected item on the right as `DetailRow`s, New under the list,
+   a destructive action on the left of the footer and Done. Edits apply as the
+   person makes them; a `detailOverride` shows the form for a new item. With no
+   items an empty state replaces both panes. `useKeepSelection` keeps a valid
+   selection. Examples: automations (the rule as a When / If / Then sentence),
+   calendar mirrors, CalDAV access, published links, snippets, named ranges.
+5. **Picker** — `PickerDialog` from `ui/picker-dialog.tsx`: search and scope
+   chips, results as a list (`PickerRow`) or a grid in groups, an optional
+   preview on the right. Arrow keys move, Enter or a double-click picks, and the
+   primary button names the item ("Insert Half adder").
+6. **Export** — `ExportDialog` from `ui/export-dialog.tsx`: formats as cards,
+   option rows for the chosen format, a summary of what will be written; the
+   button names the format ("Export PDF").
+7. **Review and report** — `ChangeReviewDialog` (before a change: the change in
+   one line, chips, every affected item, a blocking reason that disables the
+   action) and `ReportDialog` (after: outcome, a few numbers, what changed or
+   failed) from `ui/review-dialog.tsx`.
+8. **Frame only** — editors with their own layout (math, tables, chart data,
+   schema, analysis) use the `AppDialog*` parts directly: header with glyph,
+   scrolling body, footer strip with Cancel and the primary action.
+
+### Pop-over patterns
+
+Pop-overs use the shell in `components/ui/popover-patterns.tsx`:
+`PopoverPanel` (no padding of its own), `PopoverPanelHeader` (title, short meta,
+one action), `PopoverPanelBody` and `PopoverPanelFooter` (reset or alternative
+left, commit right, the dialog footer strip in small). Every pop-over takes one
+of four shapes:
+
+- **A · Search picker** — `PickerCommand`, `PickerInput`, `PickerList`,
+  `PickerGroup`, `PickerItem` (icon tile, title, detail, meta) and `KeyHints` in
+  the footer. Groups with uppercase headings, Enter picks. A select-style picker
+  is as wide as its field and marks the current value with `data-checked`.
+  Examples: card attachments, link a card, Grid cell content, calendar search,
+  time zone, Nerd Font icons. The emoji picker keeps its grid and gets the same
+  footer.
+- **B · Date** — `DatePanel` (`ui/date-panel.tsx`, separate so the calendar
+  stays out of the startup bundle): quick picks (Today, Tomorrow, Next Mon, In 1
+  week), the month, "No date" when `clearable`, an optional time. `DatePicker`
+  is built on it; a jump-to variant turns off quick picks and puts Today in the
+  footer.
+- **C · Mini form** — `PopoverForm` with `PopoverField`: a title naming the
+  target, a few fields, Cancel and the action; Enter submits. Without
+  `onSubmit` the form is live and has no footer (image colour).
+- **D · Panel** — header, an optional row of mode chips, a list, and a footer
+  with reset and commit (sheet filter). Read-only lists drop the footer (file →
+  tasks, annotations); invitations keep a footer note.
+
+### Sync center
+
+The status bar has one sync chip (`layout/SyncCenter.tsx`) for the open hosted
+vault, hosted calendars, the server connection and the active document's
+remote changes. It shows only the worst state (Access revoked, N need you,
+Offline / Session expired, Syncing %, N pending, Synced). Its panel lists, in
+order: what needs you (each problem in plain words with one or two fixes), what
+is in progress, pending changes, and a row for everything else. Document save
+status stays in each document's header.
 
 ### Editor suggestion menus
 

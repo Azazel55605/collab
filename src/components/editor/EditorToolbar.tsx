@@ -1,8 +1,9 @@
-import { type MouseEvent, type RefObject, useEffect, useState } from 'react';
+import { type RefObject, useEffect, useState } from 'react';
 
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   Bold,
+  BookOpen,
   Calculator,
   CheckSquare,
   Code,
@@ -34,23 +35,33 @@ import {
   EDITOR_TOOLBAR_ACTION_EVENT,
   type EditorToolbarAction,
 } from '../../lib/editorToolbarActions';
+import type { NotePageSettings } from '../../lib/notePageLayout';
 import { requestNotePdfExport } from '../../lib/notePdfExport';
+import { useNotePageStore } from '../../store/notePageStore';
 import { DocumentStatusPill } from '../layout/DocumentStatusPill';
 import {
+  DocumentMoreMenu,
   DocumentTopBar,
+  DocumentTopBarButton,
   documentTopBarGroupClass,
+  DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
 import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
@@ -79,6 +90,10 @@ interface EditorToolbarProps {
   relativePath: string;
   editorRef: RefObject<MarkdownEditorHandle | null>;
   documentStatus?: DocumentStatus;
+  /** Read-only notes keep the header (pages, print) but get no formatting strip. */
+  readOnly?: boolean;
+  /** Flushes pending edits, then opens the print / PDF export view. */
+  onPrint?: () => void;
 }
 
 interface InlineBtn {
@@ -161,17 +176,20 @@ const INLINE: InlineBtn[] = [
   },
 ];
 
-const BLOCK: BlockBtn[] = [
-  { icon: <Heading1 size={13} />, label: 'Heading 1', prefix: '# ' },
-  { icon: <Heading2 size={13} />, label: 'Heading 2', prefix: '## ' },
-  { icon: <Heading3 size={13} />, label: 'Heading 3', prefix: '### ' },
-  { icon: <Quote size={13} />, label: 'Blockquote', prefix: '> ' },
-  { icon: <List size={13} />, label: 'Bullet List', prefix: '- ' },
-  { icon: <ListOrdered size={13} />, label: 'Ordered List', prefix: '1. ' },
-  { icon: <CheckSquare size={13} />, label: 'Task List', prefix: '- [ ] ' },
+const HEADINGS: BlockBtn[] = [
+  { icon: <Heading1 />, label: 'Heading 1', prefix: '# ' },
+  { icon: <Heading2 />, label: 'Heading 2', prefix: '## ' },
+  { icon: <Heading3 />, label: 'Heading 3', prefix: '### ' },
+  { icon: <Quote />, label: 'Quote', prefix: '> ' },
 ];
 
-const INSERT: InsertBtn[] = [
+const LISTS: BlockBtn[] = [
+  { icon: <List size={13} />, label: 'Bullet list', prefix: '- ' },
+  { icon: <ListOrdered size={13} />, label: 'Numbered list', prefix: '1. ' },
+  { icon: <CheckSquare size={13} />, label: 'Task list', prefix: '- [ ] ' },
+];
+
+const QUICK_INSERT: InsertBtn[] = [
   { icon: <Link2 size={13} />, label: 'Link', text: '[link text](url)' },
   { icon: <Image size={13} />, label: 'Image', text: '![alt text](url)' },
   {
@@ -179,27 +197,7 @@ const INSERT: InsertBtn[] = [
     label: 'Table',
     text: '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |',
   },
-  { icon: <Minus size={13} />, label: 'Horizontal Rule', text: '\n---\n' },
-  { icon: <Hash size={13} />, label: 'Math Block', text: '$$\n<cursor>\n$$' },
-  { icon: <FileCode size={13} />, label: 'Code Block', text: '```\n<cursor>\n```' },
 ];
-
-function TagsBtn() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          <Tags size={13} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">Add tags line</TooltipContent>
-    </Tooltip>
-  );
-}
 
 function TBtn({
   icon,
@@ -213,38 +211,13 @@ function TBtn({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <DocumentTopBarIconButton
+          aria-label={label.replace(/ \(.*\)$/, '')}
           onClick={onClick}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="text-muted-foreground"
         >
           {icon}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function ToolBtn({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          {icon}
-        </button>
+        </DocumentTopBarIconButton>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
@@ -261,42 +234,37 @@ function LinkInsertDialog({
   onApply,
 }: LinkDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Insert Link</DialogTitle>
-          <DialogDescription>
-            Enter the visible link text and the target URL, then insert the markdown link.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3 py-1">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Link text</span>
-            <Input
-              value={text}
-              onChange={(event) => onTextChange(event.target.value)}
-              placeholder="Open project site"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">URL</span>
-            <Input
-              value={url}
-              onChange={(event) => onUrlChange(event.target.value)}
-              placeholder="https://example.com"
-            />
-          </label>
-        </div>
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={onApply} disabled={!text.trim() || !url.trim()}>
-            Insert Link
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      size="s"
+      icon={<Link2 />}
+      title="Insert Link"
+      description="The text people see, and where it leads."
+      submitLabel="Insert Link"
+      submitDisabled={!text.trim() || !url.trim()}
+      onSubmit={onApply}
+    >
+      <FormField label="Link text" htmlFor="editor-link-text">
+        <Input
+          id="editor-link-text"
+          autoFocus
+          value={text}
+          onChange={(event) => onTextChange(event.target.value)}
+          placeholder="Open project site"
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="URL" htmlFor="editor-link-url">
+        <Input
+          id="editor-link-url"
+          value={url}
+          onChange={(event) => onUrlChange(event.target.value)}
+          placeholder="https://example.com"
+          className="h-9 font-mono text-[13px]"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 
@@ -311,52 +279,58 @@ function ImageInsertDialog({
   onApply,
 }: ImageDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Insert Image</DialogTitle>
-          <DialogDescription>
-            Enter the label and image path, or browse for a file, then insert the markdown image.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3 py-1">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Name</span>
-            <Input
-              value={altText}
-              onChange={(event) => onAltTextChange(event.target.value)}
-              placeholder="Diagram"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Path</span>
-            <div className="flex gap-2">
-              <Input
-                value={path}
-                onChange={(event) => onPathChange(event.target.value)}
-                placeholder="Pictures/example.png"
-              />
-              <Button type="button" variant="outline" onClick={onBrowse}>
-                Browse
-              </Button>
-            </div>
-          </label>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Image />}
+      title="Insert Image"
+      description="Pick an image from the vault, or type its path."
+      submitLabel="Insert Image"
+      submitDisabled={!altText.trim() || !path.trim()}
+      onSubmit={onApply}
+    >
+      <FormField label="Name" htmlFor="editor-image-name" hint="Also used as the alt text.">
+        <Input
+          id="editor-image-name"
+          autoFocus
+          value={altText}
+          onChange={(event) => onAltTextChange(event.target.value)}
+          placeholder="Diagram"
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="Path" htmlFor="editor-image-path">
+        <div className="flex gap-2">
+          <Input
+            id="editor-image-path"
+            value={path}
+            onChange={(event) => onPathChange(event.target.value)}
+            placeholder="Pictures/example.png"
+            className="h-9 font-mono text-[13px]"
+          />
+          <Button type="button" variant="outline" onClick={onBrowse}>
+            Browse…
+          </Button>
         </div>
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={onApply} disabled={!altText.trim() || !path.trim()}>
-            Insert Image
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </FormField>
+    </FormDialog>
   );
 }
 
-export function EditorToolbar({ relativePath, editorRef, documentStatus }: EditorToolbarProps) {
+export function EditorToolbar({
+  relativePath,
+  editorRef,
+  documentStatus,
+  readOnly = false,
+  onPrint,
+}: EditorToolbarProps) {
   const ed = () => editorRef.current;
+  const paged = useNotePageStore((state) => state.paged);
+  const setPaged = useNotePageStore((state) => state.setPaged);
+  const pageSettings = useNotePageStore((state) => state.settings);
+  const setPageSettings = useNotePageStore((state) => state.setSettings);
+  const print = () =>
+    onPrint ? onPrint() : requestNotePdfExport(relativePath, ed()?.getContent?.());
   const restoreEditorFocus = () => {
     window.requestAnimationFrame(() => {
       ed()?.focus();
@@ -570,152 +544,184 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Note')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<FileText size={15} />}
-        meta={documentStatus ? <DocumentStatusPill status={documentStatus} compact /> : undefined}
-        secondary={
+        icon={<FileText />}
+        status={documentStatus ? <DocumentStatusPill status={documentStatus} compact /> : undefined}
+        meta={
           <>
-            <div className={documentTopBarGroupClass}>
-              {INLINE.map((b) => (
-                <TBtn
-                  key={b.label}
-                  icon={b.icon}
-                  label={b.label}
-                  onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
-                />
-              ))}
-            </div>
+            <DocumentTopBarButton
+              aria-pressed={paged}
+              aria-label="Pages view"
+              title="Show the note as printed pages"
+              className={paged ? 'bg-primary/15 text-foreground hover:bg-primary/20' : undefined}
+              onClick={() => setPaged(!paged)}
+            >
+              <BookOpen /> Pages
+            </DocumentTopBarButton>
+            {paged && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton aria-label="Page setup">
+                    Page setup
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-44">
+                  <DropdownMenuLabel>Paper</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={pageSettings.paper}
+                    onValueChange={(paper) =>
+                      setPageSettings({ paper: paper as NotePageSettings['paper'] })
+                    }
+                  >
+                    <DropdownMenuRadioItem value="a4">A4</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="letter">Letter</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Orientation</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={pageSettings.orientation}
+                    onValueChange={(orientation) =>
+                      setPageSettings({
+                        orientation: orientation as NotePageSettings['orientation'],
+                      })
+                    }
+                  >
+                    <DropdownMenuRadioItem value="portrait">Portrait</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="landscape">Landscape</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Margins</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={pageSettings.margins}
+                    onValueChange={(margins) =>
+                      setPageSettings({ margins: margins as NotePageSettings['margins'] })
+                    }
+                  >
+                    <DropdownMenuRadioItem value="narrow">Narrow</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="normal">Normal</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <DocumentTopBarButton onClick={print} title="Print preview and PDF export">
+              <Printer /> Print / PDF
+            </DocumentTopBarButton>
+            {!readOnly && (
+              <DocumentMoreMenu label="More note actions">
+                <DropdownMenuItem
+                  onSelect={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
+                >
+                  <Tags /> Add tags line
+                </DropdownMenuItem>
+              </DocumentMoreMenu>
+            )}
+          </>
+        }
+        secondary={
+          readOnly ? undefined : (
+            <>
+              <div className={documentTopBarGroupClass}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton>Paragraph</DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-44">
+                    {HEADINGS.map((b) => (
+                      <DropdownMenuItem key={b.label} onSelect={() => ed()?.insertLine(b.prefix)}>
+                        {b.icon} {b.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
 
-            <div className={documentTopBarGroupClass}>
-              {BLOCK.map((b) =>
-                b.label === 'Task List' ? (
-                  <ToolBtn
+              <div className={documentTopBarGroupClass}>
+                {INLINE.map((b) => (
+                  <TBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Task List (Shift-click for visual editor, Ctrl+Alt+K)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openTaskListDialog();
-                        return;
-                      }
-                      ed()?.insertLine(b.prefix);
-                    }}
+                    label={b.label}
+                    onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
                   />
-                ) : (
+                ))}
+              </div>
+
+              <div className={documentTopBarGroupClass}>
+                {LISTS.map((b) => (
                   <TBtn
                     key={b.label}
                     icon={b.icon}
                     label={b.label}
                     onClick={() => ed()?.insertLine(b.prefix)}
                   />
-                ),
-              )}
-            </div>
+                ))}
+              </div>
 
-            <div className={documentTopBarGroupClass}>
-              {INSERT.map((b) =>
-                b.label === 'Table' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Table (Shift-click for visual editor, Ctrl+Alt+T)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openVisualTableEditor();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Link' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Link (Shift-click for visual editor, Ctrl+Alt+L)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openLinkDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Image' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Image (Shift-click for visual editor, Ctrl+Alt+I)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openImageDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Math Block' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Math Block (Shift-click for visual editor, Ctrl+Alt+M)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openMathDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : b.label === 'Code Block' ? (
-                  <ToolBtn
-                    key={b.label}
-                    icon={b.icon}
-                    label="Code Block (Shift-click for visual editor, Ctrl+Alt+C)"
-                    onClick={(event) => {
-                      if (event.shiftKey) {
-                        openCodeDialog();
-                        return;
-                      }
-                      ed()?.insertSnippet(b.text);
-                    }}
-                  />
-                ) : (
+              <div className={documentTopBarGroupClass}>
+                {QUICK_INSERT.map((b) => (
                   <TBtn
                     key={b.label}
                     icon={b.icon}
                     label={b.label}
                     onClick={() => ed()?.insertSnippet(b.text)}
                   />
-                ),
-              )}
-              <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
-            </div>
+                ))}
+              </div>
 
-            <div className={documentTopBarGroupClass}>
-              <TBtn
-                icon={<MessageSquareQuote size={13} />}
-                label="Callout block"
-                onClick={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
-              />
-              <TBtn
-                icon={<ScrollText size={13} />}
-                label="Footnote"
-                onClick={() => ed()?.insertFootnote()}
-              />
-              <TBtn
-                icon={<NotebookPen size={13} />}
-                label="Note snippets"
-                onClick={() => setSnippetsDialogOpen(true)}
-              />
-              <TBtn
-                icon={<Printer size={13} />}
-                label="Export note as PDF"
-                onClick={() => {
-                  requestNotePdfExport(relativePath, ed()?.getContent?.());
-                }}
-              />
-              <TagsBtn />
-            </div>
-          </>
+              <div className={documentTopBarGroupClass}>
+                {/* Non-modal: its items open dialogs, which must own focus afterwards. */}
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton>Insert</DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-60">
+                    <DropdownMenuLabel>Visual editors</DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={openVisualTableEditor}>
+                      <Table /> Table…
+                      <DropdownMenuShortcut>Ctrl+Alt+T</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openLinkDialog}>
+                      <Link2 /> Link…
+                      <DropdownMenuShortcut>Ctrl+Alt+L</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openImageDialog}>
+                      <Image /> Image…
+                      <DropdownMenuShortcut>Ctrl+Alt+I</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openTaskListDialog}>
+                      <CheckSquare /> Task list…
+                      <DropdownMenuShortcut>Ctrl+Alt+K</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openMathDialog}>
+                      <Hash /> Math block…
+                      <DropdownMenuShortcut>Ctrl+Alt+M</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openCodeDialog}>
+                      <FileCode /> Code block…
+                      <DropdownMenuShortcut>Ctrl+Alt+C</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => ed()?.insertSnippet('\n---\n')}>
+                      <Minus /> Horizontal rule
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
+                    >
+                      <MessageSquareQuote /> Callout
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => ed()?.insertFootnote()}>
+                      <ScrollText /> Footnote
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setSnippetsDialogOpen(true)}>
+                      <NotebookPen /> Note snippets…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
+              </div>
+            </>
+          )
         }
       />
 

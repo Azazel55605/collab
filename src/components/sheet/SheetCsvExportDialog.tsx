@@ -1,19 +1,12 @@
 import { useState } from 'react';
 
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, FileSpreadsheet } from 'lucide-react';
 
 import type { SheetDocument } from '../../types/sheet';
 import type { SheetExportOptions, SheetExportRange } from '../../types/sheetConversion';
-import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { ExportDialog } from '../ui/export-dialog';
+import { DetailRow } from '../ui/list-detail-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 /**
@@ -62,148 +55,124 @@ export default function SheetCsvExportDialog({
   const effectiveWorksheetId = worksheetId ?? activeWorksheetId ?? worksheets[0]?.id;
   const leftOut = Math.max(0, worksheets.length - 1);
 
+  const sheetName = worksheets.find((worksheet) => worksheet.id === effectiveWorksheetId)?.name;
+  const select = (
+    id: string,
+    value: string | undefined,
+    onChange: (value: string) => void,
+    items: { value: string; label: string }[],
+  ) => (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        id={id}
+        size="sm"
+        className="w-48"
+        aria-label={
+          { 'csv-worksheet': 'Worksheet', 'csv-scope': 'Cells', 'csv-delimiter': 'Delimiter' }[id]
+        }
+      >
+        <SelectValue placeholder="Choose…" />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((item) => (
+          <SelectItem key={item.value} value={item.value}>
+            {item.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Export as CSV</DialogTitle>
-          <DialogDescription>
-            CSV holds values from one worksheet. Formatting, merged ranges, frozen panes, charts,
-            and other worksheets are not written.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label htmlFor="csv-worksheet" className="text-xs font-medium">
-              Worksheet
-            </label>
-            <Select value={effectiveWorksheetId} onValueChange={setWorksheetId}>
-              <SelectTrigger id="csv-worksheet">
-                <SelectValue placeholder="Choose a worksheet" />
-              </SelectTrigger>
-              <SelectContent>
-                {worksheets.map((worksheet) => (
-                  <SelectItem key={worksheet.id} value={worksheet.id}>
-                    {worksheet.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {leftOut > 0 && (
-              <p className="text-xs text-muted-foreground" data-testid="csv-worksheets-left-out">
-                {leftOut === 1
-                  ? '1 other worksheet will not be written.'
-                  : `${leftOut} other worksheets will not be written.`}
-              </p>
-            )}
-          </div>
-
-          {selectionRange && (
-            <div className="space-y-1.5">
-              <label htmlFor="csv-scope" className="text-xs font-medium">
-                Cells
-              </label>
-              <Select
-                value={scope}
-                onValueChange={(value) => setScope(value as 'worksheet' | 'selection')}
-              >
-                <SelectTrigger id="csv-scope">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="worksheet">Whole worksheet</SelectItem>
-                  <SelectItem value="selection">Selected range ({selectionLabel})</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <label htmlFor="csv-delimiter" className="text-xs font-medium">
-              Delimiter
-            </label>
-            <Select value={delimiter} onValueChange={setDelimiter}>
-              <SelectTrigger id="csv-delimiter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DELIMITERS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Checkbox
-              id="csv-formulas"
-              checked={includeFormulas}
-              onCheckedChange={(checked) => setIncludeFormulas(checked === true)}
-            />
-            <div className="space-y-0.5">
-              <label htmlFor="csv-formulas" className="text-sm">
-                Write formula source instead of values
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Off by default. Most tools reading a CSV expect the calculated value.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Checkbox
-              id="csv-executable"
-              checked={allowExecutable}
-              onCheckedChange={(checked) => setAllowExecutable(checked === true)}
-            />
-            <div className="space-y-0.5">
-              <label htmlFor="csv-executable" className="text-sm">
-                Allow fields a spreadsheet will execute
-              </label>
-              <p className="text-xs text-muted-foreground">
-                By default, a field starting with <code>=</code>, <code>+</code>, <code>-</code>, or{' '}
-                <code>@</code> is prefixed so it is shown as text.
-              </p>
-            </div>
-          </div>
-
-          {allowExecutable && (
-            <div
-              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs"
-              data-testid="csv-injection-warning"
-            >
-              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-destructive" />
-              <span>
-                Anyone who opens this file in a spreadsheet application will run those fields. Only
-                do this when you are sending the file to someone who expects live formulas.
-              </span>
-            </div>
-          )}
+    <ExportDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<FileSpreadsheet />}
+      title="Export as CSV"
+      description="CSV holds the values of one worksheet. Formatting, merged ranges, frozen panes, charts and other worksheets are not written."
+      exportLabel="Export CSV"
+      summary={
+        sheetName
+          ? `${scope === 'selection' && selectionRange ? selectionLabel : `All of ${sheetName}`} → one .csv file`
+          : undefined
+      }
+      onExport={() => {
+        onExport({
+          worksheetId: effectiveWorksheetId,
+          range: scope === 'selection' && selectionRange ? selectionRange : undefined,
+          delimiter,
+          includeFormulas,
+          sanitizeFormulas: !allowExecutable,
+        });
+        onOpenChange(false);
+      }}
+    >
+      <DetailRow
+        label="Worksheet"
+        description={
+          leftOut > 0 ? (
+            <span data-testid="csv-worksheets-left-out">
+              {leftOut === 1
+                ? '1 other worksheet will not be written.'
+                : `${leftOut} other worksheets will not be written.`}
+            </span>
+          ) : undefined
+        }
+      >
+        {select(
+          'csv-worksheet',
+          effectiveWorksheetId,
+          setWorksheetId,
+          worksheets.map((worksheet) => ({ value: worksheet.id, label: worksheet.name })),
+        )}
+      </DetailRow>
+      {selectionRange && (
+        <DetailRow label="Cells">
+          {select('csv-scope', scope, (value) => setScope(value as 'worksheet' | 'selection'), [
+            { value: 'worksheet', label: 'Whole worksheet' },
+            { value: 'selection', label: `Selected range (${selectionLabel})` },
+          ])}
+        </DetailRow>
+      )}
+      <DetailRow label="Delimiter">
+        {select('csv-delimiter', delimiter, setDelimiter, DELIMITERS)}
+      </DetailRow>
+      <DetailRow
+        label={<label htmlFor="csv-formulas">Write formula source instead of values</label>}
+        description="Off by default. Most tools reading a CSV expect the calculated value."
+      >
+        <Checkbox
+          id="csv-formulas"
+          checked={includeFormulas}
+          onCheckedChange={(checked) => setIncludeFormulas(checked === true)}
+        />
+      </DetailRow>
+      <DetailRow
+        label={<label htmlFor="csv-executable">Allow fields a spreadsheet will execute</label>}
+        description={
+          <>
+            By default a field starting with <code>=</code>, <code>+</code>, <code>-</code> or{' '}
+            <code>@</code> is prefixed so it shows as text.
+          </>
+        }
+      >
+        <Checkbox
+          id="csv-executable"
+          checked={allowExecutable}
+          onCheckedChange={(checked) => setAllowExecutable(checked === true)}
+        />
+      </DetailRow>
+      {allowExecutable && (
+        <div
+          className="mt-3 flex items-start gap-2 rounded-[10px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
+          data-testid="csv-injection-warning"
+        >
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-destructive" />
+          <span>
+            Anyone who opens this file in a spreadsheet application will run those fields. Only do
+            this when you send the file to someone who expects live formulas.
+          </span>
         </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              onExport({
-                worksheetId: effectiveWorksheetId,
-                range: scope === 'selection' && selectionRange ? selectionRange : undefined,
-                delimiter,
-                includeFormulas,
-                sanitizeFormulas: !allowExecutable,
-              });
-              onOpenChange(false);
-            }}
-          >
-            Export
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+    </ExportDialog>
   );
 }

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { Database } from 'lucide-react';
+
 import { databaseError } from '../../lib/databaseErrors';
 import { tauriCommands } from '../../lib/tauri';
 import type {
@@ -10,9 +12,10 @@ import type {
   DatabaseSchemaPreview,
   DatabaseSchemaType,
 } from '../../types/database';
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import { Field, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -166,295 +169,298 @@ export default function SchemaEditor({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Edit database schema</DialogTitle>
-          <DialogDescription>
-            Review the generated SQL before applying a change to {binding.database}.
-          </DialogDescription>
-        </DialogHeader>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {unknown && (
-          <p role="status" className="text-sm text-muted-foreground">
-            The change may have applied. Verify the schema in a new session before retrying.
-          </p>
-        )}
-        {preview ? (
-          <>
-            <pre
-              aria-label="Generated SQL"
-              className="overflow-auto rounded-md border p-3 text-xs whitespace-pre-wrap"
-            >
-              {preview.sql}
-            </pre>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {preview.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-            {preview.destructive && (
-              <Field orientation="horizontal">
-                <Checkbox
-                  disabled={busy}
-                  id="schema-confirm-loss"
-                  checked={confirmLoss}
-                  onCheckedChange={(value) => setConfirmLoss(value === true)}
-                />
-                <FieldLabel htmlFor="schema-confirm-loss">
-                  Permanently remove the column and its values
-                </FieldLabel>
-              </Field>
-            )}
-            <div className="flex gap-2">
-              <Button
-                variant={preview.destructive ? 'destructive' : 'default'}
-                disabled={busy || (preview.destructive && !confirmLoss)}
-                onClick={() => void apply()}
+      <AppDialogContent size="m" className="sm:max-w-[640px]">
+        <AppDialogHeader
+          icon={<Database />}
+          title="Edit database schema"
+          description={
+            <>Review the generated SQL before applying a change to {binding.database}.</>
+          }
+        />
+        <AppDialogBody>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          {unknown && (
+            <p role="status" className="text-sm text-muted-foreground">
+              The change may have applied. Verify the schema in a new session before retrying.
+            </p>
+          )}
+          {preview ? (
+            <>
+              <pre
+                aria-label="Generated SQL"
+                className="overflow-auto rounded-md border p-3 text-xs whitespace-pre-wrap"
               >
-                {busy ? 'Applying…' : 'Apply schema change'}
-              </Button>
-              <Button variant="outline" disabled={busy} onClick={() => setPreview(null)}>
-                Back
-              </Button>
-            </div>
-          </>
-        ) : unknown ? (
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-        ) : (
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!busy) void getPreview();
-            }}
-          >
-            <Field>
-              <FieldLabel htmlFor="schema-operation">Change</FieldLabel>
-              <Select
-                value={kind}
-                disabled={busy}
-                onValueChange={(kind: DatabaseSchemaChange['kind']) => {
-                  setKind(kind);
-                  setError('');
-                }}
-              >
-                <SelectTrigger id="schema-operation">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {visibleOperations.map((op) => (
-                    <SelectItem key={op.kind} value={op.kind}>
-                      {op.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field>
-                <FieldLabel htmlFor="schema-name">Schema</FieldLabel>
-                <Input
-                  id="schema-name"
-                  value={schema}
-                  required
-                  maxLength={128}
-                  readOnly={engine !== 'sql_server'}
-                  disabled={busy}
-                  onChange={(event) => setSchema(event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="schema-table">Table</FieldLabel>
-                <Input
-                  id="schema-table"
-                  value={table}
-                  required
-                  maxLength={128}
-                  disabled={busy}
-                  onChange={(event) => setTable(event.target.value)}
-                />
-              </Field>
-            </div>
-            {(create || kind === 'add_column') &&
-              columns.slice(0, create ? columns.length : 1).map((item, index) => (
-                <div key={index} className="grid grid-cols-2 gap-2 rounded-md border p-3">
-                  <Field>
-                    <FieldLabel htmlFor={`schema-column-${index}`}>
-                      Column {index + 1} name
-                    </FieldLabel>
-                    <Input
-                      id={`schema-column-${index}`}
-                      value={item.name}
-                      required
-                      maxLength={128}
-                      disabled={busy}
-                      onChange={(event) =>
-                        setColumns((previous) =>
-                          previous.map((column, i) =>
-                            i === index ? { ...column, name: event.target.value } : column,
-                          ),
-                        )
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor={`schema-type-${index}`}>Type</FieldLabel>
-                    <Select
-                      value={item.data_type}
-                      disabled={busy}
-                      onValueChange={(data_type: DatabaseSchemaType) =>
-                        setColumns((previous) =>
-                          previous.map((column, i) =>
-                            i === index ? { ...column, data_type } : column,
-                          ),
-                        )
-                      }
-                    >
-                      <SelectTrigger id={`schema-type-${index}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {types
-                          .filter(
-                            (type) =>
-                              !sqlite ||
-                              !['big_integer', 'short_text', 'decimal', 'date_time'].includes(
-                                type.kind,
-                              ),
-                          )
-                          .map((type) => (
-                            <SelectItem key={type.kind} value={type.kind}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {create && (
-                    <>
-                      <Field orientation="horizontal">
-                        <Checkbox
-                          id={`schema-null-${index}`}
-                          checked={item.nullable && !item.primary_key}
-                          disabled={busy || item.primary_key}
-                          onCheckedChange={(nullable) =>
-                            setColumns((previous) =>
-                              previous.map((column, i) =>
-                                i === index ? { ...column, nullable: nullable === true } : column,
-                              ),
-                            )
-                          }
-                        />
-                        <FieldLabel htmlFor={`schema-null-${index}`}>Nullable</FieldLabel>
-                      </Field>
-                      <Field orientation="horizontal">
-                        <Checkbox
-                          id={`schema-key-${index}`}
-                          checked={item.primary_key}
-                          disabled={busy}
-                          onCheckedChange={(primaryKey) =>
-                            setColumns((previous) =>
-                              previous.map((column, i) =>
-                                i === index
-                                  ? { ...column, primary_key: primaryKey === true }
-                                  : column,
-                              ),
-                            )
-                          }
-                        />
-                        <FieldLabel htmlFor={`schema-key-${index}`}>Primary key</FieldLabel>
-                      </Field>
-                      {columns.length > 1 && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() =>
-                            setColumns((previous) => previous.filter((_, i) => i !== index))
-                          }
-                        >
-                          Remove column {index + 1}
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            {create && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || columns.length >= 32}
-                onClick={() => setColumns((previous) => [...previous, blankColumn()])}
-              >
-                Add column definition
-              </Button>
-            )}
-            {(kind === 'create_index' || kind === 'rename_column') && (
-              <Field>
-                <FieldLabel htmlFor="schema-new-name">
-                  {kind === 'create_index' ? 'Index name' : 'New column name'}
-                </FieldLabel>
-                <Input
-                  id="schema-new-name"
-                  value={name}
-                  required
-                  maxLength={128}
-                  disabled={busy}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
-            )}
-            {(kind === 'create_index' || kind === 'add_primary_key') && (
-              <Field>
-                <FieldLabel htmlFor="schema-key-columns">Columns, one per line</FieldLabel>
-                <Textarea
-                  id="schema-key-columns"
-                  value={columnList}
-                  required
-                  maxLength={2048}
-                  disabled={busy}
-                  onChange={(event) => setColumnList(event.target.value)}
-                />
-              </Field>
-            )}
-            {(kind === 'drop_column' || kind === 'rename_column') && (
-              <Field>
-                <FieldLabel htmlFor="schema-old-column">Existing column name</FieldLabel>
-                <Input
-                  id="schema-old-column"
-                  value={column}
-                  required
-                  maxLength={128}
-                  disabled={busy}
-                  onChange={(event) => setColumn(event.target.value)}
-                />
-              </Field>
-            )}
-            {kind === 'create_index' && (
-              <Field orientation="horizontal">
-                <Checkbox
-                  id="schema-unique"
-                  checked={unique}
-                  disabled={busy}
-                  onCheckedChange={(value) => setUnique(value === true)}
-                />
-                <FieldLabel htmlFor="schema-unique">Unique index</FieldLabel>
-              </Field>
-            )}
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Checking metadata…' : 'Preview SQL'}
+                {preview.sql}
+              </pre>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {preview.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+              {preview.destructive && (
+                <Field orientation="horizontal">
+                  <Checkbox
+                    disabled={busy}
+                    id="schema-confirm-loss"
+                    checked={confirmLoss}
+                    onCheckedChange={(value) => setConfirmLoss(value === true)}
+                  />
+                  <FieldLabel htmlFor="schema-confirm-loss">
+                    Permanently remove the column and its values
+                  </FieldLabel>
+                </Field>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant={preview.destructive ? 'destructive' : 'default'}
+                  disabled={busy || (preview.destructive && !confirmLoss)}
+                  onClick={() => void apply()}
+                >
+                  {busy ? 'Applying…' : 'Apply schema change'}
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => setPreview(null)}>
+                  Back
+                </Button>
+              </div>
+            </>
+          ) : unknown ? (
+            <Button variant="outline" onClick={onClose}>
+              Close
             </Button>
-          </form>
-        )}
-      </DialogContent>
+          ) : (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!busy) void getPreview();
+              }}
+            >
+              <Field>
+                <FieldLabel htmlFor="schema-operation">Change</FieldLabel>
+                <Select
+                  value={kind}
+                  disabled={busy}
+                  onValueChange={(kind: DatabaseSchemaChange['kind']) => {
+                    setKind(kind);
+                    setError('');
+                  }}
+                >
+                  <SelectTrigger id="schema-operation">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleOperations.map((op) => (
+                      <SelectItem key={op.kind} value={op.kind}>
+                        {op.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field>
+                  <FieldLabel htmlFor="schema-name">Schema</FieldLabel>
+                  <Input
+                    id="schema-name"
+                    value={schema}
+                    required
+                    maxLength={128}
+                    readOnly={engine !== 'sql_server'}
+                    disabled={busy}
+                    onChange={(event) => setSchema(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="schema-table">Table</FieldLabel>
+                  <Input
+                    id="schema-table"
+                    value={table}
+                    required
+                    maxLength={128}
+                    disabled={busy}
+                    onChange={(event) => setTable(event.target.value)}
+                  />
+                </Field>
+              </div>
+              {(create || kind === 'add_column') &&
+                columns.slice(0, create ? columns.length : 1).map((item, index) => (
+                  <div key={index} className="grid grid-cols-2 gap-2 rounded-md border p-3">
+                    <Field>
+                      <FieldLabel htmlFor={`schema-column-${index}`}>
+                        Column {index + 1} name
+                      </FieldLabel>
+                      <Input
+                        id={`schema-column-${index}`}
+                        value={item.name}
+                        required
+                        maxLength={128}
+                        disabled={busy}
+                        onChange={(event) =>
+                          setColumns((previous) =>
+                            previous.map((column, i) =>
+                              i === index ? { ...column, name: event.target.value } : column,
+                            ),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor={`schema-type-${index}`}>Type</FieldLabel>
+                      <Select
+                        value={item.data_type}
+                        disabled={busy}
+                        onValueChange={(data_type: DatabaseSchemaType) =>
+                          setColumns((previous) =>
+                            previous.map((column, i) =>
+                              i === index ? { ...column, data_type } : column,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger id={`schema-type-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {types
+                            .filter(
+                              (type) =>
+                                !sqlite ||
+                                !['big_integer', 'short_text', 'decimal', 'date_time'].includes(
+                                  type.kind,
+                                ),
+                            )
+                            .map((type) => (
+                              <SelectItem key={type.kind} value={type.kind}>
+                                {type.label}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {create && (
+                      <>
+                        <Field orientation="horizontal">
+                          <Checkbox
+                            id={`schema-null-${index}`}
+                            checked={item.nullable && !item.primary_key}
+                            disabled={busy || item.primary_key}
+                            onCheckedChange={(nullable) =>
+                              setColumns((previous) =>
+                                previous.map((column, i) =>
+                                  i === index ? { ...column, nullable: nullable === true } : column,
+                                ),
+                              )
+                            }
+                          />
+                          <FieldLabel htmlFor={`schema-null-${index}`}>Nullable</FieldLabel>
+                        </Field>
+                        <Field orientation="horizontal">
+                          <Checkbox
+                            id={`schema-key-${index}`}
+                            checked={item.primary_key}
+                            disabled={busy}
+                            onCheckedChange={(primaryKey) =>
+                              setColumns((previous) =>
+                                previous.map((column, i) =>
+                                  i === index
+                                    ? { ...column, primary_key: primaryKey === true }
+                                    : column,
+                                ),
+                              )
+                            }
+                          />
+                          <FieldLabel htmlFor={`schema-key-${index}`}>Primary key</FieldLabel>
+                        </Field>
+                        {columns.length > 1 && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() =>
+                              setColumns((previous) => previous.filter((_, i) => i !== index))
+                            }
+                          >
+                            Remove column {index + 1}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              {create && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || columns.length >= 32}
+                  onClick={() => setColumns((previous) => [...previous, blankColumn()])}
+                >
+                  Add column definition
+                </Button>
+              )}
+              {(kind === 'create_index' || kind === 'rename_column') && (
+                <Field>
+                  <FieldLabel htmlFor="schema-new-name">
+                    {kind === 'create_index' ? 'Index name' : 'New column name'}
+                  </FieldLabel>
+                  <Input
+                    id="schema-new-name"
+                    value={name}
+                    required
+                    maxLength={128}
+                    disabled={busy}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+              )}
+              {(kind === 'create_index' || kind === 'add_primary_key') && (
+                <Field>
+                  <FieldLabel htmlFor="schema-key-columns">Columns, one per line</FieldLabel>
+                  <Textarea
+                    id="schema-key-columns"
+                    value={columnList}
+                    required
+                    maxLength={2048}
+                    disabled={busy}
+                    onChange={(event) => setColumnList(event.target.value)}
+                  />
+                </Field>
+              )}
+              {(kind === 'drop_column' || kind === 'rename_column') && (
+                <Field>
+                  <FieldLabel htmlFor="schema-old-column">Existing column name</FieldLabel>
+                  <Input
+                    id="schema-old-column"
+                    value={column}
+                    required
+                    maxLength={128}
+                    disabled={busy}
+                    onChange={(event) => setColumn(event.target.value)}
+                  />
+                </Field>
+              )}
+              {kind === 'create_index' && (
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="schema-unique"
+                    checked={unique}
+                    disabled={busy}
+                    onCheckedChange={(value) => setUnique(value === true)}
+                  />
+                  <FieldLabel htmlFor="schema-unique">Unique index</FieldLabel>
+                </Field>
+              )}
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Checking metadata…' : 'Preview SQL'}
+              </Button>
+            </form>
+          )}
+        </AppDialogBody>
+      </AppDialogContent>
     </Dialog>
   );
 }

@@ -5,6 +5,7 @@ import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { HostedVaultMeta, HostedVaultSummary, LocalVaultMeta } from '../../types/vault';
+import { ConfirmDialogHost } from '../ui/confirm-dialog';
 
 import VaultManagerModal from './VaultManagerModal';
 
@@ -166,6 +167,32 @@ describe('VaultManagerModal hosted vaults', () => {
     );
   });
 
+  it('finds vaults by name', async () => {
+    connect(true);
+    render(<VaultManagerModal />);
+    await screen.findByText('Team Vault');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find a vault' }), {
+      target: { value: 'local' },
+    });
+    expect(screen.queryByText('Team Vault')).toBeNull();
+    expect(screen.getByText('My Local Vault')).not.toBeNull();
+  });
+
+  it('lists connected servers on the Servers page', async () => {
+    connect(true);
+    render(<VaultManagerModal />);
+    fireEvent.click(screen.getByRole('button', { name: 'Servers' }));
+    expect(await screen.findByText('collab.example.test')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Details' })).not.toBeNull();
+  });
+
+  it('closes the open vault from its overview', () => {
+    render(<VaultManagerModal />);
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close vault' }));
+    expect(useVaultStore.getState().closeVault).toHaveBeenCalled();
+  });
+
   it('does not show a hosted section when disconnected', () => {
     connect(false);
     render(<VaultManagerModal />);
@@ -201,7 +228,7 @@ describe('VaultManagerModal hosted vaults', () => {
     useVaultStore.setState({ vault: openHostedVaultMeta } as never);
     render(<VaultManagerModal />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Offline Sync' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Offline copy' }));
     fireEvent.click(screen.getByRole('button', { name: 'Make available offline' }));
 
     await waitFor(() =>
@@ -217,7 +244,7 @@ describe('VaultManagerModal hosted vaults', () => {
     useVaultStore.setState({ vault: openHostedVaultMeta } as never);
     render(<VaultManagerModal />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Offline Sync' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Offline copy' }));
 
     const button = screen.getByRole('button', { name: 'Offline copy ready' });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -287,10 +314,16 @@ describe('VaultManagerModal hosted vaults', () => {
     replicaMock.listHostedVaultReplicas
       .mockResolvedValueOnce([staleReplica])
       .mockResolvedValueOnce([]);
-    render(<VaultManagerModal />);
+    render(
+      <>
+        <VaultManagerModal />
+        <ConfirmDialogHost />
+      </>,
+    );
 
     expect(await screen.findByText('Stale Offline')).toBeTruthy();
     fireEvent.click(screen.getByTitle('Remove offline copy'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove copy' }));
 
     await waitFor(() =>
       expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(staleReplica),

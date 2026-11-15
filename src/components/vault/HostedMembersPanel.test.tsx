@@ -130,7 +130,7 @@ describe('HostedMembersPanel', () => {
     expect(await screen.findByText('Bob')).not.toBeNull();
     expect(screen.queryByText('Add member')).toBeNull();
     expect(screen.queryByLabelText('Remove Bob')).toBeNull();
-    expect(screen.getByText(/do not currently have vault\.managePermissions/)).not.toBeNull();
+    expect(screen.getByText(/can view grants but not change them/)).not.toBeNull();
     expect(screen.queryByLabelText('Edit permissions for Bob')).toBeNull();
   });
 
@@ -142,7 +142,7 @@ describe('HostedMembersPanel', () => {
     render(<HostedMembersPanel />);
     await screen.findByText('Bob');
 
-    fireEvent.change(screen.getByPlaceholderText('Search users by name or username…'), {
+    fireEvent.change(screen.getByPlaceholderText('Add someone by name or username…'), {
       target: { value: 'car' },
     });
     const result = await screen.findByText(/Carol/);
@@ -167,7 +167,7 @@ describe('HostedMembersPanel', () => {
     await screen.findByText('Bob');
 
     fireEvent.click(screen.getByLabelText('Edit permissions for Bob'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Custom' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Custom/ }));
     // Bob starts with [vault.read, file.write, note.edit]; toggle file.write off.
     fireEvent.click(screen.getByLabelText('file.write'));
     fireEvent.click(screen.getByRole('button', { name: /Save permissions/ }));
@@ -186,10 +186,10 @@ describe('HostedMembersPanel', () => {
     await screen.findByText('Bob');
 
     fireEvent.click(screen.getByLabelText('Edit permissions for Bob'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Template' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Template/ }));
     // Open the template select and pick the reviewer template.
-    fireEvent.click(await screen.findByText('Select a template…'));
-    fireEvent.click(await screen.findByText(/reviewer/));
+    fireEvent.keyDown(await screen.findByRole('combobox', { name: 'Template' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('option', { name: /reviewer/ }));
     fireEvent.click(screen.getByRole('button', { name: /Save permissions/ }));
 
     await waitFor(() =>
@@ -230,7 +230,7 @@ describe('HostedMembersPanel', () => {
     await screen.findByText('Sam');
 
     fireEvent.click(screen.getByLabelText('Edit permissions for Sam'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Custom' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Custom/ }));
 
     // The two management capabilities are locked on for the current user.
     const managePerms = screen.getByLabelText('vault.managePermissions') as HTMLButtonElement;

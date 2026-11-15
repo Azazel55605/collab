@@ -3,14 +3,8 @@ import { useEffect, useState } from 'react';
 import { CheckSquare, GripVertical, Minus, Plus } from 'lucide-react';
 
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { Checkbox } from '../ui/checkbox';
+import { FormDialog } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 
 export interface TaskListItemDraft {
@@ -68,90 +62,88 @@ export function TaskListEditorDialog({
     setDraft((prev) => prev.map((task) => (task.id === id ? { ...task, ...nextTask } : task)));
   };
 
-  const addTask = () => {
-    setDraft((prev) => [...prev, { id: crypto.randomUUID(), text: '', checked: false }]);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const addTask = (afterId?: string) => {
+    const task = { id: crypto.randomUUID(), text: '', checked: false };
+    setDraft((prev) => {
+      const index = afterId ? prev.findIndex((entry) => entry.id === afterId) : -1;
+      return index < 0
+        ? [...prev, task]
+        : [...prev.slice(0, index + 1), task, ...prev.slice(index + 1)];
+    });
+    setFocusId(task.id);
   };
 
   const removeTask = (id: string) => {
     setDraft((prev) => (prev.length > 1 ? prev.filter((task) => task.id !== id) : prev));
   };
 
+  const filled = draft.filter((task) => task.text.trim().length > 0).length;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="border-b border-border/40 px-5 py-4">
-          <DialogTitle className="flex items-center gap-2">
-            <CheckSquare size={16} />
-            Insert task list
-          </DialogTitle>
-          <DialogDescription>
-            Add multiple tasks, choose their checked state, and insert the markdown list into the
-            note.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex items-center gap-2 border-b border-border/30 px-5 py-3">
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={addTask}>
-            <Plus size={13} />
-            Task
-          </Button>
-          <div className="ml-auto text-xs text-muted-foreground">
-            {draft.filter((task) => task.text.trim().length > 0).length} filled, {draft.length}{' '}
-            total
-          </div>
-        </div>
-
-        <div className="max-h-[60vh] overflow-auto px-5 py-4">
-          <div className="space-y-3">
-            {draft.map((task, index) => (
-              <div
-                key={task.id}
-                className="flex items-center gap-3 rounded-xl border border-border/30 bg-background/40 px-3 py-3"
-              >
-                <GripVertical size={14} className="shrink-0 text-muted-foreground/60" />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={task.checked ? 'default' : 'outline'}
-                  className="h-8 shrink-0 px-2.5 text-xs"
-                  onClick={() => updateTask(task.id, { checked: !task.checked })}
-                >
-                  [{task.checked ? 'x' : ' '}]
-                </Button>
-                <Input
-                  value={task.text}
-                  onChange={(event) => updateTask(task.id, { text: event.target.value })}
-                  placeholder={`Task ${index + 1}`}
-                  className="h-9"
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0"
-                  onClick={() => removeTask(task.id)}
-                  disabled={draft.length <= 1}
-                  aria-label={`Remove task ${index + 1}`}
-                >
-                  <Minus size={14} />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <DialogFooter className="-mx-0 -mb-0 border-none bg-transparent px-5 pb-5 pt-3 gap-2 sm:justify-between">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => onApply(draft)}
-            disabled={!draft.some((task) => task.text.trim().length > 0)}
-          >
-            Insert task list
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<CheckSquare />}
+      title="Insert task list"
+      description="Type the tasks, tick the ones already done, then insert them as a Markdown list."
+      submitLabel="Insert task list"
+      submitDisabled={filled === 0}
+      onSubmit={() => onApply(draft)}
+      secondary={
+        <span className="text-xs text-muted-foreground">
+          {filled} of {draft.length} filled
+        </span>
+      }
+      bodyClassName="gap-2"
+    >
+      <ul className="flex flex-col gap-1.5" aria-label="Tasks">
+        {draft.map((task, index) => (
+          <li key={task.id} className="flex items-center gap-2.5">
+            <GripVertical size={14} className="shrink-0 text-muted-foreground/50" />
+            <Checkbox
+              checked={task.checked}
+              onCheckedChange={(checked) => updateTask(task.id, { checked: checked === true })}
+              aria-label={`Task ${index + 1} done`}
+            />
+            <Input
+              value={task.text}
+              autoFocus={task.id === focusId}
+              onChange={(event) => updateTask(task.id, { text: event.target.value })}
+              onKeyDown={(event) => {
+                // Enter starts the next task, like in a list; Ctrl+Enter inserts.
+                if (event.key === 'Enter' && !(event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  addTask(task.id);
+                }
+              }}
+              placeholder={`Task ${index + 1}`}
+              aria-label={`Task ${index + 1}`}
+              className={task.checked ? 'text-muted-foreground line-through' : undefined}
+            />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => removeTask(task.id)}
+              disabled={draft.length <= 1}
+              aria-label={`Remove task ${index + 1}`}
+            >
+              <Minus />
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start"
+        onClick={() => addTask()}
+      >
+        <Plus />
+        Add task
+      </Button>
+    </FormDialog>
   );
 }

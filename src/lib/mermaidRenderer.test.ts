@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { isMermaidLanguage, mermaidCompatibleColor, renderMermaidBlocks } from './mermaidRenderer';
+import {
+  clearMermaidRenderCache,
+  isMermaidLanguage,
+  mermaidCompatibleColor,
+  renderMermaidBlocks,
+  renderMermaidInto,
+} from './mermaidRenderer';
 
 const mermaidMocks = vi.hoisted(() => ({
   initialize: vi.fn(),
@@ -11,6 +17,7 @@ const mermaidMocks = vi.hoisted(() => ({
 
 describe('mermaidRenderer', () => {
   beforeEach(() => {
+    clearMermaidRenderCache();
     Object.assign(globalThis, { mermaid: mermaidMocks });
   });
 
@@ -70,9 +77,28 @@ describe('mermaidRenderer', () => {
     document.body.appendChild(root);
 
     await renderMermaidBlocks(root).ready;
+    // A theme switch changes the colours the diagram is rendered with.
+    const style = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      getPropertyValue: (name: string) => (name === '--card' ? '#123456' : ''),
+    } as CSSStyleDeclaration);
     await renderMermaidBlocks(root).ready;
+    style.mockRestore();
 
     expect(mermaidMocks.render).toHaveBeenCalledTimes(2);
     expect(root.querySelectorAll('.md-mermaid-block')).toHaveLength(1);
+  });
+
+  it('reuses a rendered diagram when the same source comes back with the same theme', async () => {
+    const first = document.createElement('div');
+    const second = document.createElement('div');
+    document.body.append(first, second);
+    const source = 'flowchart LR\nCached --> Again';
+
+    await renderMermaidInto(first, source).ready;
+    const calls = mermaidMocks.render.mock.calls.length;
+    await renderMermaidInto(second, source).ready;
+
+    expect(mermaidMocks.render.mock.calls.length).toBe(calls);
+    expect(second.querySelector('svg')).toBeTruthy();
   });
 });

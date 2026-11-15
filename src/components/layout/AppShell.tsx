@@ -51,6 +51,7 @@ import {
   SvgVectorView,
 } from '../../views/deferredViews';
 import { CollabProvider } from '../collaboration/CollabProvider';
+import { FollowController } from '../collaboration/presence/FollowController';
 import { CommandBar } from '../command-bar/CommandBar';
 import SplitDropZones from '../grid/SplitDropZones';
 
@@ -442,6 +443,7 @@ export default function AppShell() {
         </div>
 
         <CommandBar />
+        <FollowController />
         {switcherTab && (
           <div className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-background/18 backdrop-blur-xs-webkit">
             <div className="w-[min(560px,calc(100vw-48px))] rounded-2xl border border-border/50 bg-popover/94 px-4 py-4 shadow-2xl shadow-black/30">

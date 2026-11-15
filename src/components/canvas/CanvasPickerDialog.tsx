@@ -1,15 +1,9 @@
+import { useEffect, useState } from 'react';
+
 import { FileImage, FileText, Layout, LayoutDashboard } from 'lucide-react';
 
 import type { NoteFile } from '../../types/vault';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '../ui/command';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { PickerDialog, PickerRow } from '../ui/picker-dialog';
 
 const IMAGE_EXTENSIONS = new Set([
   'png',
@@ -52,47 +46,55 @@ export function CanvasPickerDialog({
   onOpenChange: (open: boolean) => void;
   onSelect: (file: NoteFile) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) setQuery('');
+  }, [open]);
   const title =
     mode === 'note'
       ? 'Add note to canvas'
       : mode === 'linked-path'
         ? 'Select linked vault file'
         : 'Add file to canvas';
-
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? files.filter((file) => `${file.name} ${file.relativePath}`.toLowerCase().includes(needle))
+    : files;
+  const folderOf = (path: string) =>
+    path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : 'Vault root';
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg overflow-hidden p-0">
-        <DialogHeader className="border-b border-border/50 px-4 py-3">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription className="sr-only">
-            Search vault items and choose one to add to the canvas.
-          </DialogDescription>
-        </DialogHeader>
-        <Command className="rounded-none border-none bg-transparent">
-          <CommandInput placeholder={mode === 'note' ? 'Search notes…' : 'Search files…'} />
-          <CommandList className="max-h-[420px]">
-            <CommandEmpty>No matching items.</CommandEmpty>
-            <CommandGroup>
-              {files.map((file) => (
-                <CommandItem
-                  key={file.relativePath}
-                  value={`${file.name} ${file.relativePath}`}
-                  onSelect={() => onSelect(file)}
-                  className="gap-3 py-2"
-                >
-                  {getFileIcon(file)}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{getNameWithoutExtension(file.name)}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">
-                      {file.relativePath}
-                    </div>
-                  </div>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </DialogContent>
-    </Dialog>
+    <PickerDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      size="m"
+      icon={mode === 'note' ? <FileText /> : <Layout />}
+      title={title}
+      description="Search the vault and choose one."
+      query={query}
+      onQueryChange={setQuery}
+      searchPlaceholder={mode === 'note' ? 'Search notes' : 'Search files'}
+      groups={[{ items: shown }]}
+      getKey={(file) => file.relativePath}
+      selectedKey={selected}
+      onSelect={setSelected}
+      renderItem={(file) => (
+        <PickerRow
+          icon={getFileIcon(file)}
+          title={getNameWithoutExtension(file.name)}
+          detail={folderOf(file.relativePath)}
+        />
+      )}
+      onPick={onSelect}
+      pickLabel={(file) =>
+        file
+          ? `${mode === 'linked-path' ? 'Link' : 'Add'} ${getNameWithoutExtension(file.name)}`
+          : mode === 'linked-path'
+            ? 'Link'
+            : 'Add'
+      }
+      emptyText="No matching items."
+      className="h-[min(560px,calc(100vh-2rem))]"
+    />
   );
 }

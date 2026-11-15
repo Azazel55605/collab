@@ -1,5 +1,6 @@
 import { cn } from '../../lib/utils';
 import { GRID_LAYOUTS, type GridLayoutId, LAYOUT_ORDER } from '../../store/gridStore';
+import { documentTopBarGroupClass } from '../layout/DocumentTopBar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 // Inline SVG diagrams representing each layout at 20×14 viewBox
@@ -66,10 +67,8 @@ interface Props {
 
 export default function GridLayoutPicker({ currentLayout, containerWidth, onChange }: Props) {
   return (
-    <div className="flex items-center gap-0.5 px-2 h-9 border-b border-border/50 bg-background shrink-0">
-      <span className="text-xs text-muted-foreground/60 mr-1.5 select-none font-medium">
-        Layout
-      </span>
+    <div className={documentTopBarGroupClass} role="group" aria-label="Grid layout">
+      <span className="mr-1.5 text-xs text-muted-foreground select-none">Layout</span>
       <div className="flex items-center gap-0.5">
         {LAYOUT_ORDER.map((id) => {
           const layout = GRID_LAYOUTS[id];

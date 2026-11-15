@@ -518,29 +518,51 @@ export function CommandBarModeContent({ mode, ctx }: { mode: Mode; ctx: RenderCt
   }
 }
 
-export function CommandBarModeHints({ current }: { current: Mode['type'] }) {
-  const hints: Array<{ label: string; prefix: string; mode: Mode['type'] }> = [
-    { label: 'Search', prefix: '', mode: 'search' },
-    { label: '= Math', prefix: '=', mode: 'math' },
-    { label: '> Action', prefix: '>', mode: 'action' },
-    { label: '#Tag', prefix: '#', mode: 'tag' },
-    { label: ':Type', prefix: ':', mode: 'fileType' },
-    { label: 'name:', prefix: 'name:', mode: 'nameSearch' },
-    { label: '/Insert', prefix: '/', mode: 'insert' },
+export function CommandBarModeHints({
+  current,
+  onPick,
+}: {
+  current: Mode['type'];
+  /** Switches mode by putting its prefix into the input. */
+  onPick?: (prefix: string) => void;
+}) {
+  const hints: Array<{ label: string; prefix: string; mode: Mode['type']; title: string }> = [
+    { label: '=', prefix: '=', mode: 'math', title: 'Calculate' },
+    { label: '>', prefix: '>', mode: 'action', title: 'Commands' },
+    { label: '#', prefix: '#', mode: 'tag', title: 'Tags' },
+    { label: ':', prefix: ':', mode: 'fileType', title: 'File types' },
+    { label: 'name:', prefix: 'name:', mode: 'nameSearch', title: 'File names' },
+    { label: '/', prefix: '/', mode: 'insert', title: 'Insert' },
   ];
+  const kbd =
+    'rounded border border-b-2 border-border bg-muted/40 px-1 font-mono text-[10.5px] leading-4 text-muted-foreground';
   return (
-    <div className="flex flex-wrap gap-1 border-t border-border/40 px-2 py-1.5">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 bg-muted/30 px-3 py-2 text-[11.5px] text-muted-foreground">
+      <span className="flex items-center gap-1">
+        <kbd className={kbd}>↑↓</kbd> move
+      </span>
+      <span className="flex items-center gap-1">
+        <kbd className={kbd}>↵</kbd> open
+      </span>
+      <span className="flex items-center gap-1">
+        <kbd className={kbd}>Esc</kbd> close
+      </span>
+      <span className="flex-1" />
       {hints.map((hint) => (
-        <span
+        <button
           key={hint.mode}
-          className={`rounded px-1.5 py-0.5 text-[10px] font-mono transition-[background,color,transform] app-motion-fast ${
-            current === hint.mode
-              ? 'bg-primary/20 text-primary app-chip-change'
-              : 'bg-muted/60 text-muted-foreground'
+          type="button"
+          title={hint.title}
+          aria-pressed={current === hint.mode}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onPick?.(hint.prefix)}
+          className={`flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors app-motion-fast hover:text-foreground ${
+            current === hint.mode ? 'bg-primary/15 text-foreground app-chip-change' : ''
           }`}
         >
-          {hint.label}
-        </span>
+          <kbd className={kbd}>{hint.label}</kbd>
+          <span>{hint.title.toLowerCase()}</span>
+        </button>
       ))}
     </div>
   );

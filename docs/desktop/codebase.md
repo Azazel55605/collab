@@ -114,6 +114,7 @@ Current regression coverage includes:
 - `src/components/editor/MarkdownEditorContextMenu.test.tsx`
 - `src/lib/frontmatter.test.ts`
 - `src/lib/pdfWorkspace.test.ts`
+- `src/components/kanban/KanbanAutomationsDialog.test.tsx`
 - `src/components/kanban/useCardDialogDraftSession.test.tsx`
 - `src/components/kanban/useCardDialogActions.test.tsx`
 - `src/components/kanban/useCardDialogChecklistComments.test.tsx`
@@ -562,28 +563,28 @@ missing a control, add it there using the interaction and theming rules in
 
 ### Layout
 
-| File                         | Purpose                                               | Key stores                       | shadcn used         |
-| ---------------------------- | ----------------------------------------------------- | -------------------------------- | ------------------- |
-| `components/AppShell.tsx`    | Root shell: sidebar + tabbar + main area + statusbar  | vaultStore, editorStore, uiStore | ResizablePanelGroup |
-| `components/ActivityBar.tsx` | Leftmost icon strip, switches activeView/sidebarPanel | uiStore                          | Tooltip             |
-| `components/Sidebar.tsx`     | Dynamic panel host (files/search/tags/collab)         | uiStore                          | Sheet               |
-| `components/TabBar.tsx`      | Open tabs with dirty dot, drag-to-reorder             | editorStore, uiStore             | ContextMenu         |
-| `components/StatusBar.tsx`   | Bottom bar: vault name, file path, peer count         | vaultStore, collabStore          | —                   |
+| File                         | Purpose                                                                             | Key stores                       | shadcn used         |
+| ---------------------------- | ----------------------------------------------------------------------------------- | -------------------------------- | ------------------- |
+| `components/AppShell.tsx`    | Root shell: sidebar + tabbar + main area + statusbar                                | vaultStore, editorStore, uiStore | ResizablePanelGroup |
+| `components/ActivityBar.tsx` | Leftmost icon strip, switches activeView/sidebarPanel                               | uiStore                          | Tooltip             |
+| `components/Sidebar.tsx`     | Dynamic panel host (files/search/tags/collab)                                       | uiStore                          | Sheet               |
+| `components/TabBar.tsx`      | Open tabs with dirty dot, drag-to-reorder                                           | editorStore, uiStore             | ContextMenu         |
+| `components/StatusBar.tsx`   | Bottom bar: vault, file path, words, people, the sync center chip and notifications | vaultStore, collabStore          | —                   |
 
 ### Vault
 
-| File                                       | Purpose                                                                                                                                                                                                                                  | Key stores                            | shadcn used                        |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------- |
-| `components/vault/VaultPicker.tsx`         | Start screen: rail (Vaults, Chats, Databases, servers with status and details) beside one searchable list of local, hosted and offline-copy vaults                                                                                       | vaultStore, serverStore, uiStore      | Button, Dialog, DropdownMenu       |
-| `components/vault/launcher/`               | Start-screen parts: `vaultEntries.ts` (merge/filter/sort of vault and server entries), `LauncherRail`, `VaultlessWorkspace` (rail around chats/databases when no vault is open), `NewVaultDialog`, `ServerDetailsDialog`, `ServerStatus` | vaultStore, serverStore               | Dialog, Button, Input              |
-| `components/vault/VaultManagerModal.tsx`   | Vault settings: export, encryption, members                                                                                                                                                                                              | vaultStore, collabStore, uiStore      | Dialog, Tabs, Button, Input        |
-| `components/vault/VaultUnlockModal.tsx`    | Password prompt for encrypted vaults                                                                                                                                                                                                     | vaultStore                            | Dialog, Input, Button              |
-| `components/vault/FileTree.tsx`            | Unified file/folder browser with multi-type filters; creation for notes, Canvas, Kanban, logic, sheets, drawings, and folders; rename/delete/trash; path previews; and contextual references                                             | vaultStore, editorStore, uiStore      | DropdownMenu, ContextMenu, Tooltip |
-| `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that loads incoming note/kanban/canvas references only on explicit request, avoiding a vault-wide parse during ordinary file selection                                                                   | FileTree state, typed file references | —                                  |
-| `components/vault/TrashPanel.tsx`          | Dedicated vault trash view for restore, purge, and purge-all flows                                                                                                                                                                       | vaultStore                            | Button, Dialog                     |
-| `components/vault/SearchPanel.tsx`         | Full-text search across notes                                                                                                                                                                                                            | noteIndexStore                        | Input                              |
-| `components/vault/TagsPanel.tsx`           | Tag filter list from note metadata                                                                                                                                                                                                       | noteIndexStore                        | Badge                              |
-| `components/vault/VaultDialogs.tsx`        | Create/rename/delete/trash confirmation dialogs plus rename/move preview and trash restore dialogs                                                                                                                                       | vaultStore, uiStore                   | Dialog, Input, Button              |
+| File                                       | Purpose                                                                                                                                                                                                                                                                                                           | Key stores                            | shadcn used                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------- |
+| `components/vault/VaultPicker.tsx`         | Start screen: rail (Vaults, Chats, Databases, servers with status and details) beside up to six recent cards and one searchable list of local, hosted and offline-copy vaults; rows offer Make available offline and Download as ZIP where allowed, and show each hosted vault's offline status in its own column | vaultStore, serverStore, uiStore      | Button, Dialog, DropdownMenu       |
+| `components/vault/launcher/`               | Start-screen parts: `vaultEntries.ts` (merge/filter/sort of vault and server entries), `LauncherRail`, `VaultlessWorkspace` (rail around chats/databases when no vault is open), `NewVaultDialog`, `ServerDetailsDialog`, `ServerStatus`                                                                          | vaultStore, serverStore               | Dialog, Button, Input              |
+| `components/vault/VaultManagerModal.tsx`   | Vault manager (880 × 600): This vault (Overview, Members, Offline copy or Encryption) and All vaults (searchable list); password changes in dialogs                                                                                                                                                               | vaultStore, collabStore, uiStore      | Dialog, Tabs, Button, Input        |
+| `components/vault/VaultUnlockModal.tsx`    | Unlock card for an encrypted vault on the start-screen backdrop; Back to all vaults                                                                                                                                                                                                                               | vaultStore                            | Dialog, Input, Button              |
+| `components/vault/FileTree.tsx`            | Unified file/folder browser with multi-type filters; creation for notes, Canvas, Kanban, logic, sheets, drawings, and folders; rename/delete/trash; path previews; and contextual references                                                                                                                      | vaultStore, editorStore, uiStore      | DropdownMenu, ContextMenu, Tooltip |
+| `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that loads incoming note/kanban/canvas references only on explicit request, avoiding a vault-wide parse during ordinary file selection                                                                                                                                            | FileTree state, typed file references | —                                  |
+| `components/vault/TrashPanel.tsx`          | Dedicated vault trash view for restore, purge, and purge-all flows                                                                                                                                                                                                                                                | vaultStore                            | Button, Dialog                     |
+| `components/vault/SearchPanel.tsx`         | Full-text search across notes                                                                                                                                                                                                                                                                                     | noteIndexStore                        | Input                              |
+| `components/vault/TagsPanel.tsx`           | Tag filter list from note metadata                                                                                                                                                                                                                                                                                | noteIndexStore                        | Badge                              |
+| `components/vault/VaultDialogs.tsx`        | Create/rename/delete/trash confirmation dialogs plus rename/move preview and trash restore dialogs                                                                                                                                                                                                                | vaultStore, uiStore                   | Dialog, Input, Button              |
 
 ### Editor
 
@@ -610,7 +611,7 @@ missing a control, add it there using the interaction and theming rules in
 | `components/pdf/PdfSendTargetDialog.tsx`             | Reusable choose-target dialog for sending PDF quotes and snapshots into notes or the current canvas                                                                                                     | Dialog, Button                                                                    |
 | `components/editor/useMarkdownEditorHandle.ts`       | Shared Markdown editor imperative handle hook and editing helpers for wrap/line/snippet/range mutations                                                                                                 | React imperative handle, CodeMirror selection mutations                           |
 | `components/editor/MarkdownEditorContextMenu.tsx`    | Shared Markdown editor context-menu component and clipboard/formatting helpers for cut/copy/paste/select-all and inline formatting actions                                                              | Context menu primitives, clipboard integration                                    |
-| `components/editor/NoteSnippetsDialog.tsx`           | CRUD dialog for vault/app reusable note snippets with placeholder-aware markdown bodies                                                                                                                 | Dialog, Button, Input, Select, Textarea                                           |
+| `components/editor/NoteSnippetsDialog.tsx`           | List-detail dialog for vault/app reusable note snippets with placeholder-aware markdown bodies                                                                                                          | Dialog, Button, Input, Select, Textarea                                           |
 
 Performance Batch 6 ownership and budgets are documented in
 [Markdown, Math And Graph Performance](./markdown-math-graph-performance.md).
@@ -661,6 +662,7 @@ Icon search uses a sliced posting-index build and bounded LRU in `lib/nerdFontIc
 | `components/kanban/KanbanBoard.tsx`                   | Board + Calendar + Timeline tabs, archive panel                                                                                                       | —                                                            | KanbanContext                                                                 | —                                          |
 | `components/kanban/KanbanColumn.tsx`                  | Column with sortable cards, column settings                                                                                                           | column: KanbanColumn                                         | KanbanContext                                                                 | DropdownMenu, Popover, Dialog              |
 | `components/kanban/KanbanCard.tsx`                    | Card visual + sortable + context menu                                                                                                                 | card, columnId, isOverlay?                                   | KanbanContext, kanbanStore, uiStore                                           | ContextMenu, Dialog                        |
+| `components/kanban/KanbanAutomationsDialog.tsx`       | Board automations as a list-detail dialog; each rule edited as a When / If / Then sentence, presets                                                   | —                                                            | —                                                                             | list-detail-dialog, Select                 |
 | `components/kanban/CardDialog.tsx`                    | Full card editor modal                                                                                                                                | card, columnId, onClose                                      | KanbanContext, kanbanStore, collabStore, noteIndexStore, editorStore, uiStore | Dialog, Popover, Calendar, Command, Select |
 | `components/kanban/useCardDialogDraftSession.ts`      | Shared CardDialog draft/session hook for draft restore, debounced board flush, and current-column tracking                                            | KanbanContext updater, kanbanStore draft state               | —                                                                             |
 | `components/kanban/useCardDialogActions.ts`           | Shared CardDialog move/archive/done/delete actions hook plus move-tags prompt state and pure board-mutation helpers                                   | KanbanContext updater, kanbanStore draft state, kanban types | —                                                                             |
@@ -684,16 +686,19 @@ Icon search uses a sliced posting-index build and bounded LRU in `lib/nerdFontIc
 
 ### Collaboration
 
-| File                                                  | Purpose                                                                        | Key stores                           |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------ |
-| `components/collaboration/CollabProvider.tsx`         | Presence broadcasting, peer refresh, chat sync                                 | collabStore, vaultStore              |
-| `components/collaboration/PresenceBar.tsx`            | Peer avatar row                                                                | collabStore                          |
-| `components/collaboration/PeerList.tsx`               | Peer detail list                                                               | collabStore                          |
-| `components/collaboration/ChatPanel.tsx`              | Chat thread + input                                                            | collabStore                          |
-| `components/collaboration/activity/ActivityPanel.tsx` | Unified collaboration activity feed                                            | collabStore, vaultStore, editorStore |
-| `components/collaboration/ConflictDialog.tsx`         | Merge conflict resolution (ours vs theirs)                                     | collabStore                          |
-| `components/collaboration/HistoryPanel.tsx`           | Snapshot history list with restore for active note / kanban / canvas documents | collabStore, vaultStore, editorStore |
-| `components/collaboration/CollabPanel.tsx`            | Sidebar panel host for collab UI                                               | collabStore                          |
+| File                                                     | Purpose                                                                                                                     | Key stores                           |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `components/collaboration/CollabProvider.tsx`            | Presence broadcasting, peer refresh, chat sync                                                                              | collabStore, vaultStore              |
+| `components/collaboration/PresenceBar.tsx`               | Peer avatar row                                                                                                             | collabStore                          |
+| `components/collaboration/PeerList.tsx`                  | People grouped by where they are: this document, elsewhere (open their document), offline, you                              | collabStore                          |
+| `components/collaboration/ChatPanel.tsx`                 | Chat thread + input                                                                                                         | collabStore                          |
+| `components/collaboration/activity/ActivityPanel.tsx`    | Unified collaboration activity feed                                                                                         | collabStore, vaultStore, editorStore |
+| `components/collaboration/ConflictDialog.tsx`            | Merge conflict resolution (ours vs theirs)                                                                                  | collabStore                          |
+| `components/collaboration/HistoryPanel.tsx`              | Version timeline grouped by day for the active note / kanban / canvas: Save version (named), compare, restore               | collabStore, vaultStore, editorStore |
+| `components/collaboration/presence/FollowController.tsx` | Follow mode: opens each document the followed person opens; the "Following" bar                                             | collabStore, editorStore, uiStore    |
+| `components/vault/ManagerServersTab.tsx`                 | Vault manager Servers page: known servers with status, sign-in, details, connect                                            | serverStore, vaultStore              |
+| `components/layout/SidebarVaultHeader.tsx`               | 48 px vault header for every sidebar panel; vault menu with Vault manager and Close vault                                   | vaultStore, uiStore                  |
+| `components/collaboration/CollabPanel.tsx`               | Sidebar collaboration panel: People / History switch and Open team chat with the unread total (`lib/useChatUnreadTotal.ts`) | collabStore                          |
 
 ### Graph
 
@@ -746,18 +751,18 @@ are presentation and dialogs only.
 Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 `renderer.ts`).
 
-| File                                    | Purpose                                                                                                                                                          | shadcn used          |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `components/ink/InkCanvas.tsx`          | Stroke capture and tiled rendering surface; owns bounded HiDPI backing stores, pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | —                    |
-| `components/ink/InkToolRail.tsx`        | Tool selection rail (pen, highlighter, eraser, lasso, hand)                                                                                                      | Button, Tooltip      |
-| `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                                                             | Button, Select, Tabs |
-| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                                                                   | —                    |
-| `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                                                         | Dialog               |
-| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                                                       | Dialog, Select       |
-| `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                                                       | Dialog, Select       |
-| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages; empty overlays mount only when annotation mode starts                                        | —                    |
-| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                                                       | Button, DropdownMenu |
-| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets; empty overlays mount only when annotation mode starts                                          | —                    |
+| File                                    | Purpose                                                                                                                                                          | shadcn used                           |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `components/ink/InkCanvas.tsx`          | Stroke capture and tiled rendering surface; owns bounded HiDPI backing stores, pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | —                                     |
+| `components/ink/InkToolRail.tsx`        | Floating tool rail; related tools grouped behind one button with a menu (brushes, selection, shape, text, insert, measure, inspect)                              | FloatingBar, RailButton, DropdownMenu |
+| `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                                                             | Button, Select, Tabs                  |
+| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                                                                   | —                                     |
+| `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                                                         | Dialog                                |
+| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                                                       | Dialog, Select                        |
+| `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                                                       | Dialog, Select                        |
+| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages; empty overlays mount only when annotation mode starts                                        | —                                     |
+| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                                                       | Button, DropdownMenu                  |
+| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets; empty overlays mount only when annotation mode starts                                          | —                                     |
 
 `lib/ink/tiles.ts` sizes cache tiles as a pyramid (`tileSizeForScale`): tiles
 halve in ink units as zoom rises so every tile is painted at exact screen
@@ -916,15 +921,16 @@ Pure helpers, not React components, except `CircuitSweepPlot`. Runtime job
 contracts live in `src/types/circuitRuntime.ts`; job polling is shared with
 Android via `src/lib/circuitJobRunner.ts`.
 
-| File                                         | Purpose                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `components/logic/logicDiagramComponents.ts` | Component definitions and port metadata for diagram nodes                  |
-| `components/logic/logicDiagramFlow.ts`       | Mapping between persisted logic documents and React Flow models            |
-| `components/logic/logicDiagramEvaluator.ts`  | Digital logic evaluation including clock configuration                     |
-| `components/logic/logicTruthTable.ts`        | Truth-table derivation from nodes and wires                                |
-| `components/logic/logicDiagramTemplates.ts`  | Built-in starter diagrams (`LogicDiagramTemplate`)                         |
-| `components/logic/schematicSymbols.ts`       | Schematic symbol geometry per `SchematicSymbolSet` and rotation            |
-| `components/logic/CircuitSweepPlot.tsx`      | Plot for DC-sweep and transient circuit results (+ `CircuitSweepPlot.css`) |
+| File                                         | Purpose                                                                                   |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `components/logic/logicDiagramComponents.ts` | Component definitions and port metadata for diagram nodes                                 |
+| `components/logic/LogicPickers.tsx`          | Insert template and Insert component pickers (picker template, snapshot or linked insert) |
+| `components/logic/logicDiagramFlow.ts`       | Mapping between persisted logic documents and React Flow models                           |
+| `components/logic/logicDiagramEvaluator.ts`  | Digital logic evaluation including clock configuration                                    |
+| `components/logic/logicTruthTable.ts`        | Truth-table derivation from nodes and wires                                               |
+| `components/logic/logicDiagramTemplates.ts`  | Built-in starter diagrams (`LogicDiagramTemplate`)                                        |
+| `components/logic/schematicSymbols.ts`       | Schematic symbol geometry per `SchematicSymbolSet` and rotation                           |
+| `components/logic/CircuitSweepPlot.tsx`      | Plot for DC-sweep and transient circuit results (+ `CircuitSweepPlot.css`)                |
 
 ### Calendar
 
@@ -937,9 +943,20 @@ only the relations editor.
 
 ### Notifications
 
-| File                                              | Purpose                                                                          | shadcn used                 |
-| ------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------- |
-| `components/notifications/NotificationCenter.tsx` | In-app notification list with per-category icons, state transitions, and actions | Popover, Button, ScrollArea |
+| File                                              | Purpose                                                                                                                                | shadcn used                                                |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `components/ui/app-dialog.tsx`                    | The shared dialog shape: sizes s/m/l, header with tinted glyph, scrolling body, footer strip, choice cards                             | Dialog, RadioGroup                                         |
+| `components/ui/confirm-dialog.tsx`                | `confirmAction()` and its host: the themed replacement for `window.confirm`                                                            | app-dialog, zustand                                        |
+| `components/ui/form-dialog.tsx`                   | Templates 2–3: `FormDialog`, `FormField`, `FormRow`, `FormSection` and `PromptDialog`                                                  | app-dialog                                                 |
+| `components/ui/list-detail-dialog.tsx`            | Template 4: `ListDetailDialog`, `ListDetailRow`, `DetailRow`, `useKeepSelection`                                                       | app-dialog                                                 |
+| `components/ui/picker-dialog.tsx`                 | Template 5: `PickerDialog` and `PickerRow` (search, scopes, list or grid, preview, keyboard picking)                                   | app-dialog, Input                                          |
+| `components/ui/export-dialog.tsx`                 | Template 6: `ExportDialog` with format cards, option rows and a summary                                                                | form-dialog, RadioGroup                                    |
+| `components/ui/review-dialog.tsx`                 | Template 7: `ChangeReviewDialog`, `ReportDialog`, `ReviewList`, `ReviewChip`                                                           | app-dialog                                                 |
+| `components/ui/popover-patterns.tsx`              | Pop-over shell and patterns: `PopoverPanel` parts, search picker parts, `DatePanel`, `PopoverForm`                                     | Popover, Command, Calendar                                 |
+| `components/ui/date-panel.tsx`                    | Pop-over pattern B: `DatePanel` (quick picks, month, clear, time), kept apart so the calendar loads only with it                       | Calendar, date-fns                                         |
+| `components/layout/SyncCenter.tsx`                | One status-bar chip and panel for vault sync, hosted calendars, the server connection and document conflicts (hooks in `layout/sync/`) | syncStore, calendarStore, serverStore, documentStatusStore |
+| `components/layout/DocumentReconciler.tsx`        | `useDocumentReconciliation` and the side-by-side review dialog (keep mine / use theirs / keep both)                                    | documentSessionController                                  |
+| `components/notifications/NotificationCenter.tsx` | Notifications grouped by day with kind filters, unread marks, Mark all read and hover actions                                          | Popover, Button, ScrollArea                                |
 
 ### Previews
 
@@ -967,7 +984,8 @@ vault-file previews work with web fetching disabled. Embedded images are unchang
 
 | File                                                | Purpose                                                                                                                                                            | libs used                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| `components/layout/DocumentTopBar.tsx`              | Shared document-view header shell plus reusable top-bar button/icon-button primitives and group tokens for secondary toolbar rows                                  | Button                                                                       |
+| `components/layout/DocumentTopBar.tsx`              | Shared 48 px document header (status / meta slots, `DocumentMoreMenu`), the folding `DocumentToolStrip`, and button/menu-button/group primitives                   | Button                                                                       |
+| `components/layout/CanvasChrome.tsx`                | Floating canvas/viewer controls: `FloatingBar`, `FloatingSeparator`, `RailButton` and `ZoomPill`, shared by Logic, Canvas, Ink, Deck, SVG, PDF and Image           | Tooltip, DocumentTopBar primitives                                           |
 | `components/CommandPalette.tsx`                     | Cmd+K command palette                                                                                                                                              | cmdk                                                                         |
 | `components/canvas/CanvasPickerDialog.tsx`          | Search-and-select dialog for adding note/file cards to the canvas                                                                                                  | Dialog, Command                                                              |
 | `components/canvas/CanvasNodeTypes.tsx`             | Render-only canvas node card components for content cards plus planning/diagram nodes, exported as the `nodeTypes` map                                             | @xyflow/react, Badge, Input, Select                                          |
@@ -2077,7 +2095,10 @@ lock and authorization boundaries. Mounted holders retain save/leave ownership
 until final release; retired handles cannot be reused by new sessions.
 
 `sharedDocumentResources.ts` coalesces in-flight VaultClient reads without a
-settled-result cache. Its refcounted resource pool backs shared live Yjs providers;
+settled-result cache. Asset byte reads use `shareAbortableDocumentRead`: callers share one
+native read but keep their own abort signal, and the shared read is cancelled
+only when every caller has aborted (a StrictMode remount must not fail the
+viewer that is still waiting). Its refcounted resource pool backs shared live Yjs providers;
 structured sessions use pane-specific transaction origins. Note/sheet/ink/deck
 view maps use `path\0pane` keys for grid geometry and retain 128 closed entries
 per format plus open-file state. Rename migrates those keys; deletion prunes them.

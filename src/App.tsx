@@ -11,6 +11,7 @@ import {
   VaultUnlockModal,
 } from './components/layout/deferredRootOverlays';
 import { SettingsModalHost } from './components/settings/SettingsModalHost';
+import { ConfirmDialogHost } from './components/ui/confirm-dialog';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { VaultlessWorkspace } from './components/vault/launcher/VaultlessWorkspace';
@@ -31,6 +32,7 @@ import { useServerStore } from './store/serverStore';
 import { ACCENT_COLORS, INTERFACE_FONTS, useUiStore } from './store/uiStore';
 import { useUpdateStore } from './store/updateStore';
 import { useVaultStore } from './store/vaultStore';
+import { type VaultMeta } from './types/vault';
 import { ChatsPage, DatabasePage, NotePrintView } from './views/deferredViews';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
@@ -100,6 +102,10 @@ const THEME_VARS: Record<string, Record<string, string>> = {
     '--glass-bg-strong': 'rgba(250, 250, 252, 0.92)',
   },
 };
+
+function vaultIdentity(vault: VaultMeta) {
+  return vault.kind === 'hosted' ? `${vault.serverUrl}|${vault.hostedVaultId}` : vault.path;
+}
 
 export default function App() {
   useDesktopQuitGuard();
@@ -427,19 +433,25 @@ export default function App() {
           isVaultLocked ? (
             <VaultUnlockModal />
           ) : (
-            <AppShell />
+            // Keyed by vault so switching vaults plays the opening transition again.
+            <div key={vaultIdentity(vault)} className="app-vault-enter">
+              <AppShell />
+            </div>
           )
         ) : activePrintNotePath && lastOpenedVaultPath ? (
           <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
             Preparing export…
           </div>
         ) : (
-          <VaultPicker />
+          <div className="app-launcher-enter">
+            <VaultPicker />
+          </div>
         )}
         <SettingsModalHost />
         {isVaultManagerOpen && <VaultManagerModal />}
         {liveCollabDebug && <LiveDebugPanel />}
         <MathPlotModalHost />
+        <ConfirmDialogHost />
         <Toaster richColors position="bottom-right" />
       </div>
       {activePrintNotePath && vault && !isVaultLocked && (

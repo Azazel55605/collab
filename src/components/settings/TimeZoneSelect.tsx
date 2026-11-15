@@ -4,15 +4,16 @@ import { ChevronsUpDown, Clock3 } from 'lucide-react';
 
 import { systemTimeZone } from '../../store/uiStore';
 import { Button } from '../ui/button';
+import { Popover, PopoverTrigger } from '../ui/popover';
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '../ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+} from '../ui/popover-patterns';
 
 const FALLBACK_TIME_ZONES = [
   'UTC',
@@ -84,18 +85,18 @@ export default function TimeZoneSelect({
           <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
-        <Command>
-          <CommandInput placeholder="Search time zones..." />
-          <CommandList
-            className="h-72 max-h-72 touch-pan-y overscroll-contain overflow-y-scroll [scrollbar-gutter:stable] [scrollbar-width:thin]"
+      <PopoverPanel align="start" className="w-[max(var(--radix-popover-trigger-width),18rem)]">
+        <PickerCommand>
+          <PickerInput placeholder="Search time zones" />
+          <PickerList
+            className="h-72 touch-pan-y overscroll-contain overflow-y-scroll [scrollbar-gutter:stable] [scrollbar-width:thin]"
             onWheelCapture={(event) => event.stopPropagation()}
             onTouchMove={(event) => event.stopPropagation()}
           >
-            <CommandEmpty>No matching time zone</CommandEmpty>
-            <CommandGroup>
+            <PickerEmpty>No matching time zone</PickerEmpty>
+            <PickerGroup>
               {zones.map((zone) => (
-                <CommandItem
+                <PickerItem
                   key={zone}
                   value={`${zone} ${zone.replace(/_/g, ' ')}`}
                   data-checked={zone === value}
@@ -103,20 +104,14 @@ export default function TimeZoneSelect({
                     onValueChange(zone);
                     setOpen(false);
                   }}
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{zone}</span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
-                      {zone === systemZone ? 'System time zone · ' : ''}
-                      {currentTimeInZone(zone)}
-                    </span>
-                  </span>
-                </CommandItem>
+                  title={zone}
+                  detail={`${zone === systemZone ? 'System time zone · ' : ''}${currentTimeInZone(zone)}`}
+                />
               ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
+            </PickerGroup>
+          </PickerList>
+        </PickerCommand>
+      </PopoverPanel>
     </Popover>
   );
 }

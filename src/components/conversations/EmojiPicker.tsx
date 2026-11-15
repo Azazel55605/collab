@@ -28,6 +28,7 @@ export function EmojiPicker({
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState(EMOJI_CATEGORIES[0].id);
+  const [active, setActive] = useState<[string, string] | null>(null);
   const terms = query.trim().toLowerCase();
   const shown = useMemo(
     () =>
@@ -96,11 +97,23 @@ export function EmojiPicker({
               aria-label={keywords.split(' ')[0]}
               title={keywords.split(' ')[0]}
               onClick={() => onPick(emoji)}
+              onPointerEnter={() => setActive([emoji, keywords.split(' ')[0]])}
+              onFocus={() => setActive([emoji, keywords.split(' ')[0]])}
             >
               {emoji}
             </Button>
           ))}
           {!shown.length && <p>No emoji found.</p>}
+        </div>
+        <div className="conversation-emoji-footer" aria-live="polite">
+          {active ? (
+            <>
+              <span aria-hidden="true">{active[0]}</span>
+              {active[1]}
+            </>
+          ) : (
+            'Pick an emoji'
+          )}
         </div>
       </PopoverContent>
     </Popover>

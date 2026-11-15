@@ -6,7 +6,7 @@ import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { HostedVaultMeta, LocalVaultMeta } from '../../types/vault';
 
-import HostedConnectionStatus from './HostedConnectionStatus';
+import SyncCenter from './SyncCenter';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
@@ -53,7 +53,7 @@ function setState(
   useServerStore.setState({ connections, reconnect } as never);
 }
 
-describe('HostedConnectionStatus', () => {
+describe('SyncCenter connection', () => {
   beforeEach(() => {
     reconnect.mockClear();
     localStorage.clear();
@@ -62,29 +62,30 @@ describe('HostedConnectionStatus', () => {
     vi.useRealTimers();
   });
 
-  it('renders nothing for a local vault', () => {
-    setState(localVault, connected);
-    const { container } = render(<HostedConnectionStatus />);
+  it('shows no connection state for a local vault', () => {
+    setState(localVault, null);
+    const { container } = render(<SyncCenter />);
     expect(container.firstChild).toBeNull();
   });
 
   it('shows Online when connected to the matching server with a live token', () => {
     setState(hostedVault, connected);
-    render(<HostedConnectionStatus />);
-    expect(screen.getByText('Online')).not.toBeNull();
+    render(<SyncCenter />);
+    fireEvent.click(screen.getByTitle('Sync status'));
+    expect(screen.getByText('Online · signed in as Alice')).not.toBeNull();
   });
 
   it('shows Session expired when the token has expired', () => {
     setState(hostedVault, { ...connected, accessExpiresAt: '2000-01-01T00:00:00Z' });
-    render(<HostedConnectionStatus />);
+    render(<SyncCenter />);
     expect(screen.getByText('Session expired')).not.toBeNull();
   });
 
   it('shows Offline when disconnected and reconnects on click', async () => {
     setState(hostedVault, { ...connected, connected: false, serverUrl: null, user: null });
-    render(<HostedConnectionStatus />);
-    const button = screen.getByText('Offline');
-    fireEvent.click(button);
+    render(<SyncCenter />);
+    fireEvent.click(screen.getByText('Offline'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reconnect' })[0]);
     await waitFor(() => {
       expect(reconnect).toHaveBeenCalledWith('https://collab.example.test', false);
     });
@@ -109,8 +110,9 @@ describe('HostedConnectionStatus', () => {
       user: null,
       allowInvalidCertificates: false,
     });
-    render(<HostedConnectionStatus />);
+    render(<SyncCenter />);
     fireEvent.click(screen.getByText('Offline'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reconnect' })[0]);
     await waitFor(() => {
       expect(reconnect).toHaveBeenCalledWith('https://collab.example.test', true);
     });
@@ -118,7 +120,7 @@ describe('HostedConnectionStatus', () => {
 
   it('treats a connection to a different server as offline', () => {
     setState(hostedVault, { ...connected, serverUrl: 'https://other.example.test' });
-    render(<HostedConnectionStatus />);
+    render(<SyncCenter />);
     expect(screen.getByText('Offline')).not.toBeNull();
   });
 });

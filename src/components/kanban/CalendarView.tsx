@@ -14,15 +14,16 @@ import { formatDate, useUiStore } from '../../store/uiStore';
 import type { KanbanCard } from '../../types/kanban';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
-import { Calendar } from '../ui/calendar';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { DatePanel } from '../ui/date-panel';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { PickerDialog } from '../ui/picker-dialog';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverPanel } from '../ui/popover-patterns';
 
 import CardDialog from './CardDialog';
 
@@ -270,6 +271,7 @@ export default function CalendarView() {
   const [yearSummaryIncludesHiddenColumns, setYearSummaryIncludesHiddenColumns] = useState(true);
   const [openCard, setOpenCard] = useState<{ card: KanbanCard; columnId: string } | null>(null);
   const [dayModal, setDayModal] = useState<Date | null>(null);
+  const [dayCardKey, setDayCardKey] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Derived anchor parts (used for month view and header)
@@ -826,24 +828,37 @@ export default function CalendarView() {
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label="Jump to date"
                 className="h-7 w-7 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
               >
                 <CalendarIcon size={13} />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={anchorDate}
-                onSelect={(d) => {
-                  if (d) {
-                    setAnchorDate(d);
-                    setPickerOpen(false);
-                  }
-                }}
+            <PopoverPanel className="w-auto" align="start">
+              <DatePanel
+                value={`${anchorDate.getFullYear()}-${String(anchorDate.getMonth() + 1).padStart(2, '0')}-${String(anchorDate.getDate()).padStart(2, '0')}`}
+                quickPicks={false}
                 weekStartsOn={weekStart}
+                onChange={(next) => {
+                  if (!next) return;
+                  setAnchorDate(new Date(`${next}T12:00:00`));
+                  setPickerOpen(false);
+                }}
+                footerStart={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      goToday();
+                      setPickerOpen(false);
+                    }}
+                  >
+                    Today
+                  </Button>
+                }
               />
-            </PopoverContent>
+            </PopoverPanel>
           </Popover>
         </div>
 
@@ -981,85 +996,74 @@ export default function CalendarView() {
         (() => {
           const dayCards = cardsForDay(dayModal);
           return (
-            <Dialog open onOpenChange={() => setDayModal(null)}>
-              <DialogContent className="sm:max-w-sm w-full max-h-[70vh] overflow-hidden flex flex-col p-0 gap-0">
-                <DialogHeader className="px-4 py-3 border-b border-border/30 shrink-0">
-                  <DialogTitle className="text-sm font-semibold">
-                    {formatDate(dayModal, dateFormat)}
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      {dayCards.length} {dayCards.length === 1 ? 'task' : 'tasks'}
+            <PickerDialog
+              open
+              onOpenChange={() => setDayModal(null)}
+              size="s"
+              className="max-h-[70vh]"
+              icon={<CalendarDays />}
+              title={formatDate(dayModal, dateFormat)}
+              description={`${dayCards.length} ${dayCards.length === 1 ? 'task' : 'tasks'} due`}
+              groups={board.columns
+                .filter((col) => !col.hideFromTimeline)
+                .map((col) => ({
+                  label: (
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: col.color ?? '#64748b' }}
+                      />
+                      {col.title}
                     </span>
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="flex-1 overflow-y-auto py-1">
-                  {board.columns
-                    .filter((col) => !col.hideFromTimeline)
-                    .map((col) => {
-                      const colCards = dayCards.filter((c) => c.columnId === col.id);
-                      if (colCards.length === 0) return null;
+                  ),
+                  items: dayCards.filter((entry) => entry.columnId === col.id),
+                }))}
+              getKey={(entry) => entry.card.id}
+              selectedKey={dayCardKey}
+              onSelect={setDayCardKey}
+              renderItem={({ card }) => (
+                <div className="flex items-center gap-2">
+                  {card.priority && (
+                    <span
+                      className={cn(
+                        'size-1.5 shrink-0 rounded-full',
+                        PRIORITY_COLORS[card.priority],
+                      )}
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      'flex-1 truncate text-[13px]',
+                      card.isDone && 'text-muted-foreground line-through',
+                    )}
+                  >
+                    {card.title}
+                  </span>
+                  <span className="flex shrink-0 items-center -space-x-1">
+                    {card.assignees.slice(0, 2).map((uid) => {
+                      const u = knownUsers.find((k) => k.userId === uid);
+                      if (!u) return null;
                       return (
-                        <div key={col.id}>
-                          <div className="flex items-center gap-1.5 px-3 py-1.5">
-                            <div
-                              className="w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: col.color ?? '#64748b' }}
-                            />
-                            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                              {col.title}
-                            </span>
-                          </div>
-                          {colCards.map(({ card, columnId }) => (
-                            <button
-                              key={card.id}
-                              onClick={() => {
-                                setOpenCard({ card, columnId });
-                                setDayModal(null);
-                              }}
-                              className="w-full flex items-center gap-2 px-4 py-1.5 text-left hover:bg-accent/40 transition-colors"
-                            >
-                              {card.priority && (
-                                <div
-                                  className={cn(
-                                    'w-1.5 h-1.5 rounded-full shrink-0',
-                                    PRIORITY_COLORS[card.priority],
-                                  )}
-                                />
-                              )}
-                              <span
-                                className={cn(
-                                  'text-sm truncate flex-1',
-                                  card.isDone
-                                    ? 'line-through text-muted-foreground/50'
-                                    : 'text-foreground',
-                                )}
-                              >
-                                {card.title}
-                              </span>
-                              {/* Assignee avatars */}
-                              <div className="flex items-center -space-x-1 shrink-0">
-                                {card.assignees.slice(0, 2).map((uid) => {
-                                  const u = knownUsers.find((k) => k.userId === uid);
-                                  if (!u) return null;
-                                  return (
-                                    <div
-                                      key={uid}
-                                      className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white border border-background"
-                                      style={{ backgroundColor: u.userColor }}
-                                      title={u.userName}
-                                    >
-                                      {u.userName[0]?.toUpperCase()}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
+                        <span
+                          key={uid}
+                          className="flex size-4 items-center justify-center rounded-full border border-background text-[8px] font-bold text-white"
+                          style={{ backgroundColor: u.userColor }}
+                          title={u.userName}
+                        >
+                          {u.userName[0]?.toUpperCase()}
+                        </span>
                       );
                     })}
+                  </span>
                 </div>
-              </DialogContent>
-            </Dialog>
+              )}
+              onPick={({ card, columnId }) => {
+                setOpenCard({ card, columnId });
+                setDayModal(null);
+              }}
+              pickLabel={() => 'Open card'}
+              emptyText="Nothing due on this day."
+            />
           );
         })()}
 

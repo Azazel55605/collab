@@ -171,7 +171,9 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
     }),
     [vault],
   );
-  const { markDirty, markSaved, setSavedHash } = useEditorStore();
+  const markDirty = useEditorStore((state) => state.markDirty);
+  const markSaved = useEditorStore((state) => state.markSaved);
+  const setSavedHash = useEditorStore((state) => state.setSavedHash);
   const { peers } = useCollabStore();
   // Snapshot authorship follows the effective identity (server-authoritative for hosted).
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();

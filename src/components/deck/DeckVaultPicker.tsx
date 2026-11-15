@@ -1,19 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 
-import { FileUp } from 'lucide-react';
+import { FileText, FileUp, Image as ImageIcon } from 'lucide-react';
 
 import { flattenVaultPaths } from '../../lib/deck/vaultAssets';
 import type { NoteFile } from '../../types/vault';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
-import { Input } from '../ui/input';
+import { PickerDialog, PickerRow } from '../ui/picker-dialog';
 
 interface DeckVaultPickerProps {
   /** Where focus goes when the dialog closes (the slide, rather than the menu that opened it). */
@@ -47,6 +39,7 @@ export function DeckVaultPicker({
   onUpload,
 }: DeckVaultPickerProps) {
   const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const paths = useMemo(
     () =>
@@ -60,64 +53,50 @@ export function DeckVaultPicker({
     needle ? paths.filter((path) => path.toLowerCase().includes(needle)) : paths
   ).slice(0, MAX_SHOWN);
 
+  const name = (path: string) => path.slice(path.lastIndexOf('/') + 1);
   return (
-    <Dialog
+    <PickerDialog
       open={open}
       onOpenChange={(next) => {
         if (!next) setQuery('');
         onOpenChange(next);
       }}
-    >
-      <DialogContent
-        className="sm:max-w-lg"
-        onCloseAutoFocus={(event) => {
-          if (!onReturnFocus) return;
-          event.preventDefault();
-          onReturnFocus();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <Input
-          aria-label="Search the vault"
-          placeholder="Search the vault"
-          value={query}
-          autoFocus
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && shown[0]) onPick(shown[0]);
-          }}
-        />
-        <div className="max-h-72 overflow-y-auto rounded-md border border-border/60" role="listbox">
-          {shown.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">No matching files in this vault.</p>
-          ) : (
-            shown.map((path) => {
-              const slash = path.lastIndexOf('/');
-              return (
-                <button
-                  key={path}
-                  type="button"
-                  role="option"
-                  aria-selected={false}
-                  className="flex w-full flex-col items-start px-3 py-1.5 text-left text-sm hover:bg-muted/60"
-                  onClick={() => onPick(path)}
-                >
-                  <span className="truncate">{path.slice(slash + 1)}</span>
-                  {slash > 0 && (
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {path.slice(0, slash)}
-                    </span>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-        {uploadAccept && onUpload && (
-          <DialogFooter>
+      size="m"
+      className="h-[min(560px,calc(100vh-2rem))]"
+      onCloseAutoFocus={
+        onReturnFocus
+          ? (event) => {
+              event.preventDefault();
+              onReturnFocus();
+            }
+          : undefined
+      }
+      icon={uploadAccept ? <ImageIcon /> : <FileText />}
+      title={title}
+      description={description}
+      query={query}
+      onQueryChange={setQuery}
+      searchPlaceholder="Search the vault"
+      groups={[{ label: needle ? undefined : `${paths.length} in this vault`, items: shown }]}
+      getKey={(path) => path}
+      selectedKey={selected}
+      onSelect={setSelected}
+      renderItem={(path) => {
+        const slash = path.lastIndexOf('/');
+        return (
+          <PickerRow
+            icon={uploadAccept ? <ImageIcon /> : <FileText />}
+            title={name(path)}
+            detail={slash > 0 ? path.slice(0, slash) : 'Vault root'}
+          />
+        );
+      }}
+      onPick={onPick}
+      pickLabel={(path) => (path ? `Use ${name(path)}` : 'Use')}
+      emptyText="No matching files in this vault."
+      secondary={
+        uploadAccept && onUpload ? (
+          <>
             <input
               ref={fileInput}
               type="file"
@@ -130,13 +109,13 @@ export function DeckVaultPicker({
                 if (file) onUpload(file);
               }}
             />
-            <Button type="button" variant="secondary" onClick={() => fileInput.current?.click()}>
+            <Button type="button" variant="ghost" onClick={() => fileInput.current?.click()}>
               <FileUp className="size-4" />
               From this computer…
             </Button>
-          </DialogFooter>
-        )}
-      </DialogContent>
-    </Dialog>
+          </>
+        ) : undefined
+      }
+    />
   );
 }

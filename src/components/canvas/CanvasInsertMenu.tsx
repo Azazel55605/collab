@@ -45,11 +45,7 @@ export function CanvasInsertMenu({ open, x, y, onSelect, onClose }: CanvasInsert
         className="absolute z-30 w-[320px] max-w-[calc(100%-24px)] app-panel-enter"
         style={{ left: x, top: y }}
       >
-        <Command
-          className={cn(
-            'rounded-2xl border border-border/70 bg-popover/96 p-1 shadow-2xl ring-1 ring-black/5 backdrop-blur-xs-webkit',
-          )}
-        >
+        <Command className={cn('rounded-xl bg-popover p-1 shadow-md ring-1 ring-foreground/10')}>
           <CommandInput autoFocus placeholder="Add to canvas…" />
           <CommandList className="max-h-[320px]">
             <CommandEmpty>No matching elements.</CommandEmpty>

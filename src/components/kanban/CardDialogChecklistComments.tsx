@@ -13,16 +13,19 @@ import { cn } from '../../lib/utils';
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
 import { FULL_KANBAN_CAPABILITIES, type KanbanCapabilities } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '../ui/command';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import {
+  KeyHints,
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+  PopoverPanelFooter,
+} from '../ui/popover-patterns';
 import { Textarea } from '../ui/textarea';
 
 type Props = {
@@ -190,47 +193,58 @@ export function CardDialogChecklistComments({
                   size="sm"
                   className="px-2 shrink-0"
                   title="Link a board card as subtask"
+                  aria-label="Link a board card as subtask"
                 >
                   <LayoutDashboard size={12} />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 p-0">
-                <Command>
-                  <CommandInput placeholder="Search board cards…" />
-                  <CommandList>
-                    <CommandEmpty>No other cards found.</CommandEmpty>
+              <PopoverPanel align="end" className="w-80">
+                <PickerCommand>
+                  <PickerInput placeholder="Search board cards" />
+                  <PickerList>
+                    <PickerEmpty>No other cards match.</PickerEmpty>
                     {board.columns.map((col) => {
                       const eligible = col.cards.filter((c) => c.id !== draft.id);
                       if (eligible.length === 0) return null;
                       return (
-                        <CommandGroup key={col.id} heading={col.title}>
+                        <PickerGroup key={col.id} heading={col.title}>
                           {eligible.map((c) => (
-                            <CommandItem
+                            <PickerItem
                               key={c.id}
-                              value={c.title}
+                              value={`${c.title} ${c.id}`}
                               onSelect={() => addChecklistItemFromCard(c.id, c.title)}
-                            >
-                              {c.isDone ? (
-                                <CheckCircle2 size={12} className="text-green-400 shrink-0" />
-                              ) : (
-                                <Circle size={12} className="text-muted-foreground/50 shrink-0" />
-                              )}
-                              <span
-                                className={cn(
-                                  'truncate',
-                                  c.isDone && 'line-through text-muted-foreground',
-                                )}
-                              >
-                                {c.title}
-                              </span>
-                            </CommandItem>
+                              icon={
+                                c.isDone ? (
+                                  <CheckCircle2 className="text-emerald-500" />
+                                ) : (
+                                  <Circle />
+                                )
+                              }
+                              title={
+                                <span
+                                  className={cn(c.isDone && 'text-muted-foreground line-through')}
+                                >
+                                  {c.title}
+                                </span>
+                              }
+                            />
                           ))}
-                        </CommandGroup>
+                        </PickerGroup>
                       );
                     })}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
+                  </PickerList>
+                  <PopoverPanelFooter
+                    start={
+                      <KeyHints
+                        hints={[
+                          ['↑↓', 'move'],
+                          ['↵', 'link'],
+                        ]}
+                      />
+                    }
+                  />
+                </PickerCommand>
+              </PopoverPanel>
             </Popover>
           </div>
         )}
@@ -290,7 +304,7 @@ export function CardDialogChecklistComments({
             >
               {myUserName[0]?.toUpperCase()}
             </div>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <Textarea
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
@@ -302,7 +316,10 @@ export function CardDialogChecklistComments({
                 }}
                 placeholder="Add comment… (Enter to post)"
                 rows={2}
-                className={cn('min-h-16 resize-none text-xs', secondaryFieldClass)}
+                className={cn(
+                  'min-h-16 w-full max-w-full resize-none text-sm',
+                  secondaryFieldClass,
+                )}
               />
               {commentInput.trim() && (
                 <Button

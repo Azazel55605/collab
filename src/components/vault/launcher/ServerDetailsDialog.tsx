@@ -4,14 +4,14 @@ import { KeyRound, LogOut, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useServerStore } from '../../../store/serverStore';
-import { Button } from '../../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '../../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../../ui/app-dialog';
+import { Button } from '../../ui/button';
+import { Dialog } from '../../ui/dialog';
 
 import { ServerStatusDot } from './ServerStatus';
 import { type ServerEntry, serverStatusLabel } from './vaultEntries';
@@ -59,49 +59,53 @@ export function ServerDetailsDialog({
   return (
     <Dialog open={server !== null} onOpenChange={onOpenChange}>
       {server && (
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ServerStatusDot state={server.state} />
-              {server.host}
-            </DialogTitle>
-            <DialogDescription className="font-mono text-xs break-all">
-              {server.serverUrl}
-            </DialogDescription>
-          </DialogHeader>
-
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">Status</dt>
-            <dd>{serverStatusLabel(server)}</dd>
-            {server.account && (
+        <AppDialogContent size="m">
+          <AppDialogHeader
+            title={
               <>
-                <dt className="text-muted-foreground">
-                  {server.state === 'connected' ? 'Signed in as' : 'Account'}
-                </dt>
-                <dd className="truncate">{server.account}</dd>
+                <ServerStatusDot state={server.state} /> {server.host}
               </>
+            }
+            description={<span className="font-mono text-xs break-all">{server.serverUrl}</span>}
+          />
+          <AppDialogBody>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+              <dt className="text-muted-foreground">Status</dt>
+              <dd>{serverStatusLabel(server)}</dd>
+              {server.account && (
+                <>
+                  <dt className="text-muted-foreground">
+                    {server.state === 'connected' ? 'Signed in as' : 'Account'}
+                  </dt>
+                  <dd className="truncate">{server.account}</dd>
+                </>
+              )}
+              <dt className="text-muted-foreground">Vaults</dt>
+              <dd>
+                {server.vaultCount} hosted
+                {server.offlineCount > 0 && ` · ${server.offlineCount} offline`}
+              </dd>
+            </dl>
+
+            {server.state === 'offline-only' && (
+              <p className="text-xs text-muted-foreground">
+                This server isn't saved on this device. Its offline copies stay available; remove
+                them from a vault's menu.
+              </p>
             )}
-            <dt className="text-muted-foreground">Vaults</dt>
-            <dd>
-              {server.vaultCount} hosted
-              {server.offlineCount > 0 && ` · ${server.offlineCount} offline`}
-            </dd>
-          </dl>
-
-          {server.state === 'offline-only' && (
-            <p className="text-xs text-muted-foreground">
-              This server isn't saved on this device. Its offline copies stay available; remove them
-              from a vault's menu.
-            </p>
-          )}
-
-          <div className="flex flex-wrap justify-end gap-2">
-            {server.state === 'connected' && (
-              <>
-                <Button variant="outline" onClick={() => logOut(server)} disabled={busy}>
+          </AppDialogBody>
+          <AppDialogFooter
+            start={
+              server.state === 'connected' ? (
+                <Button variant="ghost" onClick={() => logOut(server)} disabled={busy}>
                   <LogOut />
                   Log out
                 </Button>
+              ) : undefined
+            }
+          >
+            {server.state === 'connected' && (
+              <>
                 <Button
                   variant="outline"
                   onClick={() => refresh(server)}
@@ -124,8 +128,8 @@ export function ServerDetailsDialog({
                 Sign in
               </Button>
             )}
-          </div>
-        </DialogContent>
+          </AppDialogFooter>
+        </AppDialogContent>
       )}
     </Dialog>
   );

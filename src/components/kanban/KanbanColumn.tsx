@@ -29,8 +29,16 @@ import {
   type KanbanLane,
 } from '../../types/kanban';
 import { useKanbanContext } from '../../views/KanbanPage';
+import { ToggleSwitch } from '../settings/settingsControls';
+import {
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
 import { ColorPicker } from '../ui/color-picker';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +49,9 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
+import { DetailRow } from '../ui/list-detail-dialog';
 import { Textarea } from '../ui/textarea';
 
 import KanbanCardView from './KanbanCard';
@@ -666,95 +676,75 @@ export default function KanbanColumnView({ column }: Props) {
 
       {/* Default tags dialog */}
       <Dialog open={defaultTagsOpen} onOpenChange={setDefaultTagsOpen}>
-        <DialogContent className="sm:max-w-sm w-full p-0 gap-0">
-          <DialogHeader className="px-4 py-3 border-b border-border/30">
-            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
-              <Tag size={13} className="text-primary/70" />
-              Default tags —{' '}
-              <span className="font-normal text-muted-foreground">{column.title}</span>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="px-4 py-3 flex flex-col gap-3">
-            <p className="text-xs text-muted-foreground/70">
-              These tags are automatically added to every new card created in this column. Cards
-              moved here can also apply any missing tags, either by prompt or automatically.
-            </p>
-
-            {(column.defaultTags?.length ?? 0) > 0 && (
-              <button
-                type="button"
-                onClick={toggleAutoApplyDefaultTagsOnMove}
-                className="flex items-center justify-between rounded-lg border border-border/40 bg-card/35 px-3 py-2 text-left transition-colors app-motion-fast hover:bg-accent/30"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Sparkles size={13} className="text-primary/70" />
-                    Auto-apply on move
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    Apply missing default tags automatically when a card is dropped into this
-                    column.
-                  </div>
-                </div>
-                <span
-                  className={cn(
-                    'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors app-motion-base',
-                    column.autoApplyDefaultTagsOnMove ? 'bg-primary' : 'bg-muted-foreground/30',
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform app-motion-base',
-                      column.autoApplyDefaultTagsOnMove ? 'translate-x-4' : 'translate-x-0',
-                    )}
-                  />
-                </span>
-              </button>
-            )}
-
-            {/* Current tags */}
-            {(column.defaultTags?.length ?? 0) > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {column.defaultTags!.map((tag) => (
-                  <span
-                    key={tag}
-                    className="flex items-center gap-1 text-xs px-2 py-0.5 bg-primary/15 text-primary/80 rounded-full"
-                  >
-                    {tag}
-                    <button
-                      onClick={() => removeDefaultTag(tag)}
-                      className="hover:text-primary ml-0.5"
+        <AppDialogContent size="s">
+          <AppDialogHeader
+            icon={<Tag />}
+            title={`Default tags — ${column.title}`}
+            description="Added to every new card in this column. Cards moved here can get the missing ones too."
+          />
+          <AppDialogBody>
+            <FormField
+              label="Tags"
+              htmlFor={`column-tags-${column.id}`}
+              hint="Press Enter or comma to add."
+            >
+              {(column.defaultTags?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-1.5 pb-1">
+                  {column.defaultTags!.map((tag) => (
+                    <span
+                      key={tag}
+                      className="flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary"
                     >
-                      <X size={9} />
-                    </button>
-                  </span>
-                ))}
+                      {tag}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${tag}`}
+                        onClick={() => removeDefaultTag(tag)}
+                        className="rounded-full hover:text-foreground"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  id={`column-tags-${column.id}`}
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault();
+                      addDefaultTag();
+                    }
+                  }}
+                  placeholder="Add a tag"
+                />
+                <Button type="button" variant="outline" onClick={addDefaultTag}>
+                  Add
+                </Button>
               </div>
-            )}
-
-            {/* Add tag input */}
-            <div className="flex gap-2">
-              <Input
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ',') {
-                    e.preventDefault();
-                    addDefaultTag();
-                  }
-                }}
-                placeholder="Add tag, press Enter"
-                className="flex-1 bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
-              />
-              <button
-                onClick={addDefaultTag}
-                className="text-xs px-3 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors"
+            </FormField>
+            {(column.defaultTags?.length ?? 0) > 0 && (
+              <DetailRow
+                label="Add when a card moves here"
+                description="Apply missing default tags without asking."
               >
-                Add
-              </button>
-            </div>
-          </div>
-        </DialogContent>
+                <ToggleSwitch
+                  checked={!!column.autoApplyDefaultTagsOnMove}
+                  onToggle={toggleAutoApplyDefaultTagsOnMove}
+                  ariaLabel="Auto-apply on move"
+                />
+              </DetailRow>
+            )}
+          </AppDialogBody>
+          <AppDialogFooter>
+            <Button type="button" onClick={() => setDefaultTagsOpen(false)}>
+              Done
+            </Button>
+          </AppDialogFooter>
+        </AppDialogContent>
       </Dialog>
     </>
   );

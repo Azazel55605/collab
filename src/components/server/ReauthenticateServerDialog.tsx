@@ -5,15 +5,14 @@ import { toast } from 'sonner';
 
 import type { KnownServer } from '../../lib/hostedServers';
 import { useServerStore } from '../../store/serverStore';
-import { Button } from '../ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+  AppDialogBody,
+  AppDialogContent,
+  AppDialogFooter,
+  AppDialogHeader,
+} from '../ui/app-dialog';
+import { Button } from '../ui/button';
+import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 
 interface ReauthenticateServerDialogProps {
@@ -66,53 +65,66 @@ export function ReauthenticateServerDialog({
     }
   };
 
+  const host = server ? serverHostLabel(server.serverUrl) : '';
   return (
     <Dialog open={server != null} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <AppDialogContent size="s">
         <form className="contents" onSubmit={submit}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound size={16} />
-              Sign in again
-            </DialogTitle>
-            <DialogDescription>
-              Reauthenticate {server?.username ? `${server.username} on ` : ''}
-              {server?.serverUrl}. Your saved server settings and offline copies will be kept.
-            </DialogDescription>
-          </DialogHeader>
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium">Password</span>
-            <Input
-              autoFocus
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={busy}
-              required
-            />
-          </label>
-          {error ? (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
-          ) : null}
-          <DialogFooter>
+          <AppDialogHeader
+            icon={<KeyRound />}
+            title="Sign in again"
+            description={`Your session on ${host} ended. Sign in to keep syncing; your offline copies and settings stay as they are.`}
+          />
+          <AppDialogBody>
+            {server?.username ? (
+              <div className="space-y-1.5">
+                <span className="text-xs font-medium">Account</span>
+                <Input value={server.username} readOnly disabled className="h-9" />
+              </div>
+            ) : null}
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium">Password</span>
+              <Input
+                autoFocus
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                disabled={busy}
+                required
+                className="h-9"
+              />
+            </label>
+            {error ? (
+              <p role="alert" className="text-xs text-destructive">
+                {error}
+              </p>
+            ) : null}
+          </AppDialogBody>
+          <AppDialogFooter>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => handleOpenChange(false)}
               disabled={busy}
             >
-              Cancel
+              Work offline
             </Button>
             <Button type="submit" disabled={busy || !password}>
               {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
               Sign in
             </Button>
-          </DialogFooter>
+          </AppDialogFooter>
         </form>
-      </DialogContent>
+      </AppDialogContent>
     </Dialog>
   );
+}
+
+function serverHostLabel(serverUrl: string): string {
+  try {
+    return new URL(serverUrl).host || serverUrl;
+  } catch {
+    return serverUrl;
+  }
 }

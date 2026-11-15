@@ -11,11 +11,7 @@ import PresenceBar from '../collaboration/PresenceBar';
 import NotificationCenter from '../notifications/NotificationCenter';
 import { Progress } from '../ui/progress';
 
-import CalendarSyncStatusIndicator from './CalendarSyncStatusIndicator';
-import { DocumentReconciler } from './DocumentReconciler';
-import { DocumentStatusPill } from './DocumentStatusPill';
-import HostedConnectionStatus from './HostedConnectionStatus';
-import SyncStatusIndicator from './SyncStatusIndicator';
+import SyncCenter from './SyncCenter';
 
 export default function StatusBar() {
   const activeTabPath = useEditorStore((state) => state.activeTabPath);
@@ -101,31 +97,15 @@ export default function StatusBar() {
             {activeMeta.wordCount.toLocaleString()} words
           </span>
         )}
-        <SyncStatusIndicator />
-        <CalendarSyncStatusIndicator />
-        <NotificationCenter />
-        {activeDocumentStatus &&
-        activeDocumentStatus.controller &&
-        activeDocumentStatus.snapshot ? (
-          <DocumentReconciler
-            controller={activeDocumentStatus.controller}
-            snapshot={activeDocumentStatus.snapshot}
-            onSaveAsNew={activeDocumentStatus.onSaveAsNew}
-            readOnly={activeDocumentStatus.readOnly}
-            hideWhenSaved
-            compact
-          />
-        ) : activeDocumentStatus ? (
-          <DocumentStatusPill
-            status={activeDocumentStatus.status}
-            onLoadRemote={activeDocumentStatus.onLoadRemote}
-            onKeepLocal={activeDocumentStatus.onKeepLocal}
-            hideWhenSaved
-            compact
-          />
-        ) : null}
-        <HostedConnectionStatus />
         <PresenceBar />
+        <SyncCenter
+          document={
+            activeTabPath && activeDocumentStatus
+              ? { relativePath: activeTabPath, status: activeDocumentStatus }
+              : null
+          }
+        />
+        <NotificationCenter />
       </div>
     </div>
   );

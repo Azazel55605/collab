@@ -32,6 +32,7 @@ describe('CanvasPickerDialog', () => {
 
     expect(screen.getByText('Add note to canvas')).toBeTruthy();
     fireEvent.click(screen.getByText('alpha'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add alpha' }));
 
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({

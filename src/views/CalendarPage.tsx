@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   ArchiveRestore,
+  ArrowRight,
   Bell,
   CalendarDays,
   CheckCircle2,
@@ -12,21 +13,25 @@ import {
   ClipboardCheck,
   CloudOff,
   Copy,
+  Download,
   Ellipsis,
   FileDown,
   FileUp,
   Gift,
   KeyRound,
+  LayoutDashboard,
   Link2,
   LoaderCircle,
   MapPin,
   Pencil,
   Plus,
   RefreshCw,
+  Repeat,
   Rss,
   Search,
   SquareKanban,
   Trash2,
+  Upload,
 } from 'lucide-react';
 
 import {
@@ -34,10 +39,19 @@ import {
   CalendarAttendeeEditor,
   CalendarInvitations,
 } from '../components/calendar/CalendarRelations';
+import {
+  DocumentMoreMenu,
+  DocumentTopBar,
+  DocumentTopBarButton,
+  DocumentTopBarIconButton,
+} from '../components/layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
+import { ToggleSwitch } from '../components/settings/settingsControls';
+import { ChoiceCard, ChoiceGroup } from '../components/ui/app-dialog';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
 import { ColorPicker } from '../components/ui/color-picker';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -46,13 +60,7 @@ import {
   ContextMenuTrigger,
 } from '../components/ui/context-menu';
 import { DatePicker } from '../components/ui/date-picker';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
+import { Dialog } from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,8 +68,28 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { ExportDialog } from '../components/ui/export-dialog';
+import { FormDialog, FormField, FormRow } from '../components/ui/form-dialog';
 import { Input } from '../components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import {
+  DetailRow,
+  ListDetailDialog,
+  ListDetailRow,
+  useKeepSelection,
+} from '../components/ui/list-detail-dialog';
+import { Popover, PopoverTrigger } from '../components/ui/popover';
+import {
+  KeyHints,
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+  PopoverPanelFooter,
+} from '../components/ui/popover-patterns';
+import { ChangeReviewDialog } from '../components/ui/review-dialog';
 import {
   Select,
   SelectContent,
@@ -619,110 +647,100 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
       data-time-format={timeFormat}
       className="flex h-full min-h-0 flex-col bg-background"
     >
-      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-        <CalendarDays className="size-4 text-primary" />
-        <h1 className="mr-1 text-sm font-semibold">Calendar</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const today = new Date();
-            setAnchor(today);
-            setSelectedDate(calendarDateKey(today));
-          }}
-        >
-          Today
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Previous period"
-          onClick={() => movePeriod(-1)}
-        >
-          <ChevronLeft />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Next period"
-          onClick={() => movePeriod(1)}
-        >
-          <ChevronRight />
-        </Button>
-        <div className="min-w-28 flex-1 truncate text-center text-sm font-medium">
-          {viewTitle(viewMode, anchor, selectedDay, weekDays)}
-        </div>
-        <CalendarSearch
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
-          query={searchQuery}
-          onQueryChange={setSearchQuery}
-          results={searchResults}
-          searching={searching}
-          calendarById={calendarById}
-          onOpenItem={(item) => {
-            setSearchOpen(false);
-            editItem(item);
-          }}
-        />
-        <div
-          role="group"
-          aria-label="Calendar view"
-          className="flex rounded-md border border-border bg-muted/30 p-0.5"
-        >
-          {VIEW_MODES.map((mode) => (
-            <button
-              key={mode.value}
-              type="button"
-              aria-pressed={viewMode === mode.value}
-              onClick={() => setViewMode(mode.value)}
-              className={cn(
-                'h-6 rounded px-2 text-[11px] text-muted-foreground',
-                viewMode === mode.value && 'bg-background text-foreground shadow-sm',
-              )}
+      <DocumentTopBar
+        icon={<CalendarDays />}
+        title="Calendar"
+        subtitle={viewTitle(viewMode, anchor, selectedDay, weekDays)}
+        status={
+          store.loading || store.syncing ? (
+            <LoaderCircle
+              className="size-4 animate-spin text-muted-foreground"
+              aria-label={store.syncing ? 'Syncing calendars' : 'Loading calendars'}
+            />
+          ) : undefined
+        }
+        meta={
+          <>
+            {!showCalendarRail && (
+              <CalendarSearch
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                results={searchResults}
+                searching={searching}
+                calendarById={calendarById}
+                onOpenItem={(item) => {
+                  setSearchOpen(false);
+                  editItem(item);
+                }}
+              />
+            )}
+            {hostedOrigins.length > 0 && (
+              <CalendarInvitations
+                origins={hostedOrigins}
+                onChanged={() => void store.syncHosted(hostedOrigins)}
+              />
+            )}
+            <DocumentTopBarButton
+              variant="outline"
+              onClick={() => {
+                const today = new Date();
+                setAnchor(today);
+                setSelectedDate(calendarDateKey(today));
+              }}
             >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-        {store.loading && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}
-        {hostedOrigins.length > 0 && (
-          <CalendarInvitations
-            origins={hostedOrigins}
-            onChanged={() => void store.syncHosted(hostedOrigins)}
-          />
-        )}
-        {hostedOrigins.length > 0 && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Manage CalDAV access"
-            title="Manage CalDAV access"
-            onClick={() => setCaldavDialogOpen(true)}
-          >
-            <KeyRound />
-          </Button>
-        )}
-        {hostedOrigins.length > 0 && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Sync hosted calendars"
-            title="Sync hosted calendars"
-            disabled={store.syncing}
-            onClick={() => void store.syncHosted(hostedOrigins)}
-          >
-            <RefreshCw className={cn(store.syncing && 'animate-spin')} />
-          </Button>
-        )}
-        <Button
-          size="sm"
-          onClick={() => openEditor({ date: selectedDate, kind: 'event' })}
-          disabled={store.calendars.length === 0}
-        >
-          <Plus /> New
-        </Button>
-      </header>
+              Today
+            </DocumentTopBarButton>
+            <DocumentTopBarIconButton aria-label="Previous period" onClick={() => movePeriod(-1)}>
+              <ChevronLeft />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton aria-label="Next period" onClick={() => movePeriod(1)}>
+              <ChevronRight />
+            </DocumentTopBarIconButton>
+            <div
+              role="group"
+              aria-label="Calendar view"
+              className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+            >
+              {VIEW_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  aria-pressed={viewMode === mode.value}
+                  onClick={() => setViewMode(mode.value)}
+                  className={cn(
+                    'h-7 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors app-motion-base outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50',
+                    viewMode === mode.value && 'bg-background text-foreground shadow-sm',
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <DocumentTopBarButton
+              variant="default"
+              onClick={() => openEditor({ date: selectedDate, kind: 'event' })}
+              disabled={store.calendars.length === 0}
+            >
+              <Plus /> New event
+            </DocumentTopBarButton>
+            {hostedOrigins.length > 0 && (
+              <DocumentMoreMenu label="More calendar actions">
+                <DropdownMenuItem
+                  disabled={store.syncing}
+                  onSelect={() => void store.syncHosted(hostedOrigins)}
+                >
+                  <RefreshCw /> Sync hosted calendars
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setCaldavDialogOpen(true)}>
+                  <KeyRound /> Manage CalDAV access…
+                </DropdownMenuItem>
+              </DocumentMoreMenu>
+            )}
+          </>
+        }
+      />
 
       {(store.error || interopError) && (
         <button
@@ -740,6 +758,33 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
       <div className="flex min-h-0 flex-1">
         <CalendarRail
           open={showCalendarRail}
+          top={
+            <>
+              <MiniMonth
+                selectedDate={selectedDate}
+                weekStart={weekStart}
+                highlightWeek={viewMode === 'week'}
+                onSelect={(day) => {
+                  setAnchor(day);
+                  setSelectedDate(calendarDateKey(day));
+                }}
+              />
+              <CalendarSearch
+                variant="field"
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                results={searchResults}
+                searching={searching}
+                calendarById={calendarById}
+                onOpenItem={(item) => {
+                  setSearchOpen(false);
+                  editItem(item);
+                }}
+              />
+            </>
+          }
           calendars={store.calendars}
           subscriptions={store.subscriptions}
           visibleIds={store.visibleCalendarIds}
@@ -894,21 +939,23 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
         onOpenChange={(open) => !open && setEditorRequest(null)}
         onSave={(item) => store.saveItem(item, 'series')}
       />
-      <RecurringDeleteDialog
+      <RecurringScopeDialog
+        action="delete"
         item={deleteRequest}
         saving={store.saving}
         onOpenChange={(open) => !open && setDeleteRequest(null)}
-        onDelete={async (scope) => {
+        onConfirm={async (scope) => {
           if (!deleteRequest) return;
           await store.deleteItem(deleteRequest, scope);
           setDeleteRequest(null);
         }}
       />
-      <RecurringRescheduleDialog
+      <RecurringScopeDialog
+        action="reschedule"
         item={rescheduleRequest?.item ?? null}
         saving={store.saving}
         onOpenChange={(open) => !open && setRescheduleRequest(null)}
-        onSave={async (scope) => {
+        onConfirm={async (scope) => {
           if (!rescheduleRequest) return;
           await store.saveItem(rescheduleRequest.item, scope);
           setRescheduleRequest(null);
@@ -937,43 +984,22 @@ export default function CalendarPage({ sidebarOpen }: { sidebarOpen?: boolean } 
         onOpenChange={setCaldavDialogOpen}
         origins={hostedOrigins}
       />
-      <Dialog
+      <ConfirmDialog
         open={subscriptionDeleteRequest != null}
         onOpenChange={(open) => !open && setSubscriptionDeleteRequest(null)}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Remove calendar subscription?</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            The cached read-only calendar and its entries will be removed from this profile. The
-            external feed is not changed.
-          </p>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setSubscriptionDeleteRequest(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={store.saving}
-              onClick={() => {
-                if (!subscriptionDeleteRequest) return;
-                void store
-                  .deleteSubscription(subscriptionDeleteRequest.id)
-                  .then(() => setSubscriptionDeleteRequest(null))
-                  .catch(() => {});
-              }}
-            >
-              {store.saving ? 'Removing...' : 'Remove'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        destructive
+        title="Remove calendar subscription?"
+        description="The cached read-only calendar and its entries are removed from this profile. The external feed is not changed."
+        confirmLabel="Remove subscription"
+        busy={store.saving}
+        onConfirm={() => {
+          if (!subscriptionDeleteRequest) return;
+          void store
+            .deleteSubscription(subscriptionDeleteRequest.id)
+            .then(() => setSubscriptionDeleteRequest(null))
+            .catch(() => {});
+        }}
+      />
       <CalendarMirrorDialog
         open={mirrorDialogOpen}
         onOpenChange={setMirrorDialogOpen}
@@ -1078,183 +1104,126 @@ function CalendarExportDialog({
           ? `-${visibleRange.from}-to-${visibleRange.to}`
           : '-selection';
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Export calendar</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Export scope</span>
-            <Select value={scope} onValueChange={(value) => setScope(value as typeof scope)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="calendar">Entire calendar</SelectItem>
-                <SelectItem value="range">Visible range</SelectItem>
-                <SelectItem value="day">Selected day</SelectItem>
-                <SelectItem value="items">Selected items</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          {scope === 'items' && (
-            <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-1">
-              {request.items.map((item) => (
-                <label
-                  key={item.id}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50"
-                >
-                  <Checkbox
-                    checked={selectedIds.includes(item.id)}
-                    onCheckedChange={(checked) =>
-                      setSelectedIds((current) =>
-                        checked === true
-                          ? [...current, item.id]
-                          : current.filter((id) => id !== item.id),
-                      )
-                    }
-                  />
-                  <ItemTypeIcon item={item} className="size-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                </label>
-              ))}
-              {request.items.length === 0 && (
-                <p className="px-2 py-3 text-xs text-muted-foreground">No items are available.</p>
-              )}
-            </div>
+    <ExportDialog
+      open
+      onOpenChange={onOpenChange}
+      icon={<Download />}
+      title={`Export ${request.calendar.name}`}
+      description="Writes an iCalendar (.ics) file that other calendar apps can import."
+      summary={`${output.length} item${output.length === 1 ? '' : 's'} → ${request.calendar.name}${suffix}.ics`}
+      exportLabel="Export .ics"
+      exportDisabled={output.length === 0}
+      onExport={() => onExport(request.calendar, output, suffix)}
+    >
+      <div className="flex flex-col gap-1.5 py-3">
+        <span className="text-[12.5px] font-medium text-foreground/85">What to export</span>
+        <ChoiceGroup
+          value={scope}
+          onValueChange={(value) => setScope(value as typeof scope)}
+          aria-label="Export scope"
+          className="sm:grid-cols-2"
+        >
+          <ChoiceCard
+            value="calendar"
+            title="Entire calendar"
+            description={`${request.items.length} items`}
+          />
+          <ChoiceCard
+            value="range"
+            title="Visible range"
+            description={`${rangeItems.length} items`}
+          />
+          <ChoiceCard value="day" title="Selected day" description={`${dayItems.length} items`} />
+          <ChoiceCard value="items" title="Selected items" description="Pick them below" />
+        </ChoiceGroup>
+      </div>
+      {scope === 'items' && (
+        <div className="mb-3 max-h-56 space-y-0.5 overflow-y-auto rounded-[10px] border border-border/60 p-1">
+          {request.items.map((item) => (
+            <label
+              key={item.id}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-muted/50"
+            >
+              <Checkbox
+                checked={selectedIds.includes(item.id)}
+                onCheckedChange={(checked) =>
+                  setSelectedIds((current) =>
+                    checked === true
+                      ? [...current, item.id]
+                      : current.filter((id) => id !== item.id),
+                  )
+                }
+              />
+              <ItemTypeIcon item={item} className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{item.title}</span>
+            </label>
+          ))}
+          {request.items.length === 0 && (
+            <p className="px-2 py-3 text-xs text-muted-foreground">No items are available.</p>
           )}
-          <p className="text-xs text-muted-foreground">
-            {output.length} item{output.length === 1 ? '' : 's'} will be written to the iCalendar
-            file.
-          </p>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={scope === 'items' && output.length === 0}
-            onClick={() => void onExport(request.calendar, output, suffix)}
-          >
-            <FileDown />
-            Export
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+    </ExportDialog>
   );
 }
 
-function RecurringDeleteDialog({
+/** Which occurrences of a repeating item an action applies to, as choice cards. */
+function RecurringScopeDialog({
   item,
   saving,
+  action,
   onOpenChange,
-  onDelete,
+  onConfirm,
 }: {
   item: CalendarItem | null;
   saving: boolean;
+  action: 'delete' | 'reschedule';
   onOpenChange: (open: boolean) => void;
-  onDelete: (scope: CalendarRecurrenceEditScope) => Promise<void>;
+  onConfirm: (scope: CalendarRecurrenceEditScope) => Promise<void>;
 }) {
   const [scope, setScope] = useState<CalendarRecurrenceEditScope>('occurrence');
   useEffect(() => {
     if (item) setScope('occurrence');
   }, [item]);
+  const deleting = action === 'delete';
   return (
-    <Dialog open={item != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Delete recurring item</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Choose which occurrences of{' '}
-            <span className="font-medium text-foreground">{item?.title}</span> to delete.
-          </p>
-          <Select
-            value={scope}
-            onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}
-          >
-            <SelectTrigger aria-label="Recurring delete scope">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="occurrence">This occurrence</SelectItem>
-              <SelectItem value="following">This and following occurrences</SelectItem>
-              <SelectItem value="series">Entire series</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={saving}
-            onClick={() => void onDelete(scope)}
-          >
-            {saving ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RecurringRescheduleDialog({
-  item,
-  saving,
-  onOpenChange,
-  onSave,
-}: {
-  item: CalendarItem | null;
-  saving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (scope: CalendarRecurrenceEditScope) => Promise<void>;
-}) {
-  const [scope, setScope] = useState<CalendarRecurrenceEditScope>('occurrence');
-  useEffect(() => {
-    if (item) setScope('occurrence');
-  }, [item]);
-  return (
-    <Dialog open={item != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Reschedule recurring item</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Choose which occurrences of{' '}
-            <span className="font-medium text-foreground">{item?.title}</span> to reschedule.
-          </p>
-          <Select
-            value={scope}
-            onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}
-          >
-            <SelectTrigger aria-label="Recurring reschedule scope">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="occurrence">This occurrence</SelectItem>
-              <SelectItem value="following">This and following occurrences</SelectItem>
-              <SelectItem value="series">Entire series</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={saving} onClick={() => void onSave(scope)}>
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={item != null}
+      onOpenChange={onOpenChange}
+      destructive={deleting}
+      icon={deleting ? undefined : <Repeat />}
+      title={deleting ? `Delete “${item?.title ?? ''}”?` : `Move “${item?.title ?? ''}”?`}
+      description={
+        deleting
+          ? 'It repeats. Choose which occurrences to delete.'
+          : 'It repeats. Choose which occurrences move.'
+      }
+      busy={saving}
+      confirmLabel={
+        deleting
+          ? scope === 'series'
+            ? 'Delete series'
+            : 'Delete'
+          : scope === 'series'
+            ? 'Move series'
+            : 'Move'
+      }
+      onConfirm={() => onConfirm(scope)}
+    >
+      <ChoiceGroup
+        value={scope}
+        onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}
+        aria-label={deleting ? 'Recurring delete scope' : 'Recurring reschedule scope'}
+      >
+        <ChoiceCard value="occurrence" title="This occurrence" description="Only this one" />
+        <ChoiceCard
+          value="following"
+          title="This and following occurrences"
+          description="From this one on"
+        />
+        <ChoiceCard value="series" title="Entire series" description="Every occurrence" />
+      </ChoiceGroup>
+    </ConfirmDialog>
   );
 }
 
@@ -1327,7 +1296,10 @@ export function CalendarRail({
   onRefreshSubscription,
   onDeleteSubscription,
   onArchive,
+  top,
 }: {
+  /** Mini month and search, above the calendar list. */
+  top?: React.ReactNode;
   open?: boolean;
   calendars: CalendarDefinition[];
   subscriptions: CalendarSubscription[];
@@ -1352,11 +1324,14 @@ export function CalendarRail({
     <WorkspaceSidebar
       aria-label="Calendar overview"
       open={open}
-      frameClassName="[--workspace-sidebar-width:min(11rem,40vw)]"
-      className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3"
+      frameClassName="[--workspace-sidebar-width:min(15rem,40vw)]"
+      className="flex w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border/60 bg-sidebar/40 p-3.5"
     >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span>
+      {top}
+      <div className="-mb-3 flex items-center justify-between">
+        <span className="text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
+          Calendars
+        </span>
         <span className="flex items-center">
           <Button
             variant="ghost"
@@ -1385,34 +1360,32 @@ export function CalendarRail({
           </Button>
         </span>
       </div>
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+      <div className="space-y-0.5">
         {activeCalendars.map((calendar) => {
           const checkboxId = `calendar-visible-${calendar.id}`;
           const subscription = subscriptions.find((entry) => entry.calendarId === calendar.id);
           return (
             <div
               key={calendar.id}
-              className="group flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60"
+              className="group flex items-center gap-1 rounded-md px-2 py-1.5 text-[13px] hover:bg-accent/60"
             >
               <Checkbox
                 id={checkboxId}
                 checked={visibleIds.includes(calendar.id)}
                 onCheckedChange={(checked) => onVisible(calendar.id, checked === true)}
+                // The checkbox carries the calendar's colour, as in the concept.
+                className="border-[var(--calendar-color)] data-[state=checked]:border-[var(--calendar-color)] data-[state=checked]:bg-[var(--calendar-color)] data-checked:border-[var(--calendar-color)] data-checked:bg-[var(--calendar-color)]"
+                style={{ '--calendar-color': calendar.color } as React.CSSProperties}
               />
               <label
                 htmlFor={checkboxId}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 pl-1"
                 title={subscription?.lastError || undefined}
               >
-                <span
-                  className="relative size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: calendar.color }}
-                >
-                  {subscription?.lastError && (
-                    <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-destructive ring-1 ring-background" />
-                  )}
-                </span>
                 <span className="truncate">{calendar.name}</span>
+                {subscription?.lastError && (
+                  <span className="size-1.5 shrink-0 rounded-full bg-destructive" />
+                )}
               </label>
               <CalendarActions
                 calendar={calendar}
@@ -1431,7 +1404,7 @@ export function CalendarRail({
         })}
         {archivedCalendars.length > 0 && (
           <>
-            <div className="mb-1 mt-3 px-1 text-[9px] font-semibold uppercase text-muted-foreground">
+            <div className="mb-1 mt-3 px-1 text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
               Archived
             </div>
             {archivedCalendars.map((calendar) => (
@@ -1473,6 +1446,100 @@ export function CalendarRail({
         )}
       </div>
     </WorkspaceSidebar>
+  );
+}
+
+function MiniMonth({
+  selectedDate,
+  weekStart,
+  highlightWeek,
+  onSelect,
+}: {
+  selectedDate: string;
+  weekStart: 0 | 1;
+  highlightWeek: boolean;
+  onSelect: (date: Date) => void;
+}) {
+  const selected = dateFromKey(selectedDate);
+  const [month, setMonth] = useState(
+    () => new Date(selected.getFullYear(), selected.getMonth(), 1),
+  );
+  // Follow the main view when it moves to another month.
+  useEffect(() => {
+    setMonth((current) =>
+      current.getFullYear() === selected.getFullYear() && current.getMonth() === selected.getMonth()
+        ? current
+        : new Date(selected.getFullYear(), selected.getMonth(), 1),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+  const days = calendarMonthGrid(month, weekStart);
+  const todayKey = calendarDateKey(new Date());
+  const selectedWeek = new Set(
+    Array.from({ length: 7 }, (_, index) =>
+      calendarDateKey(addDays(startOfWeek(selected, weekStart), index)),
+    ),
+  );
+  const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
+  const labels = Array.from({ length: 7 }, (_, index) =>
+    weekdayFormat.format(new Date(2026, 6, 5 + ((weekStart + index) % 7))),
+  );
+  return (
+    <section aria-label="Month overview">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="pl-1 text-[13px] font-semibold">
+          {new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(month)}
+        </span>
+        <span className="flex">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Previous month"
+            onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Next month"
+            onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+          >
+            <ChevronRight />
+          </Button>
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-muted-foreground">
+        {labels.map((label, index) => (
+          <span key={index} className="py-0.5">
+            {label}
+          </span>
+        ))}
+        {days.map((day) => {
+          const key = calendarDateKey(day);
+          const outside = day.getMonth() !== month.getMonth();
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-label={new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(day)}
+              aria-current={key === todayKey ? 'date' : undefined}
+              onClick={() => onSelect(day)}
+              className={cn(
+                'flex aspect-square items-center justify-center rounded-md text-xs tabular-nums text-foreground/85 transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50',
+                outside && 'text-muted-foreground/60',
+                highlightWeek && selectedWeek.has(key) && 'bg-primary/10',
+                key === selectedDate && 'ring-1 ring-primary/60',
+                key === todayKey &&
+                  'bg-primary font-bold text-primary-foreground hover:bg-primary/90',
+              )}
+            >
+              {day.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1577,7 +1644,9 @@ export function CalendarSearch({
   searching,
   calendarById,
   onOpenItem,
+  variant = 'icon',
 }: {
+  variant?: 'icon' | 'field';
   open: boolean;
   onOpenChange: (open: boolean) => void;
   query: string;
@@ -1590,78 +1659,87 @@ export function CalendarSearch({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Search calendars"
-          title="Search calendars"
-        >
-          <Search />
-        </Button>
+        {variant === 'field' ? (
+          <button
+            type="button"
+            aria-label="Search calendars"
+            className="flex h-8 w-full items-center gap-2 rounded-lg border border-input bg-background/40 px-2.5 text-left text-[13px] text-muted-foreground transition-colors outline-none hover:border-ring/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+          >
+            <Search className="size-3.5 shrink-0" />
+            <span className="truncate">{query.trim() || 'Search events and tasks'}</span>
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Search calendars"
+            title="Search calendars"
+          >
+            <Search />
+          </Button>
+        )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
-        <div className="border-b border-border/60 p-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              autoFocus
-              className="h-8 pl-8"
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="Search events, tasks, birthdays..."
-              aria-label="Search calendar items"
-            />
-          </div>
-        </div>
-        <div className="max-h-80 overflow-y-auto p-1" aria-live="polite">
-          {searching && (
-            <div className="flex items-center justify-center gap-2 px-3 py-6 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" />
-              Searching
-            </div>
-          )}
-          {!searching && query.trim().length < 2 && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              Enter at least two characters
-            </div>
-          )}
-          {!searching && query.trim().length >= 2 && results.length === 0 && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              No matching calendar items
-            </div>
-          )}
-          {!searching &&
-            results.map((item) => {
-              const calendar = calendarById.get(item.calendarId);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onOpenItem(item)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted">
-                    <ItemTypeIcon item={item} className="size-3.5 text-muted-foreground" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium">{item.title}</span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
-                      {itemDate(item)}
-                      {calendar ? ` · ${calendar.name} · ${calendarOrigin(calendar)}` : ''}
-                    </span>
-                  </span>
-                  {calendar && (
-                    <span
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: calendar.color }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-        </div>
-      </PopoverContent>
+      <PopoverPanel align={variant === 'field' ? 'start' : 'end'} className="w-80">
+        <PickerCommand shouldFilter={false}>
+          <PickerInput
+            autoFocus
+            value={query}
+            onValueChange={onQueryChange}
+            placeholder="Search events, tasks, birthdays"
+            aria-label="Search calendar items"
+          />
+          <PickerList aria-live="polite">
+            {searching ? (
+              <div className="flex items-center justify-center gap-2 px-3 py-6 text-[12.5px] text-muted-foreground">
+                <LoaderCircle className="size-3.5 animate-spin" />
+                Searching
+              </div>
+            ) : query.trim().length < 2 ? (
+              <div className="px-3 py-6 text-center text-[12.5px] text-muted-foreground">
+                Type at least two characters
+              </div>
+            ) : (
+              <>
+                <PickerEmpty>No matching calendar items</PickerEmpty>
+                <PickerGroup heading={results.length ? 'Results' : undefined}>
+                  {results.map((item) => {
+                    const calendar = calendarById.get(item.calendarId);
+                    return (
+                      <PickerItem
+                        key={item.id}
+                        value={item.id}
+                        onSelect={() => onOpenItem(item)}
+                        icon={<ItemTypeIcon item={item} />}
+                        title={item.title}
+                        detail={`${itemDate(item)}${calendar ? ` · ${calendar.name} · ${calendarOrigin(calendar)}` : ''}`}
+                        meta={
+                          calendar && (
+                            <span
+                              className="block size-2 rounded-full"
+                              style={{ backgroundColor: calendar.color }}
+                            />
+                          )
+                        }
+                      />
+                    );
+                  })}
+                </PickerGroup>
+              </>
+            )}
+          </PickerList>
+          <PopoverPanelFooter
+            start={
+              <KeyHints
+                hints={[
+                  ['↑↓', 'move'],
+                  ['↵', 'open'],
+                ]}
+              />
+            }
+          />
+        </PickerCommand>
+      </PopoverPanel>
     </Popover>
   );
 }
@@ -1710,7 +1788,7 @@ function MonthView({
         {labels.map((label) => (
           <div
             key={label}
-            className="px-2 py-1 text-right text-[10px] font-medium uppercase text-muted-foreground"
+            className="px-2.5 py-1.5 text-right text-[11px] font-medium tracking-wide uppercase text-muted-foreground"
           >
             {label}
           </div>
@@ -1747,15 +1825,18 @@ function MonthView({
                       }
                     }}
                     className={cn(
-                      'min-h-0 overflow-hidden border-b border-r border-border/50 p-1 text-left hover:bg-accent/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary',
+                      'min-h-0 overflow-hidden border-b border-r border-border/50 p-1.5 text-left hover:bg-accent/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary',
                       day.getMonth() !== anchor.getMonth() &&
                         'bg-muted/10 text-muted-foreground/60',
+                      (day.getDay() === 0 || day.getDay() === 6) &&
+                        day.getMonth() === anchor.getMonth() &&
+                        'bg-muted/25',
                       key === selectedDate && 'bg-primary/5 ring-1 ring-inset ring-primary/40',
                     )}
                   >
                     <span
                       className={cn(
-                        'ml-auto flex size-5 items-center justify-center rounded-full text-[11px]',
+                        'ml-auto flex size-6 items-center justify-center rounded-full text-xs font-medium tabular-nums',
                         key === calendarDateKey(new Date()) &&
                           'bg-primary font-semibold text-primary-foreground',
                       )}
@@ -1773,8 +1854,8 @@ function MonthView({
                         />
                       ))}
                       {dayItems.length > 4 && (
-                        <div className="px-1 text-[9px] text-muted-foreground">
-                          +{dayItems.length - 4}
+                        <div className="px-1.5 text-[11px] text-muted-foreground">
+                          +{dayItems.length - 4} more
                         </div>
                       )}
                     </div>
@@ -1840,17 +1921,24 @@ function WeekView({
               type="button"
               onClick={() => onSelect(key)}
               className={cn(
-                'border-r border-border/60 py-1.5 text-center hover:bg-accent/40',
+                'flex items-center gap-1.5 border-r border-border/60 px-2.5 py-2 text-left hover:bg-accent/40',
+                (day.getDay() === 0 || day.getDay() === 6) && 'bg-muted/30',
                 selectedDate === key && 'bg-primary/5',
               )}
             >
-              <span className="block text-[10px] uppercase text-muted-foreground">
+              <span
+                className={cn(
+                  'text-xs text-muted-foreground',
+                  key === todayKey && 'font-medium text-primary',
+                )}
+              >
                 {new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day)}
               </span>
               <span
                 className={cn(
-                  'mx-auto mt-0.5 flex size-7 items-center justify-center rounded-full text-sm',
-                  key === todayKey && 'bg-primary text-primary-foreground',
+                  'flex items-center justify-center text-[15px] font-semibold tabular-nums',
+                  key === todayKey &&
+                    'size-6 rounded-full bg-primary text-[13px] font-bold text-primary-foreground',
                 )}
               >
                 {day.getDate()}
@@ -1859,7 +1947,7 @@ function WeekView({
           );
         })}
         <div
-          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[9px] uppercase text-muted-foreground"
+          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[10px] font-medium uppercase text-muted-foreground"
           style={{ height: allDayHeight }}
         >
           All day
@@ -1946,21 +2034,27 @@ function DayView({
     <section ref={rootRef} className="mx-auto min-w-[520px] max-w-5xl">
       <div className="sticky top-0 z-20 grid grid-cols-[52px_minmax(0,1fr)] border-b border-border bg-background">
         <div className="border-r border-border/60" />
-        <div className="border-r border-border/60 py-1.5 text-center">
-          <span className="block text-[10px] uppercase text-muted-foreground">
+        <div className="flex items-center gap-1.5 border-r border-border/60 px-2.5 py-2">
+          <span
+            className={cn(
+              'text-xs text-muted-foreground',
+              key === todayKey && 'font-medium text-primary',
+            )}
+          >
             {new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(day)}
           </span>
           <span
             className={cn(
-              'mx-auto mt-0.5 flex size-7 items-center justify-center rounded-full text-sm',
-              key === todayKey && 'bg-primary text-primary-foreground',
+              'flex items-center justify-center text-[15px] font-semibold tabular-nums',
+              key === todayKey &&
+                'size-6 rounded-full bg-primary text-[13px] font-bold text-primary-foreground',
             )}
           >
             {day.getDate()}
           </span>
         </div>
         <div
-          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[9px] uppercase text-muted-foreground"
+          className="flex items-start justify-end border-r border-t border-border/60 px-2 pt-2 text-[10px] font-medium uppercase text-muted-foreground"
           style={{ height: allDayHeight }}
         >
           All day
@@ -2019,13 +2113,19 @@ function useInitialTimedScroll(
   }, [allDayHeight, dateKeys, rootRef, workingHoursStart]);
 }
 
+function isWeekendKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const weekday = new Date(year, month - 1, day).getDay();
+  return weekday === 0 || weekday === 6;
+}
+
 function TimeGutter({ hourLabel }: { hourLabel: (hour: number) => string }) {
   return (
     <div className="relative border-r border-border/60" style={{ height: WEEK_HOUR_HEIGHT * 24 }}>
       {Array.from({ length: 24 }, (_, hour) => (
         <span
           key={hour}
-          className="absolute right-2 -translate-y-1/2 text-[9px] text-muted-foreground"
+          className="absolute right-2 -translate-y-1/2 font-mono text-[11px] text-muted-foreground tabular-nums first:hidden"
           style={{ top: hour * WEEK_HOUR_HEIGHT }}
         >
           {hourLabel(hour)}
@@ -2110,7 +2210,9 @@ function AllDayDropLane({
             />
           ))}
           {dayItems.length > 3 && (
-            <div className="px-1 text-[9px] text-muted-foreground">+{dayItems.length - 3} more</div>
+            <div className="px-1.5 text-[11px] text-muted-foreground">
+              +{dayItems.length - 3} more
+            </div>
           )}
         </div>
       </div>
@@ -2201,7 +2303,11 @@ function TimedDayColumn({
     <DateContextMenu date={dateKey} onAdd={onAdd}>
       <div
         ref={columnRef}
-        className={cn('relative border-r border-border/60', selected && 'bg-primary/[0.025]')}
+        className={cn(
+          'relative border-r border-border/60',
+          isWeekendKey(dateKey) && 'bg-muted/20',
+          selected && 'bg-primary/[0.025]',
+        )}
         style={{ height: WEEK_HOUR_HEIGHT * 24 }}
         onDragOver={(event) => {
           if (!Array.from(event.dataTransfer.types).includes(CALENDAR_TIMED_ITEM_DRAG_TYPE)) return;
@@ -2263,10 +2369,10 @@ function TimedDayColumn({
         )}
         {dateKey === todayKey && (
           <div
-            className="pointer-events-none absolute left-0 right-0 z-10 border-t border-primary"
+            className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-red-400"
             style={{ top: (nowMinute / CALENDAR_MINUTES_PER_DAY) * WEEK_HOUR_HEIGHT * 24 }}
           >
-            <span className="absolute -left-1 -top-1 size-2 rounded-full bg-primary" />
+            <span className="absolute -top-[5px] -left-1 size-2 rounded-full bg-red-400" />
           </div>
         )}
         {timedItems.map((entry) => {
@@ -2285,7 +2391,7 @@ function TimedDayColumn({
               onDelete={onDelete}
             >
               <div
-                className="group absolute z-[2] overflow-hidden rounded border-l-2 bg-background/95 shadow-sm hover:z-[3] hover:bg-accent focus-within:z-[4]"
+                className="group absolute z-[2] overflow-hidden rounded-md bg-muted transition-[filter] hover:z-[3] hover:brightness-110 focus-within:z-[4]"
                 style={{
                   top: (entry.startMinute / 60) * WEEK_HOUR_HEIGHT,
                   height: Math.max(
@@ -2294,7 +2400,13 @@ function TimedDayColumn({
                   ),
                   left: `calc(${entry.column * width}% + 2px)`,
                   width: `calc(${width}% - 4px)`,
-                  borderLeftColor: color,
+                  // A solid block tinted with the calendar colour; text in a light tint of it.
+                  ...(color
+                    ? {
+                        backgroundColor: `color-mix(in oklab, ${color} 30%, var(--background))`,
+                        color: `color-mix(in oklab, ${color} 30%, var(--foreground))`,
+                      }
+                    : {}),
                 }}
               >
                 <button
@@ -2311,13 +2423,13 @@ function TimedDayColumn({
                     onSelect(dateKey);
                     onEdit(entry.item);
                   }}
-                  className="h-full w-full cursor-grab overflow-hidden px-1 py-0.5 text-left active:cursor-grabbing"
+                  className="h-full w-full cursor-grab overflow-hidden px-1.5 py-1 text-left active:cursor-grabbing"
                 >
-                  <span className="flex min-w-0 items-center gap-1 text-[10px] font-medium">
-                    <ItemTypeIcon item={entry.item} className="size-2.5 shrink-0" />
+                  <span className="flex min-w-0 items-center gap-1 text-xs leading-tight font-semibold">
+                    <ItemTypeIcon item={entry.item} className="size-3 shrink-0" />
                     <span className="truncate">{entry.item.title}</span>
                   </span>
-                  <span className="block truncate text-[9px] text-muted-foreground">
+                  <span className="mt-0.5 block truncate text-[11px] tabular-nums opacity-85">
                     {itemTime(entry.item)}
                   </span>
                 </button>
@@ -2624,12 +2736,15 @@ function ItemChip({
           onEdit(item);
         }}
         className={cn(
-          'flex w-full min-w-0 items-center gap-1 truncate rounded-sm bg-muted/75 px-1 py-0.5 text-left text-[10px] hover:bg-accent',
+          'flex w-full min-w-0 items-center gap-1.5 truncate rounded-md bg-muted/60 px-1.5 py-0.5 text-left text-[11px] leading-5 hover:brightness-110',
           draggable && 'cursor-grab active:cursor-grabbing',
         )}
+        style={
+          color ? { backgroundColor: `color-mix(in srgb, ${color} 18%, transparent)` } : undefined
+        }
       >
-        <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-        <ItemTypeIcon item={item} className="size-2.5 shrink-0" />
+        <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        <ItemTypeIcon item={item} className="size-3 shrink-0 text-muted-foreground" />
         <span className="truncate">
           {showTime && `${itemTime(item)} `}
           {item.title}
@@ -2991,8 +3106,7 @@ export function ItemEditorDialog({
     }
   }, [defaultCalendarId, defaultDurationMinutes, defaultReminderMinutes, request]);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!request || !title.trim() || !calendarId) return;
     const now = new Date().toISOString();
     const id = request.item?.id ?? crypto.randomUUID();
@@ -3093,223 +3207,198 @@ export function ItemEditorDialog({
     setCalendarId(nextCalendarId);
   };
   return (
-    <Dialog open={request != null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{request?.item ? `Edit ${kindLabel}` : `New ${kindLabel}`}</DialogTitle>
-        </DialogHeader>
-        <form
-          id="calendar-item-form"
-          className="space-y-4"
-          onSubmit={(event) => void submit(event)}
-        >
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Title</span>
-            <Input
-              autoFocus
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
+    <FormDialog
+      open={request != null}
+      onOpenChange={onOpenChange}
+      className="max-h-[88vh]"
+      bodyClassName="gap-4"
+      icon={<CalendarDays />}
+      title={request?.item ? `Edit ${kindLabel}` : `New ${kindLabel}`}
+      submitLabel={request?.item ? 'Save' : 'Create'}
+      submitDisabled={
+        !title.trim() ||
+        !calendarId ||
+        !startDate ||
+        (isScheduled && (!endDate || (repeat === 'custom' && !customRecurrence.trim())))
+      }
+      busy={saving}
+      onSubmit={submit}
+    >
+      <FormField label="Title" htmlFor="calendar-item-title">
+        <Input
+          id="calendar-item-title"
+          autoFocus
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          required
+        />
+      </FormField>
+      <FormField label="Calendar">
+        <CalendarPicker calendars={calendars} value={calendarId} onValueChange={updateCalendarId} />
+      </FormField>
+      {request?.kind === 'task' && (
+        <div className="grid grid-cols-2 gap-2">
+          <FormField label="Status">
+            <Select
+              value={taskStatus}
+              onValueChange={(value) => setTaskStatus(value as CalendarTaskStatus)}
+            >
+              <SelectTrigger aria-label="Task status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="needs-action">Needs action</SelectItem>
+                <SelectItem value="in-progress">In progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Priority">
+            <Select
+              value={taskPriority}
+              onValueChange={(value) => setTaskPriority(value as CalendarTaskPriority | 'none')}
+            >
+              <SelectTrigger aria-label="Task priority">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No priority</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        </div>
+      )}
+      {isScheduled ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="calendar-item-all-day"
+              checked={allDay}
+              onCheckedChange={(checked) => setAllDay(checked === true)}
             />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Calendar</span>
-            <CalendarPicker
-              calendars={calendars}
-              value={calendarId}
-              onValueChange={updateCalendarId}
+            <label htmlFor="calendar-item-all-day" className="cursor-pointer text-[13px]">
+              All day
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <DatePicker
+              label={request?.kind === 'task' ? 'Starts' : 'Start date'}
+              value={startDate}
+              onChange={setStartDate}
             />
-          </label>
-          {request?.kind === 'task' && (
+            <DatePicker
+              label={request?.kind === 'task' ? 'Deadline' : 'End date'}
+              value={endDate}
+              min={startDate}
+              onChange={setEndDate}
+            />
+          </div>
+          {!allDay && (
             <div className="grid grid-cols-2 gap-2">
-              <label className="block space-y-1">
-                <span className="text-xs font-medium">Status</span>
-                <Select
-                  value={taskStatus}
-                  onValueChange={(value) => setTaskStatus(value as CalendarTaskStatus)}
-                >
-                  <SelectTrigger aria-label="Task status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="needs-action">Needs action</SelectItem>
-                    <SelectItem value="in-progress">In progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs font-medium">Priority</span>
-                <Select
-                  value={taskPriority}
-                  onValueChange={(value) => setTaskPriority(value as CalendarTaskPriority | 'none')}
-                >
-                  <SelectTrigger aria-label="Task priority">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No priority</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
+              <TimePicker
+                label="Start time"
+                value={startTime}
+                onChange={updateStartTime}
+                format={timeFormat}
+              />
+              <TimePicker
+                label={request?.kind === 'task' ? 'Deadline time' : 'End time'}
+                value={endTime}
+                onChange={setEndTime}
+                format={timeFormat}
+              />
             </div>
           )}
-          {isScheduled ? (
-            <>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="calendar-item-all-day"
-                  checked={allDay}
-                  onCheckedChange={(checked) => setAllDay(checked === true)}
-                />
-                <label
-                  htmlFor="calendar-item-all-day"
-                  className="cursor-pointer text-xs font-medium"
-                >
-                  All day
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <DatePicker
-                  label={request?.kind === 'task' ? 'Starts' : 'Start date'}
-                  value={startDate}
-                  onChange={setStartDate}
-                />
-                <DatePicker
-                  label={request?.kind === 'task' ? 'Deadline' : 'End date'}
-                  value={endDate}
-                  min={startDate}
-                  onChange={setEndDate}
-                />
-              </div>
-              {!allDay && (
-                <div className="grid grid-cols-2 gap-2">
-                  <TimePicker
-                    label="Start time"
-                    value={startTime}
-                    onChange={updateStartTime}
-                    format={timeFormat}
-                  />
-                  <TimePicker
-                    label={request?.kind === 'task' ? 'Deadline time' : 'End time'}
-                    value={endTime}
-                    onChange={setEndTime}
-                    format={timeFormat}
-                  />
-                </div>
-              )}
-              <label className="block space-y-1">
-                <span className="text-xs font-medium">Repeats</span>
-                <Select
-                  value={repeat}
-                  onValueChange={(value) => setRepeat(value as RecurrencePreset)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RECURRENCE_PRESETS.map((preset) => (
-                      <SelectItem key={preset.value} value={preset.value}>
-                        {preset.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              {repeat === 'custom' && (
-                <label className="block space-y-1">
-                  <span className="text-xs font-medium">Recurrence rule</span>
-                  <Input
-                    value={customRecurrence}
-                    onChange={(event) => setCustomRecurrence(event.target.value)}
-                    placeholder="FREQ=WEEKLY;INTERVAL=2"
-                  />
-                </label>
-              )}
-              {request?.item?.recurrenceId && (
-                <label className="block space-y-1">
-                  <span className="text-xs font-medium">Apply changes to</span>
-                  <Select
-                    value={editScope}
-                    onValueChange={(value) => setEditScope(value as CalendarRecurrenceEditScope)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="occurrence">This occurrence</SelectItem>
-                      <SelectItem value="following">This and following occurrences</SelectItem>
-                      <SelectItem value="series">Entire series</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </label>
-              )}
-            </>
-          ) : (
-            <DatePicker label="Birthday" value={startDate} onChange={setStartDate} />
-          )}
-          {request?.kind === 'event' && (
-            <label className="block space-y-1">
-              <span className="text-xs font-medium">Location</span>
-              <div className="relative">
-                <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  className="pl-8"
-                  value={location}
-                  onChange={(event) => setLocation(event.target.value)}
-                  placeholder="Add a place or address"
-                />
-              </div>
-            </label>
-          )}
-          {request?.kind !== 'birthday' && (
-            <label className="block space-y-1">
-              <span className="text-xs font-medium">Description</span>
-              <Textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Add details"
-                rows={4}
+          <FormField label="Repeats">
+            <Select value={repeat} onValueChange={(value) => setRepeat(value as RecurrencePreset)}>
+              <SelectTrigger className="w-full" aria-label="Repeats">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RECURRENCE_PRESETS.map((preset) => (
+                  <SelectItem key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          {repeat === 'custom' && (
+            <FormField label="Recurrence rule" htmlFor="calendar-item-rrule">
+              <Input
+                id="calendar-item-rrule"
+                value={customRecurrence}
+                onChange={(event) => setCustomRecurrence(event.target.value)}
+                placeholder="FREQ=WEEKLY;INTERVAL=2"
               />
-            </label>
+            </FormField>
           )}
-          {request?.kind === 'event' && (
-            <CalendarAttendeeEditor
-              calendar={selectedCalendar}
-              attendees={attendees}
-              onChange={setAttendees}
+          {request?.item?.recurrenceId && (
+            <FormField label="Apply changes to">
+              <Select
+                value={editScope}
+                onValueChange={(value) => setEditScope(value as CalendarRecurrenceEditScope)}
+              >
+                <SelectTrigger className="w-full" aria-label="Apply changes to">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="occurrence">This occurrence</SelectItem>
+                  <SelectItem value="following">This and following occurrences</SelectItem>
+                  <SelectItem value="series">Entire series</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
+        </>
+      ) : (
+        <DatePicker label="Birthday" value={startDate} onChange={setStartDate} />
+      )}
+      {request?.kind === 'event' && (
+        <FormField label="Location" htmlFor="calendar-item-location">
+          <div className="relative">
+            <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="calendar-item-location"
+              className="pl-8"
+              value={location}
+              onChange={(event) => setLocation(event.target.value)}
+              placeholder="Add a place or address"
             />
-          )}
-          {request?.kind !== 'birthday' && (
-            <CalendarAttachmentEditor
-              calendar={selectedCalendar}
-              attachments={attachments}
-              onChange={setAttachments}
-            />
-          )}
-          <ReminderEditor values={relativeReminders} onChange={setRelativeReminders} />
-        </form>
-        <DialogFooter>
-          <Button
-            type="submit"
-            form="calendar-item-form"
-            disabled={
-              saving ||
-              !title.trim() ||
-              !calendarId ||
-              !startDate ||
-              (isScheduled && (!endDate || (repeat === 'custom' && !customRecurrence.trim())))
-            }
-          >
-            {saving ? 'Saving...' : request?.item ? 'Save' : 'Create'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </FormField>
+      )}
+      {request?.kind !== 'birthday' && (
+        <FormField label="Description" htmlFor="calendar-item-description">
+          <Textarea
+            id="calendar-item-description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Add details"
+            rows={4}
+          />
+        </FormField>
+      )}
+      {request?.kind === 'event' && (
+        <CalendarAttendeeEditor
+          calendar={selectedCalendar}
+          attendees={attendees}
+          onChange={setAttendees}
+        />
+      )}
+      {request?.kind !== 'birthday' && (
+        <CalendarAttachmentEditor
+          calendar={selectedCalendar}
+          attachments={attachments}
+          onChange={setAttachments}
+        />
+      )}
+      <ReminderEditor values={relativeReminders} onChange={setRelativeReminders} />
+    </FormDialog>
   );
 }
 
@@ -3340,8 +3429,7 @@ function KanbanTaskEditorDialog({
     setRepeat(preset);
     setCustomRecurrence(preset === 'custom' ? (item.recurrence?.rrule ?? '') : '');
   }, [item]);
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!item) return;
     const preset = RECURRENCE_PRESETS.find((entry) => entry.value === repeat)?.rule;
     const recurrence =
@@ -3361,100 +3449,90 @@ function KanbanTaskEditorDialog({
     onOpenChange(false);
   };
   return (
-    <Dialog open={item != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Update Kanban task</DialogTitle>
-        </DialogHeader>
-        <form
-          id="kanban-calendar-task-form"
-          className="space-y-4"
-          onSubmit={(event) => void submit(event)}
-        >
-          <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            <strong className="text-foreground">{item?.title}</strong>
-            <br />
-            Dates, completion, and supported recurrence write back to the source board. Other task
-            details remain source-owned.
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <DatePicker label="Starts" value={startDate} onChange={setStartDate} />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-1 text-xs"
-                onClick={() => setStartDate('')}
-              >
-                Clear
-              </Button>
-            </div>
-            <div className="space-y-1">
-              <DatePicker
-                label="Deadline"
-                value={dueDate}
-                min={startDate || undefined}
-                onChange={setDueDate}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-1 text-xs"
-                onClick={() => setDueDate('')}
-              >
-                Clear
-              </Button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="kanban-calendar-completed"
-              checked={completed}
-              onCheckedChange={(checked) => setCompleted(checked === true)}
-            />
-            <label htmlFor="kanban-calendar-completed" className="text-xs font-medium">
-              Completed
-            </label>
-          </div>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Repeats</span>
-            <Select value={repeat} onValueChange={(value) => setRepeat(value as RecurrencePreset)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RECURRENCE_PRESETS.filter((entry) => entry.value !== 'yearly').map((entry) => (
-                  <SelectItem key={entry.value} value={entry.value}>
-                    {entry.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          {repeat === 'custom' && (
-            <label className="block space-y-1">
-              <span className="text-xs font-medium">Recurrence rule</span>
-              <Input
-                value={customRecurrence}
-                onChange={(event) => setCustomRecurrence(event.target.value)}
-                placeholder="FREQ=WEEKLY;INTERVAL=2"
-              />
-            </label>
+    <FormDialog
+      open={item != null}
+      onOpenChange={onOpenChange}
+      icon={<LayoutDashboard />}
+      title="Update Kanban task"
+      description={
+        <>
+          <strong className="font-medium text-foreground">{item?.title}</strong> · dates, completion
+          and repeats write back to the board; everything else stays on the card.
+        </>
+      }
+      submitLabel="Save"
+      submitDisabled={!item || (repeat === 'custom' && !customRecurrence.trim())}
+      busy={saving}
+      onSubmit={submit}
+    >
+      <FormRow>
+        <div className="flex flex-col gap-1">
+          <DatePicker label="Starts" value={startDate} onChange={setStartDate} />
+          {startDate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 self-start px-1 text-xs"
+              onClick={() => setStartDate('')}
+            >
+              Clear
+            </Button>
           )}
-        </form>
-        <DialogFooter>
-          <Button
-            type="submit"
-            form="kanban-calendar-task-form"
-            disabled={saving || !item || (repeat === 'custom' && !customRecurrence.trim())}
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+        <div className="flex flex-col gap-1">
+          <DatePicker
+            label="Deadline"
+            value={dueDate}
+            min={startDate || undefined}
+            onChange={setDueDate}
+          />
+          {dueDate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 self-start px-1 text-xs"
+              onClick={() => setDueDate('')}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </FormRow>
+      <FormField label="Repeats">
+        <Select value={repeat} onValueChange={(value) => setRepeat(value as RecurrencePreset)}>
+          <SelectTrigger className="w-full" aria-label="Repeats">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {RECURRENCE_PRESETS.filter((entry) => entry.value !== 'yearly').map((entry) => (
+              <SelectItem key={entry.value} value={entry.value}>
+                {entry.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+      {repeat === 'custom' && (
+        <FormField label="Recurrence rule" htmlFor="kanban-calendar-rrule">
+          <Input
+            id="kanban-calendar-rrule"
+            value={customRecurrence}
+            onChange={(event) => setCustomRecurrence(event.target.value)}
+            placeholder="FREQ=WEEKLY;INTERVAL=2"
+          />
+        </FormField>
+      )}
+      <label htmlFor="kanban-calendar-completed" className="flex items-center gap-2 text-[13px]">
+        <Checkbox
+          id="kanban-calendar-completed"
+          checked={completed}
+          onCheckedChange={(checked) => setCompleted(checked === true)}
+        />
+        Completed
+      </label>
+    </FormDialog>
   );
 }
 
@@ -3479,8 +3557,7 @@ export function CalendarSettingsDialog({
     setName(calendar.name);
     setColor(calendar.color);
   }, [calendar]);
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!calendar || !name.trim()) return;
     try {
       await onSave(calendar.id, {
@@ -3492,56 +3569,46 @@ export function CalendarSettingsDialog({
     }
   };
   return (
-    <Dialog open={calendar != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Calendar settings</DialogTitle>
-        </DialogHeader>
-        <form
-          id="calendar-settings-form"
-          className="space-y-4"
-          onSubmit={(event) => void submit(event)}
-        >
-          <div className="rounded-md bg-muted/45 px-2.5 py-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">
-              {calendar ? calendarOrigin(calendar) : ''}
-            </span>
-            {calendar?.location.kind === 'hosted'
-              ? ' calendar settings sync through its server.'
-              : ' calendar stored in this profile.'}
-          </div>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Name</span>
-            <Input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              maxLength={120}
-            />
-          </label>
-          <fieldset className="space-y-2">
-            <legend className="text-xs font-medium">Accent color</legend>
-            <ColorPicker
-              label="Calendar accent color"
-              value={color}
-              colors={CALENDAR_COLORS}
-              onValueChange={setColor}
-              className="w-full"
-            />
-          </fieldset>
-        </form>
-        <DialogFooter>
-          <Button
-            type="submit"
-            form="calendar-settings-form"
-            disabled={saving || !calendar || !name.trim()}
-          >
-            {saving ? 'Saving...' : 'Save changes'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={calendar != null}
+      onOpenChange={onOpenChange}
+      size="s"
+      icon={<CalendarDays />}
+      title="Calendar settings"
+      description={
+        calendar
+          ? `${calendarOrigin(calendar)} calendar · ${
+              calendar.location.kind === 'hosted'
+                ? 'changes sync through its server'
+                : 'stored in this profile'
+            }`
+          : undefined
+      }
+      submitLabel="Save changes"
+      busy={saving}
+      submitDisabled={!calendar || !name.trim()}
+      onSubmit={() => submit()}
+    >
+      <FormField label="Name" htmlFor="calendar-settings-name">
+        <Input
+          id="calendar-settings-name"
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={120}
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="Colour">
+        <ColorPicker
+          label="Calendar accent color"
+          value={color}
+          colors={CALENDAR_COLORS}
+          onValueChange={setColor}
+          className="w-full"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 
@@ -3566,62 +3633,77 @@ function CalendarImportDialog({
 }) {
   const preview = request?.preview;
   const changes = (preview?.creates ?? 0) + (preview?.updates ?? 0);
+  const order = { create: 0, update: 1, conflict: 2, unchanged: 3 } as const;
+  const action = {
+    create: { label: 'new', tone: 'success' },
+    update: { label: 'updated', tone: 'info' },
+    conflict: { label: 'conflict', tone: 'danger' },
+    unchanged: { label: 'unchanged', tone: 'neutral' },
+  } as const;
+  const entries = [...(preview?.entries ?? [])]
+    .sort((a, b) => order[a.action] - order[b.action])
+    .slice(0, 300);
   return (
-    <Dialog open={request != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Import iCalendar file</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground">
-            <span className="block truncate font-medium text-foreground">{request?.fileName}</span>
-            Import into{' '}
-            <span className="font-medium text-foreground">{request?.calendar.name}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              ['New', preview?.creates ?? 0],
-              ['Updates', preview?.updates ?? 0],
-              ['Unchanged', preview?.unchanged ?? 0],
-              ['Conflicts', preview?.conflicts ?? 0],
-            ].map(([label, count]) => (
-              <div key={String(label)} className="rounded-md border border-border/60 px-3 py-2">
-                <div className="text-lg font-semibold">{count}</div>
-                <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-              </div>
-            ))}
-          </div>
-          {(preview?.warnings.length ?? 0) > 0 && (
-            <div className="max-h-28 overflow-y-auto rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {preview?.warnings.slice(0, 20).map((warning, index) => (
-                <div key={`${index}-${warning}`}>{warning}</div>
-              ))}
-              {(preview?.warnings.length ?? 0) > 20 && (
-                <div>And {(preview?.warnings.length ?? 0) - 20} more warnings.</div>
-              )}
-            </div>
-          )}
-          {(preview?.conflicts ?? 0) > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Conflicting duplicate identities are skipped. Resolve them in the source file before
-              importing.
-            </p>
+    <ChangeReviewDialog
+      open={request != null}
+      onOpenChange={onOpenChange}
+      icon={<Upload />}
+      title="Import iCalendar file"
+      description={`${preview?.entries.length ?? 0} entries in the file. Conflicting duplicates are skipped; fix them in the source file to import them.`}
+      change={
+        request && (
+          <>
+            <span className="truncate">{request.fileName}</span>
+            <ArrowRight className="size-3.5 shrink-0 text-primary" />
+            <span className="font-sans font-semibold">{request.calendar.name}</span>
+          </>
+        )
+      }
+      chips={[
+        { key: 'new', label: `${preview?.creates ?? 0} new`, tone: 'success' },
+        { key: 'updated', label: `${preview?.updates ?? 0} updated`, tone: 'info' },
+        { key: 'same', label: `${preview?.unchanged ?? 0} already there` },
+        ...((preview?.conflicts ?? 0) > 0
+          ? [
+              {
+                key: 'conflicts',
+                label: `${preview?.conflicts} conflicts`,
+                tone: 'danger' as const,
+              },
+            ]
+          : []),
+      ]}
+      itemsLabel="Entries"
+      items={entries.map((entry) => ({
+        key: entry.key,
+        icon: <ItemTypeIcon item={entry.item} />,
+        title: entry.item.title,
+        detail: entry.reason ?? itemDate(entry.item),
+        chip: action[entry.action],
+      }))}
+      emptyText="The file has no calendar entries."
+      blockedReason={
+        changes === 0 && preview
+          ? 'Nothing new to import: every entry is already here or conflicts.'
+          : undefined
+      }
+      busy={saving}
+      confirmLabel={`Import ${changes} item${changes === 1 ? '' : 's'}`}
+      onConfirm={() => {
+        if (request) void onImport(request);
+      }}
+    >
+      {(preview?.warnings.length ?? 0) > 0 && (
+        <div className="max-h-28 overflow-y-auto rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          {preview?.warnings.slice(0, 20).map((warning, index) => (
+            <div key={`${index}-${warning}`}>{warning}</div>
+          ))}
+          {(preview?.warnings.length ?? 0) > 20 && (
+            <div>And {(preview?.warnings.length ?? 0) - 20} more warnings.</div>
           )}
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={saving || !request || changes === 0}
-            onClick={() => request && void onImport(request)}
-          >
-            {saving ? 'Importing...' : `Import ${changes} item${changes === 1 ? '' : 's'}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+    </ChangeReviewDialog>
   );
 }
 
@@ -3688,229 +3770,282 @@ function CalendarMirrorDialog({
         : current.filter((calendarId) => calendarId !== calendar.id),
     );
   };
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const [creating, setCreating] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  useKeepSelection(groups, (group) => group.id, selectedGroupId, setSelectedGroupId, open);
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null;
+  const calendarName = (calendarId: string) =>
+    calendars.find((calendar) => calendar.id === calendarId)?.name ?? 'Unavailable calendar';
+  const submit = async () => {
     if (!name.trim() || selectedIds.length < 2) return;
     try {
-      await onCreate(name.trim(), selectedIds);
+      const group = await onCreate(name.trim(), selectedIds);
       setName('');
       setSelectedIds([]);
+      setCreating(false);
+      setSelectedGroupId(group.id);
     } catch {
       // The calendar store exposes the validation or persistence error in the page banner.
     }
   };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Calendar mirrors</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-5">
-          <section aria-labelledby="calendar-mirror-groups">
-            <h2 id="calendar-mirror-groups" className="mb-2 text-xs font-semibold">
-              Mirror groups
-            </h2>
-            <div className="divide-y divide-border/60 border-y border-border/60">
-              {groups.map((group) => {
-                const status = statuses.find((entry) => entry.groupId === group.id);
-                const waiting = status?.state === 'waiting';
-                const conflict = status?.state === 'conflict' || status?.state === 'error';
-                return (
-                  <div key={group.id} className="flex items-center gap-3 py-2.5">
-                    <Checkbox
-                      checked={group.enabled}
-                      disabled={saving}
-                      aria-label={`${group.enabled ? 'Pause' : 'Enable'} ${group.name}`}
-                      onCheckedChange={(checked) =>
-                        void onUpdate(group.id, { enabled: checked === true }).catch(() => {})
-                      }
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{group.name}</span>
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {group.members
-                          .map(
-                            (member) =>
-                              calendars.find((calendar) => calendar.id === member.calendarId)
-                                ?.name ?? 'Unavailable calendar',
-                          )
-                          .join(' ↔ ')}
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        'flex shrink-0 items-center gap-1 text-[10px]',
-                        conflict
-                          ? 'text-destructive'
-                          : waiting
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-muted-foreground',
-                      )}
-                    >
-                      {waiting ? <CloudOff className="size-3" /> : <Link2 className="size-3" />}
-                      {mirrorStatusLabel(group, status)}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      disabled={saving}
-                      aria-label={`Delete ${group.name}`}
-                      onClick={() => void onDelete(group.id).catch(() => {})}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                );
-              })}
-              {groups.length === 0 && (
-                <div className="py-6 text-center text-xs text-muted-foreground">
-                  No mirror groups yet
-                </div>
+
+  const createForm = (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <div>
+        <p className="text-sm font-semibold">New mirror</p>
+        <p className="text-xs text-muted-foreground">
+          Pick one writable calendar from each local profile or server. Events stay the same in all
+          of them.
+        </p>
+      </div>
+      <FormField label="Name" htmlFor="mirror-name">
+        <Input
+          id="mirror-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Work calendar mirror"
+          maxLength={120}
+        />
+      </FormField>
+      <fieldset className="flex flex-col gap-1">
+        <legend className="mb-1.5 text-[12.5px] font-medium text-foreground/85">Calendars</legend>
+        {eligibleCalendars.map((calendar) => {
+          const checked = selectedIds.includes(calendar.id);
+          const locationKey = calendarMirrorLocationKey({
+            location: calendar.location as Extract<CalendarLocation, { kind: 'local' | 'hosted' }>,
+          });
+          const locationAlreadySelected = !checked && selectedLocationKeys.has(locationKey);
+          const checkboxId = `mirror-calendar-${calendar.id}`;
+          return (
+            <label
+              key={calendar.id}
+              htmlFor={checkboxId}
+              className={cn(
+                'flex items-center gap-2.5 rounded-lg px-2 py-2 text-[13px] hover:bg-muted/50',
+                locationAlreadySelected && 'opacity-45',
               )}
-            </div>
-          </section>
-
-          {conflicts.length > 0 && (
-            <section aria-labelledby="calendar-mirror-conflicts">
-              <h2 id="calendar-mirror-conflicts" className="mb-2 text-xs font-semibold">
-                Conflicts
-              </h2>
-              <div className="divide-y divide-border/60 border-y border-border/60">
-                {conflicts.map((conflict) => {
-                  const group = groups.find((entry) => entry.id === conflict.groupId);
-                  return (
-                    <div key={conflict.id} className="py-3">
-                      <div className="mb-2">
-                        <span className="block text-xs font-medium">
-                          {group?.name ?? 'Mirror group'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          Choose the version that should replace the others.
-                        </span>
-                      </div>
-                      <div className="grid gap-1.5">
-                        {conflict.versions.map((version) => {
-                          const member = group?.members.find(
-                            (entry) => entry.id === version.memberId,
-                          );
-                          const calendar =
-                            member && calendars.find((entry) => entry.id === member.calendarId);
-                          return (
-                            <Button
-                              key={version.memberId}
-                              type="button"
-                              variant="outline"
-                              className="h-auto min-h-9 justify-start px-2 py-1.5 text-left"
-                              disabled={saving || !member}
-                              onClick={() =>
-                                void onResolve(conflict.id, version.memberId).catch(() => {})
-                              }
-                            >
-                              <span
-                                className="size-2.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: calendar?.color }}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-xs">
-                                  {version.item?.deletedAt || !version.item
-                                    ? 'Deleted'
-                                    : version.item.title}
-                                </span>
-                                <span className="block truncate text-[9px] font-normal text-muted-foreground">
-                                  {calendar?.name ?? 'Unavailable calendar'} ·{' '}
-                                  {calendar ? calendarOrigin(calendar) : 'Unknown location'}
-                                </span>
-                              </span>
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          <form
-            id="calendar-mirror-form"
-            className="space-y-3"
-            onSubmit={(event) => void submit(event)}
-          >
-            <div>
-              <h2 className="text-xs font-semibold">New mirror group</h2>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Choose one writable calendar from each local profile or connected server location.
-              </p>
-            </div>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium">Name</span>
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Work calendar mirror"
-                maxLength={120}
+            >
+              <Checkbox
+                id={checkboxId}
+                checked={checked}
+                disabled={locationAlreadySelected || saving}
+                onCheckedChange={(value) => toggleCalendar(calendar, value === true)}
               />
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: calendar.color }}
+              />
+              <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
+              <span className="truncate text-[11.5px] text-muted-foreground">
+                {calendarOrigin(calendar)}
+              </span>
             </label>
-            <fieldset className="space-y-1">
-              <legend className="mb-1 text-xs font-medium">Calendars</legend>
-              {eligibleCalendars.map((calendar) => {
-                const checked = selectedIds.includes(calendar.id);
-                const locationKey = calendarMirrorLocationKey({
-                  location: calendar.location as Extract<
-                    CalendarLocation,
-                    { kind: 'local' | 'hosted' }
-                  >,
-                });
-                const locationAlreadySelected = !checked && selectedLocationKeys.has(locationKey);
-                const checkboxId = `mirror-calendar-${calendar.id}`;
+          );
+        })}
+        {eligibleCalendars.length < 2 && (
+          <p className="py-3 text-xs text-muted-foreground">
+            At least two writable calendar locations are required.
+          </p>
+        )}
+      </fieldset>
+      <div className="flex justify-end gap-2">
+        {groups.length > 0 && (
+          <Button type="button" variant="ghost" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        )}
+        <Button type="submit" disabled={saving || !name.trim() || selectedIds.length < 2}>
+          <Link2 />
+          Create mirror
+        </Button>
+      </div>
+    </form>
+  );
+
+  const renderDetail = (group: CalendarMirrorGroup) => {
+    const status = statuses.find((entry) => entry.groupId === group.id);
+    const groupConflicts = conflicts.filter((conflict) => conflict.groupId === group.id);
+    const waiting = status?.state === 'waiting';
+    const failing = status?.state === 'conflict' || status?.state === 'error';
+    return (
+      <div className="flex flex-col">
+        <Input
+          aria-label="Mirror name"
+          defaultValue={group.name}
+          key={group.id}
+          maxLength={120}
+          disabled={saving}
+          onBlur={(event) => {
+            const next = event.target.value.trim();
+            if (next && next !== group.name)
+              void onUpdate(group.id, { name: next }).catch(() => {});
+          }}
+          className="mb-1 h-9 border-transparent bg-transparent px-0 text-base font-semibold shadow-none focus-visible:border-border focus-visible:px-2"
+        />
+        <DetailRow label="Status" description={status?.error}>
+          <span
+            className={cn(
+              'flex items-center gap-1.5 text-[12.5px]',
+              failing
+                ? 'text-destructive'
+                : waiting
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-muted-foreground',
+            )}
+          >
+            {waiting ? <CloudOff className="size-3.5" /> : <Link2 className="size-3.5" />}
+            {mirrorStatusLabel(group, status)}
+          </span>
+        </DetailRow>
+        <DetailRow
+          label="Active"
+          description="Paused mirrors keep their calendars but stop copying."
+        >
+          <ToggleSwitch
+            checked={group.enabled}
+            disabled={saving}
+            ariaLabel="Mirror active"
+            onToggle={() => void onUpdate(group.id, { enabled: !group.enabled }).catch(() => {})}
+          />
+        </DetailRow>
+        <div className="border-b border-border/40 py-3 last:border-b-0">
+          <p className="mb-2 text-[13px] font-medium">Calendars</p>
+          <ul className="flex flex-col gap-1.5">
+            {group.members.map((member) => {
+              const calendar = calendars.find((entry) => entry.id === member.calendarId);
+              return (
+                <li key={member.id} className="flex items-center gap-2.5 text-[13px]">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full bg-muted-foreground/40"
+                    style={{ backgroundColor: calendar?.color }}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{calendarName(member.calendarId)}</span>
+                  <span className="truncate text-[11.5px] text-muted-foreground">
+                    {calendar ? calendarOrigin(calendar) : 'Unknown location'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        {groupConflicts.map((conflict) => (
+          <section
+            key={conflict.id}
+            aria-label="Mirror conflict"
+            className="mt-3 rounded-[10px] border border-amber-500/40 bg-amber-500/[0.06] p-3"
+          >
+            <p className="text-[13px] font-medium">An event changed in more than one calendar</p>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Choose the version that should replace the others.
+            </p>
+            <div className="grid gap-1.5">
+              {conflict.versions.map((version) => {
+                const member = group.members.find((entry) => entry.id === version.memberId);
+                const calendar =
+                  member && calendars.find((entry) => entry.id === member.calendarId);
                 return (
-                  <label
-                    key={calendar.id}
-                    htmlFor={checkboxId}
-                    className={cn(
-                      'flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent/50',
-                      locationAlreadySelected && 'opacity-45',
-                    )}
+                  <Button
+                    key={version.memberId}
+                    type="button"
+                    variant="outline"
+                    className="h-auto min-h-9 justify-start bg-background px-2.5 py-1.5 text-left"
+                    disabled={saving || !member}
+                    onClick={() => void onResolve(conflict.id, version.memberId).catch(() => {})}
                   >
-                    <Checkbox
-                      id={checkboxId}
-                      checked={checked}
-                      disabled={locationAlreadySelected || saving}
-                      onCheckedChange={(value) => toggleCalendar(calendar, value === true)}
-                    />
                     <span
                       className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: calendar.color }}
+                      style={{ backgroundColor: calendar?.color }}
                     />
-                    <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      {calendarOrigin(calendar)}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px]">
+                        {version.item?.deletedAt || !version.item ? 'Deleted' : version.item.title}
+                      </span>
+                      <span className="block truncate text-[11.5px] font-normal text-muted-foreground">
+                        {calendar?.name ?? 'Unavailable calendar'} ·{' '}
+                        {calendar ? calendarOrigin(calendar) : 'Unknown location'}
+                      </span>
                     </span>
-                  </label>
+                  </Button>
                 );
               })}
-              {eligibleCalendars.length < 2 && (
-                <p className="py-3 text-xs text-muted-foreground">
-                  At least two writable calendar locations are required.
-                </p>
-              )}
-            </fieldset>
-          </form>
-        </div>
-        <DialogFooter>
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <ListDetailDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Link2 />}
+      title="Calendar mirrors"
+      description="Keep calendars in different places in step with each other."
+      items={groups}
+      getKey={(group) => group.id}
+      selectedKey={selectedGroupId}
+      onSelect={(id) => {
+        setCreating(false);
+        setSelectedGroupId(id);
+      }}
+      renderRow={(group) => {
+        const status = statuses.find((entry) => entry.groupId === group.id);
+        const attention = status?.state === 'conflict' || status?.state === 'error';
+        return (
+          <ListDetailRow
+            title={group.name}
+            muted={!group.enabled}
+            summary={
+              <>
+                {group.members.map((member) => calendarName(member.calendarId)).join(' ↔ ')}
+                <span className={cn('block', attention && 'text-destructive')}>
+                  {mirrorStatusLabel(group, status)}
+                </span>
+              </>
+            }
+            trailing={
+              <ToggleSwitch
+                checked={group.enabled}
+                disabled={saving}
+                ariaLabel={`${group.enabled ? 'Pause' : 'Enable'} ${group.name}`}
+                onToggle={() =>
+                  void onUpdate(group.id, { enabled: !group.enabled }).catch(() => {})
+                }
+              />
+            }
+          />
+        );
+      }}
+      renderDetail={renderDetail}
+      detailOverride={creating ? createForm : undefined}
+      newLabel="New mirror"
+      onNew={() => setCreating(true)}
+      footerStart={
+        selectedGroup && !creating ? (
           <Button
-            type="submit"
-            form="calendar-mirror-form"
-            disabled={saving || !name.trim() || selectedIds.length < 2}
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={saving}
+            onClick={() => void onDelete(selectedGroup.id).catch(() => {})}
           >
-            <Link2 />
-            Create mirror
+            <Trash2 />
+            Delete mirror
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ) : undefined
+      }
+      empty={{
+        title: 'No mirrors yet',
+        description:
+          'A mirror keeps the same events in a local calendar and a server calendar, or in calendars on two servers.',
+      }}
+    />
   );
 }
 
@@ -3930,8 +4065,7 @@ function CalendarDialog({
   const [name, setName] = useState('');
   const [color, setColor] = useState(CALENDAR_COLORS[1]);
   const [locationKey, setLocationKey] = useState('local');
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!name.trim()) return;
     const target = locations.find((entry) => entry.value === locationKey) ?? locations[0];
     await onCreate(name.trim(), color, target?.location);
@@ -3939,51 +4073,51 @@ function CalendarDialog({
     onOpenChange(false);
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>New calendar</DialogTitle>
-        </DialogHeader>
-        <form id="new-calendar-form" className="space-y-3" onSubmit={(event) => void submit(event)}>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Name</span>
-            <Input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Location</span>
-            <Select value={locationKey} onValueChange={setLocationKey}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {locations.map((entry) => (
-                  <SelectItem key={entry.value} value={entry.value}>
-                    {entry.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          <ColorPicker
-            label="Calendar accent color"
-            value={color}
-            colors={CALENDAR_COLORS}
-            onValueChange={setColor}
-            className="w-full"
-          />
-        </form>
-        <DialogFooter>
-          <Button type="submit" form="new-calendar-form" disabled={saving || !name.trim()}>
-            {saving ? 'Saving...' : 'Create'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<CalendarDays />}
+      title="New calendar"
+      description="Calendars group events; events take their calendar's colour."
+      submitLabel="Create calendar"
+      busy={saving}
+      submitDisabled={!name.trim()}
+      onSubmit={() => submit()}
+    >
+      <FormField label="Name" htmlFor="new-calendar-name">
+        <Input
+          id="new-calendar-name"
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Team"
+          className="h-9"
+        />
+      </FormField>
+      <FormField label="Stored in" htmlFor="new-calendar-location">
+        <Select value={locationKey} onValueChange={setLocationKey}>
+          <SelectTrigger id="new-calendar-location" className="h-9 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {locations.map((entry) => (
+              <SelectItem key={entry.value} value={entry.value}>
+                {entry.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+      <FormField label="Colour">
+        <ColorPicker
+          label="Calendar accent color"
+          value={color}
+          colors={CALENDAR_COLORS}
+          onValueChange={setColor}
+          className="w-full"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 
@@ -4009,8 +4143,7 @@ function CalendarSubscriptionDialog({
   const [feedUrl, setFeedUrl] = useState('');
   const [color, setColor] = useState(CALENDAR_COLORS[5]);
   const [locationKey, setLocationKey] = useState('local');
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     if (!name.trim() || !feedUrl.trim()) return;
     try {
       const target = locations.find((entry) => entry.value === locationKey) ?? locations[0];
@@ -4023,81 +4156,62 @@ function CalendarSubscriptionDialog({
     }
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Subscribe to calendar</DialogTitle>
-        </DialogHeader>
-        <form
-          id="calendar-subscription-form"
-          className="space-y-3"
-          onSubmit={(event) => void submit(event)}
-        >
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Name</span>
-            <Input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              maxLength={120}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">iCalendar feed URL</span>
-            <Input
-              type="url"
-              inputMode="url"
-              value={feedUrl}
-              onChange={(event) => setFeedUrl(event.target.value)}
-              required
-              placeholder="https://example.com/calendar.ics"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">Stored on</span>
-            <Select value={locationKey} onValueChange={setLocationKey}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {locations.map((entry) => (
-                  <SelectItem key={entry.value} value={entry.value}>
-                    {entry.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          <p className="text-[10px] text-muted-foreground">
-            Subscriptions are read-only and refresh from HTTPS feeds. Private and local network
-            targets are blocked.
-          </p>
-          <fieldset className="space-y-2">
-            <legend className="text-xs font-medium">Accent color</legend>
-            <ColorPicker
-              label="Subscription accent color"
-              value={color}
-              colors={CALENDAR_COLORS}
-              onValueChange={setColor}
-              className="w-full"
-            />
-          </fieldset>
-        </form>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            form="calendar-subscription-form"
-            disabled={saving || !name.trim() || !feedUrl.trim()}
-          >
-            {saving ? 'Subscribing...' : 'Subscribe'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Rss />}
+      title="Subscribe to calendar"
+      description="Subscriptions are read-only and refresh from HTTPS feeds. Private and local network addresses are blocked."
+      submitLabel="Subscribe"
+      submitDisabled={!name.trim() || !feedUrl.trim()}
+      busy={saving}
+      onSubmit={submit}
+    >
+      <FormField label="Name" htmlFor="calendar-subscription-name">
+        <Input
+          id="calendar-subscription-name"
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={120}
+        />
+      </FormField>
+      <FormField label="iCalendar feed URL" htmlFor="calendar-subscription-url">
+        <Input
+          id="calendar-subscription-url"
+          type="url"
+          inputMode="url"
+          value={feedUrl}
+          onChange={(event) => setFeedUrl(event.target.value)}
+          placeholder="https://example.com/calendar.ics"
+        />
+      </FormField>
+      {locations.length > 1 && (
+        <FormField label="Stored on">
+          <Select value={locationKey} onValueChange={setLocationKey}>
+            <SelectTrigger className="w-full" aria-label="Stored on">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {locations.map((entry) => (
+                <SelectItem key={entry.value} value={entry.value}>
+                  {entry.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+      <FormField label="Colour">
+        <ColorPicker
+          label="Subscription accent color"
+          value={color}
+          colors={CALENDAR_COLORS}
+          onValueChange={setColor}
+          className="w-full"
+        />
+      </FormField>
+    </FormDialog>
   );
 }
 
@@ -4109,22 +4223,21 @@ function CalendarPublishDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [feeds, setFeeds] = useState<CalendarPublishedFeed[]>([]);
-  const [generatedUrl, setGeneratedUrl] = useState('');
+  const [generated, setGenerated] = useState<{ feedId: string; url: string } | null>(null);
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!calendar || calendar.location.kind !== 'hosted') {
       setFeeds([]);
-      setGeneratedUrl('');
+      setGenerated(null);
       setError(null);
       return;
     }
     let active = true;
     setBusy(true);
-    setGeneratedUrl('');
-    setCopied(false);
+    setGenerated(null);
     setError(null);
     void tauriCommands
       .hostedCalendarRequest<CalendarPublishedFeed[]>(
@@ -4157,8 +4270,11 @@ function CalendarPublishDialog({
         `/api/v1/calendars/${calendar.id}/published-feeds`,
       );
       setFeeds((current) => [created, ...current]);
-      setGeneratedUrl(`${calendar.location.serverUrl.replace(/\/$/, '')}${created.feedPath}`);
-      setCopied(false);
+      setGenerated({
+        feedId: created.id,
+        url: `${calendar.location.serverUrl.replace(/\/$/, '')}${created.feedPath}`,
+      });
+      setSelectedFeedId(created.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4177,8 +4293,7 @@ function CalendarPublishDialog({
         `/api/v1/calendars/${calendar.id}/published-feeds/${feedId}`,
       );
       setFeeds((current) => current.filter((feed) => feed.id !== feedId));
-      setGeneratedUrl('');
-      setCopied(false);
+      setGenerated((current) => (current?.feedId === feedId ? null : current));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4186,106 +4301,152 @@ function CalendarPublishDialog({
     }
   };
 
+  useKeepSelection(feeds, (feed) => feed.id, selectedFeedId, setSelectedFeedId, calendar != null);
+  const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
+
   return (
-    <Dialog open={calendar != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Publish {calendar?.name ?? 'calendar'}</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Anyone with a published URL can read this calendar in an external calendar app. The URL is
-          shown only when it is created.
-        </p>
-        {error && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-            {error}
-          </div>
-        )}
-        {generatedUrl && (
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium">New subscription URL</span>
-            <div className="flex gap-2">
-              <Input
-                readOnly
-                value={generatedUrl}
-                className="min-w-0 font-mono text-xs"
-                aria-label="Published calendar URL"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label="Copy published calendar URL"
-                title="Copy URL"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(generatedUrl)
-                    .then(() => setCopied(true))
-                    .catch(() => setError('Could not copy the published URL.'));
-                }}
-              >
-                <Copy />
-              </Button>
-            </div>
-            {copied && <p className="text-[10px] text-muted-foreground">Copied to clipboard</p>}
-          </div>
-        )}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">Active links</span>
-            <Button type="button" size="sm" disabled={busy} onClick={() => void createFeed()}>
-              <Plus />
-              New link
+    <ListDetailDialog
+      open={calendar != null}
+      onOpenChange={onOpenChange}
+      icon={<Rss />}
+      title={`Publish ${calendar?.name ?? 'calendar'}`}
+      description="Anyone with a published link can read this calendar in another calendar app."
+      items={feeds}
+      getKey={(feed) => feed.id}
+      selectedKey={selectedFeedId}
+      onSelect={setSelectedFeedId}
+      renderRow={(feed) => (
+        <ListDetailRow
+          icon={<Rss />}
+          title={`Link from ${new Date(feed.createdAt).toLocaleDateString()}`}
+          summary={
+            feed.lastAccessedAt
+              ? `Last fetched ${new Date(feed.lastAccessedAt).toLocaleString()}`
+              : 'Not fetched yet'
+          }
+        />
+      )}
+      renderDetail={(feed) => (
+        <div className="flex flex-col">
+          {error && <DialogError>{error}</DialogError>}
+          {generated?.feedId === feed.id && (
+            <OneTimeSecret
+              title="Copy the link now"
+              description="It is shown only once. Paste it into a calendar app as a subscription."
+              fields={[{ key: 'url', label: 'Published calendar URL', value: generated.url }]}
+            />
+          )}
+          <DetailRow label="Created">
+            <span className="text-[12.5px] text-muted-foreground">
+              {new Date(feed.createdAt).toLocaleString()}
+            </span>
+          </DetailRow>
+          <DetailRow
+            label="Last fetched"
+            description="Calendar apps fetch the link on their own schedule."
+          >
+            <span className="text-[12.5px] text-muted-foreground">
+              {feed.lastAccessedAt ? new Date(feed.lastAccessedAt).toLocaleString() : 'Not yet'}
+            </span>
+          </DetailRow>
+          {generated?.feedId !== feed.id && (
+            <p className="pt-3 text-xs text-muted-foreground">
+              The address of an existing link cannot be shown again. Create a new link if you need
+              it, then revoke this one.
+            </p>
+          )}
+        </div>
+      )}
+      newLabel="New link"
+      onNew={() => void createFeed()}
+      newDisabled={busy}
+      footerStart={
+        selectedFeed ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={busy}
+            aria-label="Revoke published calendar link"
+            onClick={() => void revokeFeed(selectedFeed.id)}
+          >
+            <Trash2 />
+            Revoke link
+          </Button>
+        ) : undefined
+      }
+      empty={{
+        title: busy ? 'Loading links…' : 'Not published',
+        description: error ?? 'Create a read-only link to subscribe to this calendar elsewhere.',
+        action: (
+          <Button className="mt-2" disabled={busy} onClick={() => void createFeed()}>
+            {busy ? <LoaderCircle className="animate-spin" /> : <Plus />}
+            Publish a link
+          </Button>
+        ),
+      }}
+    />
+  );
+}
+
+/** Values shown once after they are created (feed URL, app password), each with Copy. */
+function OneTimeSecret({
+  title,
+  description,
+  fields,
+}: {
+  title: string;
+  description: string;
+  fields: { key: string; label: string; value: string }[];
+}) {
+  const [copied, setCopied] = useState('');
+  return (
+    <div className="mb-2 flex flex-col gap-2 rounded-[10px] border border-primary/35 bg-primary/[0.06] p-3">
+      <div>
+        <p className="text-[13px] font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {fields.map((field) => (
+        <div key={field.key} className="flex flex-col gap-1">
+          <span className="text-[11.5px] font-medium text-muted-foreground">
+            {field.label}
+            {copied === field.key && <span className="ml-2 font-normal">Copied</span>}
+          </span>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={field.value}
+              className="min-w-0 bg-background font-mono text-xs"
+              aria-label={field.label}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label={`Copy ${field.label}`}
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(field.value)
+                  .then(() => setCopied(field.key))
+                  .catch(() => {})
+              }
+            >
+              <Copy />
             </Button>
           </div>
-          <div className="max-h-56 space-y-1 overflow-y-auto">
-            {busy && feeds.length === 0 && (
-              <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3.5 animate-spin" />
-                Loading links
-              </div>
-            )}
-            {!busy && feeds.length === 0 && (
-              <div className="rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                No published links
-              </div>
-            )}
-            {feeds.map((feed) => (
-              <div
-                key={feed.id}
-                className="flex items-center gap-2 rounded border border-border/70 px-2.5 py-2 text-xs"
-              >
-                <Rss className="size-3.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div>Created {new Date(feed.createdAt).toLocaleString()}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {feed.lastAccessedAt
-                      ? `Last fetched ${new Date(feed.lastAccessedAt).toLocaleString()}`
-                      : 'Not fetched yet'}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={busy}
-                  aria-label="Revoke published calendar link"
-                  title="Revoke link"
-                  onClick={() => void revokeFeed(feed.id)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      ))}
+    </div>
+  );
+}
+
+function DialogError({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="mb-2 rounded-[10px] border border-destructive/30 bg-destructive/[0.06] px-3 py-2 text-[12.5px] text-destructive"
+    >
+      {children}
+    </p>
   );
 }
 
@@ -4304,7 +4465,8 @@ export function CalendarCalDavDialog({
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedOrigin = origins.find((origin) => origin.serverUrl === serverUrl) ?? origins[0];
 
   useEffect(() => {
@@ -4315,7 +4477,7 @@ export function CalendarCalDavDialog({
         : (origins[0]?.serverUrl ?? ''),
     );
     setCreated(null);
-    setCopied('');
+    setCreating(false);
     setError(null);
   }, [open, origins]);
 
@@ -4361,7 +4523,8 @@ export function CalendarCalDavDialog({
       setCredentials((current) => [value, ...current]);
       setCreated(value);
       setLabel('');
-      setCopied('');
+      setCreating(false);
+      setSelectedId(value.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4388,162 +4551,168 @@ export function CalendarCalDavDialog({
     }
   };
 
-  const copyValue = (name: string, value: string) => {
-    void navigator.clipboard
-      .writeText(value)
-      .then(() => setCopied(name))
-      .catch(() => setError('Could not copy the CalDAV value.'));
-  };
-  const caldavUrl = selectedOrigin
-    ? `${selectedOrigin.serverUrl.replace(/\/$/, '')}${created?.caldavPath ?? '/caldav/'}`
-    : '';
+  useKeepSelection(
+    credentials,
+    (credential) => credential.id,
+    selectedId,
+    setSelectedId,
+    open && !creating,
+  );
+  const caldavBase = selectedOrigin ? selectedOrigin.serverUrl.replace(/\/$/, '') : '';
+  const showForm = creating || (!busy && credentials.length === 0);
+  const selectedCredential = credentials.find((credential) => credential.id === selectedId) ?? null;
+
+  const createForm = (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void createCredential();
+      }}
+    >
+      {error && <DialogError>{error}</DialogError>}
+      <div>
+        <p className="text-sm font-semibold">New app password</p>
+        <p className="text-xs text-muted-foreground">
+          Each calendar app gets its own password, so you can revoke one without touching the
+          others. Your Collab password is never shared with CalDAV clients.
+        </p>
+      </div>
+      <FormField label="Used by" htmlFor="caldav-label" hint="A phone, a laptop or an app name.">
+        <Input
+          id="caldav-label"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          maxLength={80}
+          placeholder="Device or application name"
+          aria-label="CalDAV credential name"
+        />
+      </FormField>
+      <div className="flex justify-end gap-2">
+        {credentials.length > 0 && (
+          <Button type="button" variant="ghost" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        )}
+        <Button type="submit" disabled={busy || !selectedOrigin || !label.trim()}>
+          <Plus />
+          Create
+        </Button>
+      </div>
+    </form>
+  );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>CalDAV access</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Connect an external calendar application with a separate revocable password. Your normal
-          Collab password and session are never shared with CalDAV clients.
-        </p>
-        {origins.length > 1 && (
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium">Server</span>
-            <Select
-              value={selectedOrigin?.serverUrl ?? ''}
-              onValueChange={(value) => {
-                setServerUrl(value);
-                setCreated(null);
-                setCopied('');
-              }}
-            >
-              <SelectTrigger aria-label="CalDAV server">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {origins.map((origin) => (
-                  <SelectItem key={origin.serverUrl} value={origin.serverUrl}>
-                    {origin.serverUrl}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {error && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-            {error}
-          </div>
-        )}
-        {created && (
-          <div className="space-y-2 rounded-md border border-primary/35 bg-primary/5 p-3">
-            <div>
-              <p className="text-xs font-medium">Save this password now</p>
-              <p className="text-[10px] text-muted-foreground">
-                It cannot be displayed again after this dialog closes.
-              </p>
-            </div>
-            {(
-              [
-                ['url', 'Server URL', caldavUrl],
-                ['username', 'Username', created.username],
-                ['password', 'App password', created.password],
-              ] as const
-            ).map(([key, title, value]) => (
-              <div key={key} className="space-y-1">
-                <span className="text-[10px] font-medium text-muted-foreground">{title}</span>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={value}
-                    className="min-w-0 font-mono text-xs"
-                    aria-label={`CalDAV ${title}`}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label={`Copy CalDAV ${title}`}
-                    onClick={() => copyValue(key, value)}
-                  >
-                    <Copy />
-                  </Button>
-                </div>
-                {copied === key && <p className="text-[10px] text-muted-foreground">Copied</p>}
-              </div>
-            ))}
-          </div>
-        )}
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void createCredential();
-          }}
-        >
-          <Input
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            maxLength={80}
-            placeholder="Device or application name"
-            aria-label="CalDAV credential name"
-          />
-          <Button type="submit" disabled={busy || !selectedOrigin || !label.trim()}>
-            <Plus />
-            Create
-          </Button>
-        </form>
-        <div className="space-y-2">
-          <span className="text-xs font-medium">Active app passwords</span>
-          <div className="max-h-52 space-y-1 overflow-y-auto">
-            {busy && credentials.length === 0 && (
-              <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3.5 animate-spin" />
-                Loading access
-              </div>
-            )}
-            {!busy && credentials.length === 0 && (
-              <div className="rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                No CalDAV app passwords
-              </div>
-            )}
-            {credentials.map((credential) => (
-              <div
-                key={credential.id}
-                className="flex items-center gap-2 rounded border border-border/70 px-2.5 py-2 text-xs"
-              >
-                <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{credential.label}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {credential.lastUsedAt
-                      ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}`
-                      : `Created ${new Date(credential.createdAt).toLocaleString()}`}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={busy}
-                  aria-label={`Revoke ${credential.label}`}
-                  title="Revoke access"
-                  onClick={() => void revokeCredential(credential.id)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
+    <ListDetailDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<KeyRound />}
+      title="CalDAV access"
+      description="App passwords for calendar apps that sync over CalDAV."
+      items={credentials}
+      getKey={(credential) => credential.id}
+      selectedKey={selectedId}
+      onSelect={(id) => {
+        setCreating(false);
+        setSelectedId(id);
+      }}
+      renderRow={(credential) => (
+        <ListDetailRow
+          icon={<KeyRound />}
+          title={credential.label}
+          summary={
+            credential.lastUsedAt
+              ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}`
+              : 'Not used yet'
+          }
+        />
+      )}
+      renderDetail={(credential) => (
+        <div className="flex flex-col">
+          {error && <DialogError>{error}</DialogError>}
+          {created?.id === credential.id && (
+            <OneTimeSecret
+              title="Save this password now"
+              description="It cannot be shown again after this dialog closes."
+              fields={[
+                {
+                  key: 'url',
+                  label: 'CalDAV Server URL',
+                  value: `${caldavBase}${created.caldavPath}`,
+                },
+                { key: 'username', label: 'CalDAV Username', value: created.username },
+                { key: 'password', label: 'CalDAV App password', value: created.password },
+              ]}
+            />
+          )}
+          <DetailRow label="Server">
+            <span className="font-mono text-[12px] text-muted-foreground">
+              {caldavBase}/caldav/
+            </span>
+          </DetailRow>
+          <DetailRow label="Created">
+            <span className="text-[12.5px] text-muted-foreground">
+              {new Date(credential.createdAt).toLocaleString()}
+            </span>
+          </DetailRow>
+          <DetailRow label="Last used">
+            <span className="text-[12.5px] text-muted-foreground">
+              {credential.lastUsedAt ? new Date(credential.lastUsedAt).toLocaleString() : 'Not yet'}
+            </span>
+          </DetailRow>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+      )}
+      placeholder={
+        busy ? (
+          <span className="inline-flex items-center gap-2">
+            <LoaderCircle className="size-3.5 animate-spin" />
+            Loading access
+          </span>
+        ) : undefined
+      }
+      detailOverride={showForm ? createForm : undefined}
+      newLabel="New app password"
+      onNew={() => {
+        setCreating(true);
+        setCreated(null);
+      }}
+      newDisabled={!selectedOrigin}
+      listFooter={
+        origins.length > 1 ? (
+          <Select
+            value={selectedOrigin?.serverUrl ?? ''}
+            onValueChange={(value) => {
+              setServerUrl(value);
+              setCreated(null);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="CalDAV server" className="w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {origins.map((origin) => (
+                <SelectItem key={origin.serverUrl} value={origin.serverUrl} className="text-xs">
+                  {origin.serverUrl}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : undefined
+      }
+      footerStart={
+        selectedCredential && !showForm ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={busy}
+            aria-label={`Revoke ${selectedCredential.label}`}
+            onClick={() => void revokeCredential(selectedCredential.id)}
+          >
+            <Trash2 />
+            Revoke access
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ) : undefined
+      }
+    />
   );
 }

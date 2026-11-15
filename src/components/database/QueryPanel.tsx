@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { FileCode2, FolderOpen, History, Play, Save, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -22,11 +23,18 @@ import type {
   DatabaseHistoryEntry,
   DatabaseSqliteFile,
 } from '../../types/database';
+import {
+  DocumentToolStrip,
+  DocumentTopBarButton,
+  documentTopBarGroupClass,
+  DocumentTopBarIconButton,
+} from '../layout/DocumentTopBar';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Field, FieldLabel } from '../ui/field';
+import { ConfirmDialog } from '../ui/confirm-dialog';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
+import { PickerDialog } from '../ui/picker-dialog';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 import ResultGrid from './ResultGrid';
@@ -171,110 +179,112 @@ export default function QueryPanel({
       className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       aria-label="SQL query workspace"
     >
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto p-2">
-        <Button
-          size="sm"
-          disabled={running || retired || editingBusy || !tab.sql.trim()}
-          onClick={() => run(false)}
-        >
-          {maria ? 'Run statement' : 'Run batch'}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={running || retired || editingBusy || !tab.sql.trim()}
-          onClick={() => run(true)}
-        >
-          Run selection
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!running || !status.query_id}
-          onClick={() => {
-            if (status.query_id)
-              void job(() => tauriCommands.databaseQueryCancel(token, binding, status.query_id!));
-          }}
-        >
-          Cancel query
-        </Button>
-        <Badge variant="outline">
-          {status.phase} · Transaction {status.transaction}
-        </Badge>
-        {tab.dirty && <Badge variant="secondary">Unsaved SQL</Badge>}
-        {status.transaction === 'none' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canControlTransaction}
-            onClick={() => void executeQuery(token, binding, undefined, 'begin')}
+      <DocumentToolStrip className="shrink-0 border-b border-border/50">
+        <div className={documentTopBarGroupClass}>
+          <DocumentTopBarButton
+            variant="default"
+            disabled={running || retired || editingBusy || !tab.sql.trim()}
+            onClick={() => run(false)}
+            title="Run (Ctrl+Enter)"
           >
-            Begin transaction
-          </Button>
-        )}
-        {status.transaction === 'open' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canControlTransaction}
-            onClick={() => setConfirmCommit(true)}
+            <Play />
+            {maria ? 'Run statement' : 'Run batch'}
+          </DocumentTopBarButton>
+          <DocumentTopBarButton
+            disabled={running || retired || editingBusy || !tab.sql.trim()}
+            onClick={() => run(true)}
           >
-            Commit transaction
-          </Button>
-        )}
-        {['open', 'failed'].includes(status.transaction) && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canControlTransaction}
-            onClick={() => void executeQuery(token, binding, undefined, 'rollback')}
+            Run selection
+          </DocumentTopBarButton>
+          {running && (
+            <DocumentTopBarButton
+              disabled={!status.query_id}
+              onClick={() => {
+                if (status.query_id)
+                  void job(() =>
+                    tauriCommands.databaseQueryCancel(token, binding, status.query_id!),
+                  );
+              }}
+            >
+              <Square /> Cancel query
+            </DocumentTopBarButton>
+          )}
+        </div>
+        <div className={documentTopBarGroupClass}>
+          <Badge variant="outline">
+            {status.phase} · Transaction {status.transaction}
+          </Badge>
+          {tab.dirty && <Badge variant="secondary">Unsaved SQL</Badge>}
+          {status.transaction === 'none' && (
+            <DocumentTopBarButton
+              disabled={!canControlTransaction}
+              onClick={() => void executeQuery(token, binding, undefined, 'begin')}
+            >
+              Begin transaction
+            </DocumentTopBarButton>
+          )}
+          {status.transaction === 'open' && (
+            <DocumentTopBarButton
+              disabled={!canControlTransaction}
+              onClick={() => setConfirmCommit(true)}
+            >
+              Commit transaction
+            </DocumentTopBarButton>
+          )}
+          {['open', 'failed'].includes(status.transaction) && (
+            <DocumentTopBarButton
+              disabled={!canControlTransaction}
+              onClick={() => void executeQuery(token, binding, undefined, 'rollback')}
+            >
+              Roll back transaction
+            </DocumentTopBarButton>
+          )}
+        </div>
+        <div className="flex-1" />
+        <div className={documentTopBarGroupClass}>
+          <DocumentTopBarIconButton
+            aria-label="Session history"
+            title="Session history"
+            disabled={working || running}
+            onClick={() =>
+              void job(async () =>
+                setHistory(await tauriCommands.databaseQueryHistory(token, binding)),
+              )
+            }
           >
-            Roll back transaction
-          </Button>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || running}
-          onClick={() =>
-            void job(async () =>
-              setHistory(await tauriCommands.databaseQueryHistory(token, binding)),
-            )
-          }
-        >
-          Session history
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || !vault || locked || running}
-          onClick={() => {
-            setPath(script?.path ?? 'query.sql');
-            setFileAction('open');
-          }}
-        >
-          Open .sql
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || !vault || locked}
-          onClick={() => {
-            setPath(script?.path ?? 'query.sql');
-            setFileAction('save');
-          }}
-        >
-          Save .sql
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={working || running || !cursor || schemaCount >= 1000}
-          onClick={completion}
-        >
-          Load completion schema ({schemaCount})
-        </Button>
-      </div>
+            <History />
+          </DocumentTopBarIconButton>
+          <DocumentTopBarIconButton
+            aria-label="Open .sql"
+            title="Open .sql file"
+            disabled={working || !vault || locked || running}
+            onClick={() => {
+              setPath(script?.path ?? 'query.sql');
+              setFileAction('open');
+            }}
+          >
+            <FolderOpen />
+          </DocumentTopBarIconButton>
+          <DocumentTopBarIconButton
+            aria-label="Save .sql"
+            title="Save as .sql file"
+            disabled={working || !vault || locked}
+            onClick={() => {
+              setPath(script?.path ?? 'query.sql');
+              setFileAction('save');
+            }}
+          >
+            <Save />
+          </DocumentTopBarIconButton>
+          <DocumentTopBarButton
+            disabled={working || running || !cursor || schemaCount >= 1000}
+            onClick={completion}
+            title="Load table and column names for autocompletion"
+          >
+            Completion schema ({schemaCount})
+          </DocumentTopBarButton>
+        </div>
+      </DocumentToolStrip>
       <div
         className="flex shrink-0 items-center gap-2 overflow-x-auto px-2 pb-2"
         aria-label="Browse table or view"
@@ -500,112 +510,130 @@ export default function QueryPanel({
         <TableEditDialog token={token} binding={binding} draft={tab.edit} />
       )}
       {confirmCommit && (
-        <Dialog open onOpenChange={setConfirmCommit}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Commit this session’s transaction?</DialogTitle>
-              <DialogDescription>
-                Commit pending SQL changes on the pinned session.
-                {engine === 'sql_server' &&
-                  ' A nested transaction stays open until its outermost level is committed.'}
-              </DialogDescription>
-            </DialogHeader>
-            <Button variant="outline" onClick={() => setConfirmCommit(false)}>
-              Keep transaction open
-            </Button>
-            <Button
-              disabled={!canControlTransaction || status.transaction !== 'open'}
-              onClick={() => {
-                setConfirmCommit(false);
-                void executeQuery(token, binding, undefined, 'commit');
-              }}
-            >
-              Confirm commit
-            </Button>
-          </DialogContent>
-        </Dialog>
+        <ConfirmDialog
+          open
+          onOpenChange={setConfirmCommit}
+          tone="warning"
+          title="Commit this session’s transaction?"
+          description={
+            'Commit pending SQL changes on the pinned session.' +
+            (engine === 'sql_server'
+              ? ' A nested transaction stays open until its outermost level is committed.'
+              : '')
+          }
+          cancelLabel="Keep transaction open"
+          confirmLabel="Confirm commit"
+          confirmDisabled={!canControlTransaction || status.transaction !== 'open'}
+          onConfirm={() => {
+            setConfirmCommit(false);
+            void executeQuery(token, binding, undefined, 'commit');
+          }}
+        />
       )}
       {history && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setHistory(null);
+        <QueryHistoryPicker
+          history={history}
+          disabled={tab.dirty || running}
+          onClose={() => setHistory(null)}
+          onLoad={(sql) => {
+            updateQuery(binding.tab_id, (t) => ({ ...t, sql, dirty: true, script: null }));
+            setHistory(null);
           }}
-        >
-          <DialogContent className="max-h-[85vh] overflow-auto">
-            <DialogHeader>
-              <DialogTitle>Session query history</DialogTitle>
-              <DialogDescription>
-                Memory only, up to 100 entries / 1 MiB. Selecting an entry loads text without
-                executing it. Save or discard current SQL before replacing it.
-              </DialogDescription>
-            </DialogHeader>
-            {history.map((entry, index) => (
-              <Button
-                key={index}
-                variant="ghost"
-                className="h-auto justify-start whitespace-pre-wrap break-all text-left font-mono text-xs"
-                disabled={tab.dirty || running}
-                onClick={() => {
-                  updateQuery(binding.tab_id, (t) => ({
-                    ...t,
-                    sql: entry.sql,
-                    dirty: true,
-                    script: null,
-                  }));
-                  setHistory(null);
-                }}
-              >
-                {entry.executed_at}
-                <br />
-                {entry.sql.slice(0, 500)}
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              onClick={() =>
-                void job(async () =>
-                  setHistory(await tauriCommands.databaseQueryHistory(token, binding, true)),
-                )
-              }
-            >
-              Clear history
-            </Button>
-          </DialogContent>
-        </Dialog>
+          onClear={() =>
+            void job(async () =>
+              setHistory(await tauriCommands.databaseQueryHistory(token, binding, true)),
+            )
+          }
+        />
       )}
       {fileAction && (
-        <Dialog
+        <FormDialog
           open
           onOpenChange={(open) => {
             if (!open) setFileAction(null);
           }}
+          size="s"
+          icon={<FileCode2 />}
+          title={fileAction === 'open' ? 'Open SQL script' : 'Save SQL script'}
+          description="A path inside the current vault. SQL text syncs like other files; connection secrets, history and results stay on this device. Opening never runs it."
+          submitLabel={fileAction === 'open' ? 'Open script' : 'Save script'}
+          busy={working}
+          submitDisabled={!path.trim()}
+          onSubmit={() => job(file)}
         >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {fileAction === 'open' ? 'Open SQL script' : 'Save SQL script'}
-              </DialogTitle>
-              <DialogDescription>
-                Relative to the current vault. SQL text can sync like other files; connection
-                secrets, history and results stay local. Opening never executes. Use a new name for
-                Save As.
-              </DialogDescription>
-            </DialogHeader>
-            <Field>
-              <FieldLabel htmlFor="sql-script-path">Vault relative .sql path</FieldLabel>
-              <Input
-                id="sql-script-path"
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-              />
-            </Field>
-            <Button disabled={working} onClick={() => void job(file)}>
-              {fileAction === 'open' ? 'Open script' : 'Save script'}
-            </Button>
-          </DialogContent>
-        </Dialog>
+          <FormField
+            label="Vault relative .sql path"
+            htmlFor="sql-script-path"
+            hint={fileAction === 'save' ? 'Use a new name to save a copy.' : undefined}
+          >
+            <Input
+              id="sql-script-path"
+              autoFocus
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              className="h-9 font-mono text-[13px]"
+            />
+          </FormField>
+        </FormDialog>
       )}
     </section>
+  );
+}
+
+/** Session query history: pick an earlier query to load it (never runs it). */
+function QueryHistoryPicker({
+  history,
+  disabled,
+  onClose,
+  onLoad,
+  onClear,
+}: {
+  history: { executed_at: string; sql: string }[];
+  disabled: boolean;
+  onClose: () => void;
+  onLoad: (sql: string) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  const entries = history.map((entry, index) => ({ ...entry, key: String(index) }));
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? entries.filter((entry) => entry.sql.toLowerCase().includes(needle))
+    : entries;
+  return (
+    <PickerDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      size="m"
+      className="h-[min(600px,calc(100vh-2rem))] sm:max-w-[680px]"
+      icon={<History />}
+      title="Session query history"
+      description="Kept in memory only (up to 100 entries). Loading a query never runs it."
+      query={query}
+      onQueryChange={setQuery}
+      searchPlaceholder="Search queries"
+      groups={[{ items: shown }]}
+      getKey={(entry) => entry.key}
+      selectedKey={selected}
+      onSelect={setSelected}
+      renderItem={(entry) => (
+        <div className="min-w-0">
+          <p className="text-[11.5px] text-muted-foreground">{entry.executed_at}</p>
+          <pre className="line-clamp-3 font-mono text-xs whitespace-pre-wrap break-all">
+            {entry.sql.slice(0, 500)}
+          </pre>
+        </div>
+      )}
+      onPick={(entry) => onLoad(entry.sql)}
+      pickDisabled={disabled}
+      pickLabel={() => (disabled ? 'Save or discard the current SQL first' : 'Load query')}
+      emptyText="No queries in this session yet."
+      secondary={
+        <Button variant="ghost" onClick={onClear}>
+          Clear history
+        </Button>
+      }
+    />
   );
 }

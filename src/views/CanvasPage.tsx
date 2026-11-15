@@ -1705,33 +1705,16 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Canvas')}
         subtitle={getDocumentFolderPath(relativePath)}
-        icon={<Layout size={15} />}
+        icon={<Layout />}
+        status={<DocumentStatusPill status={canvasSnapshot.status} compact />}
         meta={
           <>
             <span className="shrink-0 text-xs text-muted-foreground">
               {nodes.length} {nodes.length === 1 ? 'card' : 'cards'} and {edges.length}{' '}
               {edges.length === 1 ? 'link' : 'links'}
             </span>
-            <DocumentStatusPill status={canvasSnapshot.status} compact />
             <LivePeers peers={livePeers} />
           </>
-        }
-        secondary={
-          <CanvasToolbar
-            zoomLabel={zoomLabel}
-            onAddNote={() => setPickerMode('note')}
-            onAddFile={() => setPickerMode('file')}
-            onAddText={addTextNode}
-            onAddWeb={addWebNode}
-            onAddSymbol={() => setSymbolPickerState({ open: true, mode: 'insert', position: null })}
-            onAddPlanningNode={addPlanningNode}
-            onApplyPreset={applyPlanningPreset}
-            onZoomOut={() => adjustZoom(-1)}
-            onResetZoom={resetZoom}
-            onZoomIn={() => adjustZoom(1)}
-            onFitView={fitCanvasView}
-            readOnly={readOnly || !!canvasLoadError || canvasLoading}
-          />
         }
       />
 
@@ -1750,6 +1733,21 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         }
         onDrop={readOnly ? undefined : handleDropOnCanvas}
       >
+        <CanvasToolbar
+          zoomLabel={zoomLabel}
+          onAddNote={() => setPickerMode('note')}
+          onAddFile={() => setPickerMode('file')}
+          onAddText={addTextNode}
+          onAddWeb={addWebNode}
+          onAddSymbol={() => setSymbolPickerState({ open: true, mode: 'insert', position: null })}
+          onAddPlanningNode={addPlanningNode}
+          onApplyPreset={applyPlanningPreset}
+          onZoomOut={() => adjustZoom(-1)}
+          onResetZoom={resetZoom}
+          onZoomIn={() => adjustZoom(1)}
+          onFitView={fitCanvasView}
+          readOnly={readOnly || !!canvasLoadError || canvasLoading}
+        />
         {canvasLoading && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/45 backdrop-blur-[1px]">
             <div className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-2 text-sm text-muted-foreground shadow-lg">
@@ -1897,7 +1895,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
               variant={BackgroundVariant.Dots}
               color="color-mix(in oklch, var(--muted-foreground) 22%, transparent)"
             />
-            <Panel position="top-right">
+            <Panel position="top-right" className="flex max-h-[calc(100%-5.5rem)] flex-col gap-2">
               <CanvasEdgeInspector
                 selectedEdgeData={selectedEdgeData}
                 edgeLabelDraft={edgeLabelDraft}
@@ -1910,8 +1908,6 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
                 onMarkerEndChange={updateSelectedEdgeMarkerEnd}
                 onDeleteSelected={deleteSelection}
               />
-            </Panel>
-            <Panel position="top-left">
               <CanvasNodeInspector
                 selectedNode={selectedInspectorNode}
                 knownUsers={knownUsers}

@@ -442,7 +442,8 @@ describe('DeckView: viewing', () => {
     serve(JSON.stringify({ kind: 'collab-deck', schemaVersion: 7, future: true }));
     renderView();
     expect(await screen.findByText(/written by a newer version of Collab/)).toBeTruthy();
-    expect((screen.getByRole('button', { name: /Save/ }) as HTMLButtonElement).disabled).toBe(true);
+    // Read-only presentations never offer Save.
+    expect(screen.queryByRole('button', { name: /Save/ })).toBeNull();
     expect((screen.getByRole('button', { name: /New slide/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
@@ -451,7 +452,7 @@ describe('DeckView: viewing', () => {
   it('is read-only for hosted viewers', async () => {
     useVaultStore.setState({ vault: HOSTED_VIEWER_VAULT } as never);
     await openDeck();
-    expect((screen.getByRole('button', { name: /Insert/ }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole('button', { name: /Media/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
     key(canvas(), 'a', { ctrlKey: true });
@@ -461,17 +462,19 @@ describe('DeckView: viewing', () => {
 });
 
 describe('DeckView: editing', () => {
-  it('keeps one formatting row mounted while selection changes', async () => {
+  it('shows the formatting bar only with a selection and keeps it mounted across selections', async () => {
     await openDeck();
-    const row = screen.getByTestId('deck-formatting-row');
-    const font = screen.getByRole('combobox', { name: 'Font' }) as HTMLButtonElement;
-    expect(font.disabled).toBe(true);
+    expect(screen.queryByTestId('deck-formatting-row')).toBeNull();
 
     key(canvas(), 'Tab');
-    expect(screen.getByTestId('deck-formatting-row')).toBe(row);
+    const row = screen.getByTestId('deck-formatting-row');
+    const font = within(row).getByRole('combobox', { name: 'Font' }) as HTMLButtonElement;
     expect(font.disabled).toBe(false);
     expect(within(row).getByRole('toolbar', { name: 'Text formatting' })).toBeTruthy();
     expect(within(row).getByRole('toolbar', { name: 'Object formatting' })).toBeTruthy();
+
+    key(canvas(), 'Tab');
+    expect(screen.getByTestId('deck-formatting-row')).toBe(row);
   });
 
   it('focuses the canvas on a blank click and uses arrows to change slides', async () => {
@@ -999,6 +1002,7 @@ describe('DeckView: objects and Collab data', () => {
     await openDeck();
     fireEvent.click(menuItem('Linked document…'));
     fireEvent.click(await screen.findByRole('option', { name: /Plan\.md/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use Plan.md' }));
     await waitFor(() => expect(clientMocks.importData).toHaveBeenCalled());
     const [dataUrl, name, folder] = clientMocks.importData.mock.calls[0];
     expect(dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
@@ -1023,6 +1027,7 @@ describe('DeckView: objects and Collab data', () => {
     await openDeck();
     fireEvent.click(menuItem('Image…'));
     fireEvent.click(await screen.findByRole('option', { name: /cat\.png/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use cat.png' }));
     await screen.findByText('1 selected');
     const saved = await savedDeck();
     const image = Object.values(saved.slides['slide-1'].elements).find(
@@ -1103,7 +1108,7 @@ describe('DeckView: presenting and export', () => {
     tauriMocks.writeDownloadedBytes.mockResolvedValue(undefined);
     await openDeck();
     fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Export…/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Export PDF' }));
     await waitFor(() => expect(tauriMocks.writeDownloadedBytes).toHaveBeenCalled());
     expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pdf', {
       name: 'PDF',
@@ -1129,10 +1134,8 @@ describe('DeckView: PowerPoint export', () => {
     tauriMocks.writeDownloadedBytes.mockResolvedValue(undefined);
     await openDeck();
     fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
-    const format = await screen.findByRole('combobox', { name: 'Format' });
-    fireEvent.click(format);
-    fireEvent.click(await screen.findByRole('option', { name: 'PowerPoint (.pptx)' }));
-    fireEvent.click(screen.getByRole('button', { name: /Export…/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'PowerPoint' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export PowerPoint' }));
     expect(await screen.findByText('Exported to PowerPoint', {}, { timeout: 10_000 })).toBeTruthy();
     expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pptx', {
       name: 'PowerPoint',

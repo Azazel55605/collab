@@ -83,3 +83,27 @@ export function filterFileTreeByType(
   }
   return filtered;
 }
+
+/**
+ * Keeps files whose name contains `query` (case-insensitive) and the folders
+ * leading to them. A folder whose own name matches keeps all of its contents.
+ */
+export function filterFileTreeByName(nodes: NoteFile[], query: string): NoteFile[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return nodes;
+  const filtered: NoteFile[] = [];
+  for (const node of nodes) {
+    const matches = node.name.toLocaleLowerCase().includes(needle);
+    if (node.isFolder) {
+      if (matches) {
+        filtered.push(node);
+        continue;
+      }
+      const children = filterFileTreeByName(node.children ?? [], needle);
+      if (children.length > 0) filtered.push({ ...node, children });
+      continue;
+    }
+    if (matches) filtered.push(node);
+  }
+  return filtered;
+}

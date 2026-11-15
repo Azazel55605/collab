@@ -150,8 +150,50 @@ export function isMermaidLanguage(language: string) {
   return language.trim().split(/\s+/, 1)[0]?.toLowerCase() === 'mermaid';
 }
 
+// Rendered diagrams by source and theme. A widget that scrolls out of the
+// editor and back is rebuilt; this keeps it from re-running Mermaid each time.
+const svgCache = new Map<string, string>();
+const SVG_CACHE_LIMIT = 32;
+
+/** Forgets rendered diagrams (tests, theme resets). */
+export function clearMermaidRenderCache() {
+  svgCache.clear();
+}
+
+function rememberSvg(key: string, svg: string) {
+  svgCache.delete(key);
+  svgCache.set(key, svg);
+  while (svgCache.size > SVG_CACHE_LIMIT) svgCache.delete(svgCache.keys().next().value!);
+}
+
+function mountSvg(target: HTMLElement, sanitized: string) {
+  const template = document.createElement('template');
+  template.innerHTML = sanitized;
+  const renderedSvg = template.content.querySelector('svg');
+  if (!renderedSvg) throw new Error('renderer returned no SVG');
+  renderedSvg.setAttribute('role', 'img');
+  renderedSvg.setAttribute('aria-label', 'Mermaid diagram');
+  renderedSvg.removeAttribute('height');
+  renderedSvg.setAttribute('width', '100%');
+  target.replaceChildren(renderedSvg);
+  target.classList.remove('is-loading', 'is-error');
+  target.removeAttribute('aria-busy');
+}
+
 export function renderMermaidInto(target: HTMLElement, source: string): MermaidRenderJob {
   let cancelled = false;
+  const cacheKey = `${JSON.stringify(mermaidThemeVariables(target))}\0${source}`;
+  const cached = svgCache.get(cacheKey);
+  if (cached) {
+    target.classList.add('md-mermaid-canvas');
+    try {
+      mountSvg(target, cached);
+      rememberSvg(cacheKey, cached);
+      return { ready: Promise.resolve(), cancel() {} };
+    } catch {
+      svgCache.delete(cacheKey);
+    }
+  }
   target.classList.add('md-mermaid-canvas', 'is-loading');
   target.setAttribute('aria-busy', 'true');
   target.textContent = 'Rendering diagram...';
@@ -193,18 +235,8 @@ export function renderMermaidInto(target: HTMLElement, source: string): MermaidR
       USE_PROFILES: { svg: true, svgFilters: true },
       FORBID_TAGS: ['foreignObject', 'script'],
     }) as unknown as string;
-    const template = document.createElement('template');
-    template.innerHTML = sanitized;
-    const renderedSvg = template.content.querySelector('svg');
-    if (!renderedSvg) throw new Error('renderer returned no SVG');
-
-    renderedSvg.setAttribute('role', 'img');
-    renderedSvg.setAttribute('aria-label', 'Mermaid diagram');
-    renderedSvg.removeAttribute('height');
-    renderedSvg.setAttribute('width', '100%');
-    target.replaceChildren(renderedSvg);
-    target.classList.remove('is-loading', 'is-error');
-    target.removeAttribute('aria-busy');
+    mountSvg(target, sanitized);
+    rememberSvg(cacheKey, sanitized);
   }).catch((reason) => {
     if (!cancelled) renderError(target, source, reason);
   });

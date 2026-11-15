@@ -82,4 +82,28 @@ describe('NotificationCenter', () => {
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith('profile-1', 'notice-1'));
     await waitFor(() => expect(screen.queryByText('Planning')).toBeNull());
   });
+
+  it('filters by kind and marks everything read at once', async () => {
+    const message: NotificationRecord = {
+      ...record,
+      envelope: {
+        ...record.envelope,
+        id: 'notice-2',
+        category: 'collaboration.message' as never,
+        kind: 'collaboration.mention',
+        title: 'Lena mentioned you',
+      },
+    };
+    mocks.listInbox.mockResolvedValue([record, message]);
+    render(<NotificationCenter />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Notifications, 2 unread' }));
+    expect(await screen.findByText('Planning')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Messages' }));
+    expect(screen.queryByText('Planning')).toBeNull();
+    expect(screen.getByText('Lena mentioned you')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all read' }));
+    await waitFor(() => expect(mocks.markRead).toHaveBeenCalledTimes(2));
+  });
 });

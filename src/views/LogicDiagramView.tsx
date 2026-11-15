@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
   useCallback,
@@ -16,12 +17,14 @@ import {
   Activity,
   ChartLine,
   CircuitBoard,
+  Clock,
   Download,
   Group,
   Image,
   Loader2,
   Maximize2,
   Minus,
+  Package,
   Pause,
   Pencil,
   Play,
@@ -33,6 +36,7 @@ import {
   Save,
   Shapes,
   SlidersHorizontal,
+  Table,
   Table2,
   Trash2,
   Ungroup,
@@ -42,11 +46,11 @@ import {
 import { toast } from 'sonner';
 
 import LivePeers from '../components/collaboration/LivePeers';
+import { RailButton } from '../components/layout/CanvasChrome';
 import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentTopBar,
   DocumentTopBarButton,
-  documentTopBarGroupClass,
   DocumentTopBarIconButton,
   getDocumentBaseName,
   getDocumentFolderPath,
@@ -76,6 +80,7 @@ import {
   instantiateLogicDiagramTemplate,
   type LogicDiagramTemplate,
 } from '../components/logic/logicDiagramTemplates';
+import { LogicComponentPicker, LogicTemplatePicker } from '../components/logic/LogicPickers';
 import {
   generateComponentTruthTable,
   generateLogicTruthTable,
@@ -91,16 +96,17 @@ import {
   schematicTerminalPoint,
   schematicTerminalSide,
 } from '../components/logic/schematicSymbols';
-import { Button } from '../components/ui/button';
+import { AppDialogBody, AppDialogContent, AppDialogHeader } from '../components/ui/app-dialog';
 import { Checkbox } from '../components/ui/checkbox';
+import { Dialog } from '../components/ui/dialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
+import { FormDialog, FormField } from '../components/ui/form-dialog';
 import { Input } from '../components/ui/input';
 import {
   Select,
@@ -109,6 +115,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { circuitErrorText } from '../lib/circuitErrorText';
 import { type CircuitJobClient, runCircuitJob } from '../lib/circuitJobRunner';
 import {
@@ -1073,8 +1080,6 @@ function LogicDiagramEditor({ relativePath }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [selectedGate, setSelectedGate] = useState<LogicGateKind>('and');
-  const [selectedSymbol, setSelectedSymbol] = useState<ElectronicComponentKind>('resistor');
   // Rename state — supports gates, groups, and wires via a discriminated target.
   const [renameTarget, setRenameTarget] = useState<{ kind: 'node' | 'edge'; id: string } | null>(
     null,
@@ -4186,406 +4191,6 @@ function LogicDiagramEditor({ relativePath }: Props) {
     closeContextMenu();
   };
 
-  const secondary = (
-    <>
-      {componentEditSession && (
-        <div className={documentTopBarGroupClass}>
-          <span className="px-2 text-xs font-medium text-primary">
-            Editing {componentEditSession.component.name}
-            {componentEditDirty ? ' · modified' : ''}
-          </span>
-          <DocumentTopBarButton
-            onClick={() => restoreComponentWorkspace(componentEditSession)}
-            disabled={saving}
-          >
-            Cancel
-          </DocumentTopBarButton>
-        </div>
-      )}
-      <div className={documentTopBarGroupClass}>
-        <Select
-          value={diagram.diagramMode}
-          onValueChange={(value) => changeDiagramMode(value as LogicDiagramMode)}
-          disabled={readOnly || nodes.length > 0 || edges.length > 0}
-        >
-          <SelectTrigger
-            size="sm"
-            className="h-8 min-w-32 border-0 bg-transparent text-xs shadow-none"
-            title={
-              nodes.length > 0 || edges.length > 0
-                ? 'Mode is fixed once the diagram contains elements'
-                : 'Diagram mode'
-            }
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="start" position="popper">
-            <SelectItem value="logic">Digital logic</SelectItem>
-            <SelectItem value="schematic">Electronic schematic</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      {diagram.diagramMode === 'logic' ? (
-        <div className={documentTopBarGroupClass}>
-          <Select
-            value={selectedGate}
-            onValueChange={(value) => setSelectedGate(value as LogicGateKind)}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-8 min-w-28 border-0 bg-transparent text-xs shadow-none"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="start" position="popper">
-              {GATE_CHOICES.map((gate) => (
-                <SelectItem key={gate.kind} value={gate.kind}>
-                  {gate.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DocumentTopBarButton onClick={() => addGate(selectedGate)} disabled={readOnly}>
-            <Plus size={14} />
-            Add
-          </DocumentTopBarButton>
-          <DocumentTopBarButton
-            onClick={() => setTemplatePickerOpen(true)}
-            disabled={readOnly}
-            title="Insert a starter template (half-adder, full-adder, multiplexer, etc.)"
-          >
-            <Shapes size={14} />
-            Templates
-          </DocumentTopBarButton>
-          <DocumentTopBarButton
-            onClick={() => setComponentPickerOpen(true)}
-            disabled={readOnly || !logicComponentsCapability}
-            title="Insert a reusable logic component"
-          >
-            <CircuitBoard size={14} />
-            Components
-          </DocumentTopBarButton>
-          <DocumentTopBarButton
-            onClick={openSaveComponentDialog}
-            disabled={
-              readOnly ||
-              !logicComponentsCapability ||
-              nodes.length === 0 ||
-              Boolean(componentEditSession)
-            }
-            title="Save the selection, or the whole diagram if nothing is selected, as a component"
-          >
-            <Save size={14} />
-            Save component
-          </DocumentTopBarButton>
-          <DocumentTopBarButton
-            onClick={() => {
-              const selectedComponent = selectedComponentNodes[0]?.data.component?.definition;
-              setTruthTableScope(selectedComponent?.id ?? 'document');
-              setTruthTableOpen(true);
-            }}
-            disabled={nodes.length === 0}
-            title="Calculate a truth table for this diagram or a reusable component"
-          >
-            <Table2 size={14} />
-            Value table
-          </DocumentTopBarButton>
-          <DocumentTopBarIconButton
-            title={clockRunning ? 'Pause clocks' : 'Run clocks'}
-            onClick={() => (clockRunning ? setClockRunning(false) : startClocks())}
-            disabled={clockCount === 0}
-          >
-            {clockRunning ? <Pause size={14} /> : <Play size={14} />}
-          </DocumentTopBarIconButton>
-          <DocumentTopBarIconButton
-            title="Reset clock sequence"
-            onClick={resetClocks}
-            disabled={clockCount === 0}
-          >
-            <RotateCcw size={14} />
-          </DocumentTopBarIconButton>
-        </div>
-      ) : (
-        <div className={documentTopBarGroupClass}>
-          <Select
-            value={selectedSymbol}
-            onValueChange={(value) => setSelectedSymbol(value as ElectronicComponentKind)}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-8 min-w-36 border-0 bg-transparent text-xs shadow-none"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="start" position="popper">
-              {SCHEMATIC_SYMBOL_CHOICES.map((symbol) => (
-                <SelectItem key={symbol.kind} value={symbol.kind}>
-                  {symbol.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DocumentTopBarButton
-            onClick={() => addSchematicSymbol(selectedSymbol)}
-            disabled={readOnly}
-          >
-            <Plus size={14} />
-            Add
-          </DocumentTopBarButton>
-          <DocumentTopBarIconButton
-            title="Rotate selected symbols clockwise"
-            onClick={() => rotateSelectedSchematicSymbols()}
-            disabled={
-              readOnly ||
-              !nodes.some(
-                (node) =>
-                  node.selected &&
-                  isElectronicComponentKind(node.data.kind) &&
-                  node.data.kind !== 'junction',
-              )
-            }
-          >
-            <RotateCw size={14} />
-          </DocumentTopBarIconButton>
-          <DocumentTopBarButton
-            onClick={() =>
-              circuitRunning && circuitRunKind === 'dc'
-                ? void cancelDcSimulation()
-                : void runDcSimulation()
-            }
-            disabled={
-              loading ||
-              (circuitRunning && circuitRunKind !== 'dc') ||
-              (!circuitRunning && nodes.length === 0) ||
-              (circuitRunning && (!circuitJobId || circuitJobStatus?.phase === 'cancelling'))
-            }
-            title={
-              circuitRunning && circuitRunKind === 'dc'
-                ? 'Cancel the active DC simulation'
-                : 'Compile and solve the DC operating point locally'
-            }
-            className="min-w-[132px]"
-          >
-            {circuitRunning &&
-            circuitRunKind === 'dc' &&
-            (!circuitJobId || circuitJobStatus?.phase === 'cancelling') ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : circuitRunning && circuitRunKind === 'dc' ? (
-              <X size={14} />
-            ) : (
-              <Play size={14} />
-            )}
-            {circuitRunning && circuitRunKind === 'dc'
-              ? circuitJobStatus?.phase === 'cancelling'
-                ? 'Cancelling'
-                : circuitJobStatus?.stage
-                  ? `Cancel: ${circuitJobStatus.stage[0].toUpperCase()}${circuitJobStatus.stage.slice(1)}`
-                  : 'Starting'
-              : 'Run DC'}
-          </DocumentTopBarButton>
-          <DocumentTopBarButton
-            onClick={() =>
-              circuitRunning && circuitRunKind === 'sweep'
-                ? void cancelDcSimulation()
-                : void runDcSweep()
-            }
-            disabled={
-              loading ||
-              (circuitRunning && circuitRunKind !== 'sweep') ||
-              (!circuitRunning && nodes.length === 0) ||
-              (circuitRunning && (!circuitJobId || circuitJobStatus?.phase === 'cancelling'))
-            }
-            title={
-              circuitRunning && circuitRunKind === 'sweep'
-                ? 'Cancel the active DC sweep'
-                : 'Run the persisted DC source sweep locally'
-            }
-            className="min-w-[112px]"
-          >
-            {circuitRunning &&
-            circuitRunKind === 'sweep' &&
-            (!circuitJobId || circuitJobStatus?.phase === 'cancelling') ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : circuitRunning && circuitRunKind === 'sweep' ? (
-              <X size={14} />
-            ) : (
-              <ChartLine size={14} />
-            )}
-            {circuitRunning && circuitRunKind === 'sweep'
-              ? circuitJobStatus?.phase === 'cancelling'
-                ? 'Cancelling'
-                : circuitJobStatus?.stage
-                  ? `Cancel: ${circuitJobStatus.stage[0].toUpperCase()}${circuitJobStatus.stage.slice(1)}`
-                  : 'Starting'
-              : 'Run sweep'}
-          </DocumentTopBarButton>
-          <DocumentTopBarIconButton
-            title="Configure DC sweep"
-            onClick={openSweepConfiguration}
-            disabled={readOnly || sweepSourceChoices.length === 0 || circuitRunning}
-          >
-            <SlidersHorizontal size={14} />
-          </DocumentTopBarIconButton>
-          <DocumentTopBarButton
-            onClick={() =>
-              circuitRunning && circuitRunKind === 'transient'
-                ? void cancelDcSimulation()
-                : void runTransient()
-            }
-            disabled={
-              loading ||
-              (circuitRunning && circuitRunKind !== 'transient') ||
-              (!circuitRunning && nodes.length === 0) ||
-              (circuitRunning && (!circuitJobId || circuitJobStatus?.phase === 'cancelling'))
-            }
-            title={
-              circuitRunning && circuitRunKind === 'transient'
-                ? 'Cancel transient analysis'
-                : 'Run the persisted transient analysis locally'
-            }
-            className="min-w-[124px]"
-          >
-            {circuitRunning &&
-            circuitRunKind === 'transient' &&
-            (!circuitJobId || circuitJobStatus?.phase === 'cancelling') ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : circuitRunning && circuitRunKind === 'transient' ? (
-              <X size={14} />
-            ) : (
-              <Activity size={14} />
-            )}
-            {circuitRunning && circuitRunKind === 'transient'
-              ? circuitJobStatus?.phase === 'cancelling'
-                ? 'Cancelling'
-                : 'Transient...'
-              : 'Transient'}
-          </DocumentTopBarButton>
-          <DocumentTopBarIconButton
-            title="Configure transient analysis"
-            onClick={openTransientConfiguration}
-            disabled={readOnly || sweepSourceChoices.length === 0 || circuitRunning}
-          >
-            <SlidersHorizontal size={14} />
-          </DocumentTopBarIconButton>
-          <DocumentTopBarIconButton
-            title={circuitResultsOpen ? 'Hide DC results' : 'Show DC results'}
-            onClick={() => {
-              setSweepResultsOpen(false);
-              setTransientResultsOpen(false);
-              setCircuitResultsOpen((open) => !open);
-            }}
-            disabled={!circuitResult && !circuitError}
-          >
-            <Zap size={14} />
-          </DocumentTopBarIconButton>
-          <DocumentTopBarIconButton
-            title={sweepResultsOpen ? 'Hide sweep results' : 'Show sweep results'}
-            onClick={() => {
-              setCircuitResultsOpen(false);
-              setTransientResultsOpen(false);
-              setSweepResultsOpen((open) => !open);
-            }}
-            disabled={!sweepResult && !sweepError}
-          >
-            <ChartLine size={14} />
-          </DocumentTopBarIconButton>
-          <DocumentTopBarIconButton
-            title={transientResultsOpen ? 'Hide transient results' : 'Show transient results'}
-            onClick={() => {
-              setCircuitResultsOpen(false);
-              setSweepResultsOpen(false);
-              setTransientResultsOpen((open) => !open);
-            }}
-            disabled={!transientResult && !transientError}
-          >
-            <Activity size={14} />
-          </DocumentTopBarIconButton>
-        </div>
-      )}
-      <div className={documentTopBarGroupClass}>
-        <DocumentTopBarIconButton
-          title="Delete selected gates or wires"
-          onClick={deleteSelection}
-          disabled={readOnly || (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0)}
-        >
-          <Trash2 size={14} />
-        </DocumentTopBarIconButton>
-        <DocumentTopBarButton
-          onClick={groupSelection}
-          disabled={
-            readOnly ||
-            nodes.filter((node) => node.selected && node.data.kind !== 'group' && !node.parentId)
-              .length < 2
-          }
-        >
-          <Group size={14} />
-          Group
-        </DocumentTopBarButton>
-        <DocumentTopBarIconButton
-          title="Ungroup selected groups"
-          onClick={ungroupSelection}
-          disabled={readOnly || !nodes.some((node) => node.selected && node.data.kind === 'group')}
-        >
-          <Ungroup size={14} />
-        </DocumentTopBarIconButton>
-        <DocumentTopBarIconButton
-          title="Rename selected gate or group (F2)"
-          onClick={renameSelectedNode}
-          disabled={
-            readOnly ||
-            (selectedGroups.length !== 1 &&
-              selectedGateNodes.length !== 1 &&
-              selectedComponentNodes.length !== 1)
-          }
-        >
-          <Pencil size={14} />
-        </DocumentTopBarIconButton>
-      </div>
-      <div className={documentTopBarGroupClass}>
-        <DocumentTopBarIconButton onClick={() => adjustZoom(-1)} title="Zoom out">
-          <Minus size={15} />
-        </DocumentTopBarIconButton>
-        <DocumentTopBarButton
-          onClick={resetZoom}
-          className="min-w-[78px] justify-center px-2 text-center font-medium text-muted-foreground"
-          title="Reset zoom to 100%"
-        >
-          {zoomLabel}
-        </DocumentTopBarButton>
-        <DocumentTopBarIconButton onClick={() => adjustZoom(1)} title="Zoom in">
-          <PlusIcon size={15} />
-        </DocumentTopBarIconButton>
-        <DocumentTopBarIconButton onClick={fitLogicView} title="Fit view">
-          <Maximize2 size={14} />
-        </DocumentTopBarIconButton>
-        <DocumentTopBarIconButton onClick={resetZoom} title="Reset zoom">
-          <RotateCcw size={14} />
-        </DocumentTopBarIconButton>
-      </div>
-      <div className={documentTopBarGroupClass}>
-        <DocumentTopBarButton
-          onClick={(event) => handleExportToNote(event.shiftKey)}
-          disabled={exporting || loading || readOnly || Boolean(componentEditSession)}
-          title="Insert in note. Shift-click saves a unique export."
-        >
-          {exporting ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
-          Insert in note
-        </DocumentTopBarButton>
-        <DocumentTopBarButton
-          onClick={() =>
-            componentEditSession ? void saveEditedLogicComponent() : void handleSave()
-          }
-          disabled={
-            saving || loading || readOnly || (Boolean(componentEditSession) && !componentEditDirty)
-          }
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          {componentEditSession ? 'Update component' : 'Save'}
-        </DocumentTopBarButton>
-      </div>
-    </>
-  );
-
   const handleSaveAsNew = useCallback(
     async (localContent: string) => {
       if (!client || !relativePath) return;
@@ -4743,22 +4348,437 @@ function LogicDiagramEditor({ relativePath }: Props) {
     });
   }, [circuitResult, diagram.simulation?.probes]);
 
-  const meta = (
-    <div className="flex items-center gap-2">
-      {componentEditSession ? (
-        <div className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary">
-          Component library
-        </div>
-      ) : (
-        <DocumentStatusPill status={snapshot.status} compact />
-      )}
-      <LivePeers peers={livePeers} />
-      <div className="rounded-full border border-border/60 px-2 py-1 text-[11px] text-muted-foreground">
-        {diagram.diagramMode === 'schematic'
-          ? `${counts.schematicCount} symbols · ${counts.groupCount} groups · ${edges.length} wires · ${circuitRunning ? (circuitRunKind === 'sweep' ? 'sweeping' : circuitRunKind === 'transient' ? 'transient' : 'solving') : transientResultStale ? 'transient stale' : transientResult ? 'transient result' : sweepResultStale ? 'sweep stale' : sweepResult ? 'sweep result' : circuitResultStale ? 'DC stale' : circuitResult ? 'DC result' : 'DC ready'}`
-          : `${counts.gateCount} gates · ${counts.componentCount} components · ${counts.groupCount} groups · ${edges.length} wires`}
+  const anyResultsOpen =
+    diagram.diagramMode === 'schematic' &&
+    (circuitResultsOpen || sweepResultsOpen || transientResultsOpen);
+  const runLabel = (kind: 'dc' | 'sweep' | 'transient', idle: string) =>
+    circuitRunning && circuitRunKind === kind
+      ? circuitJobStatus?.phase === 'cancelling'
+        ? 'Cancelling'
+        : kind === 'transient'
+          ? 'Transient...'
+          : circuitJobStatus?.stage
+            ? `Cancel: ${circuitJobStatus.stage[0].toUpperCase()}${circuitJobStatus.stage.slice(1)}`
+            : 'Starting'
+      : idle;
+  const runIcon = (kind: 'dc' | 'sweep' | 'transient', idle: ReactNode) =>
+    circuitRunning &&
+    circuitRunKind === kind &&
+    (!circuitJobId || circuitJobStatus?.phase === 'cancelling') ? (
+      <Loader2 className="animate-spin" />
+    ) : circuitRunning && circuitRunKind === kind ? (
+      <X />
+    ) : (
+      idle
+    );
+  const runDisabled = (kind: 'dc' | 'sweep' | 'transient') =>
+    loading ||
+    (circuitRunning && circuitRunKind !== kind) ||
+    (!circuitRunning && nodes.length === 0) ||
+    (circuitRunning && (!circuitJobId || circuitJobStatus?.phase === 'cancelling'));
+  const canRotate =
+    !readOnly &&
+    nodes.some(
+      (node) =>
+        node.selected && isElectronicComponentKind(node.data.kind) && node.data.kind !== 'junction',
+    );
+  const canGroup =
+    !readOnly &&
+    nodes.filter((node) => node.selected && node.data.kind !== 'group' && !node.parentId).length >=
+      2;
+  const canUngroup = !readOnly && nodes.some((node) => node.selected && node.data.kind === 'group');
+  const canRename =
+    !readOnly &&
+    (selectedGroups.length === 1 ||
+      selectedGateNodes.length === 1 ||
+      selectedComponentNodes.length === 1);
+  const canDelete = !readOnly && (selectedNodeIds.length > 0 || selectedEdgeIds.length > 0);
+
+  // Floating canvas chrome: add tools on the left, selection actions on top,
+  // simulation/clock status bottom-left and zoom bottom-right.
+  const canvasChrome = (
+    <>
+      <div
+        role="toolbar"
+        aria-label="Add to diagram"
+        aria-orientation="vertical"
+        className="absolute top-1/2 left-3 z-10 flex -translate-y-1/2 flex-col gap-0.5 rounded-xl border border-border/70 bg-popover/95 p-1 shadow-lg"
+      >
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <DocumentTopBarIconButton
+                  aria-label={diagram.diagramMode === 'logic' ? 'Add gate' : 'Add symbol'}
+                  disabled={readOnly}
+                >
+                  <Plus />
+                </DocumentTopBarIconButton>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {diagram.diagramMode === 'logic' ? 'Add gate' : 'Add symbol'}
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent side="right" align="start" className="max-h-96 overflow-y-auto">
+            <DropdownMenuLabel>
+              {diagram.diagramMode === 'logic' ? 'Add gate' : 'Add symbol'}
+            </DropdownMenuLabel>
+            {diagram.diagramMode === 'logic'
+              ? GATE_CHOICES.map((gate) => (
+                  <DropdownMenuItem
+                    key={gate.kind}
+                    onSelect={() => {
+                      addGate(gate.kind);
+                    }}
+                  >
+                    {gate.label}
+                  </DropdownMenuItem>
+                ))
+              : SCHEMATIC_SYMBOL_CHOICES.map((symbol) => (
+                  <DropdownMenuItem
+                    key={symbol.kind}
+                    onSelect={() => {
+                      addSchematicSymbol(symbol.kind);
+                    }}
+                  >
+                    {symbol.label}
+                  </DropdownMenuItem>
+                ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {diagram.diagramMode === 'logic' && (
+          <>
+            <RailButton
+              label="Templates"
+              hint="Insert a starter template (half-adder, full-adder, multiplexer, etc.)"
+              disabled={readOnly}
+              onClick={() => setTemplatePickerOpen(true)}
+            >
+              <Shapes />
+            </RailButton>
+            <RailButton
+              label="Components"
+              hint="Insert a reusable logic component"
+              disabled={readOnly || !logicComponentsCapability}
+              onClick={() => setComponentPickerOpen(true)}
+            >
+              <CircuitBoard />
+            </RailButton>
+            <span className="mx-1.5 my-0.5 h-px bg-border" aria-hidden="true" />
+            <RailButton
+              label="Save component"
+              hint="Save the selection, or the whole diagram if nothing is selected, as a component"
+              disabled={
+                readOnly ||
+                !logicComponentsCapability ||
+                nodes.length === 0 ||
+                Boolean(componentEditSession)
+              }
+              onClick={openSaveComponentDialog}
+            >
+              <Save />
+            </RailButton>
+          </>
+        )}
       </div>
-    </div>
+
+      {selectedItemCount > 0 && !readOnly && (
+        <div
+          role="toolbar"
+          aria-label="Selection"
+          className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border border-border/70 bg-popover/95 p-1 shadow-lg"
+        >
+          <span className="px-2 text-xs text-muted-foreground">{selectedItemCount} selected</span>
+          {diagram.diagramMode === 'schematic' && (
+            <RailButton
+              label="Rotate selected symbols clockwise"
+              disabled={!canRotate}
+              onClick={() => rotateSelectedSchematicSymbols()}
+            >
+              <RotateCw />
+            </RailButton>
+          )}
+          <RailButton
+            label="Rename selected gate or group (F2)"
+            disabled={!canRename}
+            onClick={renameSelectedNode}
+          >
+            <Pencil />
+          </RailButton>
+          <RailButton label="Group" disabled={!canGroup} onClick={groupSelection}>
+            <Group />
+          </RailButton>
+          <RailButton
+            label="Ungroup selected groups"
+            disabled={!canUngroup}
+            onClick={ungroupSelection}
+          >
+            <Ungroup />
+          </RailButton>
+          <RailButton
+            label="Delete selected gates or wires"
+            disabled={!canDelete}
+            onClick={deleteSelection}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 />
+          </RailButton>
+        </div>
+      )}
+
+      <div
+        role="group"
+        aria-label={diagram.diagramMode === 'schematic' ? 'Simulation' : 'Diagram status'}
+        className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-0.5 rounded-xl border border-border/70 bg-popover/95 p-1 text-xs shadow-lg"
+      >
+        <span className="px-2 text-muted-foreground">
+          {diagram.diagramMode === 'schematic'
+            ? `${counts.schematicCount} symbols · ${counts.groupCount} groups · ${edges.length} wires`
+            : `${counts.gateCount} gates · ${counts.componentCount} components · ${counts.groupCount} groups · ${edges.length} wires`}
+        </span>
+        {diagram.diagramMode === 'logic' ? (
+          <>
+            {clockCount > 0 && (
+              <>
+                <RailButton
+                  label={clockRunning ? 'Pause clocks' : 'Run clocks'}
+                  onClick={() => (clockRunning ? setClockRunning(false) : startClocks())}
+                >
+                  {clockRunning ? <Pause /> : <Play />}
+                </RailButton>
+                <RailButton label="Reset clock sequence" onClick={resetClocks}>
+                  <RotateCcw />
+                </RailButton>
+              </>
+            )}
+            <DocumentTopBarButton
+              onClick={() => {
+                const selectedComponent = selectedComponentNodes[0]?.data.component?.definition;
+                setTruthTableScope(selectedComponent?.id ?? 'document');
+                setTruthTableOpen(true);
+              }}
+              disabled={nodes.length === 0}
+              title="Calculate a truth table for this diagram or a reusable component"
+            >
+              <Table2 /> Value table
+            </DocumentTopBarButton>
+          </>
+        ) : (
+          <>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            <DocumentTopBarButton
+              onClick={() =>
+                circuitRunning && circuitRunKind === 'dc'
+                  ? void cancelDcSimulation()
+                  : void runDcSimulation()
+              }
+              disabled={runDisabled('dc')}
+              title={
+                circuitRunning && circuitRunKind === 'dc'
+                  ? 'Cancel the active DC simulation'
+                  : 'Compile and solve the DC operating point locally'
+              }
+            >
+              {runIcon('dc', <Play />)}
+              {runLabel('dc', 'Run DC')}
+            </DocumentTopBarButton>
+            <DocumentTopBarButton
+              onClick={() =>
+                circuitRunning && circuitRunKind === 'sweep'
+                  ? void cancelDcSimulation()
+                  : void runDcSweep()
+              }
+              disabled={runDisabled('sweep')}
+              title={
+                circuitRunning && circuitRunKind === 'sweep'
+                  ? 'Cancel the active DC sweep'
+                  : 'Run the persisted DC source sweep locally'
+              }
+            >
+              {runIcon('sweep', <ChartLine />)}
+              {runLabel('sweep', 'Run sweep')}
+            </DocumentTopBarButton>
+            <RailButton
+              label="Configure DC sweep"
+              disabled={readOnly || sweepSourceChoices.length === 0 || circuitRunning}
+              onClick={openSweepConfiguration}
+            >
+              <SlidersHorizontal />
+            </RailButton>
+            <DocumentTopBarButton
+              onClick={() =>
+                circuitRunning && circuitRunKind === 'transient'
+                  ? void cancelDcSimulation()
+                  : void runTransient()
+              }
+              disabled={runDisabled('transient')}
+              title={
+                circuitRunning && circuitRunKind === 'transient'
+                  ? 'Cancel transient analysis'
+                  : 'Run the persisted transient analysis locally'
+              }
+            >
+              {runIcon('transient', <Activity />)}
+              {runLabel('transient', 'Transient')}
+            </DocumentTopBarButton>
+            <RailButton
+              label="Configure transient analysis"
+              disabled={readOnly || sweepSourceChoices.length === 0 || circuitRunning}
+              onClick={openTransientConfiguration}
+            >
+              <SlidersHorizontal />
+            </RailButton>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            <RailButton
+              label={circuitResultsOpen ? 'Hide DC results' : 'Show DC results'}
+              pressed={circuitResultsOpen}
+              disabled={!circuitResult && !circuitError}
+              onClick={() => {
+                setSweepResultsOpen(false);
+                setTransientResultsOpen(false);
+                setCircuitResultsOpen((open) => !open);
+              }}
+            >
+              <Zap />
+            </RailButton>
+            <RailButton
+              label={sweepResultsOpen ? 'Hide sweep results' : 'Show sweep results'}
+              pressed={sweepResultsOpen}
+              disabled={!sweepResult && !sweepError}
+              onClick={() => {
+                setCircuitResultsOpen(false);
+                setTransientResultsOpen(false);
+                setSweepResultsOpen((open) => !open);
+              }}
+            >
+              <ChartLine />
+            </RailButton>
+            <RailButton
+              label={transientResultsOpen ? 'Hide transient results' : 'Show transient results'}
+              pressed={transientResultsOpen}
+              disabled={!transientResult && !transientError}
+              onClick={() => {
+                setCircuitResultsOpen(false);
+                setSweepResultsOpen(false);
+                setTransientResultsOpen((open) => !open);
+              }}
+            >
+              <Activity />
+            </RailButton>
+          </>
+        )}
+      </div>
+
+      <div
+        role="group"
+        aria-label="Zoom"
+        className={cn(
+          'absolute bottom-3 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-popover/95 p-1 shadow-lg',
+          anyResultsOpen ? 'right-[384px]' : 'right-3',
+        )}
+      >
+        <RailButton label="Zoom out" onClick={() => adjustZoom(-1)}>
+          <Minus />
+        </RailButton>
+        <DocumentTopBarButton
+          onClick={resetZoom}
+          className="min-w-14 justify-center px-1 font-mono text-xs text-muted-foreground"
+          title="Reset zoom to 100%"
+        >
+          {zoomLabel}
+        </DocumentTopBarButton>
+        <RailButton label="Zoom in" onClick={() => adjustZoom(1)}>
+          <PlusIcon />
+        </RailButton>
+        <RailButton label="Fit view" onClick={fitLogicView}>
+          <Maximize2 />
+        </RailButton>
+      </div>
+    </>
+  );
+
+  const meta = (
+    <>
+      <LivePeers peers={livePeers} />
+      {componentEditSession ? (
+        <>
+          <DocumentTopBarButton
+            variant="outline"
+            onClick={() => restoreComponentWorkspace(componentEditSession)}
+            disabled={saving}
+          >
+            Cancel
+          </DocumentTopBarButton>
+          <DocumentTopBarButton
+            variant="default"
+            onClick={() => void saveEditedLogicComponent()}
+            disabled={saving || loading || readOnly || !componentEditDirty}
+          >
+            {saving ? <Loader2 className="animate-spin" /> : <Save />}
+            Update component
+          </DocumentTopBarButton>
+        </>
+      ) : (
+        <>
+          <div
+            role="group"
+            aria-label="Diagram mode"
+            title={
+              nodes.length > 0 || edges.length > 0
+                ? 'Mode is fixed once the diagram contains elements'
+                : 'Diagram mode'
+            }
+            className="flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+          >
+            {(
+              [
+                ['logic', 'Digital'],
+                ['schematic', 'Electronic'],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={diagram.diagramMode === mode}
+                disabled={
+                  diagram.diagramMode !== mode && (readOnly || nodes.length > 0 || edges.length > 0)
+                }
+                onClick={() => changeDiagramMode(mode)}
+                className={cn(
+                  'h-7 rounded-md px-2.5 text-[13px] text-muted-foreground transition-colors app-motion-base outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
+                  diagram.diagramMode === mode && 'bg-background text-foreground shadow-sm',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <DocumentTopBarButton
+            variant="outline"
+            onClick={(event) => handleExportToNote(event.shiftKey)}
+            disabled={exporting || loading || readOnly}
+            title="Insert in note. Shift-click saves a unique export."
+          >
+            {exporting ? <Loader2 className="animate-spin" /> : <Image />}
+            Insert in note
+          </DocumentTopBarButton>
+        </>
+      )}
+    </>
+  );
+
+  const status = componentEditSession ? (
+    <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+      Editing component{componentEditDirty ? ' · modified' : ''}
+    </span>
+  ) : snapshot.status === 'dirty' && !readOnly ? (
+    <DocumentTopBarButton variant="outline" onClick={() => void handleSave()} disabled={saving}>
+      {saving ? <Loader2 className="animate-spin" /> : <Save />}
+      Save
+    </DocumentTopBarButton>
+  ) : (
+    <DocumentStatusPill status={snapshot.status} compact />
   );
 
   return (
@@ -4770,11 +4790,12 @@ function LogicDiagramEditor({ relativePath }: Props) {
         subtitle={
           componentEditSession ? 'Reusable component editor' : getDocumentFolderPath(relativePath)
         }
-        icon={<CircuitBoard size={18} />}
+        icon={<CircuitBoard />}
+        status={status}
         meta={meta}
-        secondary={secondary}
       />
       <div ref={viewportRef} className="relative min-h-0 flex-1">
+        {!loading && <TooltipProvider delayDuration={300}>{canvasChrome}</TooltipProvider>}
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 text-sm text-muted-foreground">
             <Loader2 size={16} className="mr-2 animate-spin" />
@@ -5125,7 +5146,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
               onClick={closeContextMenu}
             />
             <div
-              className="absolute z-30 w-[280px] max-w-[calc(100%-24px)] overflow-hidden rounded-xl border border-border/70 bg-popover/96 p-1 text-popover-foreground shadow-2xl ring-1 ring-black/5 backdrop-blur-xs-webkit app-panel-enter"
+              className="absolute z-30 w-[280px] max-w-[calc(100%-24px)] overflow-hidden rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 app-panel-enter"
               style={{ left: contextMenu.x, top: contextMenu.y }}
             >
               <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-normal text-muted-foreground">
@@ -5553,7 +5574,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
             ))}
         </div>
       </div>
-      <Dialog
+      <FormDialog
         open={renameTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -5561,723 +5582,541 @@ function LogicDiagramEditor({ relativePath }: Props) {
             setRenameValue('');
           }
         }}
+        size="s"
+        icon={<Pencil />}
+        title={
+          renameTarget?.kind === 'edge'
+            ? 'Label wire'
+            : renameTarget && nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'group'
+              ? 'Rename group'
+              : renameTarget && nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'output'
+                ? 'Label output'
+                : renameTarget &&
+                    nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'component'
+                  ? 'Label component'
+                  : 'Label gate'
+        }
+        description={
+          renameTarget?.kind === 'edge' ? undefined : 'Leave it empty to use the default label.'
+        }
+        submitLabel={renameTarget?.kind === 'edge' ? 'Set label' : 'Rename'}
+        onSubmit={applyRename}
       >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {renameTarget?.kind === 'edge'
-                ? 'Label wire'
-                : renameTarget && nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'group'
-                  ? 'Rename group'
-                  : renameTarget &&
-                      nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'output'
-                    ? 'Label output'
-                    : renameTarget &&
-                        nodes.find((n) => n.id === renameTarget.id)?.data.kind === 'component'
-                      ? 'Label component'
-                      : 'Label gate'}
-            </DialogTitle>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              applyRename();
-            }}
-          >
-            <Input
-              autoFocus
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              placeholder={
-                renameTarget?.kind === 'edge' ? 'Wire label' : 'Label (leave empty for default)'
-              }
-            />
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                {renameTarget?.kind === 'edge' ? 'Set label' : 'Rename'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Insert template</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
-            {getLogicDiagramTemplates().map((template) => (
-              <button
-                key={template.id}
-                type="button"
-                className="flex w-full flex-col items-start gap-0.5 rounded-lg border border-border/60 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent"
-                onClick={() => insertTemplate(template)}
-              >
-                <span className="text-sm font-medium">{template.name}</span>
-                <span className="text-xs text-muted-foreground">{template.description}</span>
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Templates are appended to the current diagram at the viewport center.
-          </p>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={componentPickerOpen} onOpenChange={setComponentPickerOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Insert component</DialogTitle>
-            <DialogDescription>
-              Components are placed as single reusable nodes. Snapshot is the safe default; linked
-              follows future library updates.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2 rounded-md border border-border/60 p-2">
-            <span className="text-xs text-muted-foreground">Mode</span>
-            <Select
-              value={componentInsertMode}
-              onValueChange={(value) => setComponentInsertMode(value as LogicComponentInstanceMode)}
-            >
-              <SelectTrigger size="sm" className="h-8 w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="snapshot">Snapshot</SelectItem>
-                <SelectItem value="linked">Linked</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void reloadLogicComponents()}
-              disabled={loadingComponents}
-            >
-              {loadingComponents ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <RotateCcw size={14} />
-              )}
-              Refresh
-            </Button>
-          </div>
-          <div className="max-h-[58vh] space-y-1.5 overflow-y-auto">
-            {loadingComponents ? (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                <Loader2 size={15} className="mr-2 animate-spin" />
-                Loading components...
-              </div>
-            ) : logicComponents.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
-                No saved logic components in this vault yet.
-              </div>
-            ) : (
-              logicComponents.map((component) => {
-                const inputs = component.ports
-                  .filter((port) => port.direction === 'input')
-                  .map((port) => port.label)
-                  .join(', ');
-                const outputs = component.ports
-                  .filter((port) => port.direction === 'output')
-                  .map((port) => port.label)
-                  .join(', ');
-                return (
-                  <div
-                    key={component.id}
-                    className="flex items-stretch rounded-md border border-border/60 transition-colors hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 flex-col items-start gap-1 px-3 py-2.5 text-left outline-none focus-visible:bg-accent"
-                      onClick={() => insertLogicComponent(component)}
-                    >
-                      <span className="text-sm font-medium">{component.name}</span>
-                      {component.description && (
-                        <span className="text-xs text-muted-foreground">
-                          {component.description}
-                        </span>
-                      )}
-                      <span className="text-[11px] text-muted-foreground">
-                        In: {inputs || 'none'} · Out: {outputs || 'none'} · v{component.version}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="m-1 flex w-9 shrink-0 items-center justify-center rounded text-muted-foreground outline-none hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                      title={`Edit ${component.name}`}
-                      aria-label="Edit saved component"
-                      disabled={Boolean(componentEditSession)}
-                      onClick={() => void editLogicComponent(component)}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={componentSaveOpen} onOpenChange={setComponentSaveOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Save component</DialogTitle>
-            <DialogDescription>
-              Saves selected nodes as a component. If nothing is selected, the whole logic file is
-              captured.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveLogicComponent();
-            }}
-          >
-            <div className="space-y-2">
-              <label
-                className="text-xs font-medium text-muted-foreground"
-                htmlFor="logic-component-name"
-              >
-                Name
-              </label>
-              <Input
-                id="logic-component-name"
-                autoFocus
-                value={componentName}
-                onChange={(event) => setComponentName(event.target.value)}
-                placeholder="Half adder"
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                className="text-xs font-medium text-muted-foreground"
-                htmlFor="logic-component-description"
-              >
-                Description
-              </label>
-              <Input
-                id="logic-component-description"
-                value={componentDescription}
-                onChange={(event) => setComponentDescription(event.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              Ports are derived from captured input and output nodes. Labels must be unique for each
-              direction.
-            </div>
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setComponentSaveOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">Save component</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        <FormField label="Label" htmlFor="logic-rename">
+          <Input
+            id="logic-rename"
+            autoFocus
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            placeholder={renameTarget?.kind === 'edge' ? 'Wire label' : 'Default label'}
+            className="h-9"
+          />
+        </FormField>
+      </FormDialog>
+      <LogicTemplatePicker
+        open={templatePickerOpen}
+        onOpenChange={setTemplatePickerOpen}
+        templates={getLogicDiagramTemplates()}
+        onInsert={insertTemplate}
+      />
+      <LogicComponentPicker
+        open={componentPickerOpen}
+        onOpenChange={setComponentPickerOpen}
+        components={logicComponents}
+        loading={loadingComponents}
+        mode={componentInsertMode}
+        onModeChange={setComponentInsertMode}
+        onReload={() => void reloadLogicComponents()}
+        onInsert={insertLogicComponent}
+        onEdit={(component) => void editLogicComponent(component)}
+        editDisabled={Boolean(componentEditSession)}
+      />
+      <FormDialog
+        open={componentSaveOpen}
+        onOpenChange={setComponentSaveOpen}
+        icon={<Package />}
+        title="Save component"
+        description="Saves the selected nodes as a reusable component. With nothing selected, the whole logic file is captured."
+        submitLabel="Save component"
+        onSubmit={saveLogicComponent}
+      >
+        <FormField label="Name" htmlFor="logic-component-name">
+          <Input
+            id="logic-component-name"
+            autoFocus
+            value={componentName}
+            onChange={(event) => setComponentName(event.target.value)}
+            placeholder="Half adder"
+            className="h-9"
+          />
+        </FormField>
+        <FormField
+          label="Description"
+          htmlFor="logic-component-description"
+          hint="Ports come from the captured input and output nodes; their labels must be unique for each direction."
+        >
+          <Input
+            id="logic-component-description"
+            value={componentDescription}
+            onChange={(event) => setComponentDescription(event.target.value)}
+            placeholder="Optional"
+            className="h-9"
+          />
+        </FormField>
+      </FormDialog>
       <Dialog open={truthTableOpen} onOpenChange={setTruthTableOpen}>
-        <DialogContent className="max-w-[min(92vw,960px)] sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Logic value table</DialogTitle>
-            <DialogDescription>
-              Every input combination is evaluated against the current circuit. Clock sources are
-              treated as input columns here.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Scope</span>
-            <Select value={truthTableScope} onValueChange={setTruthTableScope}>
-              <SelectTrigger size="sm" className="h-8 min-w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="document">Entire logic file</SelectItem>
-                {availableComponents.map((component) => (
-                  <SelectItem key={component.id} value={component.id}>
-                    {component.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-muted-foreground">
-              {truthTable.inputs.length} inputs · {truthTable.outputs.length} outputs ·{' '}
-              {truthTable.rows.length} rows
-            </span>
-          </div>
-          {truthTable.error ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {truthTable.error}
-            </div>
-          ) : truthTable.outputs.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
-              Add at least one output node to calculate a value table.
-            </div>
-          ) : (
-            <div className="max-h-[60vh] overflow-auto rounded-md border border-border/70">
-              <table className="w-full min-w-max border-collapse text-center text-xs tabular-nums">
-                <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
-                  <tr className="border-b border-border/70">
-                    {truthTable.inputs.length > 0 && (
-                      <th
-                        colSpan={truthTable.inputs.length}
-                        className="border-r border-border/70 px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
-                      >
-                        Inputs
-                      </th>
-                    )}
-                    <th
-                      colSpan={truthTable.outputs.length}
-                      className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
-                    >
-                      Outputs
-                    </th>
-                  </tr>
-                  <tr className="border-b border-border/70">
-                    {truthTable.inputs.map((column, index) => (
-                      <th
-                        key={column.id}
-                        className={cn(
-                          'px-4 py-2 font-semibold',
-                          index === truthTable.inputs.length - 1 && 'border-r border-border/70',
-                        )}
-                      >
-                        {column.label}
-                      </th>
-                    ))}
-                    {truthTable.outputs.map((column) => (
-                      <th key={column.id} className="px-4 py-2 font-semibold text-primary">
-                        {column.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {truthTable.rows.map((row, rowIndex) => (
-                    <tr
-                      key={rowIndex}
-                      className="border-b border-border/40 last:border-0 odd:bg-muted/20"
-                    >
-                      {truthTable.inputs.map((column, index) => (
-                        <td
-                          key={column.id}
-                          className={cn(
-                            'px-4 py-2 text-muted-foreground',
-                            index === truthTable.inputs.length - 1 && 'border-r border-border/70',
-                          )}
-                        >
-                          {row.inputs[column.id] ? '1' : '0'}
-                        </td>
-                      ))}
-                      {truthTable.outputs.map((column) => (
-                        <td key={column.id} className="px-4 py-2 font-semibold text-foreground">
-                          {typeof row.outputs[column.id] === 'boolean'
-                            ? row.outputs[column.id]
-                              ? '1'
-                              : '0'
-                            : '–'}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={clockSettingsNodeId !== null}
-        onOpenChange={(open) => !open && setClockSettingsNodeId(null)}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Clock sequence</DialogTitle>
-            <DialogDescription>
-              Configure the repeating digital signal. The clock starts high at phase zero.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveClockSettings();
-            }}
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-                Period (ms)
-                <Input
-                  type="number"
-                  min={100}
-                  step={50}
-                  value={clockPeriodValue}
-                  onChange={(event) => setClockPeriodValue(event.target.value)}
-                />
-              </label>
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-                High time (%)
-                <Input
-                  type="number"
-                  min={5}
-                  max={95}
-                  step={5}
-                  value={clockDutyValue}
-                  onChange={(event) => setClockDutyValue(event.target.value)}
-                />
-              </label>
-            </div>
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Phase offset (ms)
-              <Input
-                type="number"
-                min={0}
-                step={50}
-                value={clockPhaseValue}
-                onChange={(event) => setClockPhaseValue(event.target.value)}
-              />
-            </label>
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setClockSettingsNodeId(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={readOnly}>
-                Apply
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={schematicSettingsNodeId !== null}
-        onOpenChange={(open) => !open && setSchematicSettingsNodeId(null)}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {schematicSettingsNode && schematicSettingsKind
-                ? `${logicNodeLabel({ kind: schematicSettingsKind, label: schematicSettingsNode.data.label })} settings`
-                : 'Component settings'}
-            </DialogTitle>
-            <DialogDescription>
-              Electrical values are stored in SI units and used by local circuit simulation.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveSchematicSettings();
-            }}
-          >
-            {schematicSettingsNumeric && (
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                {schematicSettingsNumeric.label} ({schematicSettingsNumeric.unit})
-                <Input
-                  autoFocus
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={schematicSettingsNumeric.positive ? Number.MIN_VALUE : undefined}
-                  value={schematicValueInput}
-                  onChange={(event) => setSchematicValueInput(event.target.value)}
-                />
-              </label>
-            )}
-            {schematicSettingsKind === 'switch' && (
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Checkbox
-                  checked={schematicSwitchClosed}
-                  onCheckedChange={(checked) => setSchematicSwitchClosed(checked === true)}
-                />
-                Switch closed
-              </label>
-            )}
-            {(schematicSettingsKind === 'diode' ||
-              schematicSettingsKind === 'led' ||
-              schematicSettingsKind === 'transistor') && (
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Model reference
-                <Input
-                  autoFocus
-                  value={schematicValueInput}
-                  onChange={(event) => setSchematicValueInput(event.target.value)}
-                  placeholder={`builtin:${schematicSettingsKind === 'transistor' ? 'npn' : schematicSettingsKind}`}
-                />
-              </label>
-            )}
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setSchematicSettingsNodeId(null)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={readOnly}>
-                Apply
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={sweepConfigOpen} onOpenChange={setSweepConfigOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>DC source sweep</DialogTitle>
-            <DialogDescription>
-              Sweep one independent voltage source and record the configured voltage and current
-              probes.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveSweepConfiguration();
-            }}
-          >
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Source
-              <Select value={sweepSourceInput} onValueChange={setSweepSourceInput}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select voltage source" />
+        <AppDialogContent size="m" className="sm:max-w-4xl">
+          <AppDialogHeader
+            icon={<Table />}
+            title="Logic value table"
+            description="Every input combination is evaluated against the current circuit. Clock sources are treated as input columns here."
+          />
+          <AppDialogBody>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Scope</span>
+              <Select value={truthTableScope} onValueChange={setTruthTableScope}>
+                <SelectTrigger size="sm" className="h-8 min-w-48">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {sweepSourceChoices.map((source) => (
-                    <SelectItem key={source.id} value={source.id}>
-                      {source.label}
+                  <SelectItem value="document">Entire logic file</SelectItem>
+                  {availableComponents.map((component) => (
+                    <SelectItem key={component.id} value={component.id}>
+                      {component.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Start (V)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  value={sweepStartInput}
-                  onChange={(event) => setSweepStartInput(event.target.value)}
-                />
-              </label>
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Stop (V)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  value={sweepStopInput}
-                  onChange={(event) => setSweepStopInput(event.target.value)}
-                />
-              </label>
+              <span className="text-xs text-muted-foreground">
+                {truthTable.inputs.length} inputs · {truthTable.outputs.length} outputs ·{' '}
+                {truthTable.rows.length} rows
+              </span>
             </div>
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Samples
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={2}
-                max={4096}
-                step={1}
-                value={sweepSamplesInput}
-                onChange={(event) => setSweepSamplesInput(event.target.value)}
-              />
-            </label>
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setSweepConfigOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>
-                Save sweep
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={transientConfigOpen} onOpenChange={setTransientConfigOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Transient analysis</DialogTitle>
-            <DialogDescription>
-              Configure the bounded time range and waveform for an independent voltage source.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveTransientConfiguration();
-            }}
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Duration (s)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={Number.MIN_VALUE}
-                  value={transientDurationInput}
-                  onChange={(event) => setTransientDurationInput(event.target.value)}
-                />
-              </label>
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Maximum timestep (s)
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={Number.MIN_VALUE}
-                  value={transientStepInput}
-                  onChange={(event) => setTransientStepInput(event.target.value)}
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Source
-                <Select
-                  value={transientSourceInput}
-                  onValueChange={(value) => {
-                    setTransientSourceInput(value);
-                    loadTransientWaveform(value);
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select voltage source" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sweepSourceChoices.map((source) => (
-                      <SelectItem key={source.id} value={source.id}>
-                        {source.label}
-                      </SelectItem>
+            {truthTable.error ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {truthTable.error}
+              </div>
+            ) : truthTable.outputs.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
+                Add at least one output node to calculate a value table.
+              </div>
+            ) : (
+              <div className="max-h-[60vh] overflow-auto rounded-md border border-border/70">
+                <table className="w-full min-w-max border-collapse text-center text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+                    <tr className="border-b border-border/70">
+                      {truthTable.inputs.length > 0 && (
+                        <th
+                          colSpan={truthTable.inputs.length}
+                          className="border-r border-border/70 px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
+                        >
+                          Inputs
+                        </th>
+                      )}
+                      <th
+                        colSpan={truthTable.outputs.length}
+                        className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground"
+                      >
+                        Outputs
+                      </th>
+                    </tr>
+                    <tr className="border-b border-border/70">
+                      {truthTable.inputs.map((column, index) => (
+                        <th
+                          key={column.id}
+                          className={cn(
+                            'px-4 py-2 font-semibold',
+                            index === truthTable.inputs.length - 1 && 'border-r border-border/70',
+                          )}
+                        >
+                          {column.label}
+                        </th>
+                      ))}
+                      {truthTable.outputs.map((column) => (
+                        <th key={column.id} className="px-4 py-2 font-semibold text-primary">
+                          {column.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {truthTable.rows.map((row, rowIndex) => (
+                      <tr
+                        key={rowIndex}
+                        className="border-b border-border/40 last:border-0 odd:bg-muted/20"
+                      >
+                        {truthTable.inputs.map((column, index) => (
+                          <td
+                            key={column.id}
+                            className={cn(
+                              'px-4 py-2 text-muted-foreground',
+                              index === truthTable.inputs.length - 1 && 'border-r border-border/70',
+                            )}
+                          >
+                            {row.inputs[column.id] ? '1' : '0'}
+                          </td>
+                        ))}
+                        {truthTable.outputs.map((column) => (
+                          <td key={column.id} className="px-4 py-2 font-semibold text-foreground">
+                            {typeof row.outputs[column.id] === 'boolean'
+                              ? row.outputs[column.id]
+                                ? '1'
+                                : '0'
+                              : '–'}
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                Waveform
-                <Select
-                  value={transientWaveformKind}
-                  onValueChange={(value) => {
-                    const kind = value as LogicSourceWaveform['kind'];
-                    setTransientWaveformKind(kind);
-                    setTransientWaveformInputs(
-                      kind === 'pulse'
-                        ? {
-                            lowValue: '0',
-                            highValue: '5',
-                            delaySeconds: '0.001',
-                            riseSeconds: '0',
-                            fallSeconds: '0',
-                            pulseWidthSeconds: '0.005',
-                            periodSeconds: '0.01',
-                          }
-                        : kind === 'sine'
-                          ? {
-                              offset: '0',
-                              amplitude: '5',
-                              frequencyHertz: '50',
-                              phaseDegrees: '0',
-                              delaySeconds: '0',
-                              dampingPerSecond: '0',
-                            }
-                          : {},
-                    );
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="dc">DC value</SelectItem>
-                    <SelectItem value="pulse">Pulse</SelectItem>
-                    <SelectItem value="sine">Sine</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-            </div>
-            {transientWaveformKind === 'pulse' ? (
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  ['lowValue', 'Low level (V)'],
-                  ['highValue', 'High level (V)'],
-                  ['delaySeconds', 'Delay (s)'],
-                  ['riseSeconds', 'Rise time (s)'],
-                  ['fallSeconds', 'Fall time (s)'],
-                  ['pulseWidthSeconds', 'Pulse width (s)'],
-                  ['periodSeconds', 'Period (s)'],
-                ].map(([name, label]) => (
-                  <label
-                    key={name}
-                    className="block space-y-1.5 text-xs font-medium text-muted-foreground"
-                  >
-                    {label}
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      value={transientWaveformInputs[name] ?? ''}
-                      onChange={(event) =>
-                        setTransientWaveformInputs((current) => ({
-                          ...current,
-                          [name]: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ))}
+                  </tbody>
+                </table>
               </div>
-            ) : null}
-            {transientWaveformKind === 'sine' ? (
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  ['offset', 'Offset (V)'],
-                  ['amplitude', 'Amplitude (V)'],
-                  ['frequencyHertz', 'Frequency (Hz)'],
-                  ['phaseDegrees', 'Phase (deg)'],
-                  ['delaySeconds', 'Delay (s)'],
-                  ['dampingPerSecond', 'Damping (1/s)'],
-                ].map(([name, label]) => (
-                  <label
-                    key={name}
-                    className="block space-y-1.5 text-xs font-medium text-muted-foreground"
-                  >
-                    {label}
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      value={transientWaveformInputs[name] ?? ''}
-                      onChange={(event) =>
-                        setTransientWaveformInputs((current) => ({
-                          ...current,
-                          [name]: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
-            ) : null}
-            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button type="button" variant="outline" onClick={() => setTransientConfigOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>
-                Save transient
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
+            )}
+          </AppDialogBody>
+        </AppDialogContent>
       </Dialog>
+      <FormDialog
+        open={clockSettingsNodeId !== null}
+        onOpenChange={(open) => !open && setClockSettingsNodeId(null)}
+        size="m"
+        icon={<Clock />}
+        title="Clock sequence"
+        description={
+          <>Configure the repeating digital signal. The clock starts high at phase zero.</>
+        }
+        submitLabel="Apply"
+        submitDisabled={readOnly}
+        onSubmit={() => {
+          saveClockSettings();
+        }}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Period (ms)" htmlFor="logic-5783-period-ms">
+            <Input
+              id="logic-5783-period-ms"
+              type="number"
+              min={100}
+              step={50}
+              value={clockPeriodValue}
+              onChange={(event) => setClockPeriodValue(event.target.value)}
+            />
+          </FormField>
+          <FormField label="High time (%)" htmlFor="logic-5783-high-time">
+            <Input
+              id="logic-5783-high-time"
+              type="number"
+              min={5}
+              max={95}
+              step={5}
+              value={clockDutyValue}
+              onChange={(event) => setClockDutyValue(event.target.value)}
+            />
+          </FormField>
+        </div>
+        <FormField label="Phase offset (ms)" htmlFor="logic-5783-phase-offset-ms">
+          <Input
+            id="logic-5783-phase-offset-ms"
+            type="number"
+            min={0}
+            step={50}
+            value={clockPhaseValue}
+            onChange={(event) => setClockPhaseValue(event.target.value)}
+          />
+        </FormField>
+      </FormDialog>
+      <FormDialog
+        open={schematicSettingsNodeId !== null}
+        onOpenChange={(open) => !open && setSchematicSettingsNodeId(null)}
+        size="s"
+        icon={<SlidersHorizontal />}
+        title={
+          <>
+            {schematicSettingsNode && schematicSettingsKind
+              ? `${logicNodeLabel({ kind: schematicSettingsKind, label: schematicSettingsNode.data.label })} settings`
+              : 'Component settings'}
+          </>
+        }
+        description={
+          <>Electrical values are stored in SI units and used by local circuit simulation.</>
+        }
+        submitLabel="Apply"
+        submitDisabled={readOnly}
+        onSubmit={() => {
+          saveSchematicSettings();
+        }}
+      >
+        {schematicSettingsNumeric && (
+          <FormField
+            label={`${schematicSettingsNumeric.label} (${schematicSettingsNumeric.unit})`}
+            htmlFor="logic-node-value"
+          >
+            <Input
+              id="logic-node-value"
+              autoFocus
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={schematicSettingsNumeric.positive ? Number.MIN_VALUE : undefined}
+              value={schematicValueInput}
+              onChange={(event) => setSchematicValueInput(event.target.value)}
+            />
+          </FormField>
+        )}
+        {schematicSettingsKind === 'switch' && (
+          <label className="flex items-center gap-2 text-[13px]">
+            <Checkbox
+              checked={schematicSwitchClosed}
+              onCheckedChange={(checked) => setSchematicSwitchClosed(checked === true)}
+            />
+            Switch closed
+          </label>
+        )}
+        {(schematicSettingsKind === 'diode' ||
+          schematicSettingsKind === 'led' ||
+          schematicSettingsKind === 'transistor') && (
+          <FormField label="Model reference" htmlFor="logic-5825-model-reference">
+            <Input
+              id="logic-5825-model-reference"
+              autoFocus
+              value={schematicValueInput}
+              onChange={(event) => setSchematicValueInput(event.target.value)}
+              placeholder={`builtin:${schematicSettingsKind === 'transistor' ? 'npn' : schematicSettingsKind}`}
+            />
+          </FormField>
+        )}
+      </FormDialog>
+      <FormDialog
+        open={sweepConfigOpen}
+        onOpenChange={setSweepConfigOpen}
+        size="m"
+        icon={<Activity />}
+        title="DC source sweep"
+        description={
+          <>
+            Sweep one independent voltage source and record the configured voltage and current
+            probes.
+          </>
+        }
+        submitLabel="Save sweep"
+        submitDisabled={readOnly || sweepSourceChoices.length === 0}
+        onSubmit={() => {
+          saveSweepConfiguration();
+        }}
+      >
+        <FormField label="Source">
+          <Select value={sweepSourceInput} onValueChange={setSweepSourceInput}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select voltage source" />
+            </SelectTrigger>
+            <SelectContent>
+              {sweepSourceChoices.map((source) => (
+                <SelectItem key={source.id} value={source.id}>
+                  {source.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Start (V)" htmlFor="logic-5926-start-v">
+            <Input
+              id="logic-5926-start-v"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              value={sweepStartInput}
+              onChange={(event) => setSweepStartInput(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Stop (V)" htmlFor="logic-5926-stop-v">
+            <Input
+              id="logic-5926-stop-v"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              value={sweepStopInput}
+              onChange={(event) => setSweepStopInput(event.target.value)}
+            />
+          </FormField>
+        </div>
+        <FormField label="Samples" htmlFor="logic-5926-samples">
+          <Input
+            id="logic-5926-samples"
+            type="number"
+            inputMode="numeric"
+            min={2}
+            max={4096}
+            step={1}
+            value={sweepSamplesInput}
+            onChange={(event) => setSweepSamplesInput(event.target.value)}
+          />
+        </FormField>
+      </FormDialog>
+      <FormDialog
+        open={transientConfigOpen}
+        onOpenChange={setTransientConfigOpen}
+        size="m"
+        className="max-h-[85vh]"
+        icon={<Activity />}
+        title="Transient analysis"
+        description={
+          <>Configure the bounded time range and waveform for an independent voltage source.</>
+        }
+        submitLabel="Save transient"
+        submitDisabled={readOnly || sweepSourceChoices.length === 0}
+        onSubmit={() => {
+          saveTransientConfiguration();
+        }}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Duration (s)" htmlFor="logic-6007-duration-s">
+            <Input
+              id="logic-6007-duration-s"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={Number.MIN_VALUE}
+              value={transientDurationInput}
+              onChange={(event) => setTransientDurationInput(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Maximum timestep (s)" htmlFor="logic-6007-maximum-timestep-s">
+            <Input
+              id="logic-6007-maximum-timestep-s"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={Number.MIN_VALUE}
+              value={transientStepInput}
+              onChange={(event) => setTransientStepInput(event.target.value)}
+            />
+          </FormField>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Source">
+            <Select
+              value={transientSourceInput}
+              onValueChange={(value) => {
+                setTransientSourceInput(value);
+                loadTransientWaveform(value);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select voltage source" />
+              </SelectTrigger>
+              <SelectContent>
+                {sweepSourceChoices.map((source) => (
+                  <SelectItem key={source.id} value={source.id}>
+                    {source.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Waveform">
+            <Select
+              value={transientWaveformKind}
+              onValueChange={(value) => {
+                const kind = value as LogicSourceWaveform['kind'];
+                setTransientWaveformKind(kind);
+                setTransientWaveformInputs(
+                  kind === 'pulse'
+                    ? {
+                        lowValue: '0',
+                        highValue: '5',
+                        delaySeconds: '0.001',
+                        riseSeconds: '0',
+                        fallSeconds: '0',
+                        pulseWidthSeconds: '0.005',
+                        periodSeconds: '0.01',
+                      }
+                    : kind === 'sine'
+                      ? {
+                          offset: '0',
+                          amplitude: '5',
+                          frequencyHertz: '50',
+                          phaseDegrees: '0',
+                          delaySeconds: '0',
+                          dampingPerSecond: '0',
+                        }
+                      : {},
+                );
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dc">DC value</SelectItem>
+                <SelectItem value="pulse">Pulse</SelectItem>
+                <SelectItem value="sine">Sine</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        </div>
+        {transientWaveformKind === 'pulse' ? (
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              ['lowValue', 'Low level (V)'],
+              ['highValue', 'High level (V)'],
+              ['delaySeconds', 'Delay (s)'],
+              ['riseSeconds', 'Rise time (s)'],
+              ['fallSeconds', 'Fall time (s)'],
+              ['pulseWidthSeconds', 'Pulse width (s)'],
+              ['periodSeconds', 'Period (s)'],
+            ].map(([name, label]) => (
+              <label
+                key={name}
+                className="block space-y-1.5 text-xs font-medium text-muted-foreground"
+              >
+                {label}
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={transientWaveformInputs[name] ?? ''}
+                  onChange={(event) =>
+                    setTransientWaveformInputs((current) => ({
+                      ...current,
+                      [name]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+        ) : null}
+        {transientWaveformKind === 'sine' ? (
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              ['offset', 'Offset (V)'],
+              ['amplitude', 'Amplitude (V)'],
+              ['frequencyHertz', 'Frequency (Hz)'],
+              ['phaseDegrees', 'Phase (deg)'],
+              ['delaySeconds', 'Delay (s)'],
+              ['dampingPerSecond', 'Damping (1/s)'],
+            ].map(([name, label]) => (
+              <label
+                key={name}
+                className="block space-y-1.5 text-xs font-medium text-muted-foreground"
+              >
+                {label}
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={transientWaveformInputs[name] ?? ''}
+                  onChange={(event) =>
+                    setTransientWaveformInputs((current) => ({
+                      ...current,
+                      [name]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+        ) : null}
+      </FormDialog>
     </div>
   );
 }

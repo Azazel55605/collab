@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { MessageCircle, Settings, SlidersHorizontal, UserPlus } from 'lucide-react';
+import { MessageCircle, MessageSquare, Settings, SlidersHorizontal, UserPlus } from 'lucide-react';
 
 import {
   conversationMembers,
@@ -14,6 +14,7 @@ import { useConversationInbox } from '../../lib/useConversationInbox';
 import { type ChatPreferences, useChatPreferences } from '../../store/chatPreferences';
 import { useConversationNavigation } from '../../store/conversationNavigation';
 import type { ConversationSummary } from '../../types/conversation';
+import { DocumentTopBar } from '../layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../layout/WorkspaceSidebar';
 import { TeamWorkspace } from '../teams/TeamWorkspace';
 import { Button } from '../ui/button';
@@ -41,9 +42,12 @@ export function ConversationAccounts({
   registerBack,
   openAccountSettings,
   openChatSettings,
+  desktopHeader = false,
 }: {
   accounts: ChatAccount[];
   sidebarOpen?: boolean;
+  /** Desktop uses the shared document header; mobile keeps its compact toolbar. */
+  desktopHeader?: boolean;
   registerBack?: (dismiss: () => void) => () => void;
   openAccountSettings?: () => void;
   /** Opens the app's Chats settings section. */
@@ -76,6 +80,7 @@ export function ConversationAccounts({
           registerBack={registerBack}
           openAccountSettings={openAccountSettings}
           openChatSettings={openChatSettings}
+          desktopHeader={desktopHeader}
           preferences={preferences}
           selectAccount={(account) => {
             setChosen(account.serverUrl);
@@ -96,9 +101,11 @@ function AccountWorkspace({
   registerBack,
   openAccountSettings,
   openChatSettings,
+  desktopHeader,
   preferences,
 }: {
   account: ChatAccount;
+  desktopHeader: boolean;
   accounts: ChatAccount[];
   sidebarOpen?: boolean;
   selectAccount: (account: ChatAccount) => void;
@@ -204,27 +211,61 @@ function AccountWorkspace({
     : null;
   return (
     <>
-      <header className="conversation-toolbar">
-        <PeopleSearch
-          account={account}
-          openPerson={async (person) => {
-            const currentTicket = ++ticket.current;
-            const id = await conversationRequest<string>(account, 'POST', '', {
-              kind: 'direct',
-              members: [person.userId],
-            });
-            if (ticket.current !== currentTicket) return;
-            if (!(await open(id))) throw new Error('Unable to open this conversation. Try again.');
-            void inbox.refresh();
-          }}
+      {desktopHeader ? (
+        <DocumentTopBar
+          title="Chats"
+          subtitle={account.label}
+          icon={<MessageSquare />}
+          className="conversation-document-header"
+          meta={
+            <>
+              <PeopleSearch
+                account={account}
+                openPerson={async (person) => {
+                  const currentTicket = ++ticket.current;
+                  const id = await conversationRequest<string>(account, 'POST', '', {
+                    kind: 'direct',
+                    members: [person.userId],
+                  });
+                  if (ticket.current !== currentTicket) return;
+                  if (!(await open(id)))
+                    throw new Error('Unable to open this conversation. Try again.');
+                  void inbox.refresh();
+                }}
+              />
+              <AccountSwitcher
+                accounts={accounts}
+                selected={account}
+                select={selectAccount}
+                openSettings={openAccountSettings}
+              />
+            </>
+          }
         />
-        <AccountSwitcher
-          accounts={accounts}
-          selected={account}
-          select={selectAccount}
-          openSettings={openAccountSettings}
-        />
-      </header>
+      ) : (
+        <header className="conversation-toolbar">
+          <PeopleSearch
+            account={account}
+            openPerson={async (person) => {
+              const currentTicket = ++ticket.current;
+              const id = await conversationRequest<string>(account, 'POST', '', {
+                kind: 'direct',
+                members: [person.userId],
+              });
+              if (ticket.current !== currentTicket) return;
+              if (!(await open(id)))
+                throw new Error('Unable to open this conversation. Try again.');
+              void inbox.refresh();
+            }}
+          />
+          <AccountSwitcher
+            accounts={accounts}
+            selected={account}
+            select={selectAccount}
+            openSettings={openAccountSettings}
+          />
+        </header>
+      )}
       <div
         className={`conversation-split ${hasContent ? 'has-content' : ''}`}
         data-sidebar-open={sidebarOpen}

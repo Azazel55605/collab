@@ -60,6 +60,7 @@ describe('NoteSnippetsDialog', () => {
 
     render(<NoteSnippetsDialog open onOpenChange={vi.fn()} onInsert={onInsert} />);
 
+    fireEvent.click(screen.getByRole('button', { name: /New snippet/ }));
     fireEvent.change(screen.getByPlaceholderText('Meeting notes'), {
       target: { value: 'Daily Log' },
     });
@@ -67,7 +68,7 @@ describe('NoteSnippetsDialog', () => {
       target: { value: '## <placeholder:Date>\n\n- <cursor>' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Insert draft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Insert' }));
 
     expect(onInsert).toHaveBeenCalledWith('## <placeholder:Date>\n\n- <cursor>');
     expect(screen.getByDisplayValue('Daily Log')).toBeTruthy();

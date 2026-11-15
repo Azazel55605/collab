@@ -12,7 +12,6 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   BarChart3,
-  Circle,
   Download,
   FileText,
   Group,
@@ -27,14 +26,13 @@ import {
   Paintbrush,
   PanelLeft,
   PanelRight,
+  PenLine,
   Play,
-  Plus,
   Presentation,
   Redo2,
   Save,
   Settings2,
   Shapes,
-  Square,
   StickyNote,
   Table2,
   Type,
@@ -65,6 +63,7 @@ import type {
   DeckShowPosition,
 } from '../components/deck/DeckPresenter';
 import { DeckPrintHost } from '../components/deck/DeckPrintHost';
+import { DeckShapeIcon } from '../components/deck/DeckShapeIcon';
 import { DeckSlideRail } from '../components/deck/DeckSlideRail';
 import type { DeckRailAction } from '../components/deck/DeckSlideRail';
 import { DeckStage } from '../components/deck/DeckStage';
@@ -77,16 +76,19 @@ import { DeckTextToolbar } from '../components/deck/DeckTextToolbar';
 import type { DeckFontChoice, TextBoxSettings } from '../components/deck/DeckTextToolbar';
 import { DeckVaultPicker } from '../components/deck/DeckVaultPicker';
 import { useDeckExport } from '../components/deck/useDeckExport';
+import { FloatingBar, ZoomPill } from '../components/layout/CanvasChrome';
+import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentTopBar,
   DocumentTopBarButton,
   documentTopBarGroupClass,
   DocumentTopBarIconButton,
+  DocumentTopBarMenuButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import { Button } from '../components/ui/button';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -95,14 +97,6 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '../components/ui/context-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -2889,6 +2883,11 @@ export default function DeckView({ relativePath }: DeckViewProps) {
 
   const [stageRef, stageSize, stageElement] = useElementSize<HTMLDivElement>();
   const focusCanvas = () => stageElement?.focus({ preventScroll: true });
+  // Keys after an insert act on the new object, not on the menu button that inserted it.
+  const keepCanvasFocus = (event: Event) => {
+    event.preventDefault();
+    focusCanvas();
+  };
   const rulerPx = viewState.showRulers ? 20 : 0;
   const fitZoom =
     document && supported
@@ -3139,53 +3138,106 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       )}
 
       <DocumentTopBar
-        icon={<Presentation size={15} className="text-orange-400/80" />}
+        icon={<Presentation />}
         title={getDocumentBaseName(relativePath, 'Presentation')}
         subtitle={getDocumentFolderPath(relativePath)}
+        status={
+          session.readOnly ? undefined : session.dirty || session.saving ? (
+            <DocumentTopBarButton
+              variant="outline"
+              onClick={() => {
+                flushText();
+                void session.save();
+              }}
+              disabled={session.saving}
+            >
+              <Save />
+              Save
+            </DocumentTopBarButton>
+          ) : (
+            <DocumentStatusPill status="saved" compact />
+          )
+        }
         meta={
-          designTarget && document ? (
-            <span>
-              Editing{' '}
-              {designTarget.kind === 'master'
-                ? `master “${document.masters[designTarget.id]?.name ?? ''}”`
-                : `layout “${document.layouts[designTarget.id]?.name ?? ''}”`}
+          <>
+            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              {designTarget && document ? (
+                <span>
+                  Editing{' '}
+                  {designTarget.kind === 'master'
+                    ? `master “${document.masters[designTarget.id]?.name ?? ''}”`
+                    : `layout “${document.layouts[designTarget.id]?.name ?? ''}”`}
+                </span>
+              ) : slideOrder.length > 0 ? (
+                <>
+                  <span>
+                    Slide {activeIndex + 1} of {slideOrder.length}
+                  </span>
+                  {hasSelection && <span>{selectedIds.length} selected</span>}
+                  {presentingPeer && <span>{presentingPeer.user!.name} is presenting</span>}
+                  <LivePeers peers={livePeers} />
+                </>
+              ) : undefined}
             </span>
-          ) : slideOrder.length > 0 ? (
-            <>
-              <span>
-                Slide {activeIndex + 1} of {slideOrder.length}
-              </span>
-              {hasSelection && <span>{selectedIds.length} selected</span>}
-              {presentingPeer && <span>{presentingPeer.user!.name} is presenting</span>}
-              <LivePeers peers={livePeers} />
-            </>
-          ) : undefined
+            <DocumentTopBarIconButton
+              onClick={() => {
+                endTextSession();
+                undoOrRedo('undo');
+              }}
+              disabled={!editable || !history.canUndo}
+              aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'}
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton
+              onClick={() => {
+                endTextSession();
+                undoOrRedo('redo');
+              }}
+              disabled={!editable || !history.canRedo}
+              aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'}
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 />
+            </DocumentTopBarIconButton>
+            <DocumentTopBarIconButton
+              onClick={() => setExportOpen(true)}
+              disabled={!supported || slideOrder.length === 0}
+              aria-label="Export or print"
+              title="Export or print"
+            >
+              <Download />
+            </DocumentTopBarIconButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <DocumentTopBarMenuButton
+                  variant="default"
+                  disabled={!supported || slideOrder.length === 0}
+                >
+                  <Play size={14} />
+                  Present
+                </DocumentTopBarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => present('slideshow', 'start')}>
+                  From the beginning
+                  <DropdownMenuShortcut>F5</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => present('slideshow', 'current')}>
+                  From this slide
+                  <DropdownMenuShortcut>Shift+F5</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => present('presenter', 'start')}>
+                  <MonitorPlay size={13} /> Presenter view
+                  <DropdownMenuShortcut>Alt+F5</DropdownMenuShortcut>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
         secondary={
           <>
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarIconButton
-                onClick={() => {
-                  endTextSession();
-                  undoOrRedo('undo');
-                }}
-                disabled={!editable || !history.canUndo}
-                aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'}
-              >
-                <Undo2 size={14} />
-              </DocumentTopBarIconButton>
-              <DocumentTopBarIconButton
-                onClick={() => {
-                  endTextSession();
-                  undoOrRedo('redo');
-                }}
-                disabled={!editable || !history.canRedo}
-                aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'}
-              >
-                <Redo2 size={14} />
-              </DocumentTopBarIconButton>
-            </div>
-
             <div className={documentTopBarGroupClass}>
               {designTarget ? (
                 <DocumentTopBarButton onClick={leaveDesign} aria-label="Close master view">
@@ -3209,25 +3261,24 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              <DropdownMenu>
+              <DocumentTopBarButton
+                disabled={!editable || !stageTarget}
+                onClick={() => {
+                  insert('text');
+                  focusCanvas();
+                }}
+              >
+                <Type size={14} />
+                Text box
+              </DocumentTopBarButton>
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
-                  <DocumentTopBarButton disabled={!editable || !stageTarget}>
-                    <Shapes size={14} />
-                    Insert
-                  </DocumentTopBarButton>
+                  <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                    <ImageIcon size={14} />
+                    Media
+                  </DocumentTopBarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="max-h-[70vh] overflow-y-auto"
-                  // Keys after an insert act on the new object, not on this menu's button.
-                  onCloseAutoFocus={(event) => {
-                    event.preventDefault();
-                    focusCanvas();
-                  }}
-                >
-                  <DropdownMenuItem onClick={() => insert('text')}>
-                    <Type size={13} /> Text box
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="start" onCloseAutoFocus={keepCanvasFocus}>
                   <DropdownMenuItem onClick={() => setPicker({ kind: 'image' })}>
                     <ImageIcon size={13} /> Image…
                   </DropdownMenuItem>
@@ -3237,8 +3288,44 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                   <DropdownMenuItem onClick={() => setPicker({ kind: 'embed' })}>
                     <FileText size={13} /> Linked document…
                   </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                    <Shapes size={14} />
+                    Shape
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="max-h-[70vh] w-52 overflow-y-auto"
+                  onCloseAutoFocus={keepCanvasFocus}
+                >
+                  <DropdownMenuLabel className="text-[11px]">Lines</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => insert('line')}>
+                    <Minus size={13} /> Line
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => insert('arrow')}>
+                    <MoveRight size={13} /> Arrow
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px]">Chart</DropdownMenuLabel>
+                  <DropdownMenuLabel className="text-[11px]">Shapes</DropdownMenuLabel>
+                  {DECK_SHAPE_GEOMETRIES.map((geometry) => (
+                    <DropdownMenuItem key={geometry} onClick={() => insert(geometry)}>
+                      <DeckShapeIcon geometry={geometry} /> {SHAPE_NAMES[geometry]}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                    <BarChart3 size={14} />
+                    Chart
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" onCloseAutoFocus={keepCanvasFocus}>
                   {(
                     [
                       ['column', 'Column chart'],
@@ -3252,35 +3339,25 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                       <BarChart3 size={13} /> {label}
                     </DropdownMenuItem>
                   ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px]">Lines</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => insert('line')}>
-                    <Minus size={13} /> Line
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => insert('arrow')}>
-                    <MoveRight size={13} /> Arrow
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px]">Shapes</DropdownMenuLabel>
-                  {DECK_SHAPE_GEOMETRIES.map((geometry) => (
-                    <DropdownMenuItem key={geometry} onClick={() => insert(geometry)}>
-                      {geometry === 'ellipse' ? <Circle size={13} /> : <Square size={13} />}{' '}
-                      {SHAPE_NAMES[geometry]}
-                    </DropdownMenuItem>
-                  ))}
-                  {designTarget && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-[11px]">Placeholder</DropdownMenuLabel>
-                      {PLACEHOLDER_INSERTS.map((type) => (
-                        <DropdownMenuItem key={type} onClick={() => insertDesignPlaceholder(type)}>
-                          {placeholderName(type)} placeholder
-                        </DropdownMenuItem>
-                      ))}
-                    </>
-                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              {designTarget && (
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <DocumentTopBarMenuButton disabled={!editable || !stageTarget}>
+                      <LayoutTemplate size={14} />
+                      Placeholder
+                    </DocumentTopBarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" onCloseAutoFocus={keepCanvasFocus}>
+                    {PLACEHOLDER_INSERTS.map((type) => (
+                      <DropdownMenuItem key={type} onClick={() => insertDesignPlaceholder(type)}>
+                        {placeholderName(type)} placeholder
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <DocumentTopBarButton disabled={!editable || !hasSelection}>
@@ -3353,22 +3430,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               </DropdownMenu>
             </div>
 
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarIconButton onClick={() => stepZoom(-1)} aria-label="Zoom out">
-                <Minus size={14} />
-              </DocumentTopBarIconButton>
-              <DocumentTopBarButton
-                onClick={() => setZoom('fit')}
-                aria-label="Fit slide"
-                className="min-w-14 justify-center tabular-nums"
-              >
-                {viewState.zoom === 'fit' ? 'Fit' : `${Math.round(zoom * 100)}%`}
-              </DocumentTopBarButton>
-              <DocumentTopBarIconButton onClick={() => stepZoom(1)} aria-label="Zoom in">
-                <Plus size={14} />
-              </DocumentTopBarIconButton>
-            </div>
-
+            <div className="flex-1" />
             <div className={documentTopBarGroupClass}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -3460,109 +3522,9 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                 <ListTree size={14} />
               </DocumentTopBarIconButton>
             </div>
-            <div className={documentTopBarGroupClass}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <DocumentTopBarButton disabled={!supported || slideOrder.length === 0}>
-                    <Play size={14} />
-                    Present
-                  </DocumentTopBarButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => present('slideshow', 'start')}>
-                    From the beginning
-                    <DropdownMenuShortcut>F5</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => present('slideshow', 'current')}>
-                    From this slide
-                    <DropdownMenuShortcut>Shift+F5</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => present('presenter', 'start')}>
-                    <MonitorPlay size={13} /> Presenter view
-                    <DropdownMenuShortcut>Alt+F5</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DocumentTopBarIconButton
-                onClick={() => setExportOpen(true)}
-                disabled={!supported || slideOrder.length === 0}
-                aria-label="Export or print"
-              >
-                <Download size={14} />
-              </DocumentTopBarIconButton>
-            </div>
-            <div className={documentTopBarGroupClass}>
-              <DocumentTopBarButton
-                onClick={() => {
-                  flushText();
-                  void session.save();
-                }}
-                disabled={session.readOnly || !session.dirty || session.saving}
-              >
-                <Save size={14} />
-                Save
-              </DocumentTopBarButton>
-            </div>
           </>
         }
       />
-
-      {theme && (
-        <div
-          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none"
-          data-testid="deck-formatting-row"
-        >
-          <DeckTextToolbar
-            state={toolbarState}
-            theme={theme}
-            box={textSession?.kind === 'notes' ? null : box}
-            disabled={!editable || !hasTextFormattingTarget}
-            embedded
-            canResetPlaceholder={placeholderToReset.length > 0}
-            onCommand={runCommand}
-            onFont={setFont}
-            onColor={(color) => setColor(color)}
-            onBox={setBox}
-            onLink={openLinkDialog}
-            onResetPlaceholder={resetSelectedPlaceholders}
-          />
-
-          {editable && !textSession && formatElements.length > 0 && (
-            <DeckObjectToolbar
-              elements={formatElements}
-              theme={theme}
-              embedded
-              hasActiveCell={Boolean(tableCellHere)}
-              cropping={cropping}
-              onFill={onFill}
-              onOutline={onOutline}
-              onArrow={onArrow}
-              onGeometry={onGeometry}
-              onOpacity={onOpacity}
-              onFlip={onFlip}
-              onRotate={onRotateQuarter}
-              onCrop={() => setCropping(!cropping)}
-              onResetCrop={() =>
-                updateEach('Reset crop', (element) => {
-                  if (element.type !== 'image') return element;
-                  const next = { ...element };
-                  delete next.crop;
-                  return next;
-                })
-              }
-              onReplaceImage={() =>
-                selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
-              }
-              onTable={onTableAction}
-              onCellFill={onCellFill}
-              onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
-              onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
-              onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
-              onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
-            />
-          )}
-        </div>
-      )}
 
       <div className="flex min-h-0 flex-1" role="application" aria-label="Presentation editor">
         {viewState.slideRailOpen && designTarget && document && (
@@ -3622,7 +3584,75 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           />
         )}
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {theme &&
+            editable &&
+            (hasTextFormattingTarget || (!textSession && formatElements.length > 0)) && (
+              <FloatingBar
+                role="group"
+                aria-label="Formatting"
+                data-testid="deck-formatting-row"
+                className="top-3 left-1/2 z-30 max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap justify-center"
+              >
+                <DeckTextToolbar
+                  state={toolbarState}
+                  theme={theme}
+                  box={textSession?.kind === 'notes' ? null : box}
+                  disabled={!hasTextFormattingTarget}
+                  embedded
+                  canResetPlaceholder={placeholderToReset.length > 0}
+                  onCommand={runCommand}
+                  onFont={setFont}
+                  onColor={(color) => setColor(color)}
+                  onBox={setBox}
+                  onLink={openLinkDialog}
+                  onResetPlaceholder={resetSelectedPlaceholders}
+                />
+
+                {editable && !textSession && formatElements.length > 0 && (
+                  <DeckObjectToolbar
+                    elements={formatElements}
+                    theme={theme}
+                    embedded
+                    hasActiveCell={Boolean(tableCellHere)}
+                    cropping={cropping}
+                    onFill={onFill}
+                    onOutline={onOutline}
+                    onArrow={onArrow}
+                    onGeometry={onGeometry}
+                    onOpacity={onOpacity}
+                    onFlip={onFlip}
+                    onRotate={onRotateQuarter}
+                    onCrop={() => setCropping(!cropping)}
+                    onResetCrop={() =>
+                      updateEach('Reset crop', (element) => {
+                        if (element.type !== 'image') return element;
+                        const next = { ...element };
+                        delete next.crop;
+                        return next;
+                      })
+                    }
+                    onReplaceImage={() =>
+                      selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
+                    }
+                    onTable={onTableAction}
+                    onCellFill={onCellFill}
+                    onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
+                    onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
+                    onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
+                    onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
+                  />
+                )}
+              </FloatingBar>
+            )}
+          <ZoomPill
+            label={viewState.zoom === 'fit' ? 'Fit' : `${Math.round(zoom * 100)}%`}
+            resetLabel="Fit slide"
+            onZoomOut={() => stepZoom(-1)}
+            onZoomIn={() => stepZoom(1)}
+            onReset={() => setZoom('fit')}
+            className="z-30"
+          />
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
@@ -3896,31 +3926,18 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       {deckExport.printPages && (
         <DeckPrintHost pages={deckExport.printPages} onDone={deckExport.finishPrint} />
       )}
-      <Dialog open={inkToKeep !== null} onOpenChange={(open) => !open && setInkToKeep(null)}>
-        <DialogContent
-          className="sm:max-w-sm"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            focusCanvas();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Keep ink annotations?</DialogTitle>
-            <DialogDescription>
-              Ink drawn during the show is not part of the presentation. Keep it as an image on each
-              slide you drew on, or discard it.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setInkToKeep(null)}>
-              Discard
-            </Button>
-            <Button type="button" onClick={() => inkToKeep && void keepInk(inkToKeep)}>
-              Keep
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={inkToKeep !== null}
+        onOpenChange={(open) => !open && setInkToKeep(null)}
+        icon={<PenLine />}
+        title="Keep ink annotations?"
+        description="Ink drawn during the show is not part of the presentation. Keep it as an image on each slide you drew on, or discard it."
+        cancelLabel="Discard"
+        confirmLabel="Keep"
+        onConfirm={() => {
+          if (inkToKeep) void keepInk(inkToKeep);
+        }}
+      />
       {presenting && document && (
         <DeckPresenter
           deck={document}

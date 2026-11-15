@@ -10,6 +10,9 @@ interface CollabState {
   peers: PresenceEntry[];
   chatMessages: ChatMessage[];
   chatTypingUntil: number | null;
+  /** The person whose document this window follows, if any. */
+  followingUserId: string | null;
+  setFollowing: (userId: string | null) => void;
   setPeers: (peers: PresenceEntry[]) => void;
   setMyProfile: (userId: string, userName: string, userColor: string) => void;
   setChatMessages: (msgs: ChatMessage[]) => void;
@@ -40,6 +43,8 @@ export const useCollabStore = create<CollabState>()((set) => {
     peers: [],
     chatMessages: [],
     chatTypingUntil: null,
+    followingUserId: null,
+    setFollowing: (followingUserId) => set({ followingUserId }),
     setPeers: (peers) => set({ peers }),
     setMyProfile: (myUserId, myUserName, myUserColor) => {
       localStorage.setItem('collab-user-id', myUserId);

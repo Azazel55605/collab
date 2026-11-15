@@ -96,9 +96,10 @@ describe('database workspace', () => {
       return file;
     });
     renderPage();
-    const open = await screen.findByRole('button', { name: 'Open SQLite read-only…' });
-    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(open);
+    const menu = await screen.findByRole('button', { name: 'Open SQLite file' });
+    await waitFor(() => expect((menu as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.keyDown(menu, { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open SQLite read-only…' }));
     expect((await screen.findByRole('tab', { name: file.label })).getAttribute('data-state')).toBe(
       'active',
     );
@@ -134,7 +135,10 @@ describe('database workspace', () => {
       workspace.connections = workspace.connections.filter((c) => c.id !== 'a');
       workspace.tabs = [];
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect Server A' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: 'More database actions' }), {
+      key: 'Enter',
+    });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Disconnect Server A' }));
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: 'Server A · catalog-a' })).toBeNull(),
     );

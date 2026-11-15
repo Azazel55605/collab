@@ -164,6 +164,18 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+/** Opens the header's ⋯ menu and returns one of its items. */
+async function openMoreMenuItem(name: string) {
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More drawing actions' }), { key: 'Enter' });
+  return screen.findByRole('menuitem', { name });
+}
+
+/** Opens a tool group's menu on the rail and picks one of its tools. */
+async function chooseTool(group: string, name: string) {
+  fireEvent.keyDown(screen.getByRole('button', { name: group }), { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name }));
+}
+
 describe('InkView', () => {
   it('opens a drawing and reports its page and stroke counts', async () => {
     await openDrawing();
@@ -199,13 +211,15 @@ describe('InkView', () => {
     await openDrawing();
     // A drawing with one page cannot lose it: a document with no pages has
     // nowhere to draw, and the normalizer would invent one on reload.
-    expect(screen.getByText('Delete page').closest('button')?.disabled).toBe(true);
+    expect((await openMoreMenuItem('Delete page')).hasAttribute('data-disabled')).toBe(true);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
     fireEvent.click(screen.getByText('Add page'));
     await screen.findByText('Page 2 of 2');
-    expect(screen.getByText('Delete page').closest('button')?.disabled).toBe(false);
+    const deletePage = await openMoreMenuItem('Delete page');
+    expect(deletePage.hasAttribute('data-disabled')).toBe(false);
 
-    fireEvent.click(screen.getByText('Delete page'));
+    fireEvent.click(deletePage);
     await screen.findByText('Page 1 of 1');
   });
 
@@ -214,7 +228,8 @@ describe('InkView', () => {
     await openDrawing();
 
     expect(screen.getByText('Add page').closest('button')?.disabled).toBe(true);
-    expect(screen.getByText('Save').closest('button')?.disabled).toBe(true);
+    // Read-only drawings never offer Save.
+    expect(screen.queryByText('Save')).toBeNull();
     expect(clientMocks.writeDocument).not.toHaveBeenCalled();
   });
 
@@ -274,11 +289,11 @@ describe('InkView', () => {
 
   it('opens the bounded export workflow from the document toolbar', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(await openMoreMenuItem('Export'));
 
     expect(await screen.findByRole('dialog', { name: 'Export drawing' })).toBeTruthy();
     expect(screen.getByText('PNG image')).toBeTruthy();
-    expect(screen.getByText('Current page')).toBeTruthy();
+    expect(screen.getAllByText('Current page').length).toBeGreaterThan(0);
     expect(screen.getByText('Include page background and pattern')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Export' })).toBeTruthy();
   });
@@ -365,7 +380,7 @@ describe('InkView drawing', () => {
 
   it('stores the brush the stroke was drawn with, not a preset pointer', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('button', { name: 'Fountain pen' }));
+    await chooseTool('Brushes', 'Fountain pen');
     fireEvent.click(screen.getByRole('radio', { name: 'Theme red' }));
 
     drawStroke(screen.getByTestId('ink-canvas-host'), [
@@ -422,7 +437,7 @@ describe('InkView drawing', () => {
 
   it('creates sticky text as an editable scene object', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('button', { name: 'Sticky note' }));
+    await chooseTool('Text tools', 'Sticky note');
 
     const host = screen.getByTestId('ink-canvas-host');
     host.setPointerCapture = vi.fn();
@@ -511,19 +526,19 @@ describe('InkView drawing', () => {
       fireEvent.pointerUp(host, { pointerId, pointerType: 'mouse', clientX: 150, clientY: 90 });
     };
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stamp (K)' }));
+    await chooseTool('Insert tools', 'Stamp (K)');
     drag(10);
-    fireEvent.click(screen.getByRole('button', { name: 'Equation (Q)' }));
+    await chooseTool('Text tools', 'Equation (Q)');
     drag(11);
     fireEvent.change(await screen.findByLabelText('Equation LaTeX'), {
       target: { value: 'x^2+y^2' },
     });
     fireEvent.click(screen.getByText('Add to drawing'));
-    fireEvent.click(screen.getByRole('button', { name: 'Protractor (O)' }));
+    await chooseTool('Measure tools', 'Protractor (O)');
     drag(12);
-    fireEvent.click(screen.getByRole('button', { name: 'Compass (M)' }));
+    await chooseTool('Measure tools', 'Compass (M)');
     drag(13);
-    fireEvent.click(screen.getByRole('button', { name: 'Guide (G)' }));
+    await chooseTool('Measure tools', 'Guide (G)');
     drag(14);
     fireEvent.click(screen.getByText('Save'));
 
@@ -612,7 +627,8 @@ describe('InkView drawing', () => {
     });
     fireEvent.pointerCancel(host, { pointerId: 1, pointerType: 'pen' });
 
-    expect(screen.getByText('Save').closest('button')?.disabled).toBe(true);
+    // Nothing changed, so there is nothing to save.
+    expect(screen.queryByText('Save')).toBeNull();
   });
 
   it('undoes and redoes a stroke', async () => {
@@ -734,7 +750,7 @@ describe('InkView drawing', () => {
     await openDrawing();
     expect(screen.queryByRole('toolbar', { name: 'Drawing tools' })).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Focus'));
+    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
     await waitFor(() =>
       expect(screen.queryByRole('toolbar', { name: 'Drawing tools' })).toBeNull(),
     );

@@ -1,16 +1,12 @@
 import { useEffect, useState } from 'react';
 
+import { Link2 } from 'lucide-react';
+
 import { parseLinkAddress } from '../../lib/deck/links';
 import type { DeckLink } from '../../types/deck';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
@@ -44,49 +40,56 @@ export function DeckLinkDialog({
     mode === 'url' ? parseLinkAddress(address) : slideId ? { kind: 'slide', slideId } : null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Link</DialogTitle>
-          <DialogDescription>Link the selected text to a web address or a slide.</DialogDescription>
-        </DialogHeader>
-        <div className="flex gap-1">
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === 'url' ? 'secondary' : 'ghost'}
-            onClick={() => setMode('url')}
-          >
-            Web address
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      size="s"
+      icon={<Link2 />}
+      title="Link"
+      description="Link the selected text to a web address or a slide."
+      submitLabel="Apply"
+      submitDisabled={!link}
+      onSubmit={() => {
+        if (link) onApply(link);
+      }}
+      secondary={
+        current ? (
+          <Button type="button" variant="ghost" onClick={() => onApply(null)}>
+            Remove link
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === 'slide' ? 'secondary' : 'ghost'}
-            onClick={() => setMode('slide')}
-          >
-            Slide in this deck
-          </Button>
-        </div>
-        {mode === 'url' ? (
-          <div className="space-y-1">
-            <Input
-              aria-label="Web address"
-              placeholder="https://example.com"
-              value={address}
-              autoFocus
-              onChange={(event) => setAddress(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && link) onApply(link);
-              }}
-            />
-            {address.trim() !== '' && !link && (
-              <p className="text-xs text-destructive">
-                Only http, https, and mailto addresses can be linked.
-              </p>
-            )}
-          </div>
-        ) : (
+        ) : undefined
+      }
+    >
+      <ChoiceGroup
+        value={mode}
+        onValueChange={(value) => setMode(value as 'url' | 'slide')}
+        aria-label="Link to"
+        className="grid grid-cols-2 gap-2"
+      >
+        <ChoiceCard value="url" title="Web address" />
+        <ChoiceCard value="slide" title="Slide in this deck" />
+      </ChoiceGroup>
+      {mode === 'url' ? (
+        <FormField
+          label="Address"
+          htmlFor="deck-link-address"
+          error={
+            address.trim() !== '' && !link
+              ? 'Only http, https, and mailto addresses can be linked.'
+              : undefined
+          }
+        >
+          <Input
+            id="deck-link-address"
+            aria-label="Web address"
+            placeholder="https://example.com"
+            value={address}
+            autoFocus
+            onChange={(event) => setAddress(event.target.value)}
+          />
+        </FormField>
+      ) : (
+        <FormField label="Slide">
           <Select value={slideId} onValueChange={setSlideId}>
             <SelectTrigger aria-label="Slide" className="w-full">
               <SelectValue placeholder="Choose a slide" />
@@ -99,18 +102,8 @@ export function DeckLinkDialog({
               ))}
             </SelectContent>
           </Select>
-        )}
-        <DialogFooter>
-          {current && (
-            <Button type="button" variant="ghost" onClick={() => onApply(null)}>
-              Remove link
-            </Button>
-          )}
-          <Button type="button" disabled={!link} onClick={() => link && onApply(link)}>
-            Apply
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </FormField>
+      )}
+    </FormDialog>
   );
 }

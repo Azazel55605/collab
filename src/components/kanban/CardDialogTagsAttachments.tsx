@@ -1,20 +1,23 @@
-import { ChevronDown, ExternalLink, Paperclip, Tag, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, FileText, Paperclip, Tag, X } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import type { KanbanCard } from '../../types/kanban';
 import type { NoteFile } from '../../types/vault';
 import { FULL_KANBAN_CAPABILITIES, type KanbanCapabilities } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '../ui/command';
 import { Input } from '../ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import {
+  KeyHints,
+  PickerCommand,
+  PickerEmpty,
+  PickerGroup,
+  PickerInput,
+  PickerItem,
+  PickerList,
+  PopoverPanel,
+  PopoverPanelFooter,
+} from '../ui/popover-patterns';
 
 type Props = {
   draft: KanbanCard;
@@ -103,7 +106,7 @@ export function CardDialogTagsAttachments({
                 className={cn('h-8 text-xs', secondaryFieldClass)}
               />
               {showTagSuggestions && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto overflow-hidden rounded-xl border border-border/60 bg-popover/96 shadow-xl shadow-black/10">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto overflow-hidden rounded-xl bg-popover p-1 shadow-md ring-1 ring-foreground/10">
                   {suggestedTags.map((tag) => (
                     <button
                       key={tag}
@@ -201,35 +204,44 @@ export function CardDialogTagsAttachments({
                   <ChevronDown size={11} className="shrink-0 text-muted-foreground/50" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-80 p-0">
-                <Command>
-                  <CommandInput placeholder="Search vault files…" />
-                  <CommandList>
-                    <CommandEmpty>No files found.</CommandEmpty>
-                    <CommandGroup>
-                      {vaultFiles.map((file) => (
-                        <CommandItem
-                          key={file.relativePath}
-                          value={`${file.relativePath} ${file.name}`}
-                          onSelect={() => addAttachment(file.relativePath)}
-                        >
-                          <span className="font-medium truncate">
-                            {file.name.replace(/\.[^.]+$/, '')}
-                          </span>
-                          {attachmentPaths.includes(file.relativePath) && (
-                            <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] text-primary/80 shrink-0">
-                              Attached
-                            </span>
-                          )}
-                          <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono truncate max-w-[120px]">
-                            {file.relativePath}
-                          </span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
+              <PopoverPanel align="start" className="w-80">
+                <PickerCommand>
+                  <PickerInput placeholder="Search vault files" />
+                  <PickerList>
+                    <PickerEmpty>No files match.</PickerEmpty>
+                    <PickerGroup heading="Files">
+                      {vaultFiles.map((file) => {
+                        const folder = file.relativePath.includes('/')
+                          ? file.relativePath.slice(0, file.relativePath.lastIndexOf('/'))
+                          : 'Vault root';
+                        return (
+                          <PickerItem
+                            key={file.relativePath}
+                            value={`${file.relativePath} ${file.name}`}
+                            onSelect={() => addAttachment(file.relativePath)}
+                            icon={<FileText />}
+                            title={file.name.replace(/\.[^.]+$/, '')}
+                            detail={folder}
+                            meta={
+                              attachmentPaths.includes(file.relativePath) ? 'Attached' : undefined
+                            }
+                          />
+                        );
+                      })}
+                    </PickerGroup>
+                  </PickerList>
+                  <PopoverPanelFooter
+                    start={
+                      <KeyHints
+                        hints={[
+                          ['↑↓', 'move'],
+                          ['↵', 'attach'],
+                        ]}
+                      />
+                    }
+                  />
+                </PickerCommand>
+              </PopoverPanel>
             </Popover>
           </div>
         )}

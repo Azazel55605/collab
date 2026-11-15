@@ -1,27 +1,18 @@
 import {
-  ChevronDown,
   Diamond,
   FileText,
   Flag,
   Globe,
-  Maximize2,
-  Minus,
-  MousePointer2,
+  LayoutTemplate,
   PencilLine,
   Plus,
-  Plus as PlusIcon,
-  RotateCcw,
   Route,
   Shapes,
   Users,
 } from 'lucide-react';
 
 import type { PlanningCanvasNode } from '../../types/canvas';
-import {
-  DocumentTopBarButton,
-  documentTopBarGroupClass,
-  DocumentTopBarIconButton,
-} from '../layout/DocumentTopBar';
+import { FloatingBar, FloatingSeparator, RailButton, ZoomPill } from '../layout/CanvasChrome';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,36 +59,35 @@ export function CanvasToolbar({
   return (
     <>
       {!readOnly && (
-        <div className={documentTopBarGroupClass}>
-          <DocumentTopBarButton onClick={onAddNote}>
-            <Plus size={14} />
-            Add note
-          </DocumentTopBarButton>
-          <DocumentTopBarButton onClick={onAddFile}>
-            <FileText size={14} />
-            Add file
-          </DocumentTopBarButton>
-          <DocumentTopBarButton onClick={onAddText}>
-            <PencilLine size={14} />
-            Add text
-          </DocumentTopBarButton>
-          <DocumentTopBarButton onClick={onAddWeb}>
-            <Globe size={14} />
-            Add web
-          </DocumentTopBarButton>
-          <DocumentTopBarButton onClick={onAddSymbol}>
-            <Shapes size={14} />
-            Add symbol
-          </DocumentTopBarButton>
+        <FloatingBar
+          role="toolbar"
+          aria-label="Add to canvas"
+          orientation="vertical"
+          className="top-1/2 left-3 -translate-y-1/2"
+        >
+          <RailButton label="Add note" hint="Add a note card" onClick={onAddNote}>
+            <Plus />
+          </RailButton>
+          <RailButton label="Add file" hint="Add a file from the vault" onClick={onAddFile}>
+            <FileText />
+          </RailButton>
+          <RailButton label="Add text" onClick={onAddText}>
+            <PencilLine />
+          </RailButton>
+          <RailButton label="Add web" hint="Add a web page" onClick={onAddWeb}>
+            <Globe />
+          </RailButton>
+          <RailButton label="Add symbol" onClick={onAddSymbol}>
+            <Shapes />
+          </RailButton>
+          <FloatingSeparator vertical />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <DocumentTopBarButton>
-                <Route size={14} />
-                Planning
-                <ChevronDown size={13} />
-              </DocumentTopBarButton>
+              <RailButton label="Planning nodes" hint="Flow, planning and structure nodes">
+                <Route />
+              </RailButton>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-60">
+            <DropdownMenuContent side="right" align="start" className="w-60">
               <DropdownMenuLabel>Flow</DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => onAddPlanningNode('process')}>
                 <Route size={14} />
@@ -147,13 +137,12 @@ export function CanvasToolbar({
           </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <DocumentTopBarButton>
-                <Plus size={14} />
-                Presets
-                <ChevronDown size={13} />
-              </DocumentTopBarButton>
+              <RailButton label="Presets" hint="Start from a preset layout">
+                <LayoutTemplate />
+              </RailButton>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuContent side="right" align="start" className="w-56">
+              <DropdownMenuLabel>Presets</DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => onApplyPreset('flowchart')}>
                 Flowchart
               </DropdownMenuItem>
@@ -171,40 +160,16 @@ export function CanvasToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
+        </FloatingBar>
       )}
 
-      <div className={documentTopBarGroupClass}>
-        <DocumentTopBarIconButton onClick={onZoomOut} title="Zoom out">
-          <Minus size={15} />
-        </DocumentTopBarIconButton>
-        <DocumentTopBarButton
-          onClick={onResetZoom}
-          className="min-w-[78px] justify-center px-2 text-center font-medium text-muted-foreground"
-          title="Reset zoom to 100%"
-        >
-          {zoomLabel}
-        </DocumentTopBarButton>
-        <DocumentTopBarIconButton onClick={onZoomIn} title="Zoom in">
-          <PlusIcon size={15} />
-        </DocumentTopBarIconButton>
-      </div>
-
-      <div className={documentTopBarGroupClass}>
-        <DocumentTopBarButton onClick={onFitView}>
-          <Maximize2 size={14} />
-          Fit view
-        </DocumentTopBarButton>
-        <DocumentTopBarButton onClick={onResetZoom}>
-          <RotateCcw size={14} />
-          Reset zoom
-        </DocumentTopBarButton>
-      </div>
-
-      <div className="hidden items-center gap-2 rounded-xl border border-border/60 bg-card/45 px-2.5 py-1 text-xs text-muted-foreground lg:flex">
-        <MousePointer2 size={13} />
-        Drag to select. Use the middle mouse button to pan. Scroll to move.
-      </div>
+      <ZoomPill
+        label={zoomLabel}
+        onZoomOut={onZoomOut}
+        onZoomIn={onZoomIn}
+        onReset={onResetZoom}
+        onFit={onFitView}
+      />
     </>
   );
 }

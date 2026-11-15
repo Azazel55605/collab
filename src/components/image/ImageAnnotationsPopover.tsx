@@ -3,14 +3,8 @@ import { Eraser } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ImageOverlayItem } from '../../types/image';
 import { Button } from '../ui/button';
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from '../ui/popover';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverPanel, PopoverPanelHeader } from '../ui/popover-patterns';
 
 import { describeOverlayCount, getOverlayItemLabel, getOverlayItemMeta } from './ImageViewUtils';
 
@@ -41,63 +35,54 @@ export function ImageAnnotationsPopover({
           {describeOverlayCount(items.length)}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96 max-w-[calc(100vw-40px)] p-3">
-        <PopoverHeader className="mb-1">
-          <PopoverTitle>Annotations</PopoverTitle>
-          <PopoverDescription>
-            Select an additive annotation or remove it from the image.
-          </PopoverDescription>
-        </PopoverHeader>
-
+      <PopoverPanel align="end" className="w-88 max-w-[calc(100vw-40px)]">
+        <PopoverPanelHeader title="Annotations" meta={describeOverlayCount(items.length)} />
         {items.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
-            No additive annotations yet.
-          </div>
+          <p className="px-3 pt-2 pb-6 text-center text-[12.5px] text-muted-foreground">
+            No additive annotations yet. Draw on the image in Annotate mode.
+          </p>
         ) : (
-          <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+          <ul className="flex max-h-80 flex-col gap-0.5 overflow-y-auto px-1.5 pb-1.5">
             {items.map((item, index) => {
               const isSelected = item.id === selectedItemId;
               return (
-                <div
+                <li
                   key={item.id}
                   className={cn(
-                    'flex items-start gap-2 rounded-xl border px-3 py-2 transition-colors app-motion-fast',
-                    isSelected
-                      ? 'border-primary/45 bg-primary/10'
-                      : 'border-border/50 bg-background/45 hover:border-border hover:bg-background/70',
+                    'group flex items-center gap-1 rounded-lg transition-colors',
+                    isSelected ? 'bg-primary/15' : 'hover:bg-muted/60',
                   )}
                 >
                   <button
                     type="button"
-                    className="min-w-0 flex-1 text-left"
+                    className="min-w-0 flex-1 px-2 py-1.5 text-left"
                     onClick={() => {
                       onSelectItem(item.id);
                       onOpenChange(false);
                     }}
                   >
-                    <div className="truncate text-sm font-medium text-foreground">
+                    <span className="block truncate text-[13px]">
                       {getOverlayItemLabel(item, index)}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    </span>
+                    <span className="block truncate text-[11.5px] text-muted-foreground">
                       {getOverlayItemMeta(item)}
-                    </div>
+                    </span>
                   </button>
                   <Button
-                    size="sm"
+                    size="icon-sm"
                     variant="ghost"
-                    className="h-8 shrink-0 px-2 text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      onDeleteItem(item.id);
-                    }}
+                    aria-label={`Remove annotation ${index + 1}`}
+                    className="mr-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100"
+                    onClick={() => onDeleteItem(item.id)}
                   >
-                    <Eraser size={14} />
+                    <Eraser />
                   </Button>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
-      </PopoverContent>
+      </PopoverPanel>
     </Popover>
   );
 }

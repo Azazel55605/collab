@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   CircuitBoard,
@@ -21,8 +22,12 @@ import {
   Music2,
   Paperclip,
   PenLine,
+  Pin,
+  PinOff,
   Plus,
   Presentation,
+  Search,
+  Settings2,
   Subtitles,
   Table2,
   Trash2,
@@ -89,11 +94,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Input } from '../ui/input';
+import { Popover, PopoverTrigger } from '../ui/popover';
+import { PopoverPanel, PopoverPanelHeader } from '../ui/popover-patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 import FileReferencesPanel from './FileReferencesPanel';
-import { FILE_TYPE_FILTERS, type FileTypeFilter, filterFileTreeByType } from './fileTreeFilters';
+import {
+  FILE_TYPE_FILTERS,
+  type FileTypeFilter,
+  filterFileTreeByName,
+  filterFileTreeByType,
+} from './fileTreeFilters';
 import { nativeDropFolderAtPoint } from './nativeDropTarget';
 import TrashPanel from './TrashPanel';
 import { useNativeFileDrop } from './useNativeFileDrop';
@@ -124,6 +136,7 @@ interface TaskAttachmentRef {
 }
 
 const EMPTY_PATHS: string[] = [];
+const NO_COLLAPSED_PATHS = new Set<string>();
 const IMAGE_FILE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -174,6 +187,7 @@ export default function FileTree() {
   const renameTab = useEditorStore((state) => state.renameTab);
   const activeTabPath = useEditorStore((state) => state.activeTabPath);
   const setActiveView = useUiStore((state) => state.setActiveView);
+  const openVaultManager = useUiStore((state) => state.openVaultManager);
   const confirmDeleteEnabled = useUiStore((state) => state.confirmDelete);
   const fileTreeHoverPreviewsEnabled = useUiStore((state) => state.fileTreeHoverPreviewsEnabled);
   const fileTreeCollapsedPathsByVault = useUiStore((state) => state.fileTreeCollapsedPathsByVault);
@@ -203,9 +217,27 @@ export default function FileTree() {
     ? (fileTreeCollapsedPathsByVault[vault.path] ?? EMPTY_PATHS)
     : EMPTY_PATHS;
   const collapsed = useMemo(() => new Set(collapsedPaths), [collapsedPaths]);
+  const [nameQuery, setNameQuery] = useState('');
+  const pinnedPaths = useUiStore((state) =>
+    vault?.path ? (state.pinnedPathsByVault[vault.path] ?? EMPTY_PATHS) : EMPTY_PATHS,
+  );
+  const togglePinnedPath = useUiStore((state) => state.togglePinnedPath);
+  // Pins whose file no longer exists (deleted, or renamed elsewhere) simply drop out.
+  const pinnedFiles = useMemo(() => {
+    if (pinnedPaths.length === 0) return [];
+    const byPath = new Map<string, NoteFile>();
+    const visit = (nodes: NoteFile[]) => {
+      for (const node of nodes) {
+        if (node.isFolder) visit(node.children ?? []);
+        else byPath.set(node.relativePath, node);
+      }
+    };
+    visit(fileTree);
+    return pinnedPaths.flatMap((path) => byPath.get(path) ?? []);
+  }, [fileTree, pinnedPaths]);
   const filteredFileTree = useMemo(
-    () => filterFileTreeByType(fileTree, fileTypeFilters),
-    [fileTree, fileTypeFilters],
+    () => filterFileTreeByName(filterFileTreeByType(fileTree, fileTypeFilters), nameQuery),
+    [fileTree, fileTypeFilters, nameQuery],
   );
 
   const setCollapsed = useCallback(
@@ -231,7 +263,8 @@ export default function FileTree() {
   // Flattened list of nodes currently visible in the tree (respecting collapsed
   // folders), in display order — used for shift-range multi-selection.
   const rows = useMemo(
-    () => visibleTreeRows(filteredFileTree, collapsed),
+    // While filtering by name every matching folder is shown open.
+    () => visibleTreeRows(filteredFileTree, nameQuery.trim() ? NO_COLLAPSED_PATHS : collapsed),
     [filteredFileTree, collapsed],
   );
   const visibleNodes = useMemo(() => rows.map((row) => row.node), [rows]);
@@ -1152,55 +1185,23 @@ export default function FileTree() {
         onCancel={() => setPreviewState(null)}
       />
 
-      {/* Toolbar row */}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1.5 border-b border-border/30">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setMode('files')}
-            className={cn(
-              'rounded px-2 py-1 text-[11px] font-medium transition-colors',
-              mode === 'files'
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
-            )}
-          >
-            Files
-          </button>
-          <button
-            onClick={() => setMode('trash')}
-            className={cn(
-              'flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
-              mode === 'trash'
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
-            )}
-          >
-            <Trash2 size={11} />
-            Trash
-          </button>
-        </div>
-        {mode === 'files' && (
+      {/* Filter and create: one row above the tree. */}
+      {mode === 'files' && (
+        <div className="flex items-center gap-1 px-2.5 pb-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={nameQuery}
+              onChange={(event) => setNameQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setNameQuery('');
+              }}
+              placeholder="Filter files"
+              aria-label="Filter files by name"
+              className="h-8 pl-8 text-[13px]"
+            />
+          </div>
           <div className="flex shrink-0 items-center gap-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Open Graph View"
-                  className="text-muted-foreground transition-colors app-motion-fast hover:text-foreground"
-                  onClick={() => {
-                    openTab('__graph__', 'Graph', 'graph');
-                    setActiveView('editor');
-                  }}
-                >
-                  <GitFork size={12} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs text-foreground">
-                Open Graph View
-              </TooltipContent>
-            </Tooltip>
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1212,7 +1213,7 @@ export default function FileTree() {
                           : `Filter files, ${fileTypeFilters.size} active`
                       }
                       className={cn(
-                        'relative flex h-6 min-w-6 items-center justify-center rounded px-1 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground',
+                        'relative flex h-8 min-w-8 items-center justify-center rounded-md px-1.5 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground',
                         fileTypeFilters.size > 0 && 'bg-primary/10 text-primary',
                       )}
                     >
@@ -1267,7 +1268,7 @@ export default function FileTree() {
                     <DropdownMenuTrigger asChild>
                       <button
                         aria-label="Create"
-                        className="flex h-6 items-center gap-0.5 rounded px-1 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground"
+                        className="flex h-8 items-center gap-0.5 rounded-md px-1.5 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground"
                       >
                         <Plus size={13} />
                         <ChevronDown size={10} />
@@ -1321,7 +1322,7 @@ export default function FileTree() {
                   <button
                     aria-label="Add files to vault"
                     onClick={handleImportButton}
-                    className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
+                    className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
                   >
                     <FileUp size={13} />
                   </button>
@@ -1332,8 +1333,46 @@ export default function FileTree() {
               </Tooltip>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Pinned files: kept above the tree, hidden while filtering or in the trash. */}
+      {mode === 'files' && !nameQuery.trim() && pinnedFiles.length > 0 && (
+        <section aria-label="Pinned" className="shrink-0 px-1 pb-1">
+          <h3 className="px-2.5 pt-0.5 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Pinned
+          </h3>
+          {pinnedFiles.map((file) => (
+            <div
+              key={file.relativePath}
+              className={cn(
+                'group mx-1 flex h-7 items-center gap-1.5 rounded-sm pr-1 pl-2 text-[12.5px] transition-colors',
+                activeTabPath === file.relativePath
+                  ? 'bg-primary/15 text-foreground'
+                  : 'text-foreground/70 hover:bg-accent/50 hover:text-foreground',
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => handleOpenFile(file)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:underline"
+              >
+                <Pin size={12} className="shrink-0 text-primary/70" />
+                <span className="truncate">{file.name}</span>
+              </button>
+              <button
+                type="button"
+                aria-label={`Unpin ${file.name}`}
+                title="Unpin"
+                onClick={() => vault?.path && togglePinnedPath(vault.path, file.relativePath)}
+                className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
+              >
+                <PinOff size={11} />
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Tree — root is also a drop target */}
       {mode === 'trash' ? (
@@ -1516,6 +1555,60 @@ export default function FileTree() {
           onOpenReference={handleOpenReference}
         />
       ) : null}
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-sidebar-border/60 px-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-pressed={mode === 'trash'}
+          onClick={() => setMode(mode === 'trash' ? 'files' : 'trash')}
+          className={cn(
+            'h-7 gap-1.5 px-2 text-[12.5px] text-muted-foreground',
+            mode === 'trash' && 'bg-accent text-foreground',
+          )}
+        >
+          {mode === 'trash' ? <ArrowLeft className="size-3.5" /> : <Trash2 className="size-3.5" />}
+          {mode === 'trash' ? 'Back to files' : 'Trash'}
+        </Button>
+        <span className="flex-1" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Open Graph View"
+              className="text-muted-foreground"
+              onClick={() => {
+                openTab('__graph__', 'Graph', 'graph');
+                setActiveView('editor');
+              }}
+            >
+              <GitFork />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs text-foreground">
+            Graph view
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Open vault manager"
+              className="text-muted-foreground"
+              onClick={openVaultManager}
+            >
+              <Settings2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs text-foreground">
+            Vault manager
+          </TooltipContent>
+        </Tooltip>
+      </div>
       <VersionHistoryModal
         open={historyModalPath !== null}
         relativePath={historyModalPath}
@@ -1646,6 +1739,18 @@ const FileTreeNode = memo(function FileTreeNode({
   const isDuplicableDocument =
     !node.isFolder && canDuplicate && isTextDocumentPath(node.relativePath);
 
+  const pinVaultPath = useVaultStore((state) => state.vault?.path ?? null);
+  const isPinned = useUiStore((state) =>
+    pinVaultPath
+      ? (state.pinnedPathsByVault[pinVaultPath] ?? []).includes(node.relativePath)
+      : false,
+  );
+  const togglePinnedPath = useUiStore((state) => state.togglePinnedPath);
+  const isUnsaved = useEditorStore((state) =>
+    node.isFolder
+      ? false
+      : state.openTabs.some((tab) => tab.relativePath === node.relativePath && tab.isDirty),
+  );
   const getFileIcon = () => {
     if (node.isFolder) {
       return isCollapsed ? (
@@ -1680,6 +1785,8 @@ const FileTreeNode = memo(function FileTreeNode({
     if (node.extension === 'sheet') return <Table2 size={13} className="text-violet-400/75" />;
     if (node.extension === 'ink') return <PenLine size={13} className="text-fuchsia-400/75" />;
     if (node.extension === 'deck') return <Presentation size={13} className="text-orange-400/75" />;
+    if (node.extension.toLowerCase() === 'pdf')
+      return <FileText size={13} className="text-rose-400/75" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
   };
 
@@ -1878,57 +1985,78 @@ const FileTreeNode = memo(function FileTreeNode({
               </span>
             )}
 
-            {/* Active file dot */}
-            {isActive && !isDropTarget && (
-              <span className="w-1 h-1 rounded-full bg-primary shrink-0 opacity-80" />
+            {/* Unsaved changes */}
+            {isUnsaved && (
+              <span
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+                title="Unsaved changes"
+                aria-label="Unsaved changes"
+              />
             )}
 
-            {/* Peer presence dots */}
-            {activePeers.map((peer) => (
-              <span
-                key={peer.userId}
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ backgroundColor: peer.userColor }}
-                title={`${peer.userName} is editing`}
-              />
-            ))}
+            {/* Who is editing this file */}
+            {activePeers.length > 0 && (
+              <span className="flex shrink-0 -space-x-1">
+                {activePeers.slice(0, 3).map((peer) => (
+                  <span
+                    key={peer.userId}
+                    className="flex size-4 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-sidebar"
+                    style={{ backgroundColor: peer.userColor }}
+                    title={`${peer.userName} is editing`}
+                  >
+                    {peer.userName.slice(0, 1).toUpperCase()}
+                  </span>
+                ))}
+              </span>
+            )}
             {isTaskAttached && (
               <Popover open={attachmentPopoverOpen} onOpenChange={setAttachmentPopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
                     className="shrink-0 text-primary/75 hover:text-primary transition-colors app-motion-fast"
                     title="Attached to task"
+                    aria-label="Attached to task"
                     onClick={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <Paperclip size={11} />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent
+                <PopoverPanel
                   align="end"
                   side="right"
-                  className="w-72 p-1"
+                  className="w-72"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                    Attached to {attachmentRefs.length} task{attachmentRefs.length === 1 ? '' : 's'}
-                  </div>
-                  <div className="flex flex-col">
+                  <PopoverPanelHeader
+                    title={`Attached to ${attachmentRefs.length} task${attachmentRefs.length === 1 ? '' : 's'}`}
+                  />
+                  <ul className="flex flex-col gap-0.5 px-1.5 pb-1.5">
                     {attachmentRefs.map((ref) => (
-                      <button
-                        key={`${ref.boardPath}:${ref.cardId}`}
-                        onClick={() => openAttachedTask(ref)}
-                        className="flex flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-accent/50 transition-colors app-motion-fast"
-                      >
-                        <span className="text-xs text-foreground">{ref.cardTitle}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {ref.boardName} · {ref.columnTitle}
-                        </span>
-                      </button>
+                      <li key={`${ref.boardPath}:${ref.cardId}`}>
+                        <button
+                          type="button"
+                          onClick={() => openAttachedTask(ref)}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
+                        >
+                          <span className="flex h-6 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            <LayoutDashboard size={13} />
+                          </span>
+                          <span className="min-w-0 flex-1 leading-snug">
+                            <span className="block truncate text-[13px] text-foreground">
+                              {ref.cardTitle}
+                            </span>
+                            <span className="block truncate text-[11.5px] text-muted-foreground">
+                              {ref.boardName} · {ref.columnTitle}
+                            </span>
+                          </span>
+                          <ChevronRight size={13} className="shrink-0 text-muted-foreground" />
+                        </button>
+                      </li>
                     ))}
-                  </div>
-                </PopoverContent>
+                  </ul>
+                </PopoverPanel>
               </Popover>
             )}
           </div>
@@ -1982,6 +2110,12 @@ const FileTreeNode = memo(function FileTreeNode({
         )}
         {isDuplicableDocument && (
           <ContextMenuItem onClick={() => void onDuplicate(node)}>Duplicate</ContextMenuItem>
+        )}
+        {!node.isFolder && pinVaultPath && (
+          <ContextMenuItem onClick={() => togglePinnedPath(pinVaultPath, node.relativePath)}>
+            {isPinned ? <PinOff size={12} /> : <Pin size={12} />}{' '}
+            {isPinned ? 'Unpin' : 'Pin to top'}
+          </ContextMenuItem>
         )}
         {supportsVersionHistory && (
           <ContextMenuItem onClick={() => onViewHistory(node.relativePath)}>

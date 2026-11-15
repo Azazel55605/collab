@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { FileText, Image as ImageIcon, PenLine } from 'lucide-react';
+
 import type {
   InkExportCrop,
   InkExportFormat,
@@ -11,15 +13,9 @@ import type { InkExportProgress } from '../../lib/ink/exportRuntime';
 import type { InkBounds } from '../../types/ink';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { ExportDialog } from '../ui/export-dialog';
 import { Input } from '../ui/input';
+import { DetailRow } from '../ui/list-detail-dialog';
 import { Progress } from '../ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
@@ -79,122 +75,107 @@ export default function InkExportDialog({
   const regionWidth = Math.max(1, region.maxX - region.minX);
   const regionHeight = Math.max(1, region.maxY - region.minY);
 
+  const options = (): InkExportOptions => ({
+    format,
+    scope,
+    pageId,
+    selectedObjectIds,
+    region,
+    crop,
+    scale,
+    padding,
+    transparent: format === 'pdf' ? false : transparent,
+    includePageBackground,
+    palette,
+  });
+  const noSelection = scope === 'selection' && selectedObjectIds.length === 0;
+  const pick = (
+    id: string,
+    value: string,
+    onChange: (value: string) => void,
+    items: [string, string, boolean?][],
+    disabled = false,
+  ) => (
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger id={id} size="sm" className="w-44">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map(([itemValue, label, itemDisabled]) => (
+          <SelectItem key={itemValue} value={itemValue} disabled={itemDisabled}>
+            {label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Export drawing</DialogTitle>
-          <DialogDescription>
-            Export from the stored scene rather than the current viewport chrome. Large raster jobs
-            run in a cancellable worker.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <label htmlFor="ink-export-format" className="text-xs font-medium">
-              Format
-            </label>
-            <Select value={format} onValueChange={(value) => setFormat(value as InkExportFormat)}>
-              <SelectTrigger id="ink-export-format">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="png">PNG image</SelectItem>
-                <SelectItem value="svg">Standalone SVG</SelectItem>
-                <SelectItem value="pdf">PDF document</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="ink-export-scope" className="text-xs font-medium">
-              Content
-            </label>
-            <Select value={scope} onValueChange={(value) => setScope(value as InkExportScope)}>
-              <SelectTrigger id="ink-export-scope">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="page">Current page</SelectItem>
-                <SelectItem value="selection" disabled={selectedObjectIds.length === 0}>
-                  Selection ({selectedObjectIds.length})
-                </SelectItem>
-                <SelectItem value="region">Visible region</SelectItem>
-                {format === 'pdf' ? (
-                  <SelectItem value="document">All pages ({pageCount})</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="ink-export-crop" className="text-xs font-medium">
-              Crop
-            </label>
-            <Select value={crop} onValueChange={(value) => setCrop(value as InkExportCrop)}>
-              <SelectTrigger id="ink-export-crop">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="page">Page edges</SelectItem>
-                <SelectItem value="content">Content bounds</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="ink-export-scale" className="text-xs font-medium">
-              Raster scale
-            </label>
-            <Select value={String(scale)} onValueChange={(value) => setScale(Number(value))}>
-              <SelectTrigger id="ink-export-scale" disabled={format === 'svg'}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1×</SelectItem>
-                <SelectItem value="2">2×</SelectItem>
-                <SelectItem value="4">4×</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="ink-export-palette" className="text-xs font-medium">
-              Destination palette
-            </label>
-            <Select
-              value={palette}
-              onValueChange={(value) => setPalette(value as InkExportPalette)}
-            >
-              <SelectTrigger id="ink-export-palette">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="page">Match page</SelectItem>
-                <SelectItem value="light">Light output</SelectItem>
-                <SelectItem value="dark">Dark output</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="ink-export-padding" className="text-xs font-medium">
-              Padding (ink units)
-            </label>
-            <Input
-              id="ink-export-padding"
-              type="number"
-              min={0}
-              value={padding}
-              onChange={(event) => setPadding(Math.max(0, finiteNumber(event.target.value, 0)))}
-            />
-          </div>
-        </div>
-
-        {scope === 'region' ? (
-          <div className="grid grid-cols-2 gap-3 rounded-md border border-border/70 p-3 sm:grid-cols-4">
-            {[
+    <ExportDialog
+      open={open}
+      onOpenChange={(next) => !busy && onOpenChange(next)}
+      title="Export drawing"
+      description="Exports the drawing itself, not the editor around it. Large images render in the background and can be stopped."
+      formats={[
+        {
+          value: 'png',
+          label: 'PNG image',
+          description: 'Pixels, for anywhere',
+          icon: <ImageIcon />,
+        },
+        {
+          value: 'svg',
+          label: 'Standalone SVG',
+          description: 'Scales without blur',
+          icon: <PenLine />,
+        },
+        {
+          value: 'pdf',
+          label: 'PDF document',
+          description: 'One page per page',
+          icon: <FileText />,
+        },
+      ]}
+      format={format}
+      onFormatChange={setFormat}
+      exportLabel="Export"
+      exportDisabled={noSelection}
+      busy={busy}
+      onExport={() => onExport(options())}
+      secondary={
+        onInsert && !busy ? (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={noSelection}
+            onClick={() =>
+              onInsert({
+                ...options(),
+                format: 'svg',
+                scope: scope === 'document' ? 'page' : scope,
+                scale: 1,
+              })
+            }
+          >
+            Insert SVG in note
+          </Button>
+        ) : undefined
+      }
+    >
+      <DetailRow label="What" description="The page, the selection, or a region of it.">
+        {pick('ink-export-scope', scope, (value) => setScope(value as InkExportScope), [
+          ['page', 'Current page'],
+          ['selection', `Selection (${selectedObjectIds.length})`, selectedObjectIds.length === 0],
+          ['region', 'Visible region'],
+          ...(format === 'pdf'
+            ? ([['document', `All pages (${pageCount})`]] as [string, string][])
+            : []),
+        ])}
+      </DetailRow>
+      {scope === 'region' && (
+        <div className="grid grid-cols-4 gap-2 border-b border-border/40 py-3">
+          {(
+            [
               ['X', region.minX, (value: number) => setRegion((old) => ({ ...old, minX: value }))],
               ['Y', region.minY, (value: number) => setRegion((old) => ({ ...old, minY: value }))],
               [
@@ -209,132 +190,96 @@ export default function InkExportDialog({
                 (value: number) =>
                   setRegion((old) => ({ ...old, maxY: old.minY + Math.max(1, value) })),
               ],
-            ].map(([label, value, update]) => (
-              <div key={String(label)} className="space-y-1">
-                <label className="text-[11px] font-medium">{String(label)}</label>
-                <Input
-                  type="number"
-                  value={Number(value)}
-                  onChange={(event) =>
-                    (update as (next: number) => void)(
-                      finiteNumber(event.target.value, Number(value)),
-                    )
-                  }
-                />
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="space-y-3">
-          <div className="flex items-start gap-2">
-            <Checkbox
-              id="ink-export-paper"
-              checked={includePageBackground}
-              onCheckedChange={(checked) => {
-                const next = checked === true;
-                setIncludePageBackground(next);
-                if (next) setTransparent(false);
-              }}
-            />
-            <div>
-              <label htmlFor="ink-export-paper" className="text-sm">
-                Include page background and pattern
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Includes ruled, grid, dotted, staff, or storyboard paper.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <Checkbox
-              id="ink-export-transparent"
-              checked={transparent}
-              disabled={format === 'pdf'}
-              onCheckedChange={(checked) => {
-                const next = checked === true;
-                setTransparent(next);
-                if (next) setIncludePageBackground(false);
-              }}
-            />
-            <div>
-              <label htmlFor="ink-export-transparent" className="text-sm">
-                Transparent background
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Available for PNG and SVG when the page background is omitted.
-              </p>
-            </div>
-          </div>
+            ] as [string, number, (value: number) => void][]
+          ).map(([label, value, update]) => (
+            <label key={label} className="flex flex-col gap-1 text-[12px] font-medium">
+              {label}
+              <Input
+                type="number"
+                className="h-8"
+                value={value}
+                onChange={(event) => update(finiteNumber(event.target.value, value))}
+              />
+            </label>
+          ))}
         </div>
-
-        {busy ? (
-          <div className="space-y-2 rounded-md border border-border/70 p-3" aria-live="polite">
-            <div className="flex justify-between text-xs">
-              <span>{progress?.label ?? 'Preparing export'}</span>
-              <span>{percentage}%</span>
-            </div>
-            <Progress value={percentage} />
+      )}
+      <DetailRow label="Crop" description="Edges of the page, or tight around the ink.">
+        {pick('ink-export-crop', crop, (value) => setCrop(value as InkExportCrop), [
+          ['page', 'Page edges'],
+          ['content', 'Content bounds'],
+        ])}
+      </DetailRow>
+      {format !== 'svg' && (
+        <DetailRow label="Scale" description="Pixels per drawing unit.">
+          {pick('ink-export-scale', String(scale), (value) => setScale(Number(value)), [
+            ['1', '1×'],
+            ['2', '2×'],
+            ['4', '4×'],
+          ])}
+        </DetailRow>
+      )}
+      <DetailRow label="Colours" description="Keep the page look, or force light or dark.">
+        {pick('ink-export-palette', palette, (value) => setPalette(value as InkExportPalette), [
+          ['page', 'Match page'],
+          ['light', 'Light output'],
+          ['dark', 'Dark output'],
+        ])}
+      </DetailRow>
+      <DetailRow label="Padding" description="Space around the edges, in drawing units.">
+        <Input
+          id="ink-export-padding"
+          aria-label="Padding (ink units)"
+          type="number"
+          min={0}
+          className="h-8 w-24"
+          value={padding}
+          onChange={(event) => setPadding(Math.max(0, finiteNumber(event.target.value, 0)))}
+        />
+      </DetailRow>
+      <DetailRow
+        label="Include page background and pattern"
+        description="Ruled, grid, dotted, staff or storyboard paper."
+      >
+        <Checkbox
+          id="ink-export-paper"
+          aria-label="Include page background and pattern"
+          checked={includePageBackground}
+          onCheckedChange={(checked) => {
+            const next = checked === true;
+            setIncludePageBackground(next);
+            if (next) setTransparent(false);
+          }}
+        />
+      </DetailRow>
+      {format !== 'pdf' && (
+        <DetailRow label="Transparent background" description="Only without the page background.">
+          <Checkbox
+            id="ink-export-transparent"
+            aria-label="Transparent background"
+            checked={transparent}
+            onCheckedChange={(checked) => {
+              const next = checked === true;
+              setTransparent(next);
+              if (next) setIncludePageBackground(false);
+            }}
+          />
+        </DetailRow>
+      )}
+      {busy && (
+        <div className="space-y-2 pt-3" aria-live="polite">
+          <div className="flex items-center justify-between text-xs">
+            <span>{progress?.label ?? 'Preparing export'}</span>
+            <span className="flex items-center gap-2">
+              {percentage}%
+              <Button type="button" size="sm" variant="ghost" className="h-6" onClick={onCancel}>
+                Cancel export
+              </Button>
+            </span>
           </div>
-        ) : null}
-
-        <DialogFooter>
-          {busy ? (
-            <Button variant="destructive" onClick={onCancel}>
-              Cancel export
-            </Button>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              {onInsert ? (
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    onInsert({
-                      format: 'svg',
-                      scope: scope === 'document' ? 'page' : scope,
-                      pageId,
-                      selectedObjectIds,
-                      region,
-                      crop,
-                      scale: 1,
-                      padding,
-                      transparent,
-                      includePageBackground,
-                      palette,
-                    })
-                  }
-                  disabled={scope === 'selection' && selectedObjectIds.length === 0}
-                >
-                  Insert SVG in note
-                </Button>
-              ) : null}
-              <Button
-                onClick={() =>
-                  onExport({
-                    format,
-                    scope,
-                    pageId,
-                    selectedObjectIds,
-                    region,
-                    crop,
-                    scale,
-                    padding,
-                    transparent: format === 'pdf' ? false : transparent,
-                    includePageBackground,
-                    palette,
-                  })
-                }
-                disabled={scope === 'selection' && selectedObjectIds.length === 0}
-              >
-                Export
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Progress value={percentage} />
+        </div>
+      )}
+    </ExportDialog>
   );
 }

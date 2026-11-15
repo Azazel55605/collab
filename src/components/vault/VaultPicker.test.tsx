@@ -5,6 +5,7 @@ import { tauriCommands } from '../../lib/tauri';
 import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { ConfirmDialogHost } from '../ui/confirm-dialog';
 
 import VaultPicker from './VaultPicker';
 
@@ -13,7 +14,14 @@ vi.mock('../../lib/tauri', () => ({
     showOpenVaultDialog: vi.fn(),
     reauthenticateServer: vi.fn(),
     createVault: vi.fn(),
+    showSaveDialog: vi.fn(),
+    exportVault: vi.fn(),
   },
+}));
+
+const syncMock = vi.hoisted(() => ({ makeAvailableOffline: vi.fn() }));
+vi.mock('../../store/syncStore', () => ({
+  useSyncStore: { getState: () => ({ makeAvailableOffline: syncMock.makeAvailableOffline }) },
 }));
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -268,7 +276,8 @@ describe('VaultPicker start screen', () => {
     expect(screen.getByRole('status').textContent).toContain('saved.example.test is signed out');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to saved.example.test' }));
 
-    expect(await screen.findByText(/alice on https:\/\/saved\.example\.test/)).toBeTruthy();
+    expect(await screen.findByText(/session on saved\.example\.test ended/)).toBeTruthy();
+    expect(screen.getByDisplayValue('alice')).toBeTruthy();
     expect(screen.getByLabelText('Password')).toBeTruthy();
     expect(screen.queryByLabelText('Server URL')).toBeNull();
   });
@@ -302,13 +311,65 @@ describe('VaultPicker start screen', () => {
     replicaMock.listHostedVaultReplicas.mockResolvedValueOnce([stale]).mockResolvedValueOnce([]);
     useServerStore.setState({ connections: {} });
 
-    render(<VaultPicker />);
+    render(
+      <>
+        <VaultPicker />
+        <ConfirmDialogHost />
+      </>,
+    );
     await screen.findByRole('button', { name: 'Stale Offline' });
     openRowMenu('Stale Offline');
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove offline copy' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove copy' }));
 
     await waitFor(() => expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(stale));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Stale Offline' })).toBeNull());
+  });
+
+  it('downloads a local vault as a ZIP from its row', async () => {
+    vi.mocked(tauriCommands.showSaveDialog).mockResolvedValue('/tmp/Personal Notes.zip');
+    render(<VaultPicker />);
+    fireEvent.click(screen.getByRole('button', { name: 'Download Personal Notes as ZIP' }));
+    await waitFor(() =>
+      expect(tauriCommands.exportVault).toHaveBeenCalledWith(
+        '/home/me/notes',
+        '/tmp/Personal Notes.zip',
+      ),
+    );
+    // Editors cannot export hosted vaults, so their rows offer no download.
+    expect(screen.queryByRole('button', { name: 'Download Team Vault as ZIP' })).toBeNull();
+  });
+
+  it('makes a hosted vault available offline only when the account may copy it', async () => {
+    syncMock.makeAvailableOffline.mockResolvedValue({ documentsCached: 4, assetsCached: 1 });
+    useServerStore.setState((state) => ({
+      connections: {
+        [SERVER]: {
+          ...state.connections[SERVER],
+          hostedVaults: [{ ...hostedVault, capabilities: ['vault.read', 'vault.offlineCopy'] }],
+        },
+      },
+    }));
+    render(<VaultPicker />);
+    fireEvent.click(screen.getByRole('button', { name: 'Make Team Vault available offline' }));
+    await waitFor(() =>
+      expect(syncMock.makeAvailableOffline).toHaveBeenCalledWith(
+        expect.objectContaining({ hostedVaultId: 'vault-1', serverUrl: SERVER }),
+      ),
+    );
+  });
+
+  it('marks hosted vaults that already have a full offline copy', async () => {
+    replicaMock.listHostedVaultReplicas.mockResolvedValue([
+      {
+        ...offlineReplica(SERVER, 'vault-1', 'Team Vault'),
+        offlineAvailableAt: '2026-06-20T10:00:00Z',
+        capabilities: ['vault.read', 'vault.offlineCopy'],
+      },
+    ]);
+    render(<VaultPicker />);
+    expect(await screen.findByText('Available')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Make Team Vault available offline' })).toBeNull();
   });
 
   it('removes a local vault from the list through its row menu', async () => {

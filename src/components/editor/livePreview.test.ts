@@ -201,3 +201,28 @@ it('retains the decoration set when the cursor moves within the same source line
   const nextLine = moved.update({ selection: { anchor: moved.doc.length } }).state;
   expect(nextLine.field(plugin)).not.toBe(moved.field(plugin));
 });
+
+it('gives block widgets a height estimate so scrolling does not shift the document', () => {
+  const plugin = createLivePreviewPlugin('Note.md');
+  const doc = [
+    'Cursor stays here.',
+    '',
+    '```ts',
+    'const a = 1;',
+    'const b = 2;',
+    '```',
+    '',
+    '| A | B |',
+    '| - | - |',
+    '| 1 | 2 |',
+    '| 3 | 4 |',
+  ].join('\n');
+  const state = EditorState.create({ doc, selection: { anchor: 0 }, extensions: [plugin] });
+  const heights: number[] = [];
+  state.field(plugin).between(0, doc.length, (_from, _to, deco) => {
+    const widget = deco.spec.widget as { estimatedHeight?: number } | undefined;
+    if (deco.spec.block && widget) heights.push(widget.estimatedHeight ?? -1);
+  });
+  expect(heights).toHaveLength(2);
+  for (const height of heights) expect(height).toBeGreaterThan(40);
+});
