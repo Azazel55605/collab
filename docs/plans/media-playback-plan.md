@@ -89,10 +89,10 @@ before promising large encrypted playback. Do not silently stage plaintext.
       change for embedded tracks, resolve that before claiming support.
 - [x] Show album artwork and embedded or matching LRC lyrics in the audio
       player. Apply artwork-based ambiance and synchronize timestamped lines.
-- [ ] Qualify album artwork and lyric sync in installed desktop builds.
+- [X] Qualify album artwork and lyric sync in installed desktop builds.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
       when closing the player or leaving its vault.
-- [ ] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
+- [X] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
       movie. Record decoder selection, dropped frames, audio and colour output.
       Linux WebKitGTK stalled on an MP4 with 39 embedded subtitle tracks.
       A compatibility stream bypassing those tracks reached metadata and
