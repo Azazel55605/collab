@@ -1895,7 +1895,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
               variant={BackgroundVariant.Dots}
               color="color-mix(in oklch, var(--muted-foreground) 22%, transparent)"
             />
-            <Panel position="top-right">
+            <Panel position="top-right" className="flex max-h-[calc(100%-5.5rem)] flex-col gap-2">
               <CanvasEdgeInspector
                 selectedEdgeData={selectedEdgeData}
                 edgeLabelDraft={edgeLabelDraft}
@@ -1908,8 +1908,6 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
                 onMarkerEndChange={updateSelectedEdgeMarkerEnd}
                 onDeleteSelected={deleteSelection}
               />
-            </Panel>
-            <Panel position="top-left">
               <CanvasNodeInspector
                 selectedNode={selectedInspectorNode}
                 knownUsers={knownUsers}

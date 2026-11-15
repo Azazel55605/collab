@@ -237,10 +237,12 @@ export function DatePanel({
   const [month, setMonth] = useState<Date>(selected ?? today);
   const showFooter = clearable || time || footerStart || footerMeta;
   return (
-    <div className="flex flex-col">
+    // The month sets the width; quick picks and the footer wrap inside it
+    // (w-0 min-w-full keeps them out of the intrinsic width).
+    <div className="flex w-fit flex-col">
       {quickPicks && (
         <div
-          className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1"
+          className="flex w-0 min-w-full flex-wrap gap-1.5 px-3 pt-2.5 pb-1"
           role="group"
           aria-label="Quick picks"
         >
@@ -281,6 +283,7 @@ export function DatePanel({
       />
       {showFooter && (
         <PopoverPanelFooter
+          className="w-0 min-w-full"
           start={
             footerStart ??
             (clearable ? (
