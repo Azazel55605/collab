@@ -147,6 +147,7 @@ struct Source {
     track_overlays: Vec<u64>,
     embedded: Vec<mp4::Track>,
     audio: Vec<String>,
+    chapters: Vec<mp4::Chapter>,
     audio_metadata: Option<AudioMetadata>,
     preview_budget: PreviewBudget,
     bodies: Arc<Semaphore>,
@@ -275,6 +276,7 @@ impl Source {
             track_overlays,
             embedded,
             audio,
+            chapters: tracks.chapters,
             audio_metadata,
             preview_budget: PreviewBudget::default(),
             bodies: Arc::new(Semaphore::new(MAX_LOCAL_BODIES)),
@@ -523,6 +525,10 @@ pub struct PlaybackSource {
     revision: String,
     captions: Vec<PlaybackCaption>,
     audio_tracks: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    chapters: Vec<mp4::Chapter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
     audio_metadata: Option<AudioDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     offline: Option<bool>,
@@ -624,6 +630,8 @@ fn register(
         url: format!("{base}/media"),
         revision: source.revision.clone(),
         audio_tracks: source.audio.clone(),
+        size: Some(source.len),
+        chapters: source.chapters.clone(),
         offline: None,
         can_download_offline: None,
         audio_metadata: source

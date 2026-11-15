@@ -38,3 +38,35 @@ encode -f lavfi -i 'testsrc2=size=640x360:rate=24' -f lavfi -i 'sine=frequency=4
 encode -f lavfi -i 'sine=frequency=440' -t 5 -c:a libmp3lame tone.mp3
 encode -f lavfi -i 'sine=frequency=440' -t 5 -c:a pcm_s16le tone.wav
 encode -f lavfi -i 'sine=frequency=440' -t 5 -c:a flac tone.flac
+
+cat > chapters.ffmeta <<'CHAPTERS'
+;FFMETADATA1
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=100000
+title=Beginning
+[CHAPTER]
+TIMEBASE=1/1000
+START=100000
+END=170000
+title=Middle
+[CHAPTER]
+TIMEBASE=1/1000
+START=170000
+END=180000
+title=Final chapter
+CHAPTERS
+
+encode -i large.mp4 -i chapters.ffmeta -map 0 -map_chapters 1 -c copy -movie_timescale 1000 chapters.mp4
+rm -- chapters.ffmeta
+
+# Main 10 HEVC and E-AC-3 are an optional packaged-player compatibility case.
+if [[ ${COLLAB_HEVC_FIXTURE:-0} == 1 ]]; then
+  encode -f lavfi -i 'testsrc2=size=3840x2160:rate=24' \
+    -f lavfi -i 'sine=frequency=440:sample_rate=48000' -t 12 \
+    -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -tag:v hvc1 \
+    -x265-params 'pools=4:frame-threads=2:log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc' -b:v 32100k \
+    -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+    -c:a eac3 -b:a 640k -ac 6 -movflags +faststart hevc-eac3.mp4
+fi

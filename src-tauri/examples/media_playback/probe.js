@@ -108,8 +108,10 @@ async function verifyFixtures() {
     results.push(result);
     try {
       load(name);
+      const started = performance.now();
       await waitFor(() => Number.isFinite(media.duration) && media.duration > 0, 'metadata');
       result.duration = media.duration;
+      result.metadataMs = Math.round(performance.now() - started);
       if (name === 'tracks.mp4') {
         const sidecar = media.querySelector('track');
         const tracks = Array.from(media.textTracks);
@@ -124,6 +126,20 @@ async function verifyFixtures() {
       await media.play();
       await waitFor(() => media.currentTime > 0.3, 'playback');
       result.played = true;
+      result.firstPlaybackMs = Math.round(performance.now() - started);
+      if (name === 'hevc-eac3.mp4') {
+        result.dimensions = [media.videoWidth, media.videoHeight];
+        await waitFor(() => media.currentTime > 2, 'sustained playback');
+        const quality = media.getVideoPlaybackQuality?.();
+        if (quality) {
+          result.totalFrames = quality.totalVideoFrames;
+          result.droppedFrames = quality.droppedVideoFrames;
+        }
+        media.pause();
+        const seekStarted = performance.now();
+        await seek(media.duration * 0.75);
+        result.seekMs = Math.round(performance.now() - seekStarted);
+      }
       if (name === 'large.mp4') {
         media.pause();
         const before = (await stats()).fixtures[name];
@@ -204,5 +220,15 @@ media.audioTracks?.addEventListener('addtrack', refreshTracks);
 media.ontimeupdate = () => {
   byId('position').textContent = `${media.currentTime.toFixed(2)} / ${media.duration.toFixed(2)} s`;
 };
-if (new URLSearchParams(location.search).has('verify')) byId('verify').click();
-else load(fixtureNames[0]);
+void stats()
+  .then(({ fixtures }) => {
+    if (fixtures['hevc-eac3.mp4']) {
+      fixtureNames.push('hevc-eac3.mp4');
+      fixture.add(new Option('hevc-eac3.mp4'));
+    }
+  })
+  .finally(() => {
+    if (new URLSearchParams(location.search).has('verify')) byId('verify').click();
+    else load(fixtureNames[0]);
+  })
+  .catch((error) => console.warn('Could not inspect optional playback fixtures', error));

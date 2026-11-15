@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Music2,
   Pause,
+  PictureInPicture2,
   Play,
   Sparkles,
   Subtitles,
@@ -24,6 +25,13 @@ import {
 import { Button } from '../components/ui/button';
 import { isCaptionPath, mediaKindForPath } from '../lib/mediaFiles';
 import { registerPlaybackCheckpoint } from '../lib/mediaLifecycle';
+import { exitFloatingVideo, isFloatingVideo, useFloatingMedia } from '../lib/mediaPictureInPicture';
+import {
+  adjacentQueuedMedia,
+  consumeQueuedPlayback,
+  playQueuedMedia,
+  useMediaQueue,
+} from '../lib/mediaQueue';
 import {
   forgetMediaResume,
   mediaFileVersion,
@@ -41,7 +49,9 @@ import { useVaultStore } from '../store/vaultStore';
 import type { VaultMeta } from '../types/vault';
 
 import { AudioArtwork, AudioLyrics } from './AudioPlayerContent';
+import AudioWaveform from './AudioWaveform';
 import MediaAmbiance from './MediaAmbiance';
+import { adjustCaptionTiming, managedCaption } from './mediaCaptionTiming';
 import {
   MediaErrorCard,
   MediaIconButton,
@@ -55,6 +65,7 @@ import {
   VolumeControl,
 } from './MediaControls';
 import { formatTime, speedLabel, SPEEDS } from './mediaFormat';
+import { useMediaSystemControls } from './mediaSystemControls';
 import { useFullscreenMediaDock } from './useFullscreenMediaDock';
 import { controlsBox, useVideoBox } from './useVideoBox';
 
@@ -210,13 +221,18 @@ function Player({
   const fullscreenPending = useRef(false);
   const mounted = useRef(false);
   const isVisible = useRef(visible);
+  const floating = useFloatingMedia((state) => state.path);
+  const requested = useMediaQueue((state) => state.requested);
+  const queuePaths = useMediaQueue((state) => state.paths);
+  const captionOffsets = useRef(new Map<string, number>());
+  const [captionOffset, setCaptionOffset] = useState(0);
 
   useLayoutEffect(() => {
     isVisible.current = visible;
     if (visible) return;
     resumePlaying.current = false;
     const media = element.current;
-    if (media && !media.paused) media.pause();
+    if (media && !media.paused && !isFloatingVideo(media)) media.pause();
     const restore = restoreWindow.current;
     if (!restore) return;
     restoreWindow.current = null;
@@ -420,6 +436,7 @@ function Player({
       muted: media.muted,
       ...selection.current,
       captionPath,
+      captionOffsets: [...captionOffsets.current],
       isolatedAudio,
       compatibility,
     });
@@ -430,6 +447,10 @@ function Player({
     Array.from(media.textTracks).forEach((track, index) => {
       track.mode = String(index) === value ? 'showing' : 'disabled';
     });
+    const managed = managedCaption(media, value);
+    const offset = managed ? (captionOffsets.current.get(managed.key) ?? 0) : 0;
+    if (managed) adjustCaptionTiming(managed.track, offset);
+    setCaptionOffset(offset);
     setCaption(value);
     remember(media);
   }
@@ -487,9 +508,19 @@ function Player({
       media.pause();
     };
     const stopOnHidden = () => {
-      if (document.hidden) pause();
+      if (document.hidden && !isFloatingVideo(media)) pause();
     };
-    const unlisten = listenSafely('background:window-hidden', pause);
+    const enterFloating = () => useFloatingMedia.setState({ path: relativePath });
+    const leaveFloating = () => {
+      if (useFloatingMedia.getState().path === relativePath)
+        useFloatingMedia.setState({ path: null });
+      if (!isVisible.current) media.pause();
+    };
+    media.addEventListener('enterpictureinpicture', enterFloating);
+    media.addEventListener('leavepictureinpicture', leaveFloating);
+    const unlisten = listenSafely('background:window-hidden', () => {
+      if (!isFloatingVideo(media)) pause();
+    });
     window.addEventListener('pagehide', checkpoint);
     document.addEventListener('visibilitychange', stopOnHidden);
     media.textTracks.addEventListener('addtrack', refresh);
@@ -499,6 +530,10 @@ function Player({
     return () => {
       unlisten();
       unregisterCheckpoint();
+      media.removeEventListener('enterpictureinpicture', enterFloating);
+      media.removeEventListener('leavepictureinpicture', leaveFloating);
+      leaveFloating();
+      exitFloatingVideo(media);
       window.removeEventListener('pagehide', checkpoint);
       document.removeEventListener('visibilitychange', stopOnHidden);
       media.textTracks.removeEventListener('addtrack', refresh);
@@ -525,6 +560,7 @@ function Player({
     setDuration(media.duration);
     const saved = readMediaResume(vault, relativePath);
     const restore = saved?.revision === source.revision ? saved : undefined;
+    captionOffsets.current = new Map(restore?.captionOffsets);
     media.playbackRate = restore?.rate ?? 1;
     media.volume = restore?.volume ?? 1;
     media.muted = restore?.muted ?? false;
@@ -630,6 +666,27 @@ function Player({
     });
   }
 
+  function stepQueue(direction: -1 | 1) {
+    const path = adjacentQueuedMedia(vault, relativePath, direction);
+    if (path) void playQueuedMedia(vault, path);
+  }
+
+  async function toggleFloating() {
+    const media = element.current;
+    if (!(media instanceof HTMLVideoElement)) return;
+    try {
+      if (isFloatingVideo(media)) {
+        await document.exitPictureInPicture();
+      } else {
+        await media.requestPictureInPicture();
+        if (fullscreen && mounted.current) await toggleFullscreen();
+        if (!mounted.current || element.current !== media) exitFloatingVideo(media);
+      }
+    } catch {
+      setActionError('Picture-in-picture is unavailable for this video.');
+    }
+  }
+
   const mediaProps = {
     src: source?.url,
     preload: 'metadata',
@@ -645,9 +702,14 @@ function Player({
     onProgress: (event: React.SyntheticEvent<HTMLMediaElement>) =>
       updateBuffered(event.currentTarget),
     onPlay: (event: React.SyntheticEvent<HTMLMediaElement>) => {
-      if (!isVisible.current) {
+      if (!isVisible.current && !isFloatingVideo(event.currentTarget)) {
         event.currentTarget.pause();
         return;
+      }
+      const otherVideo = document.pictureInPictureElement;
+      if (otherVideo instanceof HTMLVideoElement && otherVideo !== event.currentTarget) {
+        otherVideo.pause();
+        exitFloatingVideo(otherVideo);
       }
       setPlaying(true);
       setActionError('');
@@ -667,6 +729,11 @@ function Player({
     onEnded: (event: React.SyntheticEvent<HTMLMediaElement>) => {
       setStatus('Finished');
       remember(event.currentTarget);
+      if (
+        (isVisible.current || isFloatingVideo(event.currentTarget)) &&
+        useMediaQueue.getState().current === relativePath
+      )
+        stepQueue(1);
     },
     onError: () => {
       if (!source) return;
@@ -703,6 +770,13 @@ function Player({
       label={[track.label, track.language].filter(Boolean).join(' · ')}
       srcLang={track.language || 'und'}
       src={track.url}
+      onLoad={(event) => {
+        const media = element.current;
+        if (!media) return;
+        const managed = managedCaption(media, selection.current.caption);
+        if (managed?.track === event.currentTarget.track)
+          adjustCaptionTiming(managed.track, captionOffsets.current.get(managed.key) ?? 0);
+      }}
       onError={() => setActionError(`Could not load captions from ${track.label}.`)}
     />
   ));
@@ -722,6 +796,59 @@ function Player({
   const hasLyrics = Boolean(lyrics?.some((entry) => entry.text.trim()));
   const busy = status === 'Buffering…' || status === 'Seeking…';
   const video = kind === 'video';
+  const chapters = source?.chapters?.filter(({ start }) => start >= 0 && start < duration) ?? [];
+  const currentChapter = chapters.reduce<(typeof chapters)[number] | undefined>(
+    (current, item) => (item.start <= position ? item : current),
+    undefined,
+  );
+  const queueIndex = queuePaths.indexOf(relativePath);
+  const hasNext = queueIndex >= 0 && !!adjacentQueuedMedia(vault, relativePath, 1);
+  const hasPrevious = queueIndex >= 0 && !!adjacentQueuedMedia(vault, relativePath, -1);
+  const pipAvailable =
+    video &&
+    ready &&
+    document.pictureInPictureEnabled &&
+    typeof HTMLVideoElement.prototype.requestPictureInPicture === 'function';
+  const waveform =
+    visible &&
+    !video &&
+    !hosted &&
+    ready &&
+    duration <= 60 &&
+    /\.wav$/i.test(relativePath) &&
+    source?.size &&
+    source.size <= 8 * 1024 * 1024 ? (
+      <AudioWaveform
+        key={source.id}
+        url={source.url}
+        size={source.size}
+        cacheKey={JSON.stringify([vaultPath, relativePath, source.revision])}
+      />
+    ) : null;
+
+  useEffect(() => {
+    const media = element.current;
+    if (
+      !visible ||
+      !ready ||
+      !media ||
+      requested !== relativePath ||
+      !consumeQueuedPlayback(vault, relativePath)
+    )
+      return;
+    void media.play().catch(() => setActionError('Press Play to start the queued file.'));
+  }, [ready, relativePath, requested, vault, visible]);
+
+  useMediaSystemControls({
+    media: ready && (floating ? floating === relativePath : visible) ? element.current : null,
+    title: filename,
+    details: source?.audioMetadata,
+    seek,
+    next: () => stepQueue(1),
+    previous: () => stepQueue(-1),
+    hasNext,
+    hasPrevious,
+  });
   const bleed = video && ambiance && !fullscreen;
   // In a tab the controls follow the visible picture, not the letterboxed stage.
   const videoBox = useVideoBox(stage, element, video ? source?.id : undefined);
@@ -740,6 +867,59 @@ function Player({
   }, [notice]);
 
   const settings: MediaSetting[] = [];
+  const timeableCaption = video && element.current && managedCaption(element.current, caption);
+  if (timeableCaption) {
+    settings.push({
+      id: 'caption-timing',
+      label: 'Subtitle timing',
+      value: '',
+      summary:
+        captionOffset === 0 ? 'Original' : `${captionOffset > 0 ? '+' : ''}${captionOffset} ms`,
+      choices: [
+        { label: 'Earlier by 250 ms', value: '-250' },
+        { label: 'Later by 250 ms', value: '250' },
+        { label: 'Reset timing', value: 'reset' },
+      ],
+      onSelect(value) {
+        const media = element.current;
+        if (!media) return;
+        const adjusted =
+          value === 'reset'
+            ? 0
+            : Math.max(-10_000, Math.min(10_000, captionOffset + Number(value)));
+        const offsets = captionOffsets.current;
+        offsets.delete(timeableCaption.key);
+        if (adjusted !== 0) offsets.set(timeableCaption.key, adjusted);
+        if (offsets.size > 64) offsets.delete(offsets.keys().next().value!);
+        adjustCaptionTiming(timeableCaption.track, adjusted);
+        setCaptionOffset(adjusted);
+        remember(media);
+      },
+    });
+  }
+  if (chapters.length)
+    settings.push({
+      id: 'chapters',
+      label: 'Chapters',
+      value: '',
+      summary: currentChapter?.title,
+      choices: chapters.map(({ start, title }) => ({
+        value: String(start),
+        label: `${formatTime(start)} · ${title}`,
+      })),
+      onSelect: (value) => seek(Number(value)),
+    });
+  if (hasPrevious || hasNext)
+    settings.push({
+      id: 'queue',
+      label: 'Playback queue',
+      value: '',
+      choices: [
+        ...(hasPrevious ? [{ label: 'Previous queued file', value: 'previous' }] : []),
+        ...(hasNext ? [{ label: 'Next queued file', value: 'next' }] : []),
+      ],
+      onSelect: (value) => stepQueue(value === 'next' ? 1 : -1),
+    });
   if (ready && video)
     settings.push({
       id: 'speed',
@@ -1161,6 +1341,18 @@ function Player({
                     <Subtitles />
                   </MediaIconButton>
                 ) : null}
+                {pipAvailable ? (
+                  <MediaIconButton
+                    overlay
+                    aria-label={
+                      floating === relativePath ? 'Exit picture-in-picture' : 'Picture-in-picture'
+                    }
+                    pressed={floating === relativePath}
+                    onClick={() => void toggleFloating()}
+                  >
+                    <PictureInPicture2 />
+                  </MediaIconButton>
+                ) : null}
                 <SettingsMenu
                   overlay
                   settings={settings}
@@ -1268,6 +1460,7 @@ function Player({
                       <SkipIcon direction={1} />
                     </MediaIconButton>
                   </div>
+                  {waveform}
                   {resumeChip ? <div className="flex justify-center">{resumeChip}</div> : null}
                   <div className="flex items-center gap-1 border-t border-border/50 pt-2">
                     <VolumeControl

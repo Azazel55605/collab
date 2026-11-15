@@ -91,7 +91,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Show album artwork and embedded or matching LRC lyrics in the audio
       player. Apply artwork-based ambiance and synchronize timestamped lines.
 - [x] Qualify album artwork and lyric sync in installed desktop builds.
-- [X] Verify seek, tab reopen, media replacement, permission loss and cleanup
+- [x] Verify seek, tab reopen, media replacement, permission loss and cleanup
       when closing the player or leaving its vault in an installed build.
       Automated coverage exercises overlapping seeks, same-revision resume,
       stale track selections, permissions revoked mid-range and source teardown.
@@ -110,7 +110,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
       remains excluded.
 - [x] Automate checks for bounded tail seeks, stale revisions, authorization loss
       and authenticated offline storage.
-- [X] Qualify first play and long seeks, reconnect, offline playback and lock
+- [x] Qualify first play and long seeks, reconnect, offline playback and lock
       cleanup in installed builds.
 
 ### Phase 3 — Media Library
@@ -130,8 +130,29 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [ ] Decide whether to extend the player to Android and web after desktop
       acceptance. Validate their authentication, offline, focus and lifecycle rules
       separately.
-- [ ] Consider playlists/queues, chapters, picture-in-picture, waveform previews,
-      subtitle offsets, OS media controls and richer format support based on use.
+- [x] Assess desktop playback improvements and propose an implementation order.
+- [x] Add local subtitle timing, vault queues and saved playlists, local MP4
+      chapters, capability-gated OS controls and picture-in-picture, short WAV
+      waveforms, and an optional 4K HEVC/E-AC-3 verification fixture.
+- [ ] Qualify subtitle timing, queue auto-advance, chapter seeks, picture-in-picture,
+      system media controls, waveform generation, and sustained 4K playback in
+      installed WebViews.
+
+#### Proposed desktop priorities
+
+Start with subtitle timing and qualify formats people already use. Build a
+session queue next. Queue and chapter navigation will help determine which
+actions Collab should expose to the operating system.
+
+| Priority | Improvement           | First delivery and acceptance                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Subtitle offsets      | Add earlier, later and reset controls for a selected caption track. Start with local sidecars and compatible MP4 subtitles Collab already converts to WebVTT. Save timing per file revision and track. Verify seeks, reopen and fullscreen. Adjust native embedded tracks only where the WebView supports it reliably.                                                                                                                  |
+| 2        | Richer format support | Build an installed-player matrix starting with the reported 4K HEVC/E-AC-3 MP4 and the existing H.264/AAC, WebM and audio fixtures. Record startup, seeking, dropped frames, audio and colour separately. Use repeatable failures to choose the next container or codec to improve. Preserve bounded streaming and revision checks.                                                                                                     |
+| 3        | Playlists and queues  | Start with an active-vault session queue. Add from the library, reorder, remove, skip and advance on completion. Open each item in its regular tab and check access at playback time. Handle missing files and stop the queue on vault switch or lock. Add saved playlists after the queue behavior is established.                                                                                                                     |
+| 4        | Chapters              | Read chapter names and timestamps for one verified container first. MP4 is the initial candidate because Collab already scans its metadata locally. Show a jump menu and current chapter when available. Test long seeks, bounded reads, changed file revisions and malformed chapters. Assess hosted chapter reads separately.                                                                                                         |
+| 5        | OS media controls     | Prototype Media Session play, pause and seek for the active player on packaged desktops. Expose next and previous when an action is available. Verify keyboard and desktop controls, and clear metadata when playback closes or access ends. Evaluate Linux MPRIS if needed. [Media Session](https://www.w3.org/TR/mediasession/), [MPRIS player interface](https://specifications.freedesktop.org/mpris/latest/Player_Interface.html). |
+| 6        | Picture-in-picture    | Prototype with the existing video element and one playback source. A floating player needs an explicit exception to pause on tab hide. Verify availability and behavior on packaged builds, including fullscreen transitions, vault lock and permission loss. [Picture-in-Picture](https://www.w3.org/TR/picture-in-picture/).                                                                                                          |
+| 7        | Waveform previews     | Revisit after queue and chapter use is known. Start with opt-in previews for short local audio and cache peaks by file revision. Measure decode memory, latency and cancellation before enabling longer or hosted files. Keep the library preview's existing media read budget.                                                                                                                                                         |
 
 ## Open For Feedback
 

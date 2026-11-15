@@ -123,6 +123,29 @@ describe('MediaView', () => {
     expect(prototype.play).not.toHaveBeenCalled();
   });
 
+  it('keeps a floating video playing when the tab hides and exits when it closes', async () => {
+    vi.mocked(tauriCommands.openLocalPlayback).mockResolvedValueOnce(source());
+    const { rerender, unmount } = render(<MediaView relativePath="clip.webm" />);
+    const video = await loadMetadata('video');
+    Object.defineProperty(video, 'paused', { get: () => false });
+    const exit = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperties(document, {
+      pictureInPictureElement: { configurable: true, value: video },
+      exitPictureInPicture: { configurable: true, value: exit },
+    });
+    try {
+      fireEvent(video, new Event('enterpictureinpicture'));
+      rerender(<MediaView relativePath="clip.webm" visible={false} />);
+      expect(prototype.pause).not.toHaveBeenCalled();
+      unmount();
+      expect(exit).toHaveBeenCalledOnce();
+      expect(tauriCommands.closeLocalPlayback).toHaveBeenCalledWith('playback-1');
+    } finally {
+      Reflect.deleteProperty(document, 'pictureInPictureElement');
+      Reflect.deleteProperty(document, 'exitPictureInPicture');
+    }
+  });
+
   it('keeps a keyboard seek synchronized with playback and resumes on tab reopen', async () => {
     vi.mocked(tauriCommands.openLocalPlayback)
       .mockResolvedValueOnce(source())

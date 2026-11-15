@@ -26,6 +26,15 @@ build a release-mode probe. For Flatpak, build against the same GNOME SDK as the
 equivalent application sandbox with the fixture directory readable. Record the
 runtime, codec extensions, and network and file grants along with the result.
 
+Set `COLLAB_HEVC_FIXTURE=1` when generating a new directory to include a
+12-second 3840×2160, 24 fps Main 10 HEVC sample with 5.1 E-AC-3 and BT.2020/PQ
+tags. FFmpeg needs libx265 and its E-AC-3 encoder for this case. The probe
+reports metadata and playback startup times, frame drops when available, and a
+75% seek. Verify actual sound, colour, hardware decoder use, and sustained
+playback on the installed app with the reported long high-bitrate sample.
+The fixture generator also provides `chapters.mp4` for the installed player's
+chapter menu and late-file seek.
+
 The example prints a `MEDIA_PLAYBACK_REPORT` line with the runtime user agent,
 playback results, track observations and source counters. Without `--verify`,
 the fixture picker, Play/pause, Seek, tabs and track selectors allow manual

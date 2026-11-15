@@ -503,6 +503,16 @@ inspector uses a separate one-job queue
 and revision-scoped derived cache. Its media handles have an 8 MiB lifetime
 streaming budget, and closing the inspector releases the decoder and handle.
 
+`lib/mediaQueue.ts` holds an active-vault queue and device-local saved
+playlists. Queue playback opens regular editor tabs and advances only from an
+active queue entry. The media player adjusts cues on its own WebVTT tracks
+and persists offsets with the resume record. The native MP4 scanner reads a
+bounded chapter list into the existing source metadata. The on-demand waveform
+reads short local PCM WAV data through the authorized loopback source and
+caches peaks by revision. Media Session targets the current player, and a
+picture-in-picture video can occupy one retained pane until playback closes
+or access ends.
+
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
 under `src-tauri/examples/media_playback/`. The independent desktop executable
 serves generated fixtures to the native WebView using loopback HTTP byte

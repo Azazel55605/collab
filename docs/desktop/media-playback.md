@@ -53,6 +53,16 @@ If the WebView exposes fewer audio tracks than the MP4 contains, Collab can
 reopen the stream with the selected track while preserving the playback position.
 These operations leave the original file intact.
 
+With a local sidecar or compatible MP4 caption selected, open **Playback
+settings → Subtitle timing** to shift cues in 250 ms steps, up to 10 seconds in
+either direction. **Reset timing** restores the original cues. Collab remembers
+the adjustment for that caption and media revision using its playback history.
+
+Local MP4 files with a Nero chapter list show **Chapters** in playback settings.
+The menu shows the chapter at the current position and lets you jump to another.
+Short local 16-bit mono or stereo PCM WAV files can show a waveform on demand,
+up to 60 seconds and 8 MiB.
+
 Use the timeline to seek. When the player panel has focus, Space toggles
 playback and the Left and Right keys move five seconds. Buttons and sliders
 can also receive focus directly. Video fills the available space while
@@ -78,8 +88,13 @@ probe played with AMD VA-API when preferred via GStreamer's
 These checks cover decoder selection and playback startup. Sustained HDR
 playback and packaged runtime support remain part of native qualification.
 
-Switching away pauses playback. The two most recently viewed media tabs keep
-their player state while they remain open. Closing a tab, leaving the vault
+Switching away pauses playback. Where the desktop WebView offers
+**Picture-in-picture**, use its button to keep the video playing in a floating
+window while navigating. Closing the media tab, leaving or locking the vault,
+or losing access closes the floating player. Starting another media file ends
+the floating session. Supported WebViews can also forward system media controls
+to the active player. At most two media players are retained across tab switches,
+including the floating player. Closing a tab, leaving the vault
 or evicting an older player releases its native source. Reopening the same
 revision restores position, speed, volume and track selections while the vault
 stays open.
@@ -121,6 +136,14 @@ depends on the source and the system WebView. Opening a preview does not change 
 
 **Continue playback** shows recent unfinished tracks and videos while the
 vault is open. It uses the same saved position as the regular player.
+
+Choose **Add to queue** beside an audio or video file in the library. The
+queue lets you start, reorder, and remove entries. Starting a queued item opens
+its normal tab and advances to the next available item when playback finishes.
+Use **Playback queue** in the player's settings to skip. Leaving or locking the
+vault clears the session queue. To reuse it, save it under a playlist name and
+load that playlist back into the queue later. Saved playlists live on this
+device under the current vault and profile or hosted account.
 
 ## Validation
 

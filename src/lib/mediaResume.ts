@@ -18,6 +18,7 @@ interface MediaResume {
   muted: boolean;
   caption: string;
   captionPath: string | null;
+  captionOffsets?: [string, number][];
   audio: string;
   isolatedAudio: number | null;
   compatibility: boolean;
@@ -101,6 +102,16 @@ function isResumeEntry(value: unknown): value is ResumeEntry {
     typeof entry.compatibility === 'boolean' &&
     typeof entry.caption === 'string' &&
     typeof entry.audio === 'string' &&
+    (entry.captionOffsets === undefined ||
+      (Array.isArray(entry.captionOffsets) &&
+        entry.captionOffsets.length <= 64 &&
+        entry.captionOffsets.every(
+          (offset) =>
+            Array.isArray(offset) &&
+            typeof offset[0] === 'string' &&
+            Number.isInteger(offset[1]) &&
+            Math.abs(offset[1]) <= 10_000,
+        ))) &&
     (entry.fileVersion === null || typeof entry.fileVersion === 'string') &&
     (entry.captionPath === null || typeof entry.captionPath === 'string') &&
     (entry.isolatedAudio === null ||

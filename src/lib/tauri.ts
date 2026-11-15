@@ -402,6 +402,8 @@ export interface LocalPlaybackSource {
   revision: string;
   captions: { label: string; url: string; language?: string }[];
   audioTracks?: string[];
+  chapters?: { title: string; start: number }[];
+  size?: number;
   audioMetadata?: LocalAudioMetadata | null;
   offline?: boolean;
   canDownloadOffline?: boolean;

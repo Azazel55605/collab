@@ -1,5 +1,6 @@
 //! Inspect local ISO BMFF tracks. Compatibility playback replaces selected
 //! track types with "free" without shifting any offsets.
+use serde::Serialize;
 use std::io::{self, Read, Seek, SeekFrom};
 
 struct Atom {
@@ -83,10 +84,17 @@ pub(super) struct Track {
     media: Atom,
     edits: Option<Atom>,
 }
+#[derive(Clone, Serialize)]
+pub(super) struct Chapter {
+    title: String,
+    start: f64,
+}
+
 #[derive(Default)]
 pub(super) struct Tracks {
     pub subtitles: Vec<Track>,
     pub audio: Vec<Track>,
+    pub chapters: Vec<Chapter>,
 }
 
 pub(super) fn tracks(file: &mut (impl Read + Seek), len: u64) -> io::Result<Tracks> {
@@ -117,10 +125,50 @@ pub(super) fn tracks(file: &mut (impl Read + Seek), len: u64) -> io::Result<Trac
             edits: scanner.find(track.data, track.end, b"edts")?,
         });
     }
+    result.chapters = scanner.chapters(&movie).unwrap_or_default();
     Ok(result)
 }
 
 impl<R: Read + Seek> Scanner<'_, R> {
+    // Nero-style chapter lists are bounded by an 8-bit count and title length.
+    fn chapters(&mut self, movie: &Atom) -> io::Result<Vec<Chapter>> {
+        let Some(user_data) = self.find(movie.data, movie.end, b"udta")? else {
+            return Ok(Vec::new());
+        };
+        let Some(atom) = self.find(user_data.data, user_data.end, b"chpl")? else {
+            return Ok(Vec::new());
+        };
+        let data = self.data(&atom, 9 + 255 * (9 + 255))?;
+        let mut reader = &data[match data.first() {
+            Some(0) if data.len() >= 5 => 4,
+            Some(1) if data.len() >= 9 => 8,
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        }..];
+        let mut count = [0; 1];
+        reader.read_exact(&mut count)?;
+        let mut chapters = Vec::with_capacity(usize::from(count[0]));
+        for index in 0..count[0] {
+            let mut time = [0; 8];
+            let mut length = [0; 1];
+            reader.read_exact(&mut time)?;
+            reader.read_exact(&mut length)?;
+            let mut title = vec![0; usize::from(length[0])];
+            reader.read_exact(&mut title)?;
+            let title = String::from_utf8_lossy(&title).trim().to_owned();
+            chapters.push(Chapter {
+                title: if title.is_empty() {
+                    format!("Chapter {}", u16::from(index) + 1)
+                } else {
+                    title
+                },
+                start: u64::from_be_bytes(time) as f64 / 10_000_000.0,
+            });
+        }
+        chapters.sort_by(|a, b| a.start.total_cmp(&b.start));
+        chapters.dedup_by(|a, b| a.start == b.start);
+        Ok(chapters)
+    }
+
     fn language(&mut self, media: &Atom) -> io::Result<String> {
         let Some(mdhd) = self.find(media.data, media.end, b"mdhd")? else {
             return Ok(String::new());
@@ -198,6 +246,30 @@ mod tests {
                 &atom(b"hdlr", &[&[0; 8], kind.as_slice()].concat()),
             ),
         )
+    }
+
+    #[test]
+    fn reads_chapter_offsets_and_ignores_a_truncated_list() {
+        let mut payload = vec![1, 0, 0, 0, 0, 0, 0, 0, 2];
+        for (ticks, title) in [(0_u64, b"Start"), (1_700_000_000_u64, b"Final")] {
+            payload.extend(ticks.to_be_bytes());
+            payload.push(title.len() as u8);
+            payload.extend(title);
+        }
+        let parse = |payload: &[u8]| {
+            let mut movie = track(b"soun");
+            movie.extend(atom(b"udta", &atom(b"chpl", payload)));
+            let bytes = atom(b"moov", &movie);
+            tracks(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap()
+        };
+        let good = parse(&payload);
+        assert_eq!(good.chapters.len(), 2);
+        assert_eq!(good.chapters[1].title, "Final");
+        assert_eq!(good.chapters[1].start, 170.0);
+        payload.pop();
+        let bad = parse(&payload);
+        assert!(bad.chapters.is_empty());
+        assert_eq!(bad.audio.len(), 1);
     }
 
     #[cfg(unix)]

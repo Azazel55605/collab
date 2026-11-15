@@ -50,9 +50,17 @@ struct Fixture {
 impl Probe {
     pub fn open(directory: &FilePath) -> io::Result<Self> {
         let mut fixtures = HashMap::new();
-        for &(name, mime) in FIXTURES {
+        for &(name, mime) in FIXTURES.iter().chain(&[("hevc-eac3.mp4", "video/mp4")]) {
             let path = directory.join(name);
-            if !path.symlink_metadata()?.is_file() {
+            let metadata = match path.symlink_metadata() {
+                Err(error)
+                    if error.kind() == io::ErrorKind::NotFound && name == "hevc-eac3.mp4" =>
+                {
+                    continue;
+                }
+                result => result?,
+            };
+            if !metadata.is_file() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!("{name} must be a regular fixture file"),

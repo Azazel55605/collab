@@ -26,6 +26,7 @@ import {
 import { DragProvider } from '../../contexts/DragContext';
 import { DocumentPane, documentVaultIdentity } from '../../lib/documentPaneContext';
 import { mediaKindForPath } from '../../lib/mediaFiles';
+import { useFloatingMedia } from '../../lib/mediaPictureInPicture';
 import { useSidebarResize } from '../../lib/useSidebarResize';
 import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
@@ -117,11 +118,19 @@ function MediaTabPanes({
   direction: 'up' | 'down' | null;
 }) {
   const [previousPaths, setPreviousPaths] = useState<string[]>([]);
+  const floating = useFloatingMedia((state) => state.path);
   const paths = previousPaths.filter(
     (path) =>
       path !== visiblePath &&
+      path !== floating &&
       openTabs.some((tab) => tab.type === 'media' && tab.relativePath === path),
   );
+  if (
+    floating !== visiblePath &&
+    floating &&
+    openTabs.some((tab) => tab.type === 'media' && tab.relativePath === floating)
+  )
+    paths.unshift(floating);
   if (visiblePath) paths.unshift(visiblePath);
   paths.length = Math.min(paths.length, RETAINED_MEDIA_TABS);
   if (

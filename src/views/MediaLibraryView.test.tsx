@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { clearMediaResources } from '../lib/mediaLifecycle';
@@ -112,5 +112,27 @@ describe('MediaLibraryView', () => {
     expect(within(section).getByText('0:30 / 1:40')).toBeTruthy();
     act(() => useVaultStore.setState({ fileTree: [{ ...clip, modifiedAt: 2 }, ...tree.slice(1)] }));
     expect(screen.queryByRole('region', { name: 'Continue watching and listening' })).toBeNull();
+  });
+
+  it('saves a queue as a playlist, clears the session on lock and reloads it without opening a player', async () => {
+    preview.mockImplementation(() => new Promise(() => {}));
+    render(<MediaLibraryView />);
+    for (const name of ['Berlin.webm', 'Song.flac']) {
+      fireEvent.click(screen.getByRole('button', { name: `Add ${name} to queue` }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Move Music/Song.flac up' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Playlist name' }), {
+      target: { value: 'Trip' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save playlist' }));
+    act(() => useVaultStore.setState({ isVaultLocked: true }));
+    act(() => useVaultStore.setState({ isVaultLocked: false }));
+    expect(screen.queryByRole('button', { name: 'Play Music/Song.flac' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Trip' }));
+    const queue = screen.getByRole('region', { name: 'Playback queue' });
+    expect(within(queue).getAllByRole('listitem')[0].textContent).toContain('Music/Song.flac');
+    expect(useEditorStore.getState().openTabs).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Play Trips/Berlin.webm' }));
+    await waitFor(() => expect(useEditorStore.getState().activeTabPath).toBe(clip.relativePath));
   });
 });

@@ -478,7 +478,7 @@ interface UiState {
   presentationPreferredDisplayId: string | null;
 
   // Actions
-  setActiveView: (view: ActiveView) => void;
+  setActiveView: (view: ActiveView) => Promise<boolean>;
   setSidebarPanel: (panel: SidebarPanel) => void;
   setCollabTab: (tab: CollabTab) => void;
   setFileTreeCollapsedPathsForVault: (vaultPath: string, paths: string[]) => void;

@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   LibraryBig,
   List,
+  ListPlus,
   Music2,
   Search,
   SquareArrowOutUpRight,
@@ -37,6 +38,7 @@ import {
 } from '../lib/libraryMediaPreview';
 import { mediaKindForPath } from '../lib/mediaFiles';
 import { registerMediaCleanup } from '../lib/mediaLifecycle';
+import { enqueueMedia } from '../lib/mediaQueue';
 import { mediaFileVersion, useRecentMedia } from '../lib/mediaResume';
 import { cn } from '../lib/utils';
 import { createVaultClient } from '../lib/vaultClient';
@@ -48,6 +50,7 @@ import { useVaultStore } from '../store/vaultStore';
 import type { NoteFile, VaultMeta } from '../types/vault';
 
 import { formatTime } from './mediaFormat';
+import MediaQueue from './MediaQueue';
 
 const PAGE_SIZE = 36;
 const OPTIONS_KEY = 'collab-media-library-options';
@@ -294,6 +297,7 @@ function Library({ vault }: { vault: VaultMeta }) {
             </ul>
           </section>
         ) : null}
+        <MediaQueue vault={vault} />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div role="group" aria-label="Media type" className="flex flex-wrap gap-1">
             {(['all', ...Object.keys(kinds)] as Filter[]).map((value) => (
@@ -476,7 +480,7 @@ const MediaItem = memo(function MediaItem({
         variant="ghost"
         className={cn(
           'h-auto w-full min-w-0 justify-start rounded-none p-0 text-left hover:bg-accent/40 focus-visible:ring-inset',
-          gallery ? 'flex-col items-stretch gap-0' : 'items-center gap-3 px-3 py-2 pr-20',
+          gallery ? 'flex-col items-stretch gap-0' : 'items-center gap-3 px-3 py-2 pr-27',
         )}
         onClick={() => onOpen(file)}
         aria-label={`Open ${file.name}`}
@@ -499,7 +503,7 @@ const MediaItem = memo(function MediaItem({
             </span>
           ) : null}
         </span>
-        <span className={cn('min-w-0 flex-1', gallery && 'w-full px-3 py-2.5 pr-19')}>
+        <span className={cn('min-w-0 flex-1', gallery && 'w-full px-3 py-2.5 pr-26')}>
           <span className="block truncate text-sm font-medium">{file.name}</span>
           <span className="block truncate text-xs text-muted-foreground">
             {item.folder}
@@ -507,15 +511,32 @@ const MediaItem = memo(function MediaItem({
           </span>
         </span>
       </Button>
-      <Button
-        size="xs"
-        variant="ghost"
-        className={cn('absolute right-2', gallery ? 'bottom-3' : 'top-1/2 -translate-y-1/2')}
-        aria-label={`Preview ${file.name}`}
-        onClick={(event) => onInspect(file.relativePath, event.currentTarget)}
+      <div
+        className={cn(
+          'absolute right-2 flex items-center gap-1',
+          gallery ? 'bottom-3' : 'top-1/2 -translate-y-1/2',
+        )}
       >
-        Preview
-      </Button>
+        {mediaKindForPath(file.relativePath) && !vault.isEncrypted ? (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            title="Add to queue"
+            aria-label={`Add ${file.name} to queue`}
+            onClick={() => enqueueMedia(vault, file.relativePath)}
+          >
+            <ListPlus />
+          </Button>
+        ) : null}
+        <Button
+          size="xs"
+          variant="ghost"
+          aria-label={`Preview ${file.name}`}
+          onClick={(event) => onInspect(file.relativePath, event.currentTarget)}
+        >
+          Preview
+        </Button>
+      </div>
     </li>
   );
 });

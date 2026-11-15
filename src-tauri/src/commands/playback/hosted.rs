@@ -567,6 +567,8 @@ pub async fn open_hosted_playback(
         revision: source.file.revision_id.to_string(),
         captions: Vec::new(),
         audio_tracks: Vec::new(),
+        chapters: Vec::new(),
+        size: None,
         audio_metadata: source
             .audio_metadata
             .get()

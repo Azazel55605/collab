@@ -240,6 +240,7 @@ export interface MediaSetting {
   id: string;
   label: string;
   value: string;
+  summary?: string;
   choices: { label: string; value: string }[];
   onSelect: (value: string) => void;
 }
@@ -274,7 +275,7 @@ export function SettingsMenu({
               <DropdownMenuSubTrigger className="h-9 px-2.5">
                 <span className="flex-1">{setting.label}</span>
                 <span className="max-w-32 truncate text-xs text-muted-foreground">
-                  {current?.label ?? setting.value}
+                  {setting.summary ?? current?.label ?? setting.value}
                 </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="max-h-80 w-64 overflow-y-auto p-1.5">
