@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { clearMediaResources } from '../lib/mediaLifecycle';
 import { mediaFileVersion, readMediaResume, rememberMediaResume } from '../lib/mediaResume';
 import { tauriCommands } from '../lib/tauri';
+import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 
 import MediaView from './MediaView';
@@ -90,6 +92,8 @@ describe('MediaView', () => {
     vi.clearAllMocks();
     vi.mocked(tauriCommands.openLocalPlayback).mockReset();
     localStorage.clear();
+    clearMediaResources();
+    useUiStore.getState().setRememberMediaOnRestart(true);
     vi.mocked(tauriCommands.checkLocalPlayback).mockResolvedValue(undefined);
     vi.mocked(tauriCommands.closeLocalPlayback).mockResolvedValue(undefined);
     vi.mocked(tauriCommands.clearHostedPlayback).mockResolvedValue(undefined);
@@ -140,6 +144,44 @@ describe('MediaView', () => {
     expect(prototype.play).not.toHaveBeenCalled();
   });
 
+  it('restores a paused player from local storage after a window closes', async () => {
+    vi.mocked(tauriCommands.openLocalPlayback)
+      .mockResolvedValueOnce(source())
+      .mockResolvedValueOnce(source({ id: 'reopened' }));
+    const first = render(<MediaView relativePath="clip.webm" />);
+    const media = await loadMetadata('video');
+    media.currentTime = 47;
+    media.playbackRate = 1.5;
+    media.volume = 0.5;
+    window.dispatchEvent(new Event('pagehide'));
+    clearMediaResources();
+    expect(readMediaResume(useVaultStore.getState().vault!, 'clip.webm')?.position).toBe(47);
+    first.unmount();
+    clearMediaResources();
+
+    render(<MediaView relativePath="clip.webm" />);
+    const reopened = await loadMetadata('video');
+    expect(reopened.currentTime).toBe(47);
+    expect(reopened.playbackRate).toBe(1.5);
+    expect(reopened.volume).toBe(0.5);
+    expect(prototype.play).not.toHaveBeenCalled();
+  });
+
+  it('clears saved playback when restart resume is turned off', async () => {
+    vi.mocked(tauriCommands.openLocalPlayback).mockResolvedValueOnce(source());
+    const first = render(<MediaView relativePath="clip.webm" />);
+    const media = await loadMetadata('video');
+    media.currentTime = 47;
+    fireEvent.seeked(media);
+    first.unmount();
+    useUiStore.getState().setRememberMediaOnRestart(false);
+    const vault = useVaultStore.getState().vault!;
+    expect(readMediaResume(vault, 'clip.webm')?.position).toBe(47);
+    clearMediaResources();
+    useUiStore.getState().setRememberMediaOnRestart(true);
+    expect(readMediaResume(vault, 'clip.webm')).toBeUndefined();
+  });
+
   it('discards old track choices and position when reopening replaced media', async () => {
     const vault = useVaultStore.getState().vault!;
     rememberMediaResume(vault, 'clip.mp4', {
@@ -156,6 +198,7 @@ describe('MediaView', () => {
       isolatedAudio: 2,
       compatibility: true,
     });
+    clearMediaResources();
     vi.mocked(tauriCommands.openLocalPlayback)
       .mockResolvedValueOnce(source({ revision: 'r2' }))
       .mockResolvedValueOnce(source({ id: 'new-source', revision: 'r2' }));

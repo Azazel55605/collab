@@ -27,8 +27,9 @@ initial scope.
   and alternate audio tracks through the chosen backend's verified capabilities.
 - **Continuity:** tab switches preserve position, speed and selected tracks.
   Suggested default: pause video on leaving its tab; background audio is opt-in.
-  Resume across app restarts is a separate preference, stored locally by
-  profile, vault and file identity, with a revision check before reuse.
+  Resume across app restarts is enabled by default as a separate preference,
+  stored locally by profile or hosted account, vault and file identity, with a
+  revision check before reuse. Players reopen paused.
 - **Clear failure states:** distinguish unsupported format or codec, missing
   file, unavailable offline copy, permission loss, and buffering. Offer an
   explicit external-player action where the platform can open the source safely.
@@ -140,8 +141,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
   active vault or only while its player tab remains open?
 - Should the library default to a gallery or list? Should it include favorites,
   playlists, recent files or a cross-vault view later?
-- Should resume positions persist across restarts? How should multiple open
-  player tabs behave when a second item starts playing?
+- How should multiple open player tabs behave when a second item starts playing?
 - Is hosted playback required in the first public release, or can local playback
   ship while hosted and encrypted sources are validated?
 

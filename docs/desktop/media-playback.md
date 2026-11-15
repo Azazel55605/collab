@@ -5,6 +5,13 @@ place it directly in an unencrypted local vault. Select it in Files or follow
 a vault link to open its player tab. Hosted vaults with a Phase 2 server use the
 same file tabs.
 
+When you reopen audio or video, Collab restores the saved position and player
+settings for that revision and waits for you to press Play. **Settings →
+General → Remember media playback** is on by default and remembers up to 64
+files on the device. Turn it off to clear saved playback history. Enable
+**Restore previous session** to also reopen your last local vault and tabs on
+startup. Hosted playback history is scoped to the recognized server account.
+
 | Type             | Candidate formats                                                  |
 | ---------------- | ------------------------------------------------------------------ |
 | Video            | MP4 with H.264/AAC, WebM with VP9/Opus                             |

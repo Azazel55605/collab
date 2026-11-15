@@ -494,9 +494,12 @@ cancels all live bodies and drops the held file identity. A reopened player
 sends its saved revision when asking for saved track selections.
 
 The deferred `MediaLibraryView` reads the shared vault tree index and opens
-regular editor tabs. `lib/mediaResume.ts` shares the bounded in-session resume
-state between the player and library. Visible small local raster thumbnails
-use the image preview scheduler. The inspector uses a separate one-job queue
+regular editor tabs. `lib/mediaResume.ts` shares revision-checked resume state
+between the player and library. The restart preference enables a bounded local
+history scoped by vault and profile or hosted account. Active players save
+checkpoints during playback and on seek, pause, window hide and desktop quit.
+Visible small local raster thumbnails use the image preview scheduler. The
+inspector uses a separate one-job queue
 and revision-scoped derived cache. Its media handles have an 8 MiB lifetime
 streaming budget, and closing the inspector releases the decoder and handle.
 

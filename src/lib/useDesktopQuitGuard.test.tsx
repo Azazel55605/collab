@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
+import { registerPlaybackCheckpoint } from './mediaLifecycle';
 import { useDesktopQuitGuard } from './useDesktopQuitGuard';
 
 const mocks = vi.hoisted(() => ({
@@ -42,6 +43,8 @@ afterEach(cleanup);
 it('waits for saving, coalesces repeated quit events and only then acknowledges', async () => {
   let finish!: (allowed: boolean) => void;
   mocks.flush.mockReturnValue(new Promise<boolean>((resolve) => (finish = resolve)));
+  const checkpoint = vi.fn();
+  const unregister = registerPlaybackCheckpoint(checkpoint);
   renderHook(useDesktopQuitGuard);
   act(() => {
     mocks.handler!();
@@ -51,6 +54,11 @@ it('waits for saving, coalesces repeated quit events and only then acknowledges'
   expect(mocks.flush).toHaveBeenCalledTimes(1);
   await act(async () => finish(true));
   await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith(true));
+  unregister();
+  expect(checkpoint).toHaveBeenCalledTimes(1);
+  expect(checkpoint.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.complete.mock.invocationCallOrder[0],
+  );
   expect(mocks.persist).toHaveBeenCalledTimes(1);
   expect(mocks.persist.mock.invocationCallOrder[0]).toBeLessThan(
     mocks.complete.mock.invocationCallOrder[0],

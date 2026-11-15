@@ -6,6 +6,8 @@ import type { InkEraserMode } from '../lib/ink/erase';
 import type { InkBrushKind } from '../types/ink';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
 
+export const MEDIA_RESUME_STORAGE_KEY = 'collab.media-resume.v1';
+
 export type ActiveView =
   'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid' | 'chats' | 'databases' | 'media';
 export type WorkspaceSidebarView = 'calendar' | 'chats' | 'databases';
@@ -228,6 +230,7 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
 
   return {
     ...state,
+    rememberMediaOnRestart: state.rememberMediaOnRestart !== false,
     sidebarPanel: isSidebarPanel(state.sidebarPanel) ? state.sidebarPanel : 'files',
     workspaceSidebars: {
       calendar: workspaceSidebars?.calendar !== false,
@@ -428,6 +431,7 @@ interface UiState {
   colorPreviewTintText: boolean;
   colorPreviewFormats: Record<ColorPreviewFormat, boolean>;
   restorePreviousSession: boolean;
+  rememberMediaOnRestart: boolean;
   scale: number;
 
   // Calendar
@@ -502,6 +506,7 @@ interface UiState {
   setColorPreviewTintText: (value: boolean) => void;
   setColorPreviewFormatEnabled: (format: ColorPreviewFormat, value: boolean) => void;
   setRestorePreviousSession: (value: boolean) => void;
+  setRememberMediaOnRestart: (value: boolean) => void;
   setScale: (scale: number) => void;
   setDateFormat: (fmt: DateFormat) => void;
   setWeekStart: (day: WeekStart) => void;
@@ -572,6 +577,7 @@ export const useUiStore = create<UiState>()(
       colorPreviewTintText: true,
       colorPreviewFormats: { ...DEFAULT_COLOR_PREVIEW_FORMATS },
       restorePreviousSession: false,
+      rememberMediaOnRestart: true,
       scale: 100,
 
       dateFormat: 'MMM_D_YYYY',
@@ -676,6 +682,16 @@ export const useUiStore = create<UiState>()(
           colorPreviewFormats: { ...state.colorPreviewFormats, [format]: value },
         })),
       setRestorePreviousSession: (restorePreviousSession) => set({ restorePreviousSession }),
+      setRememberMediaOnRestart: (rememberMediaOnRestart) => {
+        if (!rememberMediaOnRestart) {
+          try {
+            localStorage.removeItem(MEDIA_RESUME_STORAGE_KEY);
+          } catch {
+            // Storage may be unavailable.
+          }
+        }
+        set({ rememberMediaOnRestart });
+      },
       setScale: (scale) => set({ scale }),
       setDateFormat: (dateFormat) => set({ dateFormat }),
       setWeekStart: (weekStart) => set({ weekStart }),
@@ -781,6 +797,7 @@ export const useUiStore = create<UiState>()(
         colorPreviewTintText: s.colorPreviewTintText,
         colorPreviewFormats: s.colorPreviewFormats,
         restorePreviousSession: s.restorePreviousSession,
+        rememberMediaOnRestart: s.rememberMediaOnRestart,
         scale: s.scale,
         dateFormat: s.dateFormat,
         weekStart: s.weekStart,

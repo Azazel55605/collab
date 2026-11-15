@@ -23,11 +23,14 @@ import {
 } from '../components/layout/DocumentTopBar';
 import { Button } from '../components/ui/button';
 import { isCaptionPath, mediaKindForPath } from '../lib/mediaFiles';
+import { registerPlaybackCheckpoint } from '../lib/mediaLifecycle';
 import {
   forgetMediaResume,
   mediaFileVersion,
+  mediaResumeAccount,
   readMediaResume,
   rememberMediaResume,
+  useMediaResumeAccount,
 } from '../lib/mediaResume';
 import { listenSafely } from '../lib/nativeSubscription';
 import { type LocalPlaybackSource, tauriCommands } from '../lib/tauri';
@@ -91,6 +94,7 @@ export default function MediaView({
 }) {
   const vault = useVaultStore((state) => state.vault);
   const locked = useVaultStore((state) => state.isVaultLocked);
+  const account = useMediaResumeAccount(vault);
   const kind = mediaKindForPath(relativePath);
   const available = vault && !locked && !vault.isEncrypted && kind;
   const hosted = vault?.kind === 'hosted';
@@ -122,11 +126,12 @@ export default function MediaView({
       />
       {available ? (
         <Player
-          key={JSON.stringify([hosted ? vault.serverUrl : null, vault.path, relativePath])}
+          key={JSON.stringify([hosted ? vault.serverUrl : null, vault.path, relativePath, account])}
           vault={vault}
           relativePath={relativePath}
           kind={kind}
           visible={visible}
+          account={account}
         />
       ) : (
         <div role="status" className="m-auto px-6 text-center text-sm text-muted-foreground">
@@ -144,16 +149,19 @@ function Player({
   relativePath,
   kind,
   visible,
+  account,
 }: {
   vault: VaultMeta;
   relativePath: string;
   kind: 'audio' | 'video';
   visible: boolean;
+  account: string | null;
 }) {
   const vaultPath = vault.path;
   const hosted = vault.kind === 'hosted';
   const serverUrl = hosted ? vault.serverUrl : null;
   const fileVersion = useRef<string | null>(null);
+  const lastCheckpoint = useRef(0);
   const [captionPath, setCaptionPath] = useState<string | null>(
     () => readMediaResume(vault, relativePath)?.captionPath ?? null,
   );
@@ -306,7 +314,7 @@ function Player({
         );
     void opening.then(
       (opened) => {
-        if (disposed) {
+        if (disposed || mediaResumeAccount(currentVault) !== account) {
           void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
           return;
         }
@@ -351,7 +359,7 @@ function Player({
         );
         timer = setInterval(() => {
           void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
-            if (disposed || failed.current) return;
+            if (disposed || failed.current || mediaResumeAccount(currentVault) !== account) return;
             failed.current = true;
             if (!hosted && currentVault) forgetMediaResume(currentVault, relativePath);
             element.current?.pause();
@@ -377,6 +385,7 @@ function Player({
       if (id) void tauriCommands.closeLocalPlayback(id).catch(() => {});
     };
   }, [
+    account,
     attempt,
     captionPath,
     compatibility,
@@ -394,10 +403,13 @@ function Player({
       !hydrated.current.has(media) ||
       failed.current ||
       !Number.isFinite(media.currentTime) ||
+      !Number.isFinite(media.duration) ||
+      mediaResumeAccount(vault) !== account ||
       useVaultStore.getState().vault !== vault ||
       useVaultStore.getState().isVaultLocked
     )
       return;
+    lastCheckpoint.current = performance.now();
     rememberMediaResume(vault, relativePath, {
       revision: source.revision,
       position: media.ended ? 0 : media.currentTime,
@@ -468,11 +480,17 @@ function Player({
     if (!source || !media) return;
     const tracks = audioTracks(media);
     const refresh = () => refreshTracks(media);
-    const pause = () => media.pause();
+    const checkpoint = () => remember(media);
+    const unregisterCheckpoint = registerPlaybackCheckpoint(checkpoint);
+    const pause = () => {
+      checkpoint();
+      media.pause();
+    };
     const stopOnHidden = () => {
       if (document.hidden) pause();
     };
     const unlisten = listenSafely('background:window-hidden', pause);
+    window.addEventListener('pagehide', checkpoint);
     document.addEventListener('visibilitychange', stopOnHidden);
     media.textTracks.addEventListener('addtrack', refresh);
     media.textTracks.addEventListener('removetrack', refresh);
@@ -480,6 +498,8 @@ function Player({
     tracks?.addEventListener('removetrack', refresh);
     return () => {
       unlisten();
+      unregisterCheckpoint();
+      window.removeEventListener('pagehide', checkpoint);
       document.removeEventListener('visibilitychange', stopOnHidden);
       media.textTracks.removeEventListener('addtrack', refresh);
       media.textTracks.removeEventListener('removetrack', refresh);
@@ -619,6 +639,8 @@ function Player({
     onTimeUpdate: (event: React.SyntheticEvent<HTMLMediaElement>) => {
       setPosition(event.currentTarget.currentTime);
       updateBuffered(event.currentTarget);
+      if (!event.currentTarget.paused && performance.now() - lastCheckpoint.current >= 5000)
+        remember(event.currentTarget);
     },
     onProgress: (event: React.SyntheticEvent<HTMLMediaElement>) =>
       updateBuffered(event.currentTarget),
