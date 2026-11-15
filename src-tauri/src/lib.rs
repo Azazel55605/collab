@@ -318,6 +318,12 @@ pub fn run() {
             #[cfg(not(mobile))]
             commands::playback::open_local_playback,
             #[cfg(not(mobile))]
+            commands::playback::hosted::open_hosted_playback,
+            #[cfg(not(mobile))]
+            commands::playback::hosted::download_hosted_playback,
+            #[cfg(not(mobile))]
+            commands::playback::hosted::clear_hosted_playback,
+            #[cfg(not(mobile))]
             commands::playback::check_local_playback,
             #[cfg(not(mobile))]
             commands::playback::close_local_playback,

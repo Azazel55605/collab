@@ -63,6 +63,24 @@ pub fn server_client(allow_invalid_certificates: bool) -> Result<reqwest::Client
     client.clone()
 }
 
+#[cfg(not(mobile))]
+pub fn playback_server_client(allow_invalid_certificates: bool) -> Result<reqwest::Client, String> {
+    fn build(insecure: bool) -> Result<reqwest::Client, String> {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(insecure)
+            .build()
+            .map_err(|_| "Could not initialize the media server connection.".into())
+    }
+    static TRUSTED: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| build(false));
+    static UNTRUSTED: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| build(true));
+    if allow_invalid_certificates {
+        UNTRUSTED.clone()
+    } else {
+        TRUSTED.clone()
+    }
+}
+
 /// HTTP/1.1-only client for the live-collaboration WebSocket upgrade. Shares
 /// the session's untrusted-certificate choice.
 pub fn ws_server_client(allow_invalid_certificates: bool) -> Result<reqwest::Client, String> {

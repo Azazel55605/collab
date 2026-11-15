@@ -1,4 +1,5 @@
 mod audio_metadata;
+pub(crate) mod hosted;
 mod mp4;
 
 use audio_metadata::{AudioDetails, AudioMetadata};
@@ -41,14 +42,7 @@ const CHUNK_INTERVAL: Duration = Duration::from_millis(8);
 const SOURCE_IDLE: Duration = Duration::from_secs(30);
 
 pub(super) fn mime(extension: &str) -> Option<&'static str> {
-    match extension {
-        "mp4" => Some("video/mp4"),
-        "webm" => Some("video/webm"),
-        "mp3" => Some("audio/mpeg"),
-        "wav" => Some("audio/wav"),
-        "flac" => Some("audio/flac"),
-        _ => None,
-    }
+    collab_protocol::media::mime_for_extension(extension)
 }
 
 fn extension(path: &Path) -> String {
@@ -62,16 +56,19 @@ fn extension(path: &Path) -> String {
 pub(crate) struct Playback {
     listener: OnceCell<SocketAddr>,
     sessions: Mutex<HashMap<String, Arc<Source>>>,
+    hosted: Mutex<hosted::Registry>,
 }
 
 impl Playback {
     pub(crate) fn clear(&self) {
+        self.hosted.lock().clear(None, None);
         for (_, source) in self.sessions.lock().drain() {
             source.cancel.cancel();
         }
     }
 
     fn remove(&self, id: &str) {
+        self.hosted.lock().remove(id);
         if let Some(source) = self.sessions.lock().remove(id) {
             source.cancel.cancel();
         }
@@ -461,6 +458,10 @@ pub struct PlaybackSource {
     captions: Vec<PlaybackCaption>,
     audio_tracks: Vec<String>,
     audio_metadata: Option<AudioDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    can_download_offline: Option<bool>,
 }
 #[derive(Serialize)]
 struct PlaybackCaption {
@@ -548,6 +549,8 @@ fn register(
         url: format!("{base}/media"),
         revision: source.revision.clone(),
         audio_tracks: source.audio.clone(),
+        offline: None,
+        can_download_offline: None,
         audio_metadata: source
             .audio_metadata
             .as_ref()
@@ -594,7 +597,11 @@ fn register(
 }
 
 #[tauri::command]
-pub fn check_local_playback(state: State<AppState>, id: String) -> Result<(), String> {
+pub async fn check_local_playback(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let hosted = state.playback.hosted.lock().get(&id);
+    if let Some(source) = hosted {
+        return source.check().await;
+    }
     let source = state
         .playback
         .get(&id)
@@ -698,6 +705,10 @@ async fn serve(
         != Some(server.address.to_string().as_str())
     {
         return empty(StatusCode::FORBIDDEN);
+    }
+    let hosted = server.playback.hosted.lock().get(&id);
+    if let Some(source) = hosted {
+        return hosted::serve(source, server.slots, &asset, method, headers).await;
     }
     let Some(source) = server.playback.get(&id) else {
         return empty(StatusCode::NOT_FOUND);

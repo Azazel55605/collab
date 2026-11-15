@@ -1,4 +1,5 @@
 pub mod conversation;
+pub mod media;
 pub mod team;
 pub use conversation::*;
 

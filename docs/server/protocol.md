@@ -259,6 +259,12 @@ The binary and structural-operation slice also implements:
   content-addressed blob deduplication, and a configurable per-file limit.
 - `GET /files/{fileId}/content` for authenticated raw content downloads with
   digest verification.
+- `HEAD /files/{fileId}/playback` returns the size and type of the current
+  eligible media revision. `GET` on the same path requires one closed byte
+  range (maximum 1 MiB). Both require `If-Match: "<revision UUID>"` and a
+  current vault-read grant. A stale revision returns `412`. Invalid or
+  oversized ranges return `416`. The response exposes offline-copy permission
+  in `X-Collab-Offline-Copy` for the native player.
 - `POST /operations` for idempotent rename, move, trash, restore, and purge.
   Operations target stable file IDs and include `clientOperationId` and
   `baseManifestSequence`; stale manifests return `manifest_conflict`.

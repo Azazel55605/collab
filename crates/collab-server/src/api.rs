@@ -4603,6 +4603,120 @@ pub async fn upload_binary_asset(
     ))
 }
 
+/// The native player requests bounded ranges against the current immutable
+/// revision. A stale handle cannot open an older revision or follow an update.
+pub async fn play_vault_file(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    method: axum::http::Method,
+    headers: HeaderMap,
+    Path((vault_id, file_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, ApiFailure> {
+    let actor = require_authenticated_user(&state, &headers, &request_id).await?;
+    let access = require_capability(
+        &state.database,
+        vault_id,
+        user_uuid(&actor.user),
+        Capability::VaultRead,
+        &request_id,
+    )
+    .await?;
+    let row = sqlx::query(
+        r#"
+        SELECT f.name, r.id, r.blob_digest, r.size_bytes
+        FROM hosted_file_entries f
+        JOIN hosted_file_revisions r ON r.id = f.current_revision_id
+        WHERE f.vault_id = $1 AND f.id = $2 AND f.state = 'active' AND f.kind = 'asset'
+        "#,
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?
+    .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    let name: String = row.get("name");
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase());
+    let mime = extension
+        .as_deref()
+        .and_then(collab_protocol::media::mime_for_extension)
+        .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    let revision: Uuid = row.get("id");
+    let etag = format!("\"{revision}\"");
+    if headers
+        .get(header::IF_MATCH)
+        .and_then(|value| value.to_str().ok())
+        != Some(etag.as_str())
+    {
+        return Ok(StatusCode::PRECONDITION_FAILED.into_response());
+    }
+    let size = u64::try_from(row.get::<i64, _>("size_bytes"))
+        .ok()
+        .filter(|size| *size > 0)
+        .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    let mut response = Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::ETAG, etag)
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_DISPOSITION, "attachment")
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(
+            "x-collab-offline-copy",
+            if access.has(Capability::VaultOfflineCopy) {
+                "1"
+            } else {
+                "0"
+            },
+        );
+    if method == axum::http::Method::HEAD {
+        return Ok(response
+            .header(header::CONTENT_LENGTH, size)
+            .body(Body::empty())
+            .expect("valid media headers"));
+    }
+    let Some((start, end)) = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| playback_range(v, size))
+    else {
+        return Ok(response
+            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+            .header(header::CONTENT_RANGE, format!("bytes */{size}"))
+            .body(Body::empty())
+            .expect("valid media headers"));
+    };
+    let digest: String = row.get("blob_digest");
+    let length = (end - start + 1) as usize;
+    let bytes = state
+        .blobs
+        .read_range(&digest, size, start, length)
+        .await
+        .map_err(|_| ApiFailure::server(request_id))?;
+    response = response
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
+        .header(header::CONTENT_LENGTH, length);
+    Ok(response
+        .body(Body::from(bytes))
+        .expect("valid media headers"))
+}
+
+fn playback_range(value: &str, size: u64) -> Option<(u64, u64)> {
+    let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
+    let decimal = |n: &str| {
+        n.bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| n.parse::<u64>().ok())
+            .flatten()
+    };
+    let (start, end) = (decimal(start)?, decimal(end)?);
+    (start <= end && end < size && end - start < collab_protocol::media::MAX_RANGE_BYTES)
+        .then_some((start, end))
+}
+
 pub async fn download_vault_file(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
@@ -19504,6 +19618,73 @@ mod tests {
         .await;
         assert_eq!(create_while_member.status(), StatusCode::CREATED);
 
+        // Make a media revision larger than a single response, then seek near
+        // the end before reading any earlier bytes.
+        let mut media = vec![0; collab_protocol::media::MAX_RANGE_BYTES as usize + 9];
+        let end = media.len() - 1;
+        media[end - 3..].copy_from_slice(b"tail");
+        let uploaded = request(
+            &app, "POST", &format!("/api/v1/vaults/{vault_id}/uploads"),
+            json!({"name":"clip.mp4","mediaType":"application/octet-stream",
+                "contentBase64": STANDARD.encode(&media), "expectedHash": collab_core::sha256_bytes(&media)}),
+            Some(&owner_cookie), Some(&owner_csrf),
+        ).await;
+        assert_eq!(uploaded.status(), StatusCode::CREATED);
+        let file = &json_body(uploaded).await["data"];
+        let target = format!(
+            "/api/v1/vaults/{vault_id}/files/{}/playback",
+            file["id"].as_str().unwrap()
+        );
+        let etag = format!("\"{}\"", file["currentRevision"]["id"].as_str().unwrap());
+        let seek = format!("bytes={}-{end}", end - 3);
+        let fetch = |method, etag: &str, range: &str, cookie: &str| {
+            let request = Request::builder()
+                .method(method)
+                .uri(&target)
+                .header(header::COOKIE, cookie)
+                .header(header::IF_MATCH, etag)
+                .header(header::RANGE, range)
+                .body(Body::empty())
+                .unwrap();
+            app.clone().oneshot(request)
+        };
+        let head = fetch("HEAD", &etag, &seek, &member_cookie).await.unwrap();
+        assert_eq!(head.status(), StatusCode::OK);
+        assert_eq!(
+            head.headers()[header::CONTENT_LENGTH],
+            media.len().to_string()
+        );
+        assert_eq!(head.headers()["x-collab-offline-copy"], "1");
+        let tail = fetch("GET", &etag, &seek, &member_cookie).await.unwrap();
+        assert_eq!(tail.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(tail.headers()[header::CONTENT_TYPE], "video/mp4");
+        assert_eq!(
+            tail.headers()[header::CONTENT_RANGE],
+            format!("bytes {}-{end}/{}", end - 3, media.len())
+        );
+        assert_eq!(
+            &axum::body::to_bytes(tail.into_body(), 4).await.unwrap()[..],
+            b"tail"
+        );
+        assert_eq!(
+            fetch("GET", &etag, &format!("bytes=0-{end}"), &member_cookie)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::RANGE_NOT_SATISFIABLE
+        );
+        assert_eq!(
+            fetch("GET", r#""stale""#, &seek, &member_cookie)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::PRECONDITION_FAILED
+        );
+        assert_eq!(
+            fetch("GET", &etag, &seek, "").await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+
         // The owner revokes access.
         let removed = request(
             &app,
@@ -19515,6 +19696,12 @@ mod tests {
         )
         .await;
         assert_eq!(removed.status(), StatusCode::NO_CONTENT);
+
+        assert!(!fetch("GET", &etag, &seek, &member_cookie)
+            .await
+            .unwrap()
+            .status()
+            .is_success());
 
         // After revocation the client cannot upload new content; the vault is no
         // longer visible to them at all (not_found), so queued offline operations

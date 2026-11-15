@@ -47,6 +47,9 @@ vi.mock('./tauri', () => ({
     readFileForUpload: vi.fn(),
     saveGeneratedImage: vi.fn(),
     hostedVaultRequest: vi.fn(),
+    openHostedPlayback: vi.fn(),
+    hostedVaultDownloadEntry: vi.fn(),
+    showDownloadDialog: vi.fn(),
     hostedVaultAssetDataUrl: vi.fn(),
     hostedVaultUploadFile: vi.fn(),
     hostedUserDirectory: vi.fn(),
@@ -387,6 +390,7 @@ describe('HostedVaultClient', () => {
       externalAssetImport: expect.any(Object),
       logicComponents: expect.any(Object),
       members: expect.any(Object),
+      hostedPlayback: expect.any(Object),
     });
     await expect(client.listFiles()).resolves.toEqual(
       expect.arrayContaining([
@@ -396,6 +400,64 @@ describe('HostedVaultClient', () => {
           children: [expect.objectContaining({ relativePath: 'Notes/Test.md', size: 6 })],
         }),
       ]),
+    );
+  });
+
+  it('pins a hosted media tab to the manifest revision and leaves credentials in native transport', async () => {
+    const revision = {
+      ...hostedImage.currentRevision,
+      id: 'media-revision',
+      contentHash: 'a'.repeat(64),
+      sizeBytes: 12345,
+    };
+    const file = {
+      ...hostedImage,
+      id: 'media-file',
+      relativePath: 'Pictures/Movie.mp4',
+      name: 'Movie.mp4',
+      currentRevision: revision,
+    };
+    const manifest = { ...mockHostedManifest(), files: [file] };
+    const opened = {
+      id: 'handle',
+      revision: revision.id,
+      url: 'http://127.0.0.1:3456/handle/media',
+      captions: [],
+    };
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce(manifest);
+    vi.mocked(tauriCommands.openHostedPlayback).mockResolvedValue(opened);
+
+    const playback = new HostedVaultClient(hostedVault).runtime.hostedPlayback!;
+    await expect(playback.open(file.relativePath)).resolves.toEqual(opened);
+    expect(tauriCommands.openHostedPlayback).toHaveBeenCalledWith({
+      serverUrl: hostedVault.serverUrl,
+      vaultId: hostedVault.hostedVaultId,
+      fileId: file.id,
+      revisionId: revision.id,
+      contentHash: revision.contentHash,
+      size: revision.sizeBytes,
+      path: file.relativePath,
+    });
+
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValueOnce(
+      new Error('Could not reach the Collab server'),
+    );
+    await expect(playback.open(file.relativePath)).resolves.toEqual(opened);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValueOnce(
+      new Error('You do not have permission to access this vault.'),
+    );
+    await expect(playback.open(file.relativePath)).rejects.toThrow('permission');
+    expect(tauriCommands.openHostedPlayback).toHaveBeenCalledTimes(2);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce(manifest);
+    vi.mocked(tauriCommands.showDownloadDialog).mockResolvedValue('/vault/Movie.mp4');
+    await expect(playback.saveCopy(file.relativePath)).resolves.toBe(true);
+    expect(tauriCommands.hostedVaultDownloadEntry).toHaveBeenCalledWith(
+      hostedVault.serverUrl,
+      hostedVault.hostedVaultId,
+      file.id,
+      false,
+      '/vault/Movie.mp4',
     );
   });
 

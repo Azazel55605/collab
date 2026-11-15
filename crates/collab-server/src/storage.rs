@@ -1,12 +1,22 @@
 use async_trait::async_trait;
 use collab_core::sha256_bytes;
 use std::path::{Path, PathBuf};
-use tokio::fs;
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncSeekExt},
+};
 
 #[async_trait]
 pub trait BlobStorage: Send + Sync {
     async fn put(&self, content: &[u8]) -> Result<String, StorageError>;
     async fn get(&self, digest: &str) -> Result<Option<Vec<u8>>, StorageError>;
+    async fn read_range(
+        &self,
+        digest: &str,
+        size: u64,
+        start: u64,
+        length: usize,
+    ) -> Result<Vec<u8>, StorageError>;
     async fn exists(&self, digest: &str) -> Result<bool, StorageError>;
     async fn delete(&self, digest: &str) -> Result<(), StorageError>;
     async fn health_check(&self) -> Result<(), StorageError>;
@@ -73,6 +83,31 @@ impl BlobStorage for FileSystemBlobStorage {
         Ok(Some(fs::read(path).await?))
     }
 
+    async fn read_range(
+        &self,
+        digest: &str,
+        size: u64,
+        start: u64,
+        length: usize,
+    ) -> Result<Vec<u8>, StorageError> {
+        if length == 0
+            || length as u64 > collab_protocol::media::MAX_RANGE_BYTES
+            || start
+                .checked_add(length as u64)
+                .is_none_or(|end| end > size)
+        {
+            return Err(StorageError::InvalidRange);
+        }
+        let mut file = fs::File::open(self.path_for_digest(digest)?).await?;
+        if file.metadata().await?.len() != size {
+            return Err(StorageError::InvalidRange);
+        }
+        file.seek(std::io::SeekFrom::Start(start)).await?;
+        let mut bytes = vec![0; length];
+        file.read_exact(&mut bytes).await?;
+        Ok(bytes)
+    }
+
     async fn exists(&self, digest: &str) -> Result<bool, StorageError> {
         Ok(fs::try_exists(self.path_for_digest(digest)?).await?)
     }
@@ -119,6 +154,8 @@ impl BlobStorage for FileSystemBlobStorage {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
+    #[error("invalid blob range or size")]
+    InvalidRange,
     #[error("invalid SHA-256 digest")]
     InvalidDigest,
     #[error(transparent)]
@@ -130,6 +167,37 @@ pub enum StorageError {
 #[cfg(test)]
 mod tests {
     use super::{BlobStorage, FileSystemBlobStorage, StorageError};
+
+    #[tokio::test]
+    async fn reads_only_a_tail_range_of_a_sparse_blob() {
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let storage = FileSystemBlobStorage::new(dir.path()).await.unwrap();
+        let digest = storage.put(b"fixture").await.unwrap();
+        let path = storage.path_for_digest(&digest).unwrap();
+        let size = if cfg!(unix) {
+            36_100_000_000
+        } else {
+            1024 * 1024 + 4
+        };
+        let mut file = tokio::fs::File::create(&path).await.unwrap();
+        file.seek(std::io::SeekFrom::Start(size - 4)).await.unwrap();
+        file.write_all(b"tail").await.unwrap();
+        file.flush().await.unwrap();
+        assert_eq!(
+            storage
+                .read_range(&digest, size, size - 4, 4)
+                .await
+                .unwrap(),
+            b"tail"
+        );
+        assert!(storage
+            .read_range(&digest, size, size - 4, 5)
+            .await
+            .is_err());
+        assert!(storage.read_range(&digest, size - 1, 0, 4).await.is_err());
+    }
 
     #[tokio::test]
     async fn filesystem_storage_round_trips_and_deduplicates_blobs() {

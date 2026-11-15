@@ -1,8 +1,9 @@
-# Local Media Playback
+# Desktop Media Playback
 
 Add a video or audio file with **Files → Add files**, drop it onto Files, or
 place it directly in an unencrypted local vault. Select it in Files or follow
-a vault link to open its player tab.
+a vault link to open its player tab. Hosted vaults with a Phase 2 server use the
+same file tabs.
 
 | Type             | Candidate formats                                                  |
 | ---------------- | ------------------------------------------------------------------ |
@@ -15,16 +16,15 @@ Decoding depends on the system WebView and installed codecs. HEVC and E-AC-3
 are outside the qualified baseline. Smooth 4K playback and correct HDR
 presentation depend on the decoder, WebView and display pipeline. When Collab
 cannot decode a local file, **Open externally** hands the file to the
-system's default app. Hosted attachments can be downloaded separately.
-Playback from hosted vaults and encrypted vaults is outside the local player.
+system's default app. Playback inside a password-encrypted local vault is unavailable.
 
-A caption with the same basename in the same folder appears in the
+In a local vault, a caption with the same basename in the same folder appears in the
 **Captions** selector. Use **Caption file** to load a different caption from
 the vault. Embedded captions and alternate audio tracks appear when the
 WebView exposes them. A file with a matching caption still starts with
 captions off unless a previous session selected a track.
 
-Audio shows the title, artist, album and cover from the file’s tags when
+Local audio shows the title, artist, album and cover from the file’s tags when
 available. Folder artwork can use `cover.jpg`, `cover.jpeg`, `cover.png`,
 `folder.jpg` or `folder.png`. **Ambiance mode** uses the cover colours across the
 audio player and shares the video player’s device preference.
@@ -38,7 +38,7 @@ first when multiple timed sources are available. Pick a different source in
 with playback, and selecting a line seeks to its timestamp. Untimed lyrics
 appear as plain text.
 
-If an MP4 stalls before reporting its duration, Collab retries once in
+If a local MP4 stalls before reporting its duration, Collab retries once in
 **Compatible subtitles** mode. Supported embedded MP4 timed text is read on
 selection and exposed as plain WebVTT. WebVTT and SubRip sidecars also stay
 available. Styled or bitmap subtitle tracks may require the external player.
@@ -76,6 +76,26 @@ or reopening the same unchanged file restores position, speed, volume and
 track selections while the vault stays open. Playback resumes after you
 press Play. Resume data is held in memory for up to 64 recent files and
 cleared when the vault changes or locks.
+
+## Hosted and offline playback
+
+Open an uploaded MP4, WebM, MP3, WAV or FLAC in **Files**. The player requests
+the parts it needs and checks the file revision and your vault permissions
+throughout playback. After a network interruption, use **Reload** to reconnect.
+The current position is restored for the same revision. Hosted tracks use the
+system WebView’s embedded track support. Local playback also provides sidecar
+captions and lyrics, audio artwork, and MP4 compatibility mode.
+
+Choose **Make available offline** in the player while connected to save an
+encrypted copy of that revision. This action requires the vault’s offline-copy
+permission and is available for files up to 32 MiB. Open the same file while
+the server is unreachable and your Collab server account is still signed in.
+The copy is checked against the revision and account. When the server responds
+again, the player rechecks access. An explicit rejection stops playback.
+
+For larger files or when you need playback without a server sign-in, use
+**Save a copy** while connected and choose an unencrypted local vault as the
+destination. Open that copy in the local vault when offline.
 
 ## Validation
 

@@ -153,12 +153,17 @@ fn guess_mime_type(relative_path: &str) -> &'static str {
     if collab_documents::sqlite_file::matches_path(relative_path) {
         return collab_documents::sqlite_file::MEDIA_TYPE;
     }
-    match Path::new(relative_path)
+    let extension = Path::new(relative_path)
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
+        .map(|ext| ext.to_ascii_lowercase());
+    if let Some(mime) = extension
         .as_deref()
+        .and_then(collab_protocol::media::mime_for_extension)
     {
+        return mime;
+    }
+    match extension.as_deref() {
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("gif") => "image/gif",

@@ -473,6 +473,14 @@ audio layout is a now-playing column (cover, timeline, transport, secondary
 controls) with a karaoke-style lyrics column beside it only when the track has
 lyrics; manual scrolling pauses lyric auto-follow for three seconds.
 
+Hosted media uses `commands/playback/hosted.rs` and the same loopback
+listener. The native server session owns the credentials. A pinned revision
+and fixed-size upstream requests bound each stream. Hosted account changes,
+vault transitions and playback closure revoke the loopback handle. Explicit
+offline media is cached inside the encrypted replica, bound to the account
+and revision, and decrypted into bounded native memory after transport failure.
+Permission and revision failures invalidate the hosted source.
+
 The [Phase 0 media playback probe](../plans/media-playback-phase0.md) lives
 under `src-tauri/examples/media_playback/`. The independent desktop executable
 serves generated fixtures to the native WebView using loopback HTTP byte

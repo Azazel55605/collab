@@ -9,6 +9,11 @@ import MediaView from './MediaView';
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
     openLocalPlayback: vi.fn(),
+    openHostedPlayback: vi.fn(),
+    downloadHostedPlayback: vi.fn(),
+    hostedVaultRequest: vi.fn(),
+    clearHostedPlayback: vi.fn(),
+
     checkLocalPlayback: vi.fn(),
     closeLocalPlayback: vi.fn(),
     openMediaExternally: vi.fn(),
@@ -85,12 +90,67 @@ describe('MediaView', () => {
     localStorage.clear();
     vi.mocked(tauriCommands.checkLocalPlayback).mockResolvedValue(undefined);
     vi.mocked(tauriCommands.closeLocalPlayback).mockResolvedValue(undefined);
+    vi.mocked(tauriCommands.clearHostedPlayback).mockResolvedValue(undefined);
     vi.mocked(tauriCommands.openMediaExternally).mockResolvedValue(undefined);
     useVaultStore.setState({
       vault: { id: 'v', name: 'Vault', path: '/vault', lastOpened: 0, isEncrypted: false },
       isVaultLocked: false,
       fileTree: [],
     });
+  });
+
+  it('saves a hosted revision for offline use and reloads at the same position', async () => {
+    useVaultStore.setState({
+      vault: {
+        kind: 'hosted',
+        name: 'Hosted',
+        id: 'v',
+        path: 'hosted://v',
+        lastOpened: 0,
+        isEncrypted: false,
+        hostedVaultId: 'v',
+        serverUrl: 'http://localhost:4000',
+        role: 'editor',
+      },
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue({
+      vaultId: 'v',
+      sequence: 1,
+      files: [
+        {
+          id: 'clip',
+          kind: 'asset',
+          relativePath: 'clip.webm',
+          state: 'active',
+          currentRevision: { id: 'r1', contentHash: 'f'.repeat(64), sizeBytes: 123 },
+        },
+      ],
+    });
+    vi.mocked(tauriCommands.openHostedPlayback)
+      .mockResolvedValueOnce(source({ canDownloadOffline: true }))
+      .mockResolvedValueOnce(source({ id: 'playback-2', offline: true }));
+    vi.mocked(tauriCommands.downloadHostedPlayback).mockResolvedValue(undefined);
+
+    const { unmount } = render(<MediaView relativePath="clip.webm" />);
+    const media = await loadMetadata('video');
+    expect(screen.getByRole('button', { name: 'Save a copy' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Make available offline' }));
+    expect(await screen.findByRole('button', { name: 'Offline copy saved' })).toBeTruthy();
+    expect(tauriCommands.downloadHostedPlayback).toHaveBeenCalledWith('playback-1');
+
+    media.currentTime = 44;
+    vi.mocked(tauriCommands.checkLocalPlayback).mockRejectedValueOnce(
+      'Connection lost. Reload to reconnect.',
+    );
+    fireEvent.error(media);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Reload to reconnect');
+    fireEvent.click(within(alert).getByRole('button', { name: 'Reload' }));
+    await screen.findByText('Playing offline copy');
+    expect((await loadMetadata('video')).currentTime).toBe(44);
+    expect(tauriCommands.openLocalPlayback).not.toHaveBeenCalled();
+    unmount();
+    expect(tauriCommands.closeLocalPlayback).toHaveBeenCalledWith('playback-2');
   });
 
   it('draws video controls over the picture with one settings menu', async () => {

@@ -23,7 +23,7 @@ import { vaultCan, vaultKind } from '../types/vault';
 import { documentVaultIdentity } from './documentPaneContext';
 import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
 import { shareAbortableDocumentRead, shareDocumentRead } from './sharedDocumentResources';
-import { tauriCommands } from './tauri';
+import { type LocalPlaybackSource, tauriCommands } from './tauri';
 import {
   emitReplicaMutated,
   enqueuePendingOperation,
@@ -105,6 +105,10 @@ export interface VaultRuntimeCapabilities {
   archiveExport?: VaultArchiveExportCapability;
   members?: VaultMembersCapability;
   logicComponents?: LogicComponentsCapability;
+  hostedPlayback?: {
+    open(relativePath: string): Promise<LocalPlaybackSource>;
+    saveCopy(relativePath: string): Promise<boolean>;
+  };
 }
 
 export interface VaultDocument {
@@ -704,6 +708,38 @@ export class HostedVaultClient implements VaultClient {
             },
           );
         },
+      },
+    };
+    this.runtime.hostedPlayback = {
+      open: async (relativePath) => {
+        const manifest = await this.onlineOrCachedManifest();
+        const file = this.findByPath(manifest, relativePath);
+        const revision = file.currentRevision;
+        if (file.kind !== 'asset' || !revision || revision.contentHash === 'offline') {
+          throw new Error('This media must finish syncing before it can be opened.');
+        }
+        return tauriCommands.openHostedPlayback({
+          serverUrl: this.vault.serverUrl,
+          vaultId: this.vault.hostedVaultId,
+          fileId: file.id,
+          revisionId: revision.id,
+          contentHash: revision.contentHash,
+          size: revision.sizeBytes,
+          path: file.relativePath,
+        });
+      },
+      saveCopy: async (relativePath) => {
+        const file = this.findByPath(await this.manifest(), relativePath);
+        const destination = await tauriCommands.showDownloadDialog(file.name);
+        if (!destination) return false;
+        await tauriCommands.hostedVaultDownloadEntry(
+          this.vault.serverUrl,
+          this.vault.hostedVaultId,
+          file.id,
+          false,
+          destination,
+        );
+        return true;
       },
     };
     // Hosted ZIP export is server-authorized as a vault-admin operation; only
