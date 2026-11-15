@@ -231,6 +231,8 @@ pub async fn disconnect_server(
         .server_sessions
         .write()
         .remove(&base);
+    #[cfg(not(mobile))]
+    state.playback.clear_hosted_server(&base);
     if let Some(session) = session {
         if let Ok(client) = server_client(session.allow_invalid_certificates) {
             #[cfg(target_os = "android")]

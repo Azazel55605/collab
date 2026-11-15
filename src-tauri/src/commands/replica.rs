@@ -595,6 +595,13 @@ pub fn replica_delete(
     state
         .background
         .cancel_for_replica(&server_url, &vault_id)?;
+    #[cfg(not(mobile))]
+    if let (Ok(server), Ok(vault)) = (
+        crate::hosted_client::validate_server_url(&server_url),
+        uuid::Uuid::parse_str(&vault_id),
+    ) {
+        state.playback.clear_hosted_vault(&server, vault);
+    }
     if let Some(store) = ReplicaStore::open_existing(&app_config_dir()?, &server_url, &vault_id) {
         store.delete()?;
     }

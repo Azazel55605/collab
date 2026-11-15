@@ -42,10 +42,12 @@ import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
 import {
+  AUDIO_EXTENSIONS,
   isLyricsPath,
   isMediaSidecarPath,
   LOCAL_MEDIA_EXTENSIONS,
   mediaKind,
+  VIDEO_EXTENSIONS,
 } from '../../lib/mediaFiles';
 import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
@@ -391,7 +393,9 @@ export default function FileTree() {
     const selected = await tauriCommands.showOpenFilesDialog(
       vault && vault.kind !== 'hosted' && !vault.isEncrypted
         ? [...IMPORTABLE_EXTENSIONS, ...LOCAL_MEDIA_EXTENSIONS]
-        : IMPORTABLE_EXTENSIONS,
+        : vault?.kind === 'hosted'
+          ? [...IMPORTABLE_EXTENSIONS, ...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]
+          : IMPORTABLE_EXTENSIONS,
     );
     if (selected) await importFiles(selected);
   }, [importFiles, vault]);
@@ -417,6 +421,12 @@ export default function FileTree() {
     async (file: NoteFile) => {
       if (!vault || file.isFolder) return;
       try {
+        if (vault.kind === 'hosted' && mediaKind(file.extension.toLowerCase())) {
+          if (await createVaultClient(vault).runtime.hostedPlayback?.saveCopy(file.relativePath)) {
+            toast.success(`Downloaded ${file.name}`);
+          }
+          return;
+        }
         const sqlite = isSqlitePath(file.relativePath);
         const chooseDestination = () => tauriCommands.showDownloadDialog(file.name);
         const sqliteDestination = sqlite ? await chooseDestination() : null;

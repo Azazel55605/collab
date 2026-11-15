@@ -305,7 +305,7 @@ export function MediaErrorCard({
 }: {
   message: string;
   onReload: () => void;
-  onOpenExternally: () => void;
+  onOpenExternally?: () => void;
 }) {
   return (
     <div
@@ -321,9 +321,11 @@ export function MediaErrorCard({
         <Button variant="outline" size="sm" onClick={onReload}>
           <RotateCcw /> Reload
         </Button>
-        <Button size="sm" onClick={onOpenExternally}>
-          <ExternalLink /> Open externally
-        </Button>
+        {onOpenExternally ? (
+          <Button size="sm" onClick={onOpenExternally}>
+            <ExternalLink /> Open externally
+          </Button>
+        ) : null}
       </div>
     </div>
   );

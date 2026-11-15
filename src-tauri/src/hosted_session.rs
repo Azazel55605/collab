@@ -47,7 +47,7 @@ fn should_persist_rotation(previous: &str, next: &str) -> bool {
     previous != next
 }
 
-fn access_token_needs_refresh(session: &ServerSessionState) -> bool {
+pub(crate) fn access_token_needs_refresh(session: &ServerSessionState) -> bool {
     DateTime::parse_from_rfc3339(&session.access_expires_at)
         .map(|expires| {
             expires.with_timezone(&Utc)

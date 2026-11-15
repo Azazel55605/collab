@@ -396,6 +396,8 @@ export interface LocalPlaybackSource {
   captions: { label: string; url: string; language?: string }[];
   audioTracks?: string[];
   audioMetadata?: LocalAudioMetadata | null;
+  offline?: boolean;
+  canDownloadOffline?: boolean;
 }
 
 export const tauriCommands = {
@@ -421,6 +423,18 @@ export const tauriCommands = {
       compatibility,
       audioTrack,
     }),
+  openHostedPlayback: (file: {
+    serverUrl: string;
+    vaultId: string;
+    fileId: string;
+    revisionId: string;
+    contentHash: string;
+    size: number;
+    path: string;
+  }) => invoke<LocalPlaybackSource>('open_hosted_playback', { file }),
+  downloadHostedPlayback: (id: string) => invoke<void>('download_hosted_playback', { id }),
+  clearHostedPlayback: (serverUrl: string, vaultId: string) =>
+    invoke<void>('clear_hosted_playback', { serverUrl, vaultId }),
   checkLocalPlayback: (id: string) => invoke<void>('check_local_playback', { id }),
   closeLocalPlayback: (id: string) => invoke<void>('close_local_playback', { id }),
   openMediaExternally: (vaultPath: string, relativePath: string) =>
@@ -1396,6 +1410,20 @@ export const tauriCommands = {
       serverUrl,
       query,
       ...(expectedUserId ? { expectedUserId } : {}),
+    }),
+  hostedVaultDownloadEntry: (
+    serverUrl: string,
+    vaultId: string,
+    fileId: string,
+    archive: boolean,
+    destinationPath: string,
+  ) =>
+    invoke<void>('hosted_vault_download_entry', {
+      serverUrl,
+      vaultId,
+      fileId,
+      archive,
+      destinationPath,
     }),
   hostedVaultExportZip: (serverUrl: string, vaultId: string, destinationPath: string) =>
     invoke<void>('hosted_vault_export_zip', { serverUrl, vaultId, destinationPath }),

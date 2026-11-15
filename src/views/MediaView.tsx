@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
 import {
+  Download,
   ExternalLink,
   Film,
   Maximize,
@@ -25,8 +26,10 @@ import { isCaptionPath, mediaKindForPath } from '../lib/mediaFiles';
 import { listenSafely } from '../lib/nativeSubscription';
 import { type LocalPlaybackSource, tauriCommands } from '../lib/tauri';
 import { cn } from '../lib/utils';
+import { createVaultClient } from '../lib/vaultClient';
 import { vaultTreeIndex } from '../lib/vaultTreeIndex';
 import { useVaultStore } from '../store/vaultStore';
+import type { VaultMeta } from '../types/vault';
 
 import { AudioArtwork, AudioLyrics } from './AudioPlayerContent';
 import MediaAmbiance from './MediaAmbiance';
@@ -68,7 +71,19 @@ type AudioTrackList = ArrayLike<AudioTrack> & EventTarget;
 const AMBIANCE_KEY = 'collab-media-ambiance';
 const recent = new Map<string, Resume>();
 useVaultStore.subscribe((next, previous) => {
-  if (next.vault !== previous.vault || next.isVaultLocked) recent.clear();
+  const before = previous.vault;
+  const after = next.vault;
+  const switched =
+    before?.path !== after?.path ||
+    (before?.kind === 'hosted' &&
+      (after?.kind !== 'hosted' || before.serverUrl !== after.serverUrl));
+  if (switched || next.isVaultLocked) {
+    recent.clear();
+    if (before?.kind === 'hosted')
+      void tauriCommands
+        .clearHostedPlayback(before.serverUrl, before.hostedVaultId)
+        .catch(() => {});
+  }
 });
 
 function audioTracks(media: HTMLMediaElement) {
@@ -79,7 +94,8 @@ export default function MediaView({ relativePath }: { relativePath: string }) {
   const vault = useVaultStore((state) => state.vault);
   const locked = useVaultStore((state) => state.isVaultLocked);
   const kind = mediaKindForPath(relativePath);
-  const available = vault && !locked && vault.kind !== 'hosted' && !vault.isEncrypted && kind;
+  const available = vault && !locked && !vault.isEncrypted && kind;
+  const hosted = vault?.kind === 'hosted';
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <DocumentTopBar
@@ -89,57 +105,66 @@ export default function MediaView({ relativePath }: { relativePath: string }) {
         meta={
           available ? (
             <DocumentTopBarButton
-              onClick={() =>
-                void tauriCommands
-                  .openMediaExternally(vault.path, relativePath)
-                  .catch((reason) => toast.error(String(reason)))
-              }
+              onClick={() => {
+                const action = hosted
+                  ? createVaultClient(vault).runtime.hostedPlayback?.saveCopy(relativePath)
+                  : tauriCommands.openMediaExternally(vault.path, relativePath);
+                void action
+                  ?.then((saved) => {
+                    if (saved) toast.success('Media copy saved.');
+                  })
+                  .catch((reason) => toast.error(String(reason)));
+              }}
             >
-              <ExternalLink /> Open externally
+              {hosted ? <Download /> : <ExternalLink />}
+              {hosted ? 'Save a copy' : 'Open externally'}
             </DocumentTopBarButton>
           ) : null
         }
       />
       {available ? (
-        <LocalPlayer
-          key={JSON.stringify([vault.path, relativePath])}
-          vaultPath={vault.path}
+        <Player
+          key={JSON.stringify([hosted ? vault.serverUrl : null, vault.path, relativePath])}
+          vault={vault}
           relativePath={relativePath}
           kind={kind}
         />
       ) : (
         <div role="status" className="m-auto px-6 text-center text-sm text-muted-foreground">
-          {vault?.kind === 'hosted'
-            ? 'Playback is currently available in local vaults. Use Download from Files to save a copy.'
-            : 'Playback requires an unencrypted local vault.'}
+          {locked
+            ? 'Unlock the vault to continue.'
+            : 'Playback is unavailable in encrypted vaults.'}
         </div>
       )}
     </div>
   );
 }
 
-function LocalPlayer({
-  vaultPath,
+function Player({
+  vault,
   relativePath,
   kind,
 }: {
-  vaultPath: string;
+  vault: VaultMeta;
   relativePath: string;
   kind: 'audio' | 'video';
 }) {
-  const vault = useVaultStore.getState().vault;
-  const scope = JSON.stringify([vaultPath, relativePath]);
+  const vaultPath = vault.path;
+  const hosted = vault.kind === 'hosted';
+  const serverUrl = hosted ? vault.serverUrl : null;
+  const scope = JSON.stringify([serverUrl, vaultPath, relativePath]);
   const [captionPath, setCaptionPath] = useState<string | null>(
     () => recent.get(scope)?.captionPath ?? null,
   );
   const [attempt, setAttempt] = useState(0);
+  const [offlineDownload, setOfflineDownload] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [compatibility, setCompatibility] = useState(
     () => recent.get(scope)?.compatibility ?? false,
   );
   const [isolatedAudio, setIsolatedAudio] = useState<number | null>(
     () => recent.get(scope)?.isolatedAudio ?? null,
   );
-  const isMp4 = /\.mp4$/i.test(relativePath);
+  const isMp4 = !hosted && /\.mp4$/i.test(relativePath);
   const [source, setSource] = useState<LocalPlaybackSource | null>(null);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -231,6 +256,7 @@ function LocalPlayer({
     setSource(null);
     setError('');
     setActionError('');
+    setOfflineDownload('idle');
     setDuration(0);
     setPosition(0);
     setBuffered(0);
@@ -243,27 +269,40 @@ function LocalPlayer({
     const restore = recent.get(scope);
     autoCaption.current = captionPath !== null && captionPath !== restore?.captionPath;
     selection.current = { caption: restore?.caption ?? 'off', audio: restore?.audio ?? '0' };
-    void tauriCommands
-      .openLocalPlayback(vaultPath, relativePath, captionPath, compatibility, isolatedAudio)
-      .then(
-        (opened) => {
-          if (disposed) {
+    const currentVault = useVaultStore.getState().vault;
+    const opening = hosted
+      ? currentVault?.kind === 'hosted' &&
+        currentVault.serverUrl === serverUrl &&
+        currentVault.path === vaultPath
+        ? createVaultClient(currentVault).runtime.hostedPlayback!.open(relativePath)
+        : Promise.reject('The hosted vault changed while opening media.')
+      : tauriCommands.openLocalPlayback(
+          vaultPath,
+          relativePath,
+          captionPath,
+          compatibility,
+          isolatedAudio,
+        );
+    void opening.then(
+      (opened) => {
+        if (disposed) {
+          void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+          return;
+        }
+        id = opened.id;
+        liveId.current = id;
+        if (restore?.revision !== opened.revision) {
+          selection.current = { caption: 'off', audio: '0' };
+          recent.delete(scope);
+          if (restore && isolatedAudio !== null) {
             void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+            setIsolatedAudio(null);
             return;
           }
-          id = opened.id;
-          liveId.current = id;
-          if (restore?.revision !== opened.revision) {
-            selection.current = { caption: 'off', audio: '0' };
-            recent.delete(scope);
-            if (restore && isolatedAudio !== null) {
-              void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
-              setIsolatedAudio(null);
-              return;
-            }
-          }
-          setSource(opened);
-          startupTimer = setTimeout(() => {
+        }
+        setSource(opened);
+        startupTimer = setTimeout(
+          () => {
             if (disposed || failed.current || hydrated.current) return;
             failed.current = true;
             element.current?.pause();
@@ -274,27 +313,32 @@ function LocalPlayer({
               setCompatibility(true);
             } else
               setError(
-                'The player did not receive media metadata. Reload or open the file externally.',
+                hosted
+                  ? 'The player did not receive media metadata. Reload to reconnect.'
+                  : 'The player did not receive media metadata. Reload or open the file externally.',
               );
-          }, 8000);
-          timer = setInterval(() => {
-            void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
-              if (disposed || failed.current) return;
-              failed.current = true;
-              element.current?.pause();
-              setError(String(reason));
-              setSource(null);
-            });
-          }, 5000);
-        },
-        (reason) => {
-          if (!disposed) {
-            setError(
-              compatibility ? `MP4 compatibility retry failed. ${String(reason)}` : String(reason),
-            );
-          }
-        },
-      );
+          },
+          hosted ? 20000 : 8000,
+        );
+        timer = setInterval(() => {
+          void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
+            if (disposed || failed.current) return;
+            element.current?.pause();
+            failed.current = true;
+            setError(String(reason));
+            setSource(null);
+            void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+          });
+        }, 5000);
+      },
+      (reason) => {
+        if (!disposed) {
+          setError(
+            compatibility ? `MP4 compatibility retry failed. ${String(reason)}` : String(reason),
+          );
+        }
+      },
+    );
     return () => {
       disposed = true;
       liveId.current = null;
@@ -302,7 +346,18 @@ function LocalPlayer({
       clearTimeout(startupTimer);
       if (id) void tauriCommands.closeLocalPlayback(id).catch(() => {});
     };
-  }, [attempt, captionPath, compatibility, isMp4, isolatedAudio, relativePath, scope, vaultPath]);
+  }, [
+    attempt,
+    captionPath,
+    compatibility,
+    hosted,
+    isMp4,
+    isolatedAudio,
+    relativePath,
+    scope,
+    serverUrl,
+    vaultPath,
+  ]);
 
   function remember(media: HTMLMediaElement) {
     if (
@@ -555,6 +610,7 @@ function LocalPlayer({
         setSource(null);
         void tauriCommands.closeLocalPlayback(id).catch(() => {});
       };
+      if (element.current) remember(element.current);
       void tauriCommands.checkLocalPlayback(id).then(
         () => {
           if (liveId.current !== id || failed.current) return;
@@ -589,7 +645,7 @@ function LocalPlayer({
       }))
     : audioChoices;
   const filename = getDocumentBaseName(relativePath, 'Media');
-  const captionFiles = useCaptionFiles(kind === 'video');
+  const captionFiles = useCaptionFiles(kind === 'video' && !hosted);
   const lyrics = source?.audioMetadata?.lyrics;
   const hasLyrics = Boolean(lyrics?.some((entry) => entry.text.trim()));
   const busy = status === 'Buffering…' || status === 'Seeking…';
@@ -804,6 +860,40 @@ function LocalPlayer({
         bleed ? 'p-0' : 'p-4',
       )}
     >
+      {hosted && (source?.offline || source?.canDownloadOffline) ? (
+        <div className="mb-2 flex w-full shrink-0 items-center justify-end gap-2 px-4">
+          {source.offline ? (
+            <span className="text-xs text-muted-foreground">Playing offline copy</span>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={offlineDownload !== 'idle'}
+              onClick={() => {
+                const id = source.id;
+                setOfflineDownload('saving');
+                void tauriCommands.downloadHostedPlayback(id).then(
+                  () => {
+                    if (liveId.current === id) setOfflineDownload('saved');
+                  },
+                  (reason) => {
+                    if (liveId.current !== id) return;
+                    setOfflineDownload('idle');
+                    toast.error(String(reason));
+                  },
+                );
+              }}
+            >
+              <Download />
+              {offlineDownload === 'saving'
+                ? 'Downloading…'
+                : offlineDownload === 'saved'
+                  ? 'Offline copy saved'
+                  : 'Make available offline'}
+            </Button>
+          )}
+        </div>
+      ) : null}
       <div
         ref={surface}
         className={cn(
@@ -858,7 +948,11 @@ function LocalPlayer({
 
             {error ? (
               <div className="absolute inset-0 z-20 grid place-items-center p-4">
-                <MediaErrorCard message={error} onReload={reload} onOpenExternally={openExternal} />
+                <MediaErrorCard
+                  message={error}
+                  onReload={reload}
+                  onOpenExternally={hosted ? undefined : openExternal}
+                />
               </div>
             ) : !ready ? (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-white/80">
@@ -1044,7 +1138,11 @@ function LocalPlayer({
                 </audio>
               ) : null}
               {error ? (
-                <MediaErrorCard message={error} onReload={reload} onOpenExternally={openExternal} />
+                <MediaErrorCard
+                  message={error}
+                  onReload={reload}
+                  onOpenExternally={hosted ? undefined : openExternal}
+                />
               ) : (
                 <div
                   ref={controls.dock}

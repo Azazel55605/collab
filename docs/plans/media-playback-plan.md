@@ -1,8 +1,8 @@
 # Media Playback And Library Plan
 
-Status: **Phase 1 local desktop implementation. Native qualification in progress.**
+Status: **Phase 2 hosted and offline desktop implementation. Native qualification in progress.**
 See the [Phase 0 evidence and decisions](./media-playback-phase0.md) and
-[local player guide](../desktop/media-playback.md).
+[desktop player guide](../desktop/media-playback.md).
 [Open Development Work](./open-development-work.md) tracks project status.
 
 ## Product Direction
@@ -89,10 +89,10 @@ before promising large encrypted playback. Do not silently stage plaintext.
       change for embedded tracks, resolve that before claiming support.
 - [x] Show album artwork and embedded or matching LRC lyrics in the audio
       player. Apply artwork-based ambiance and synchronize timestamped lines.
-- [X] Qualify album artwork and lyric sync in installed desktop builds.
+- [x] Qualify album artwork and lyric sync in installed desktop builds.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
       when closing the player or leaving its vault.
-- [X] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
+- [x] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
       movie. Record decoder selection, dropped frames, audio and colour output.
       Linux WebKitGTK stalled on an MP4 with 39 embedded subtitle tracks.
       A compatibility stream bypassing those tracks reached metadata and
@@ -100,12 +100,15 @@ before promising large encrypted playback. Do not silently stage plaintext.
 
 ### Phase 2 — Hosted And Offline Sources
 
-- [ ] Add authorized range serving and a native playback source with bounded
+- [x] Add authorized range serving and a native playback source with bounded
       buffering, cancellation and revision-aware cache identity.
-- [ ] Validate first play and seeks before complete download, reconnect and
-      permission changes, and offline playback from explicitly downloaded files.
-- [ ] Establish the encrypted playback boundary and test lock/revocation cleanup.
-      Keep unsupported large encrypted cases explicit until a safe source exists.
+- [x] Add explicit encrypted offline playback copies up to 32 MiB. Larger files
+      can be saved to a local vault. Password-encrypted local vault playback
+      remains excluded.
+- [x] Automate checks for bounded tail seeks, stale revisions, authorization loss
+      and authenticated offline storage.
+- [ ] Qualify first play and long seeks, reconnect, offline playback and lock
+      cleanup in installed builds.
 
 ### Phase 3 — Media Library
 

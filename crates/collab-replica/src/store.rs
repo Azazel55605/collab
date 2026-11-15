@@ -66,6 +66,7 @@ impl PendingOpIndex {
 const INTEGRITY_FILE: &str = "integrity.json";
 const DOCUMENTS_DIR: &str = "documents";
 const ASSETS_DIR: &str = "assets";
+const PLAYBACK_DIR: &str = "playback";
 const CRDT_DIR: &str = "crdt";
 const LOGIC_COMPONENTS_FILE: &str = "logic-components.json";
 
@@ -668,8 +669,43 @@ impl ReplicaStore {
         file_id: &str,
         limit: usize,
     ) -> Result<Option<Vec<u8>>, String> {
-        use std::io::Read;
         let path = self.root.join(ASSETS_DIR).join(safe_segment(file_id)?);
+        self.read_bounded_content(&path, limit, false)
+    }
+
+    pub fn cache_playback(&self, file_id: &str, bytes: &[u8]) -> Result<(), String> {
+        if self.encryption_key.is_none() {
+            return Err("Offline media requires an encrypted replica.".into());
+        }
+        let path = self.root.join(PLAYBACK_DIR).join(safe_segment(file_id)?);
+        write_file_atomic(&path, &self.encrypt_persisted(bytes)?)
+    }
+
+    pub fn read_cached_playback(
+        &self,
+        file_id: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let path = self.root.join(PLAYBACK_DIR).join(safe_segment(file_id)?);
+        self.read_bounded_content(&path, limit, true)
+    }
+
+    pub fn forget_cached_playback(&self, file_id: &str) -> Result<(), String> {
+        let path = self.root.join(PLAYBACK_DIR).join(safe_segment(file_id)?);
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn read_bounded_content(
+        &self,
+        path: &Path,
+        limit: usize,
+        encrypted_only: bool,
+    ) -> Result<Option<Vec<u8>>, String> {
+        use std::io::Read;
         let file = match std::fs::File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -686,6 +722,9 @@ impl ReplicaStore {
             .map_err(|e| e.to_string())?;
         if bytes.len() as u64 > persisted_limit {
             return Err("Cached asset exceeds its byte limit".into());
+        }
+        if encrypted_only && !crypto::is_encrypted_data(&bytes) {
+            return Ok(None);
         }
         let plain = self.decrypt_content_or_miss(&bytes);
         if plain.as_ref().is_some_and(|value| value.len() > limit) {
@@ -1062,6 +1101,7 @@ impl ReplicaStore {
         for (dir, strip_bin) in [
             (DOCUMENTS_DIR, false),
             (ASSETS_DIR, false),
+            (PLAYBACK_DIR, false),
             (CRDT_DIR, true),
         ] {
             let read = match std::fs::read_dir(self.root.join(dir)) {
@@ -1101,7 +1141,7 @@ impl ReplicaStore {
     /// Stray `*.tmp` files left in the cache dirs by an interrupted atomic write.
     fn collect_stray_tmp_files(&self) -> Result<Vec<(PathBuf, u64)>, String> {
         let mut stray = Vec::new();
-        for dir in [DOCUMENTS_DIR, ASSETS_DIR, CRDT_DIR] {
+        for dir in [DOCUMENTS_DIR, ASSETS_DIR, PLAYBACK_DIR, CRDT_DIR] {
             let read = match std::fs::read_dir(self.root.join(dir)) {
                 Ok(read) => read,
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
@@ -1318,6 +1358,28 @@ mod tests {
     /// The counts must agree with the authoritative queue in every case the
     /// cheap path takes a shortcut: skipping lines that cannot be failures, and
     /// reusing a cached result.
+    #[test]
+    fn playback_cache_requires_authenticated_encryption_and_obeys_read_limits() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("replica");
+        let mut store = ReplicaStore {
+            root: path,
+            encryption_key: None,
+        };
+        assert!(store.cache_playback("clip", b"verified").is_err());
+        store = store.with_encryption_key([7; 32]);
+        store.cache_playback("clip", b"verified").unwrap();
+        let raw = std::fs::read(store.root().join(PLAYBACK_DIR).join("clip")).unwrap();
+        assert!(crypto::is_encrypted_data(&raw));
+        assert_eq!(
+            store.read_cached_playback("clip", 8).unwrap().as_deref(),
+            Some(b"verified".as_slice())
+        );
+        assert!(store.read_cached_playback("clip", 4).is_err());
+        store.forget_cached_playback("clip").unwrap();
+        assert!(store.read_cached_playback("clip", 8).unwrap().is_none());
+    }
+
     #[test]
     fn pending_counts_match_the_queue_and_survive_a_decoy_payload() {
         let dir = TempDir::new().unwrap();

@@ -245,8 +245,8 @@ export async function importExternalFilesIntoVault(
         });
         continue;
       }
-      if ((category === 'media' || category === 'caption') && client.kind !== 'local') {
-        throw new Error('Media and sidecars can only be imported into local vaults.');
+      if (category === 'caption' && client.kind !== 'local') {
+        throw new Error('Media sidecars can only be imported into local vaults.');
       }
       if (category === 'workbookConversion') {
         // Converted natively into a brand-new `.sheet` document. The source
