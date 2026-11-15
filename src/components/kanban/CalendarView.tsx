@@ -14,6 +14,7 @@ import { formatDate, useUiStore } from '../../store/uiStore';
 import type { KanbanCard } from '../../types/kanban';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
+import { DatePanel } from '../ui/date-panel';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +23,7 @@ import {
 } from '../ui/dropdown-menu';
 import { PickerDialog } from '../ui/picker-dialog';
 import { Popover, PopoverTrigger } from '../ui/popover';
-import { DatePanel, PopoverPanel } from '../ui/popover-patterns';
+import { PopoverPanel } from '../ui/popover-patterns';
 
 import CardDialog from './CardDialog';
 

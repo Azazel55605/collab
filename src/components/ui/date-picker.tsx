@@ -6,8 +6,9 @@ import { cn } from '../../lib/utils';
 import { formatDate, useUiStore } from '../../store/uiStore';
 
 import { Button } from './button';
+import { DatePanel } from './date-panel';
 import { Popover, PopoverTrigger } from './popover';
-import { DatePanel, PopoverPanel } from './popover-patterns';
+import { PopoverPanel } from './popover-patterns';
 
 type Props = {
   value: string;

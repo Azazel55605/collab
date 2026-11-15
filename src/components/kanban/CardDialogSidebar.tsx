@@ -16,8 +16,9 @@ import { formatDate } from '../../store/uiStore';
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
 import { FULL_KANBAN_CAPABILITIES, type KanbanCapabilities } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
+import { DatePanel } from '../ui/date-panel';
 import { Popover, PopoverTrigger } from '../ui/popover';
-import { DatePanel, PopoverPanel } from '../ui/popover-patterns';
+import { PopoverPanel } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 type PriorityOption = {

@@ -516,7 +516,8 @@ of four shapes:
   Examples: card attachments, link a card, Grid cell content, calendar search,
   time zone, Nerd Font icons. The emoji picker keeps its grid and gets the same
   footer.
-- **B · Date** — `DatePanel`: quick picks (Today, Tomorrow, Next Mon, In 1
+- **B · Date** — `DatePanel` (`ui/date-panel.tsx`, separate so the calendar
+  stays out of the startup bundle): quick picks (Today, Tomorrow, Next Mon, In 1
   week), the month, "No date" when `clearable`, an optional time. `DatePicker`
   is built on it; a jump-to variant turns off quick picks and puts Today in the
   footer.

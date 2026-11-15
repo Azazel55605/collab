@@ -12,9 +12,10 @@ import type {
 } from '../../types/canvas';
 import type { KnownUser } from '../../types/vault';
 import { Button } from '../ui/button';
+import { DatePanel } from '../ui/date-panel';
 import { Input } from '../ui/input';
 import { Popover, PopoverTrigger } from '../ui/popover';
-import { DatePanel, PopoverPanel } from '../ui/popover-patterns';
+import { PopoverPanel } from '../ui/popover-patterns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
