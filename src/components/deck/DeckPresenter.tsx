@@ -64,7 +64,10 @@ import { renderSlideSvg } from '../../lib/deck/svg';
 import { linkAt, slideTextRuns } from '../../lib/deck/textLayer';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
 import { unitsToPx } from '../../lib/deck/units';
+import { cn } from '../../lib/utils';
 import type { DeckAssetRef, DeckDocument, DeckLink } from '../../types/deck';
+import { FloatingBar, FloatingSeparator } from '../layout/CanvasChrome';
+import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 import { DeckPlaybackSurface } from './DeckPlaybackSurface';
@@ -206,7 +209,11 @@ function ControlButton({
         event.stopPropagation();
         onClick();
       }}
-      className={`inline-flex size-8 items-center justify-center rounded-md transition-colors hover:bg-white/15 ${active ? 'bg-white/20 text-white' : 'text-white/80'} ${className}`}
+      className={cn(
+        'inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-accent hover:text-foreground',
+        active ? 'bg-primary/15 text-foreground hover:bg-primary/20' : 'text-muted-foreground',
+        className,
+      )}
     >
       {children}
     </button>
@@ -805,7 +812,10 @@ export function DeckPresenter({
                 event.stopPropagation();
                 setInkColor(color);
               }}
-              className={`size-4 rounded-full border ${inkColor === color ? 'border-white ring-2 ring-white/60' : 'border-white/40'}`}
+              className={cn(
+                'size-4 rounded-full border border-white/30',
+                inkColor === color && 'ring-2 ring-primary ring-offset-2 ring-offset-popover',
+              )}
               style={{ background: color }}
             />
           ))}
@@ -851,7 +861,10 @@ export function DeckPresenter({
   if (view === 'slideshow') {
     return createPortal(
       <div
-        className={`fixed inset-0 z-[80] bg-black ${controlsVisible || tool !== 'none' ? '' : 'cursor-none'}`}
+        className={cn(
+          'dark fixed inset-0 z-[80] bg-black text-foreground',
+          !controlsVisible && tool === 'none' && 'cursor-none',
+        )}
         role="dialog"
         aria-modal="true"
         aria-label="Slide show"
@@ -874,23 +887,26 @@ export function DeckPresenter({
         </DeckPlaybackSurface>
         {pending}
         {overview}
-        <div
-          className={`absolute bottom-4 left-4 z-30 flex items-center gap-0.5 rounded-lg bg-black/60 p-1 backdrop-blur transition-opacity ${controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        <FloatingBar
+          className={cn(
+            'bottom-4 left-1/2 z-30 -translate-x-1/2 transition-opacity',
+            controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
+          )}
           aria-label="Slide show controls"
           role="toolbar"
         >
           <ControlButton label="Previous slide" onClick={() => act({ type: 'previous' })}>
             <ChevronLeft className="size-4" />
           </ControlButton>
-          <span className="px-1 text-xs text-white/80 tabular-nums" aria-live="polite">
+          <span className="px-1 text-xs text-muted-foreground tabular-nums" aria-live="polite">
             {progress.position} / {progress.total}
           </span>
           <ControlButton label="Next slide" onClick={() => act({ type: 'next' })}>
             <ChevronRight className="size-4" />
           </ControlButton>
-          <span className="mx-1 h-5 w-px bg-white/20" />
+          <FloatingSeparator />
           {toolButtons}
-          <span className="mx-1 h-5 w-px bg-white/20" />
+          <FloatingSeparator />
           <ControlButton label="All slides (G)" onClick={() => dispatch({ type: 'overview' })}>
             <Grid3x3 className="size-4" />
           </ControlButton>
@@ -921,7 +937,7 @@ export function DeckPresenter({
           <ControlButton label="End show (Esc)" onClick={exit}>
             <X className="size-4" />
           </ControlButton>
-        </div>
+        </FloatingBar>
       </div>,
       document.body,
     );
@@ -930,12 +946,12 @@ export function DeckPresenter({
   // Presenter view.
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white"
+      className="dark fixed inset-0 z-[80] flex flex-col bg-background text-foreground"
       role="dialog"
       aria-modal="true"
       aria-label="Presenter view"
     >
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-white/10 px-3 text-sm">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border/60 bg-card/40 px-3 text-[13px]">
         <span className="font-medium tabular-nums" aria-label="Elapsed time">
           {elapsed}
         </span>
@@ -956,24 +972,25 @@ export function DeckPresenter({
         >
           <RotateCcw className="size-4" />
         </ControlButton>
-        <span className="text-white/60 tabular-nums">{clock}</span>
-        <span className="ml-2 text-white/80 tabular-nums">
+        <span className="text-muted-foreground tabular-nums">{clock}</span>
+        <span className="ml-2 text-muted-foreground tabular-nums">
           Slide {index + 1} of {slides.length}
           {slide.hidden ? ' · hidden' : ''}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {audienceStatus === 'open' && audience ? (
-            <label className="flex items-center gap-1.5 text-xs text-white/70">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Monitor className="size-3.5" />
               Slides on
               <Select value={audience.display.id} onValueChange={moveAudience}>
                 <SelectTrigger
                   aria-label="Display for slides"
-                  className="h-8 min-w-36 border-white/20 bg-neutral-900 text-xs text-white"
+                  size="sm"
+                  className="min-w-36 text-xs"
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="z-[100] border-white/15 bg-neutral-900 text-white">
+                <SelectContent className="dark z-[100]">
                   {displays.map((display) => (
                     <SelectItem key={display.id} value={display.id}>
                       {display.name}
@@ -984,14 +1001,16 @@ export function DeckPresenter({
               </Select>
             </label>
           ) : audienceStatus === 'opening' ? (
-            <span className="text-xs text-white/60">Opening the slide show window…</span>
+            <span className="text-xs text-muted-foreground">Opening the slide show window…</span>
           ) : (
-            <span className="text-xs text-white/60" role="status">
+            <span className="text-xs text-muted-foreground" role="status">
               No second display — rehearsing here.
             </span>
           )}
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               audienceRequest.current += 1;
@@ -1002,18 +1021,18 @@ export function DeckPresenter({
               setAudienceStatus('none');
               setView('slideshow');
             }}
-            className="rounded-md border border-white/20 px-2 py-1 text-xs hover:bg-white/10"
           >
             Show slides here
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onMouseDown={(event) => event.preventDefault()}
             onClick={exit}
-            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
           >
             End show
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1039,23 +1058,23 @@ export function DeckPresenter({
             {pending}
             {overview}
           </div>
-          <div
-            className="flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg bg-white/5 p-1"
+          <FloatingBar
+            className="static z-auto flex-wrap self-center"
             role="toolbar"
             aria-label="Presenter controls"
           >
             <ControlButton label="Previous slide" onClick={() => act({ type: 'previous' })}>
               <ChevronLeft className="size-4" />
             </ControlButton>
-            <span className="px-1 text-xs text-white/80 tabular-nums">
+            <span className="px-1 text-xs text-muted-foreground tabular-nums">
               {progress.position} / {progress.total}
             </span>
             <ControlButton label="Next slide" onClick={() => act({ type: 'next' })}>
               <ChevronRight className="size-4" />
             </ControlButton>
-            <span className="mx-1 h-5 w-px bg-white/20" />
+            <FloatingSeparator />
             {toolButtons}
-            <span className="mx-1 h-5 w-px bg-white/20" />
+            <FloatingSeparator />
             <ControlButton label="All slides (G)" onClick={() => dispatch({ type: 'overview' })}>
               <Grid3x3 className="size-4" />
             </ControlButton>
@@ -1074,15 +1093,15 @@ export function DeckPresenter({
               <SquareDashed className="size-4" />
             </ControlButton>
             {remoteButton}
-          </div>
+          </FloatingBar>
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
           <div>
-            <p className="mb-1 text-xs text-white/60">
+            <p className="mb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
               {upcoming ? `Next: slide ${upcoming.number}` : 'End of slide show'}
             </p>
-            <div className="aspect-video w-full overflow-hidden rounded bg-black">
+            <div className="aspect-video w-full overflow-hidden rounded-xl bg-black ring-1 ring-border/60">
               {upcoming ? (
                 <DeckPlaybackSurface
                   markup={markupFor(upcoming)}
@@ -1094,14 +1113,14 @@ export function DeckPresenter({
                   laser={null}
                 />
               ) : (
-                <div className="flex size-full items-center justify-center text-xs text-white/50">
+                <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
                   Last slide
                 </div>
               )}
             </div>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col rounded-lg bg-white/5">
-            <div className="flex items-center gap-1 border-b border-white/10 px-2 py-1 text-xs text-white/60">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card/40">
+            <div className="flex items-center gap-1 border-b border-border/60 py-1 pr-1 pl-3 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
               Notes
               <span className="ml-auto" />
               <ControlButton
