@@ -485,6 +485,12 @@ Matching lyrics and fallback folder artwork are resolved from the same folder
 and fetched under their own revision pins. Offline audio parses embedded tags
 from the verified copy.
 
+A local playback stream checks the named path and file identity before each
+bounded read. Read permits are released after each chunk so a paused WebView’s
+old range response can stay open while the next seek reads. Explicit teardown
+cancels all live bodies and drops the held file identity. A reopened player
+sends its saved revision when asking for saved track selections.
+
 The deferred `MediaLibraryView` reads the shared vault tree index and opens
 regular editor tabs. `lib/mediaResume.ts` shares the bounded in-session resume
 state between the player and library. Visible small local raster thumbnails

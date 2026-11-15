@@ -1,4 +1,4 @@
-import { type ComponentProps, type PointerEvent, type ReactNode, useState } from 'react';
+import { type ComponentProps, type PointerEvent, type ReactNode, useRef, useState } from 'react';
 
 import {
   CircleAlert,
@@ -118,6 +118,7 @@ export function Timeline({
   onRelease: () => void;
   onCancel: () => void;
 }) {
+  const pointer = useRef(false);
   const [hover, setHover] = useState<{ time: number; x: number } | null>(null);
   const max = duration || 1;
   const bufferedPercent = Math.min(100, (buffered / max) * 100);
@@ -161,10 +162,23 @@ export function Timeline({
         step={0.1}
         value={[position]}
         disabled={disabled}
-        onValueChange={([value]) => onScrub(value)}
+        onPointerDownCapture={() => {
+          if (!disabled) pointer.current = true;
+        }}
+        onValueChange={([value]) => {
+          if (pointer.current) onScrub(value);
+        }}
         onValueCommit={([value]) => onCommit(value)}
-        onPointerUp={onRelease}
-        onPointerCancel={onCancel}
+        onPointerUp={() => {
+          pointer.current = false;
+          // Let the slider's own pointer-up commit win. Use the last scrub
+          // position if the WebView did not deliver a commit.
+          queueMicrotask(onRelease);
+        }}
+        onPointerCancel={() => {
+          pointer.current = false;
+          onCancel();
+        }}
         className="cursor-pointer"
         trackClassName={cn(
           'h-1 transition-[height] group-hover/timeline:h-1.5',

@@ -273,7 +273,9 @@ export const useVaultStore = create<VaultState>()(
             createVaultClient(vault)
               .runtime.watch?.stop()
               .catch(() => {});
-          set({ vault: null, isVaultLocked: false, fileTree: [] });
+          // This was an explicit close. Leaving the startup restore hint in
+          // place would immediately reopen the vault and remount its player.
+          set({ vault: null, isVaultLocked: false, fileTree: [], lastOpenedVaultPath: null });
         });
       },
       loadRecentVaults: async () => {

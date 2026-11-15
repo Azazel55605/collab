@@ -423,6 +423,7 @@ export const tauriCommands = {
     compatibility = false,
     audioTrack: number | null = null,
     preview = false,
+    restoreRevision?: string,
   ) =>
     invoke<LocalPlaybackSource>('open_local_playback', {
       vaultPath,
@@ -431,6 +432,7 @@ export const tauriCommands = {
       compatibility,
       audioTrack,
       ...(preview ? { preview } : {}),
+      ...(restoreRevision ? { restoreRevision } : {}),
     }),
   openHostedPlayback: (file: {
     serverUrl: string;

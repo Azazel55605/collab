@@ -91,7 +91,9 @@ before promising large encrypted playback. Do not silently stage plaintext.
       player. Apply artwork-based ambiance and synchronize timestamped lines.
 - [x] Qualify album artwork and lyric sync in installed desktop builds.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
-      when closing the player or leaving its vault.
+      when closing the player or leaving its vault in an installed build.
+      Automated coverage exercises overlapping seeks, same-revision resume,
+      stale track selections, permissions revoked mid-range and source teardown.
 - [x] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
       movie. Record decoder selection, dropped frames, audio and colour output.
       Linux WebKitGTK stalled on an MP4 with 39 embedded subtitle tracks.

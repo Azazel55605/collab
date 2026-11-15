@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { mediaFileVersion, readMediaResume, rememberMediaResume } from '../lib/mediaResume';
 import { tauriCommands } from '../lib/tauri';
 import { useVaultStore } from '../store/vaultStore';
 
@@ -87,6 +88,7 @@ async function loadMetadata(selector: 'video' | 'audio') {
 describe('MediaView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(tauriCommands.openLocalPlayback).mockReset();
     localStorage.clear();
     vi.mocked(tauriCommands.checkLocalPlayback).mockResolvedValue(undefined);
     vi.mocked(tauriCommands.closeLocalPlayback).mockResolvedValue(undefined);
@@ -97,6 +99,103 @@ describe('MediaView', () => {
       isVaultLocked: false,
       fileTree: [],
     });
+  });
+
+  it('keeps a keyboard seek synchronized with playback and resumes on tab reopen', async () => {
+    vi.mocked(tauriCommands.openLocalPlayback)
+      .mockResolvedValueOnce(source())
+      .mockResolvedValueOnce(source({ id: 'reopened' }));
+    const first = render(<MediaView relativePath="clip.webm" />);
+    const media = await loadMetadata('video');
+    const timeline = screen.getByRole('slider', { name: 'Playback position' });
+    fireEvent.keyDown(timeline, { key: 'End' });
+    expect(media.currentTime).toBe(120);
+    media.currentTime = 42;
+    fireEvent.timeUpdate(media);
+    expect(timeline.getAttribute('aria-valuetext')).toBe('0:42 of 2:00');
+
+    first.unmount();
+    expect(tauriCommands.closeLocalPlayback).toHaveBeenCalledWith('playback-1');
+    render(<MediaView relativePath="clip.webm" />);
+    const reopened = await loadMetadata('video');
+    expect(reopened.currentTime).toBe(42);
+    expect(prototype.play).not.toHaveBeenCalled();
+  });
+
+  it('discards old track choices and position when reopening replaced media', async () => {
+    const vault = useVaultStore.getState().vault!;
+    rememberMediaResume(vault, 'clip.mp4', {
+      revision: 'r1',
+      position: 35,
+      duration: 120,
+      fileVersion: mediaFileVersion(undefined),
+      rate: 1.5,
+      volume: 1,
+      muted: false,
+      caption: '0',
+      captionPath: 'old.srt',
+      audio: '0',
+      isolatedAudio: 2,
+      compatibility: true,
+    });
+    vi.mocked(tauriCommands.openLocalPlayback)
+      .mockResolvedValueOnce(source({ revision: 'r2' }))
+      .mockResolvedValueOnce(source({ id: 'new-source', revision: 'r2' }));
+    render(<MediaView relativePath="clip.mp4" />);
+    const media = await loadMetadata('video');
+    expect(tauriCommands.openLocalPlayback).toHaveBeenNthCalledWith(
+      1,
+      '/vault',
+      'clip.mp4',
+      'old.srt',
+      true,
+      2,
+      false,
+      'r1',
+    );
+    expect(tauriCommands.openLocalPlayback).toHaveBeenNthCalledWith(
+      2,
+      '/vault',
+      'clip.mp4',
+      null,
+      false,
+      null,
+      false,
+      undefined,
+    );
+    expect(tauriCommands.closeLocalPlayback).toHaveBeenCalledWith('playback-1');
+    expect(media.currentTime).toBe(0);
+    expect(media.playbackRate).toBe(1);
+  });
+
+  it('clears revoked local resume state and closes a late open after leaving the vault', async () => {
+    const path = 'clip.webm';
+    const vault = useVaultStore.getState().vault!;
+    vi.mocked(tauriCommands.openLocalPlayback).mockResolvedValueOnce(source());
+    const first = render(<MediaView relativePath={path} />);
+    const media = await loadMetadata('video');
+    media.currentTime = 42;
+    fireEvent.seeked(media);
+    expect(readMediaResume(vault, path)?.position).toBe(42);
+    vi.mocked(tauriCommands.checkLocalPlayback).mockRejectedValueOnce(
+      'The media file is no longer accessible.',
+    );
+    fireEvent.error(media);
+    expect(await screen.findByText('The media file is no longer accessible.')).toBeTruthy();
+    expect(readMediaResume(vault, path)).toBeUndefined();
+    first.unmount();
+
+    let complete!: (value: ReturnType<typeof source>) => void;
+    vi.mocked(tauriCommands.openLocalPlayback).mockReturnValueOnce(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    render(<MediaView relativePath={path} />);
+    act(() => useVaultStore.setState({ vault: null }));
+    await act(async () => complete(source({ id: 'late-open' })));
+    expect(tauriCommands.closeLocalPlayback).toHaveBeenCalledWith('late-open');
+    expect(document.querySelector('video')).toBeNull();
   });
 
   it('saves a hosted revision for offline use and reloads at the same position', async () => {
