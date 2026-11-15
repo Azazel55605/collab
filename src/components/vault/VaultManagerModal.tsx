@@ -10,6 +10,7 @@ import {
   EyeOff,
   FolderOpen,
   HardDriveDownload,
+  KeyRound,
   Lock,
   LockOpen,
   LogOut,
@@ -54,7 +55,8 @@ import {
 } from '../../types/vault';
 import { Button } from '../ui/button';
 import { ConfirmDialog } from '../ui/confirm-dialog';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 
 import { confirmRemoveOfflineCopy } from './confirmRemoveOfflineCopy';
@@ -992,41 +994,56 @@ function OfflineSyncTab() {
 // ─── Encryption Tab ───────────────────────────────────────────────────────────
 
 function PasswordField({
+  id,
   label,
   value,
   onChange,
-  placeholder,
+  error,
+  hint,
+  autoFocus,
 }: {
+  id: string;
   label: string;
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
+  error?: string;
+  hint?: string;
+  autoFocus?: boolean;
 }) {
   const [show, setShow] = useState(false);
   return (
-    <div>
-      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">
-        {label}
-      </label>
+    <FormField label={label} htmlFor={id} error={error} hint={hint}>
       <div className="relative">
         <Input
+          id={id}
           type={show ? 'text' : 'password'}
+          autoComplete="off"
+          autoFocus={autoFocus}
           value={value}
+          aria-invalid={error ? true : undefined}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? '••••••••'}
-          className="h-8 text-sm pr-9"
+          className="pr-9"
         />
         <button
           type="button"
           onClick={() => setShow((v) => !v)}
           tabIndex={-1}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          aria-label={show ? 'Hide password' : 'Show password'}
+          className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
         >
-          {show ? <EyeOff size={13} /> : <Eye size={13} />}
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
         </button>
       </div>
-    </div>
+    </FormField>
   );
+}
+
+/** Inline checks for a new password and its confirmation. */
+function newPasswordErrors(password: string, confirm: string) {
+  return {
+    password: password && password.length < 8 ? 'Use at least 8 characters.' : undefined,
+    confirm: confirm && confirm !== password ? 'The passwords do not match.' : undefined,
+  };
 }
 
 function SettingsSectionLabel({
@@ -1167,6 +1184,9 @@ function EncryptionTab() {
     );
   }
 
+  const enableErrors = newPasswordErrors(newPw, confirmPw);
+  const changeErrors = newPasswordErrors(changePw, changeConfirm);
+
   const closeDialog = (open: boolean) => {
     if (open) return;
     setDialog(null);
@@ -1244,93 +1264,96 @@ function EncryptionTab() {
         There is no way to recover a lost password: without it the files cannot be read.
       </p>
 
-      <Dialog open={dialog === 'enable'} onOpenChange={closeDialog}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Encrypt this vault</DialogTitle>
-          </DialogHeader>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleEnable();
-            }}
-          >
-            <PasswordField label="New Password" value={newPw} onChange={setNewPw} />
-            <PasswordField label="Confirm Password" value={confirmPw} onChange={setConfirmPw} />
-            <DialogFooter>
-              <Button type="submit" size="sm" disabled={enableBusy || !newPw || !confirmPw}>
-                <Lock size={13} />
-                {enableBusy ? 'Encrypting…' : 'Enable Encryption'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <FormDialog
+        open={dialog === 'enable'}
+        onOpenChange={closeDialog}
+        size="s"
+        icon={<Lock />}
+        title="Encrypt this vault"
+        description="Every file is encrypted with a key from this password. There is no way to recover a lost password."
+        submitLabel="Encrypt vault"
+        submitDisabled={!newPw || !confirmPw || !!enableErrors.password || !!enableErrors.confirm}
+        busy={enableBusy}
+        onSubmit={() => void handleEnable()}
+      >
+        <PasswordField
+          id="vault-encrypt-password"
+          label="Password"
+          autoFocus
+          value={newPw}
+          onChange={setNewPw}
+          error={enableErrors.password}
+          hint="At least 8 characters."
+        />
+        <PasswordField
+          id="vault-encrypt-confirm"
+          label="Confirm password"
+          value={confirmPw}
+          onChange={setConfirmPw}
+          error={enableErrors.confirm}
+        />
+      </FormDialog>
 
-      <Dialog open={dialog === 'change'} onOpenChange={closeDialog}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Change password</DialogTitle>
-          </DialogHeader>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleChangePassword();
-            }}
-          >
-            <PasswordField label="Current Password" value={oldPw} onChange={setOldPw} />
-            <PasswordField label="New Password" value={changePw} onChange={setChangePw} />
-            <PasswordField
-              label="Confirm New Password"
-              value={changeConfirm}
-              onChange={setChangeConfirm}
-            />
-            <DialogFooter>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={changeBusy || !oldPw || !changePw || !changeConfirm}
-              >
-                <Check size={13} />
-                {changeBusy ? 'Re-encrypting…' : 'Change Password'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <FormDialog
+        open={dialog === 'change'}
+        onOpenChange={closeDialog}
+        size="s"
+        icon={<KeyRound />}
+        title="Change password"
+        description="Re-encrypts every file with a key from the new password. Large vaults take a minute."
+        submitLabel="Change password"
+        submitDisabled={
+          !oldPw || !changePw || !changeConfirm || !!changeErrors.password || !!changeErrors.confirm
+        }
+        busy={changeBusy}
+        onSubmit={() => void handleChangePassword()}
+      >
+        <PasswordField
+          id="vault-change-current"
+          label="Current password"
+          autoFocus
+          value={oldPw}
+          onChange={setOldPw}
+        />
+        <PasswordField
+          id="vault-change-new"
+          label="New password"
+          value={changePw}
+          onChange={setChangePw}
+          error={changeErrors.password}
+          hint="At least 8 characters."
+        />
+        <PasswordField
+          id="vault-change-confirm"
+          label="Confirm new password"
+          value={changeConfirm}
+          onChange={setChangeConfirm}
+          error={changeErrors.confirm}
+        />
+      </FormDialog>
 
-      <Dialog open={dialog === 'disable'} onOpenChange={closeDialog}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Turn off encryption?</DialogTitle>
-          </DialogHeader>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleDisable();
-            }}
-          >
-            <p className="text-sm text-muted-foreground">
-              Every file is decrypted and stored as plain text on this device.
-            </p>
-            <PasswordField label="Current Password" value={disablePw} onChange={setDisablePw} />
-            <DialogFooter>
-              <Button
-                type="submit"
-                size="sm"
-                variant="destructive"
-                disabled={disableBusy || !disablePw}
-              >
-                <LockOpen size={13} />
-                {disableBusy ? 'Decrypting…' : 'Disable Encryption'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <FormDialog
+        open={dialog === 'disable'}
+        onOpenChange={closeDialog}
+        size="s"
+        tone="danger"
+        destructive
+        icon={<LockOpen />}
+        title="Turn off encryption?"
+        description="Every file is decrypted and stored as plain text on this device."
+        submitLabel="Turn off encryption"
+        submitDisabled={!disablePw}
+        busy={disableBusy}
+        onSubmit={() => void handleDisable()}
+      >
+        <PasswordField
+          id="vault-disable-current"
+          label="Current password"
+          autoFocus
+          value={disablePw}
+          onChange={setDisablePw}
+        />
+      </FormDialog>
     </div>
   );
 }
