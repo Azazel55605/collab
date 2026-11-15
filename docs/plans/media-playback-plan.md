@@ -75,7 +75,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Switch prototype tabs and back without losing the playback position.
 - [ ] Validate sidecar captions, embedded captions and alternate audio on actual
       packaged Windows, macOS and Linux builds, including Flatpak where supported.
-- [ ] Confirm the candidate format/track baseline and buffering budget on packaged
+- [X] Confirm the candidate format/track baseline and buffering budget on packaged
       builds. The prototype records the initial backend and background-playback defaults.
 
 ### Phase 1 — Local Desktop File Tabs
@@ -120,7 +120,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Add an optional Continue watching and listening section using in-session
       resume data. Every item opens or focuses its regular file tab.
 - [x] Use hosted audio tags, embedded artwork and same-folder LRC in the player and library preview.
-- [ ] Qualify artwork and video still previews on installed desktop WebViews.
+- [X] Qualify artwork and video still previews on installed desktop WebViews.
 
 ### Phase 4 — Follow-on Surfaces And Polish
 
