@@ -46,6 +46,7 @@ import {
   DocumentTopBarIconButton,
 } from '../components/layout/DocumentTopBar';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
+import { ToggleSwitch } from '../components/settings/settingsControls';
 import {
   AppDialogBody,
   AppDialogContent,
@@ -66,13 +67,7 @@ import {
   ContextMenuTrigger,
 } from '../components/ui/context-menu';
 import { DatePicker } from '../components/ui/date-picker';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
+import { Dialog } from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +78,12 @@ import {
 import { ExportDialog } from '../components/ui/export-dialog';
 import { FormDialog, FormField } from '../components/ui/form-dialog';
 import { Input } from '../components/ui/input';
+import {
+  DetailRow,
+  ListDetailDialog,
+  ListDetailRow,
+  useKeepSelection,
+} from '../components/ui/list-detail-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { ChangeReviewDialog } from '../components/ui/review-dialog';
 import {
@@ -3818,229 +3819,282 @@ function CalendarMirrorDialog({
         : current.filter((calendarId) => calendarId !== calendar.id),
     );
   };
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const [creating, setCreating] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  useKeepSelection(groups, (group) => group.id, selectedGroupId, setSelectedGroupId, open);
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null;
+  const calendarName = (calendarId: string) =>
+    calendars.find((calendar) => calendar.id === calendarId)?.name ?? 'Unavailable calendar';
+  const submit = async () => {
     if (!name.trim() || selectedIds.length < 2) return;
     try {
-      await onCreate(name.trim(), selectedIds);
+      const group = await onCreate(name.trim(), selectedIds);
       setName('');
       setSelectedIds([]);
+      setCreating(false);
+      setSelectedGroupId(group.id);
     } catch {
       // The calendar store exposes the validation or persistence error in the page banner.
     }
   };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Calendar mirrors</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-5">
-          <section aria-labelledby="calendar-mirror-groups">
-            <h2 id="calendar-mirror-groups" className="mb-2 text-xs font-semibold">
-              Mirror groups
-            </h2>
-            <div className="divide-y divide-border/60 border-y border-border/60">
-              {groups.map((group) => {
-                const status = statuses.find((entry) => entry.groupId === group.id);
-                const waiting = status?.state === 'waiting';
-                const conflict = status?.state === 'conflict' || status?.state === 'error';
-                return (
-                  <div key={group.id} className="flex items-center gap-3 py-2.5">
-                    <Checkbox
-                      checked={group.enabled}
-                      disabled={saving}
-                      aria-label={`${group.enabled ? 'Pause' : 'Enable'} ${group.name}`}
-                      onCheckedChange={(checked) =>
-                        void onUpdate(group.id, { enabled: checked === true }).catch(() => {})
-                      }
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{group.name}</span>
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {group.members
-                          .map(
-                            (member) =>
-                              calendars.find((calendar) => calendar.id === member.calendarId)
-                                ?.name ?? 'Unavailable calendar',
-                          )
-                          .join(' ↔ ')}
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        'flex shrink-0 items-center gap-1 text-[10px]',
-                        conflict
-                          ? 'text-destructive'
-                          : waiting
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-muted-foreground',
-                      )}
-                    >
-                      {waiting ? <CloudOff className="size-3" /> : <Link2 className="size-3" />}
-                      {mirrorStatusLabel(group, status)}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      disabled={saving}
-                      aria-label={`Delete ${group.name}`}
-                      onClick={() => void onDelete(group.id).catch(() => {})}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                );
-              })}
-              {groups.length === 0 && (
-                <div className="py-6 text-center text-xs text-muted-foreground">
-                  No mirror groups yet
-                </div>
+
+  const createForm = (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <div>
+        <p className="text-sm font-semibold">New mirror</p>
+        <p className="text-xs text-muted-foreground">
+          Pick one writable calendar from each local profile or server. Events stay the same in all
+          of them.
+        </p>
+      </div>
+      <FormField label="Name" htmlFor="mirror-name">
+        <Input
+          id="mirror-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Work calendar mirror"
+          maxLength={120}
+        />
+      </FormField>
+      <fieldset className="flex flex-col gap-1">
+        <legend className="mb-1.5 text-[12.5px] font-medium text-foreground/85">Calendars</legend>
+        {eligibleCalendars.map((calendar) => {
+          const checked = selectedIds.includes(calendar.id);
+          const locationKey = calendarMirrorLocationKey({
+            location: calendar.location as Extract<CalendarLocation, { kind: 'local' | 'hosted' }>,
+          });
+          const locationAlreadySelected = !checked && selectedLocationKeys.has(locationKey);
+          const checkboxId = `mirror-calendar-${calendar.id}`;
+          return (
+            <label
+              key={calendar.id}
+              htmlFor={checkboxId}
+              className={cn(
+                'flex items-center gap-2.5 rounded-lg px-2 py-2 text-[13px] hover:bg-muted/50',
+                locationAlreadySelected && 'opacity-45',
               )}
-            </div>
-          </section>
-
-          {conflicts.length > 0 && (
-            <section aria-labelledby="calendar-mirror-conflicts">
-              <h2 id="calendar-mirror-conflicts" className="mb-2 text-xs font-semibold">
-                Conflicts
-              </h2>
-              <div className="divide-y divide-border/60 border-y border-border/60">
-                {conflicts.map((conflict) => {
-                  const group = groups.find((entry) => entry.id === conflict.groupId);
-                  return (
-                    <div key={conflict.id} className="py-3">
-                      <div className="mb-2">
-                        <span className="block text-xs font-medium">
-                          {group?.name ?? 'Mirror group'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          Choose the version that should replace the others.
-                        </span>
-                      </div>
-                      <div className="grid gap-1.5">
-                        {conflict.versions.map((version) => {
-                          const member = group?.members.find(
-                            (entry) => entry.id === version.memberId,
-                          );
-                          const calendar =
-                            member && calendars.find((entry) => entry.id === member.calendarId);
-                          return (
-                            <Button
-                              key={version.memberId}
-                              type="button"
-                              variant="outline"
-                              className="h-auto min-h-9 justify-start px-2 py-1.5 text-left"
-                              disabled={saving || !member}
-                              onClick={() =>
-                                void onResolve(conflict.id, version.memberId).catch(() => {})
-                              }
-                            >
-                              <span
-                                className="size-2.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: calendar?.color }}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-xs">
-                                  {version.item?.deletedAt || !version.item
-                                    ? 'Deleted'
-                                    : version.item.title}
-                                </span>
-                                <span className="block truncate text-[9px] font-normal text-muted-foreground">
-                                  {calendar?.name ?? 'Unavailable calendar'} ·{' '}
-                                  {calendar ? calendarOrigin(calendar) : 'Unknown location'}
-                                </span>
-                              </span>
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          <form
-            id="calendar-mirror-form"
-            className="space-y-3"
-            onSubmit={(event) => void submit(event)}
-          >
-            <div>
-              <h2 className="text-xs font-semibold">New mirror group</h2>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Choose one writable calendar from each local profile or connected server location.
-              </p>
-            </div>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium">Name</span>
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Work calendar mirror"
-                maxLength={120}
+            >
+              <Checkbox
+                id={checkboxId}
+                checked={checked}
+                disabled={locationAlreadySelected || saving}
+                onCheckedChange={(value) => toggleCalendar(calendar, value === true)}
               />
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: calendar.color }}
+              />
+              <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
+              <span className="truncate text-[11.5px] text-muted-foreground">
+                {calendarOrigin(calendar)}
+              </span>
             </label>
-            <fieldset className="space-y-1">
-              <legend className="mb-1 text-xs font-medium">Calendars</legend>
-              {eligibleCalendars.map((calendar) => {
-                const checked = selectedIds.includes(calendar.id);
-                const locationKey = calendarMirrorLocationKey({
-                  location: calendar.location as Extract<
-                    CalendarLocation,
-                    { kind: 'local' | 'hosted' }
-                  >,
-                });
-                const locationAlreadySelected = !checked && selectedLocationKeys.has(locationKey);
-                const checkboxId = `mirror-calendar-${calendar.id}`;
+          );
+        })}
+        {eligibleCalendars.length < 2 && (
+          <p className="py-3 text-xs text-muted-foreground">
+            At least two writable calendar locations are required.
+          </p>
+        )}
+      </fieldset>
+      <div className="flex justify-end gap-2">
+        {groups.length > 0 && (
+          <Button type="button" variant="ghost" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        )}
+        <Button type="submit" disabled={saving || !name.trim() || selectedIds.length < 2}>
+          <Link2 />
+          Create mirror
+        </Button>
+      </div>
+    </form>
+  );
+
+  const renderDetail = (group: CalendarMirrorGroup) => {
+    const status = statuses.find((entry) => entry.groupId === group.id);
+    const groupConflicts = conflicts.filter((conflict) => conflict.groupId === group.id);
+    const waiting = status?.state === 'waiting';
+    const failing = status?.state === 'conflict' || status?.state === 'error';
+    return (
+      <div className="flex flex-col">
+        <Input
+          aria-label="Mirror name"
+          defaultValue={group.name}
+          key={group.id}
+          maxLength={120}
+          disabled={saving}
+          onBlur={(event) => {
+            const next = event.target.value.trim();
+            if (next && next !== group.name)
+              void onUpdate(group.id, { name: next }).catch(() => {});
+          }}
+          className="mb-1 h-9 border-transparent bg-transparent px-0 text-base font-semibold shadow-none focus-visible:border-border focus-visible:px-2"
+        />
+        <DetailRow label="Status" description={status?.error}>
+          <span
+            className={cn(
+              'flex items-center gap-1.5 text-[12.5px]',
+              failing
+                ? 'text-destructive'
+                : waiting
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-muted-foreground',
+            )}
+          >
+            {waiting ? <CloudOff className="size-3.5" /> : <Link2 className="size-3.5" />}
+            {mirrorStatusLabel(group, status)}
+          </span>
+        </DetailRow>
+        <DetailRow
+          label="Active"
+          description="Paused mirrors keep their calendars but stop copying."
+        >
+          <ToggleSwitch
+            checked={group.enabled}
+            disabled={saving}
+            ariaLabel="Mirror active"
+            onToggle={() => void onUpdate(group.id, { enabled: !group.enabled }).catch(() => {})}
+          />
+        </DetailRow>
+        <div className="border-b border-border/40 py-3 last:border-b-0">
+          <p className="mb-2 text-[13px] font-medium">Calendars</p>
+          <ul className="flex flex-col gap-1.5">
+            {group.members.map((member) => {
+              const calendar = calendars.find((entry) => entry.id === member.calendarId);
+              return (
+                <li key={member.id} className="flex items-center gap-2.5 text-[13px]">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full bg-muted-foreground/40"
+                    style={{ backgroundColor: calendar?.color }}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{calendarName(member.calendarId)}</span>
+                  <span className="truncate text-[11.5px] text-muted-foreground">
+                    {calendar ? calendarOrigin(calendar) : 'Unknown location'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        {groupConflicts.map((conflict) => (
+          <section
+            key={conflict.id}
+            aria-label="Mirror conflict"
+            className="mt-3 rounded-[10px] border border-amber-500/40 bg-amber-500/[0.06] p-3"
+          >
+            <p className="text-[13px] font-medium">An event changed in more than one calendar</p>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Choose the version that should replace the others.
+            </p>
+            <div className="grid gap-1.5">
+              {conflict.versions.map((version) => {
+                const member = group.members.find((entry) => entry.id === version.memberId);
+                const calendar =
+                  member && calendars.find((entry) => entry.id === member.calendarId);
                 return (
-                  <label
-                    key={calendar.id}
-                    htmlFor={checkboxId}
-                    className={cn(
-                      'flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent/50',
-                      locationAlreadySelected && 'opacity-45',
-                    )}
+                  <Button
+                    key={version.memberId}
+                    type="button"
+                    variant="outline"
+                    className="h-auto min-h-9 justify-start bg-background px-2.5 py-1.5 text-left"
+                    disabled={saving || !member}
+                    onClick={() => void onResolve(conflict.id, version.memberId).catch(() => {})}
                   >
-                    <Checkbox
-                      id={checkboxId}
-                      checked={checked}
-                      disabled={locationAlreadySelected || saving}
-                      onCheckedChange={(value) => toggleCalendar(calendar, value === true)}
-                    />
                     <span
                       className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: calendar.color }}
+                      style={{ backgroundColor: calendar?.color }}
                     />
-                    <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      {calendarOrigin(calendar)}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px]">
+                        {version.item?.deletedAt || !version.item ? 'Deleted' : version.item.title}
+                      </span>
+                      <span className="block truncate text-[11.5px] font-normal text-muted-foreground">
+                        {calendar?.name ?? 'Unavailable calendar'} ·{' '}
+                        {calendar ? calendarOrigin(calendar) : 'Unknown location'}
+                      </span>
                     </span>
-                  </label>
+                  </Button>
                 );
               })}
-              {eligibleCalendars.length < 2 && (
-                <p className="py-3 text-xs text-muted-foreground">
-                  At least two writable calendar locations are required.
-                </p>
-              )}
-            </fieldset>
-          </form>
-        </div>
-        <DialogFooter>
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <ListDetailDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Link2 />}
+      title="Calendar mirrors"
+      description="Keep calendars in different places in step with each other."
+      items={groups}
+      getKey={(group) => group.id}
+      selectedKey={selectedGroupId}
+      onSelect={(id) => {
+        setCreating(false);
+        setSelectedGroupId(id);
+      }}
+      renderRow={(group) => {
+        const status = statuses.find((entry) => entry.groupId === group.id);
+        const attention = status?.state === 'conflict' || status?.state === 'error';
+        return (
+          <ListDetailRow
+            title={group.name}
+            muted={!group.enabled}
+            summary={
+              <>
+                {group.members.map((member) => calendarName(member.calendarId)).join(' ↔ ')}
+                <span className={cn('block', attention && 'text-destructive')}>
+                  {mirrorStatusLabel(group, status)}
+                </span>
+              </>
+            }
+            trailing={
+              <ToggleSwitch
+                checked={group.enabled}
+                disabled={saving}
+                ariaLabel={`${group.enabled ? 'Pause' : 'Enable'} ${group.name}`}
+                onToggle={() =>
+                  void onUpdate(group.id, { enabled: !group.enabled }).catch(() => {})
+                }
+              />
+            }
+          />
+        );
+      }}
+      renderDetail={renderDetail}
+      detailOverride={creating ? createForm : undefined}
+      newLabel="New mirror"
+      onNew={() => setCreating(true)}
+      footerStart={
+        selectedGroup && !creating ? (
           <Button
-            type="submit"
-            form="calendar-mirror-form"
-            disabled={saving || !name.trim() || selectedIds.length < 2}
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={saving}
+            onClick={() => void onDelete(selectedGroup.id).catch(() => {})}
           >
-            <Link2 />
-            Create mirror
+            <Trash2 />
+            Delete mirror
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ) : undefined
+      }
+      empty={{
+        title: 'No mirrors yet',
+        description:
+          'A mirror keeps the same events in a local calendar and a server calendar, or in calendars on two servers.',
+      }}
+    />
   );
 }
 
@@ -4240,22 +4294,21 @@ function CalendarPublishDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [feeds, setFeeds] = useState<CalendarPublishedFeed[]>([]);
-  const [generatedUrl, setGeneratedUrl] = useState('');
+  const [generated, setGenerated] = useState<{ feedId: string; url: string } | null>(null);
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!calendar || calendar.location.kind !== 'hosted') {
       setFeeds([]);
-      setGeneratedUrl('');
+      setGenerated(null);
       setError(null);
       return;
     }
     let active = true;
     setBusy(true);
-    setGeneratedUrl('');
-    setCopied(false);
+    setGenerated(null);
     setError(null);
     void tauriCommands
       .hostedCalendarRequest<CalendarPublishedFeed[]>(
@@ -4288,8 +4341,11 @@ function CalendarPublishDialog({
         `/api/v1/calendars/${calendar.id}/published-feeds`,
       );
       setFeeds((current) => [created, ...current]);
-      setGeneratedUrl(`${calendar.location.serverUrl.replace(/\/$/, '')}${created.feedPath}`);
-      setCopied(false);
+      setGenerated({
+        feedId: created.id,
+        url: `${calendar.location.serverUrl.replace(/\/$/, '')}${created.feedPath}`,
+      });
+      setSelectedFeedId(created.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4308,8 +4364,7 @@ function CalendarPublishDialog({
         `/api/v1/calendars/${calendar.id}/published-feeds/${feedId}`,
       );
       setFeeds((current) => current.filter((feed) => feed.id !== feedId));
-      setGeneratedUrl('');
-      setCopied(false);
+      setGenerated((current) => (current?.feedId === feedId ? null : current));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4317,106 +4372,152 @@ function CalendarPublishDialog({
     }
   };
 
+  useKeepSelection(feeds, (feed) => feed.id, selectedFeedId, setSelectedFeedId, calendar != null);
+  const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
+
   return (
-    <Dialog open={calendar != null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Publish {calendar?.name ?? 'calendar'}</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Anyone with a published URL can read this calendar in an external calendar app. The URL is
-          shown only when it is created.
-        </p>
-        {error && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-            {error}
-          </div>
-        )}
-        {generatedUrl && (
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium">New subscription URL</span>
-            <div className="flex gap-2">
-              <Input
-                readOnly
-                value={generatedUrl}
-                className="min-w-0 font-mono text-xs"
-                aria-label="Published calendar URL"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label="Copy published calendar URL"
-                title="Copy URL"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(generatedUrl)
-                    .then(() => setCopied(true))
-                    .catch(() => setError('Could not copy the published URL.'));
-                }}
-              >
-                <Copy />
-              </Button>
-            </div>
-            {copied && <p className="text-[10px] text-muted-foreground">Copied to clipboard</p>}
-          </div>
-        )}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">Active links</span>
-            <Button type="button" size="sm" disabled={busy} onClick={() => void createFeed()}>
-              <Plus />
-              New link
+    <ListDetailDialog
+      open={calendar != null}
+      onOpenChange={onOpenChange}
+      icon={<Rss />}
+      title={`Publish ${calendar?.name ?? 'calendar'}`}
+      description="Anyone with a published link can read this calendar in another calendar app."
+      items={feeds}
+      getKey={(feed) => feed.id}
+      selectedKey={selectedFeedId}
+      onSelect={setSelectedFeedId}
+      renderRow={(feed) => (
+        <ListDetailRow
+          icon={<Rss />}
+          title={`Link from ${new Date(feed.createdAt).toLocaleDateString()}`}
+          summary={
+            feed.lastAccessedAt
+              ? `Last fetched ${new Date(feed.lastAccessedAt).toLocaleString()}`
+              : 'Not fetched yet'
+          }
+        />
+      )}
+      renderDetail={(feed) => (
+        <div className="flex flex-col">
+          {error && <DialogError>{error}</DialogError>}
+          {generated?.feedId === feed.id && (
+            <OneTimeSecret
+              title="Copy the link now"
+              description="It is shown only once. Paste it into a calendar app as a subscription."
+              fields={[{ key: 'url', label: 'Published calendar URL', value: generated.url }]}
+            />
+          )}
+          <DetailRow label="Created">
+            <span className="text-[12.5px] text-muted-foreground">
+              {new Date(feed.createdAt).toLocaleString()}
+            </span>
+          </DetailRow>
+          <DetailRow
+            label="Last fetched"
+            description="Calendar apps fetch the link on their own schedule."
+          >
+            <span className="text-[12.5px] text-muted-foreground">
+              {feed.lastAccessedAt ? new Date(feed.lastAccessedAt).toLocaleString() : 'Not yet'}
+            </span>
+          </DetailRow>
+          {generated?.feedId !== feed.id && (
+            <p className="pt-3 text-xs text-muted-foreground">
+              The address of an existing link cannot be shown again. Create a new link if you need
+              it, then revoke this one.
+            </p>
+          )}
+        </div>
+      )}
+      newLabel="New link"
+      onNew={() => void createFeed()}
+      newDisabled={busy}
+      footerStart={
+        selectedFeed ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={busy}
+            aria-label="Revoke published calendar link"
+            onClick={() => void revokeFeed(selectedFeed.id)}
+          >
+            <Trash2 />
+            Revoke link
+          </Button>
+        ) : undefined
+      }
+      empty={{
+        title: busy ? 'Loading links…' : 'Not published',
+        description: error ?? 'Create a read-only link to subscribe to this calendar elsewhere.',
+        action: (
+          <Button className="mt-2" disabled={busy} onClick={() => void createFeed()}>
+            {busy ? <LoaderCircle className="animate-spin" /> : <Plus />}
+            Publish a link
+          </Button>
+        ),
+      }}
+    />
+  );
+}
+
+/** Values shown once after they are created (feed URL, app password), each with Copy. */
+function OneTimeSecret({
+  title,
+  description,
+  fields,
+}: {
+  title: string;
+  description: string;
+  fields: { key: string; label: string; value: string }[];
+}) {
+  const [copied, setCopied] = useState('');
+  return (
+    <div className="mb-2 flex flex-col gap-2 rounded-[10px] border border-primary/35 bg-primary/[0.06] p-3">
+      <div>
+        <p className="text-[13px] font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {fields.map((field) => (
+        <div key={field.key} className="flex flex-col gap-1">
+          <span className="text-[11.5px] font-medium text-muted-foreground">
+            {field.label}
+            {copied === field.key && <span className="ml-2 font-normal">Copied</span>}
+          </span>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={field.value}
+              className="min-w-0 bg-background font-mono text-xs"
+              aria-label={field.label}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label={`Copy ${field.label}`}
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(field.value)
+                  .then(() => setCopied(field.key))
+                  .catch(() => {})
+              }
+            >
+              <Copy />
             </Button>
           </div>
-          <div className="max-h-56 space-y-1 overflow-y-auto">
-            {busy && feeds.length === 0 && (
-              <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3.5 animate-spin" />
-                Loading links
-              </div>
-            )}
-            {!busy && feeds.length === 0 && (
-              <div className="rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                No published links
-              </div>
-            )}
-            {feeds.map((feed) => (
-              <div
-                key={feed.id}
-                className="flex items-center gap-2 rounded border border-border/70 px-2.5 py-2 text-xs"
-              >
-                <Rss className="size-3.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div>Created {new Date(feed.createdAt).toLocaleString()}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {feed.lastAccessedAt
-                      ? `Last fetched ${new Date(feed.lastAccessedAt).toLocaleString()}`
-                      : 'Not fetched yet'}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={busy}
-                  aria-label="Revoke published calendar link"
-                  title="Revoke link"
-                  onClick={() => void revokeFeed(feed.id)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      ))}
+    </div>
+  );
+}
+
+function DialogError({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="mb-2 rounded-[10px] border border-destructive/30 bg-destructive/[0.06] px-3 py-2 text-[12.5px] text-destructive"
+    >
+      {children}
+    </p>
   );
 }
 
@@ -4435,7 +4536,8 @@ export function CalendarCalDavDialog({
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedOrigin = origins.find((origin) => origin.serverUrl === serverUrl) ?? origins[0];
 
   useEffect(() => {
@@ -4446,7 +4548,7 @@ export function CalendarCalDavDialog({
         : (origins[0]?.serverUrl ?? ''),
     );
     setCreated(null);
-    setCopied('');
+    setCreating(false);
     setError(null);
   }, [open, origins]);
 
@@ -4492,7 +4594,8 @@ export function CalendarCalDavDialog({
       setCredentials((current) => [value, ...current]);
       setCreated(value);
       setLabel('');
-      setCopied('');
+      setCreating(false);
+      setSelectedId(value.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4519,162 +4622,168 @@ export function CalendarCalDavDialog({
     }
   };
 
-  const copyValue = (name: string, value: string) => {
-    void navigator.clipboard
-      .writeText(value)
-      .then(() => setCopied(name))
-      .catch(() => setError('Could not copy the CalDAV value.'));
-  };
-  const caldavUrl = selectedOrigin
-    ? `${selectedOrigin.serverUrl.replace(/\/$/, '')}${created?.caldavPath ?? '/caldav/'}`
-    : '';
+  useKeepSelection(
+    credentials,
+    (credential) => credential.id,
+    selectedId,
+    setSelectedId,
+    open && !creating,
+  );
+  const caldavBase = selectedOrigin ? selectedOrigin.serverUrl.replace(/\/$/, '') : '';
+  const showForm = creating || (!busy && credentials.length === 0);
+  const selectedCredential = credentials.find((credential) => credential.id === selectedId) ?? null;
+
+  const createForm = (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void createCredential();
+      }}
+    >
+      {error && <DialogError>{error}</DialogError>}
+      <div>
+        <p className="text-sm font-semibold">New app password</p>
+        <p className="text-xs text-muted-foreground">
+          Each calendar app gets its own password, so you can revoke one without touching the
+          others. Your Collab password is never shared with CalDAV clients.
+        </p>
+      </div>
+      <FormField label="Used by" htmlFor="caldav-label" hint="A phone, a laptop or an app name.">
+        <Input
+          id="caldav-label"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          maxLength={80}
+          placeholder="Device or application name"
+          aria-label="CalDAV credential name"
+        />
+      </FormField>
+      <div className="flex justify-end gap-2">
+        {credentials.length > 0 && (
+          <Button type="button" variant="ghost" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        )}
+        <Button type="submit" disabled={busy || !selectedOrigin || !label.trim()}>
+          <Plus />
+          Create
+        </Button>
+      </div>
+    </form>
+  );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>CalDAV access</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Connect an external calendar application with a separate revocable password. Your normal
-          Collab password and session are never shared with CalDAV clients.
-        </p>
-        {origins.length > 1 && (
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium">Server</span>
-            <Select
-              value={selectedOrigin?.serverUrl ?? ''}
-              onValueChange={(value) => {
-                setServerUrl(value);
-                setCreated(null);
-                setCopied('');
-              }}
-            >
-              <SelectTrigger aria-label="CalDAV server">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {origins.map((origin) => (
-                  <SelectItem key={origin.serverUrl} value={origin.serverUrl}>
-                    {origin.serverUrl}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {error && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-            {error}
-          </div>
-        )}
-        {created && (
-          <div className="space-y-2 rounded-md border border-primary/35 bg-primary/5 p-3">
-            <div>
-              <p className="text-xs font-medium">Save this password now</p>
-              <p className="text-[10px] text-muted-foreground">
-                It cannot be displayed again after this dialog closes.
-              </p>
-            </div>
-            {(
-              [
-                ['url', 'Server URL', caldavUrl],
-                ['username', 'Username', created.username],
-                ['password', 'App password', created.password],
-              ] as const
-            ).map(([key, title, value]) => (
-              <div key={key} className="space-y-1">
-                <span className="text-[10px] font-medium text-muted-foreground">{title}</span>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={value}
-                    className="min-w-0 font-mono text-xs"
-                    aria-label={`CalDAV ${title}`}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label={`Copy CalDAV ${title}`}
-                    onClick={() => copyValue(key, value)}
-                  >
-                    <Copy />
-                  </Button>
-                </div>
-                {copied === key && <p className="text-[10px] text-muted-foreground">Copied</p>}
-              </div>
-            ))}
-          </div>
-        )}
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void createCredential();
-          }}
-        >
-          <Input
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            maxLength={80}
-            placeholder="Device or application name"
-            aria-label="CalDAV credential name"
-          />
-          <Button type="submit" disabled={busy || !selectedOrigin || !label.trim()}>
-            <Plus />
-            Create
-          </Button>
-        </form>
-        <div className="space-y-2">
-          <span className="text-xs font-medium">Active app passwords</span>
-          <div className="max-h-52 space-y-1 overflow-y-auto">
-            {busy && credentials.length === 0 && (
-              <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3.5 animate-spin" />
-                Loading access
-              </div>
-            )}
-            {!busy && credentials.length === 0 && (
-              <div className="rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                No CalDAV app passwords
-              </div>
-            )}
-            {credentials.map((credential) => (
-              <div
-                key={credential.id}
-                className="flex items-center gap-2 rounded border border-border/70 px-2.5 py-2 text-xs"
-              >
-                <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{credential.label}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {credential.lastUsedAt
-                      ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}`
-                      : `Created ${new Date(credential.createdAt).toLocaleString()}`}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={busy}
-                  aria-label={`Revoke ${credential.label}`}
-                  title="Revoke access"
-                  onClick={() => void revokeCredential(credential.id)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
+    <ListDetailDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<KeyRound />}
+      title="CalDAV access"
+      description="App passwords for calendar apps that sync over CalDAV."
+      items={credentials}
+      getKey={(credential) => credential.id}
+      selectedKey={selectedId}
+      onSelect={(id) => {
+        setCreating(false);
+        setSelectedId(id);
+      }}
+      renderRow={(credential) => (
+        <ListDetailRow
+          icon={<KeyRound />}
+          title={credential.label}
+          summary={
+            credential.lastUsedAt
+              ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}`
+              : 'Not used yet'
+          }
+        />
+      )}
+      renderDetail={(credential) => (
+        <div className="flex flex-col">
+          {error && <DialogError>{error}</DialogError>}
+          {created?.id === credential.id && (
+            <OneTimeSecret
+              title="Save this password now"
+              description="It cannot be shown again after this dialog closes."
+              fields={[
+                {
+                  key: 'url',
+                  label: 'CalDAV Server URL',
+                  value: `${caldavBase}${created.caldavPath}`,
+                },
+                { key: 'username', label: 'CalDAV Username', value: created.username },
+                { key: 'password', label: 'CalDAV App password', value: created.password },
+              ]}
+            />
+          )}
+          <DetailRow label="Server">
+            <span className="font-mono text-[12px] text-muted-foreground">
+              {caldavBase}/caldav/
+            </span>
+          </DetailRow>
+          <DetailRow label="Created">
+            <span className="text-[12.5px] text-muted-foreground">
+              {new Date(credential.createdAt).toLocaleString()}
+            </span>
+          </DetailRow>
+          <DetailRow label="Last used">
+            <span className="text-[12.5px] text-muted-foreground">
+              {credential.lastUsedAt ? new Date(credential.lastUsedAt).toLocaleString() : 'Not yet'}
+            </span>
+          </DetailRow>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+      )}
+      placeholder={
+        busy ? (
+          <span className="inline-flex items-center gap-2">
+            <LoaderCircle className="size-3.5 animate-spin" />
+            Loading access
+          </span>
+        ) : undefined
+      }
+      detailOverride={showForm ? createForm : undefined}
+      newLabel="New app password"
+      onNew={() => {
+        setCreating(true);
+        setCreated(null);
+      }}
+      newDisabled={!selectedOrigin}
+      listFooter={
+        origins.length > 1 ? (
+          <Select
+            value={selectedOrigin?.serverUrl ?? ''}
+            onValueChange={(value) => {
+              setServerUrl(value);
+              setCreated(null);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="CalDAV server" className="w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {origins.map((origin) => (
+                <SelectItem key={origin.serverUrl} value={origin.serverUrl} className="text-xs">
+                  {origin.serverUrl}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : undefined
+      }
+      footerStart={
+        selectedCredential && !showForm ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={busy}
+            aria-label={`Revoke ${selectedCredential.label}`}
+            onClick={() => void revokeCredential(selectedCredential.id)}
+          >
+            <Trash2 />
+            Revoke access
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ) : undefined
+      }
+    />
   );
 }

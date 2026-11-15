@@ -1,23 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Save, Scissors, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { cn } from '../../lib/utils';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useNoteSnippetStore } from '../../store/noteSnippetStore';
 import { useVaultStore } from '../../store/vaultStore';
-import type { NoteSnippetDraft, NoteSnippetScope } from '../../types/noteSnippet';
+import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../../types/noteSnippet';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { FormField, FormRow } from '../ui/form-dialog';
 import { Input } from '../ui/input';
+import { ListDetailDialog, ListDetailRow, useKeepSelection } from '../ui/list-detail-dialog';
 import { Textarea } from '../ui/textarea';
 
 type Props = {
@@ -36,6 +30,17 @@ function createEmptyDraft(scope: NoteSnippetScope): NoteSnippetDraft {
   };
 }
 
+function toDraft(snippet: NoteSnippet): NoteSnippetDraft {
+  return {
+    id: snippet.id,
+    name: snippet.name,
+    description: snippet.description ?? '',
+    scope: snippet.scope,
+    category: snippet.category ?? '',
+    body: snippet.body,
+  };
+}
+
 export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
   const { vault } = useVaultStore();
   // Vault-scoped snippets live on the local filesystem; hosted vaults only have
@@ -46,6 +51,8 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
   const snippetVaultPath = supportsLocalSnippets && vault ? vault.path : null;
   const { snippets, loadSnippets, saveSnippet, deleteSnippet, isLoading } = useNoteSnippetStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<NoteSnippetDraft>(
     createEmptyDraft(supportsLocalSnippets ? 'vault' : 'app'),
   );
@@ -56,26 +63,33 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
     void loadSnippets(snippetVaultPath);
   }, [loadSnippets, open, snippetVaultPath, vault]);
 
+  const needle = query.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      needle
+        ? snippets.filter((entry) =>
+            [entry.name, entry.category, entry.description]
+              .join(' ')
+              .toLowerCase()
+              .includes(needle),
+          )
+        : snippets,
+    [needle, snippets],
+  );
+  useKeepSelection(shown, (entry) => entry.id, selectedId, setSelectedId, open && !creating);
   const selectedSnippet = useMemo(
     () => snippets.find((entry) => entry.id === selectedId) ?? null,
     [selectedId, snippets],
   );
 
   useEffect(() => {
-    if (!selectedSnippet) return;
-    setDraft({
-      id: selectedSnippet.id,
-      name: selectedSnippet.name,
-      description: selectedSnippet.description ?? '',
-      scope: selectedSnippet.scope,
-      category: selectedSnippet.category ?? '',
-      body: selectedSnippet.body,
-    });
+    if (selectedSnippet) setDraft(toDraft(selectedSnippet));
   }, [selectedSnippet?.id]);
 
-  const resetDraft = (scope: NoteSnippetScope = draft.scope) => {
+  const startNew = () => {
+    setCreating(true);
     setSelectedId(null);
-    setDraft(createEmptyDraft(scope));
+    setDraft(createEmptyDraft(draft.scope));
   };
 
   const handleSave = async () => {
@@ -83,15 +97,9 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
     const effectiveDraft = supportsLocalSnippets ? draft : { ...draft, scope: 'app' as const };
     try {
       const saved = await saveSnippet(snippetVaultPath, effectiveDraft);
+      setCreating(false);
       setSelectedId(saved.id);
-      setDraft({
-        id: saved.id,
-        name: saved.name,
-        description: saved.description ?? '',
-        scope: saved.scope,
-        category: saved.category ?? '',
-        body: saved.body,
-      });
+      setDraft(toDraft(saved));
       toast.success(`Saved snippet "${saved.name}"`);
     } catch (error) {
       toast.error(`Failed to save snippet: ${error}`);
@@ -102,198 +110,139 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
     if (!vault || !selectedSnippet) return;
     try {
       await deleteSnippet(snippetVaultPath, selectedSnippet);
-      resetDraft(selectedSnippet.scope);
+      setSelectedId(null);
       toast.success(`Deleted snippet "${selectedSnippet.name}"`);
     } catch (error) {
       toast.error(`Failed to delete snippet: ${error}`);
     }
   };
 
+  const insert = () => {
+    onInsert(draft.body);
+    onOpenChange(false);
+  };
+
+  const editor = (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <FormRow>
+        <FormField label="Name" htmlFor="snippet-name">
+          <Input
+            id="snippet-name"
+            value={draft.name}
+            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
+            placeholder="Meeting notes"
+          />
+        </FormField>
+        <FormField label="Category" htmlFor="snippet-category">
+          <Input
+            id="snippet-category"
+            value={draft.category ?? ''}
+            onChange={(event) => setDraft((value) => ({ ...value, category: event.target.value }))}
+            placeholder="Notes"
+          />
+        </FormField>
+      </FormRow>
+      <FormField label="Description" htmlFor="snippet-description">
+        <Input
+          id="snippet-description"
+          value={draft.description ?? ''}
+          onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))}
+          placeholder="Reusable notes for recurring meetings"
+        />
+      </FormField>
+      {scopeOptions.length > 1 && (
+        <FormField label="Saved in">
+          <ChoiceGroup
+            value={draft.scope}
+            onValueChange={(scope) =>
+              setDraft((value) => ({ ...value, scope: scope as NoteSnippetScope }))
+            }
+            aria-label="Saved in"
+            className="grid grid-cols-2 gap-2"
+          >
+            <ChoiceCard value="vault" title="This vault" description="Shared with everyone here" />
+            <ChoiceCard value="app" title="This app" description="Yours, in every vault" />
+          </ChoiceGroup>
+        </FormField>
+      )}
+      <FormField
+        label="Body"
+        htmlFor="snippet-body"
+        hint={
+          <>
+            <code>&lt;placeholder:Label&gt;</code> marks an editable field,{' '}
+            <code>&lt;cursor&gt;</code> where the cursor ends up.
+          </>
+        }
+      >
+        <Textarea
+          id="snippet-body"
+          value={draft.body}
+          onChange={(event) => setDraft((value) => ({ ...value, body: event.target.value }))}
+          className="min-h-40 font-mono text-xs"
+          placeholder="<placeholder:Title>\n<cursor>"
+        />
+      </FormField>
+      <div className="mt-auto flex justify-end gap-2 pt-1">
+        <Button type="button" variant="outline" onClick={insert} disabled={!draft.body.trim()}>
+          Insert
+        </Button>
+        <Button
+          type="button"
+          onClick={handleSave}
+          disabled={!draft.name.trim() || !draft.body.trim()}
+        >
+          <Save />
+          {creating ? 'Save snippet' : 'Save changes'}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl h-[78vh] p-0 overflow-hidden">
-        <DialogHeader className="px-5 pt-5 pb-0">
-          <DialogTitle>Note Snippets</DialogTitle>
-          <DialogDescription>
-            Create reusable markdown snippets with placeholders and insert them into the current
-            note.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid h-full min-h-0 grid-cols-[280px,1fr]">
-          <div className="border-r border-border/40 p-3 space-y-3 overflow-y-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={() => resetDraft(draft.scope)}
-            >
-              <Plus size={14} className="mr-1" />
-              New snippet
-            </Button>
-
-            <div className="space-y-2">
-              {isLoading ? (
-                <div className="text-xs text-muted-foreground">Loading snippets…</div>
-              ) : snippets.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border/50 px-3 py-4 text-xs text-muted-foreground">
-                  No snippets yet. Create one on the right.
-                </div>
-              ) : (
-                snippets.map((snippet) => (
-                  <div
-                    key={snippet.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedId(snippet.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setSelectedId(snippet.id);
-                      }
-                    }}
-                    className={cn(
-                      'w-full rounded-lg border px-3 py-2 text-left transition-colors',
-                      selectedId === snippet.id
-                        ? 'border-primary/50 bg-primary/10'
-                        : 'border-border/40 hover:bg-accent/40',
-                    )}
-                  >
-                    <div className="text-sm font-medium text-foreground">{snippet.name}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {snippet.scope === 'vault' ? 'Vault' : 'App'}
-                      {snippet.category ? ` · ${snippet.category}` : ''}
-                    </div>
-                    {snippet.description && (
-                      <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground/85">
-                        {snippet.description}
-                      </div>
-                    )}
-                    <div className="mt-2 flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[11px]"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onInsert(snippet.body);
-                          onOpenChange(false);
-                        }}
-                      >
-                        Insert
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-col p-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Name</span>
-                <Input
-                  value={draft.name}
-                  onChange={(event) =>
-                    setDraft((value) => ({ ...value, name: event.target.value }))
-                  }
-                  placeholder="Meeting notes"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Category</span>
-                <Input
-                  value={draft.category ?? ''}
-                  onChange={(event) =>
-                    setDraft((value) => ({ ...value, category: event.target.value }))
-                  }
-                  placeholder="Notes"
-                />
-              </label>
-            </div>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-[1fr,220px]">
-              <label className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Description</span>
-                <Input
-                  value={draft.description ?? ''}
-                  onChange={(event) =>
-                    setDraft((value) => ({ ...value, description: event.target.value }))
-                  }
-                  placeholder="Reusable notes for recurring meetings"
-                />
-              </label>
-
-              <div className="space-y-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Scope</span>
-                <div className="flex gap-2">
-                  {scopeOptions.map((scope) => (
-                    <button
-                      key={scope}
-                      type="button"
-                      onClick={() => setDraft((value) => ({ ...value, scope }))}
-                      className={cn(
-                        'rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
-                        draft.scope === scope
-                          ? 'border-primary/50 bg-primary/10 text-primary'
-                          : 'border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground',
-                      )}
-                    >
-                      {scope === 'vault' ? 'Vault' : 'App'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <label className="mt-4 flex min-h-0 flex-1 flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Body</span>
-              <Textarea
-                value={draft.body}
-                onChange={(event) => setDraft((value) => ({ ...value, body: event.target.value }))}
-                className="min-h-0 flex-1 font-mono text-xs"
-                placeholder="<placeholder:Title>\n<cursor>"
-              />
-              <div className="text-[11px] text-muted-foreground">
-                Use <code>&lt;placeholder:Label&gt;</code> for editable fields and{' '}
-                <code>&lt;cursor&gt;</code> for the final cursor position.
-              </div>
-            </label>
-
-            <DialogFooter className="mt-4 border-none bg-transparent px-0 pb-0">
-              <div className="mr-auto flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => onInsert(draft.body)}
-                  disabled={!draft.body.trim()}
-                >
-                  Insert draft
-                </Button>
-                {selectedSnippet && (
-                  <Button type="button" variant="destructive" onClick={handleDelete}>
-                    <Trash2 size={14} className="mr-1" />
-                    Delete
-                  </Button>
-                )}
-              </div>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Close
-              </Button>
-              <Button
-                type="button"
-                onClick={handleSave}
-                disabled={!draft.name.trim() || !draft.body.trim()}
-              >
-                <Save size={14} className="mr-1" />
-                Save snippet
-              </Button>
-            </DialogFooter>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ListDetailDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Scissors />}
+      title="Note snippets"
+      description="Reusable markdown with placeholders, inserted into the current note."
+      items={shown}
+      getKey={(snippet) => snippet.id}
+      selectedKey={selectedId}
+      onSelect={(id) => {
+        setCreating(false);
+        setSelectedId(id);
+      }}
+      renderRow={(snippet) => (
+        <ListDetailRow
+          title={snippet.name}
+          summary={[
+            snippet.scope === 'vault' ? 'Vault' : 'App',
+            snippet.category,
+            snippet.description,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        />
+      )}
+      renderDetail={() => editor}
+      detailOverride={creating || snippets.length === 0 ? editor : undefined}
+      filter={{ value: query, onChange: setQuery, placeholder: 'Filter snippets' }}
+      newLabel="New snippet"
+      onNew={startNew}
+      placeholder={isLoading ? 'Loading snippets…' : undefined}
+      footerStart={
+        selectedSnippet && !creating ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={handleDelete}
+          >
+            <Trash2 />
+            Delete snippet
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
