@@ -75,7 +75,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Switch prototype tabs and back without losing the playback position.
 - [ ] Validate sidecar captions, embedded captions and alternate audio on actual
       packaged Windows, macOS and Linux builds, including Flatpak where supported.
-- [X] Confirm the candidate format/track baseline and buffering budget on packaged
+- [x] Confirm the candidate format/track baseline and buffering budget on packaged
       builds. The prototype records the initial backend and background-playback defaults.
 
 ### Phase 1 — Local Desktop File Tabs
@@ -91,7 +91,9 @@ before promising large encrypted playback. Do not silently stage plaintext.
       player. Apply artwork-based ambiance and synchronize timestamped lines.
 - [x] Qualify album artwork and lyric sync in installed desktop builds.
 - [ ] Verify seek, tab reopen, media replacement, permission loss and cleanup
-      when closing the player or leaving its vault.
+      when closing the player or leaving its vault in an installed build.
+      Automated coverage exercises overlapping seeks, same-revision resume,
+      stale track selections, permissions revoked mid-range and source teardown.
 - [x] Qualify sustained playback and seeks on a high-bitrate 4K HEVC/E-AC-3
       movie. Record decoder selection, dropped frames, audio and colour output.
       Linux WebKitGTK stalled on an MP4 with 39 embedded subtitle tracks.
@@ -120,7 +122,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Add an optional Continue watching and listening section using in-session
       resume data. Every item opens or focuses its regular file tab.
 - [x] Use hosted audio tags, embedded artwork and same-folder LRC in the player and library preview.
-- [X] Qualify artwork and video still previews on installed desktop WebViews.
+- [x] Qualify artwork and video still previews on installed desktop WebViews.
 
 ### Phase 4 — Follow-on Surfaces And Polish
 

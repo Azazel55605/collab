@@ -234,7 +234,8 @@ function Player({
   }
   const failed = useRef(false);
   const liveId = useRef<string | null>(null);
-  const hydrated = useRef(false);
+  const hydrated = useRef(new WeakSet<HTMLMediaElement>());
+  const isHydrated = () => element.current !== null && hydrated.current.has(element.current);
   const selection = useRef({ caption: 'off', audio: '0' });
   const autoCaption = useRef(false);
 
@@ -244,13 +245,13 @@ function Player({
     let timer: ReturnType<typeof setInterval> | undefined;
     let startupTimer: ReturnType<typeof setTimeout> | undefined;
     failed.current = false;
-    hydrated.current = false;
     setSource(null);
     setError('');
     setActionError('');
     setOfflineDownload('idle');
     setDuration(0);
     setPosition(0);
+    setResumedAt(null);
     setBuffered(0);
     setPlaying(false);
     setScrub(null);
@@ -277,6 +278,8 @@ function Player({
           captionPath,
           compatibility,
           isolatedAudio,
+          false,
+          restore?.revision,
         );
     void opening.then(
       (opened) => {
@@ -286,11 +289,14 @@ function Player({
         }
         id = opened.id;
         liveId.current = id;
-        if (restore?.revision !== opened.revision) {
+        if (restore && restore.revision !== opened.revision) {
           selection.current = { caption: 'off', audio: '0' };
           if (currentVault) forgetMediaResume(currentVault, relativePath);
-          if (restore && isolatedAudio !== null) {
+          resumePlaying.current = false;
+          if (captionPath !== null || compatibility || isolatedAudio !== null) {
             void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
+            setCaptionPath(null);
+            setCompatibility(false);
             setIsolatedAudio(null);
             return;
           }
@@ -298,7 +304,12 @@ function Player({
         setSource(opened);
         startupTimer = setTimeout(
           () => {
-            if (disposed || failed.current || hydrated.current) return;
+            if (
+              disposed ||
+              failed.current ||
+              (element.current && hydrated.current.has(element.current))
+            )
+              return;
             failed.current = true;
             element.current?.pause();
             void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
@@ -318,8 +329,9 @@ function Player({
         timer = setInterval(() => {
           void tauriCommands.checkLocalPlayback(opened.id).catch((reason) => {
             if (disposed || failed.current) return;
-            element.current?.pause();
             failed.current = true;
+            if (!hosted && currentVault) forgetMediaResume(currentVault, relativePath);
+            element.current?.pause();
             setError(String(reason));
             setSource(null);
             void tauriCommands.closeLocalPlayback(opened.id).catch(() => {});
@@ -356,10 +368,11 @@ function Player({
   function remember(media: HTMLMediaElement) {
     if (
       !source ||
-      !hydrated.current ||
+      !hydrated.current.has(media) ||
       failed.current ||
       !Number.isFinite(media.currentTime) ||
-      useVaultStore.getState().vault !== vault
+      useVaultStore.getState().vault !== vault ||
+      useVaultStore.getState().isVaultLocked
     )
       return;
     rememberMediaResume(vault, relativePath, {
@@ -410,7 +423,7 @@ function Player({
         value: String(index),
       })),
     );
-    if (!hydrated.current) return;
+    if (!hydrated.current.has(media)) return;
     const selected = selection.current;
     if (autoCaption.current) {
       const sidecar = media.querySelector('track');
@@ -459,9 +472,16 @@ function Player({
   }, [source]);
 
   function metadata(media: HTMLMediaElement) {
-    if (!Number.isFinite(media.duration)) return;
+    if (
+      !source ||
+      liveId.current !== source.id ||
+      !Number.isFinite(media.duration) ||
+      hydrated.current.has(media)
+    )
+      return;
     setDuration(media.duration);
-    const restore = source && readMediaResume(vault, relativePath);
+    const saved = readMediaResume(vault, relativePath);
+    const restore = saved?.revision === source.revision ? saved : undefined;
     media.playbackRate = restore?.rate ?? 1;
     media.volume = restore?.volume ?? 1;
     media.muted = restore?.muted ?? false;
@@ -478,7 +498,7 @@ function Player({
     setMuted(media.muted);
     setPosition(media.currentTime);
     setStatus('Paused');
-    hydrated.current = true;
+    hydrated.current.add(media);
     refreshTracks(media);
     if (resumePlaying.current) {
       resumePlaying.current = false;
@@ -488,10 +508,15 @@ function Player({
 
   function seek(target: number) {
     const media = element.current;
-    if (!media || !Number.isFinite(media.duration)) return;
-    media.currentTime = Math.max(0, Math.min(target, media.duration));
-    setPosition(media.currentTime);
-    remember(media);
+    if (!media || !Number.isFinite(media.duration) || !Number.isFinite(target)) return;
+    const time = Math.max(0, Math.min(target, media.duration));
+    try {
+      media.currentTime = time;
+      setPosition(media.currentTime);
+      remember(media);
+    } catch {
+      setActionError('Could not seek to this position.');
+    }
   }
 
   function skip(seconds: number) {
@@ -608,13 +633,17 @@ function Player({
       void tauriCommands.checkLocalPlayback(id).then(
         () => {
           if (liveId.current !== id || failed.current) return;
-          if (isMp4 && !compatibility && !hydrated.current) {
+          if (isMp4 && !compatibility && !isHydrated()) {
             announceCompatibility.current = true;
             setCompatibility(true);
           } else
             reject('This file could not be played. Its codec may be unsupported by this device.');
         },
-        (reason) => reject(String(reason)),
+        (reason) => {
+          if (liveId.current !== id || failed.current) return;
+          if (!hosted) forgetMediaResume(vault, relativePath);
+          reject(String(reason));
+        },
       );
     },
   };
@@ -786,6 +815,7 @@ function Player({
 
   const timeline = (
     <Timeline
+      key={source?.id}
       overlay={video}
       position={scrub ?? position}
       duration={duration}
@@ -796,14 +826,15 @@ function Player({
         setScrub(value);
       }}
       onCommit={(value) => {
-        seek(value);
+        if (!source || liveId.current !== source.id) return;
+        seek(pendingSeek.current ?? value);
         pendingSeek.current = null;
         setScrub(null);
       }}
       onRelease={() => {
         // Some WebViews deliver pointer-up before Radix sees the latest
         // controlled value. Commit the pending position in that case.
-        if (pendingSeek.current === null) return;
+        if (!source || liveId.current !== source.id || pendingSeek.current === null) return;
         seek(pendingSeek.current);
         pendingSeek.current = null;
         setScrub(null);

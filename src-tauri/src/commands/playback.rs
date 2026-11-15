@@ -36,6 +36,9 @@ use tokio_util::sync::CancellationToken;
 // a fixed allocation per read and the shared four-stream limit.
 const CHUNK: usize = 256 * 1024;
 const MAX_STREAMS: usize = 4;
+// Keep a separate admission limit for local response bodies. A paused decoder
+// may hold an old range open while issuing another range for a seek.
+const MAX_LOCAL_BODIES: usize = 16;
 const MAX_SESSIONS: usize = 4;
 // An inspector can decode one frame under a lifetime range-read budget.
 const MAX_PREVIEW_BYTES: u64 = 8 * 1024 * 1024;
@@ -85,14 +88,14 @@ impl Playback {
     pub(crate) fn clear(&self) {
         self.hosted.lock().clear(None, None);
         for (_, source) in self.sessions.lock().drain() {
-            source.cancel.cancel();
+            source.revoke();
         }
     }
 
     fn remove(&self, id: &str) {
         self.hosted.lock().remove(id);
         if let Some(source) = self.sessions.lock().remove(id) {
-            source.cancel.cancel();
+            source.revoke();
         }
     }
 
@@ -113,6 +116,7 @@ impl Playback {
                     address,
                     playback: self.clone(),
                     slots: Arc::new(Semaphore::new(MAX_STREAMS)),
+                    local_reads: Arc::new(Semaphore::new(MAX_STREAMS)),
                 };
                 let router = Router::new()
                     .route("/{id}/{asset}", get(serve))
@@ -128,10 +132,10 @@ impl Playback {
 }
 
 struct Source {
-    vault: Dir,
+    root: PathBuf,
     relative: PathBuf,
-    file: Mutex<File>,
-    identity: Handle,
+    identity: Mutex<Option<Handle>>,
+    failure: Mutex<Option<String>>,
     modified: SystemTime,
     len: u64,
     mime: &'static str,
@@ -145,6 +149,7 @@ struct Source {
     audio: Vec<String>,
     audio_metadata: Option<AudioMetadata>,
     preview_budget: PreviewBudget,
+    bodies: Arc<Semaphore>,
 }
 
 struct Caption {
@@ -154,7 +159,7 @@ struct Caption {
 
 impl Source {
     fn open(root: &str, relative: &str, selected_caption: Option<&str>) -> Result<Self, String> {
-        Self::open_with_mode(root, relative, selected_caption, false, None)
+        Self::open_with_mode(root, relative, selected_caption, false, None, None)
     }
 
     fn open_with_mode(
@@ -163,6 +168,7 @@ impl Source {
         selected_caption: Option<&str>,
         compatibility: bool,
         audio_track: Option<usize>,
+        restore_revision: Option<&str>,
     ) -> Result<Self, String> {
         // Normalize at the IPC boundary. The directory capability also confines
         // resolution across symlinks and concurrent path substitutions.
@@ -193,6 +199,10 @@ impl Source {
         let mut hash = DefaultHasher::new();
         (&identity, modified, len).hash(&mut hash);
         let revision = format!("{:016x}", hash.finish());
+        let apply_options = restore_revision.is_none_or(|expected| expected == revision);
+        let selected_caption = selected_caption.filter(|_| apply_options);
+        let compatibility = compatibility && apply_options;
+        let audio_track = audio_track.filter(|_| apply_options);
         let mut captions = Vec::new();
         if let Some(path) = selected_caption {
             let path = visible_path(path)?;
@@ -250,10 +260,10 @@ impl Source {
         let audio_metadata = AudioMetadata::read(&vault, &relative, &mut file, mime);
         let now = tokio::time::Instant::now();
         Ok(Self {
-            vault,
+            root: root.into(),
             relative,
-            file: Mutex::new(file),
-            identity,
+            identity: Mutex::new(Some(identity)),
+            failure: Mutex::new(None),
             modified,
             len,
             mime,
@@ -267,22 +277,54 @@ impl Source {
             audio,
             audio_metadata,
             preview_budget: PreviewBudget::default(),
+            bodies: Arc::new(Semaphore::new(MAX_LOCAL_BODIES)),
         })
     }
 
-    fn current(&self) -> Result<(), String> {
+    fn revoke(&self) {
+        self.cancel.cancel();
+        self.bodies.close();
+        self.identity.lock().take();
+    }
+
+    fn invalidate(&self, message: String) -> String {
+        let mut failure = self.failure.lock();
+        let reason = failure.get_or_insert(message).clone();
+        self.revoke();
+        reason
+    }
+
+    fn current(&self) -> Result<File, String> {
         if self.cancel.is_cancelled() {
-            return Err("This playback session has ended.".into());
+            return Err(self
+                .failure
+                .lock()
+                .clone()
+                .unwrap_or_else(|| "This playback session has ended.".into()));
         }
-        let candidate = open_regular(&self.vault, &self.relative).map_err(file_error)?;
-        let meta = candidate.metadata().map_err(file_error)?;
-        if meta.len() != self.len
-            || meta.modified().map_err(file_error)? != self.modified
-            || Handle::from_file(candidate).map_err(file_error)? != self.identity
-        {
-            return Err("The media file changed. Reload it to continue.".into());
-        }
-        Ok(())
+        let current = (|| {
+            // Open from the named root on every read so a moved vault, a revoked
+            // directory permission, or an unlinked file cannot retain access
+            // through an already-open descriptor.
+            let vault =
+                Dir::open_ambient_dir(&self.root, ambient_authority()).map_err(file_error)?;
+            let candidate = open_regular(&vault, &self.relative).map_err(file_error)?;
+            let meta = candidate.metadata().map_err(file_error)?;
+            let candidate_identity = Handle::from_file(candidate.try_clone().map_err(file_error)?)
+                .map_err(file_error)?;
+            let identity = self.identity.lock();
+            if identity.is_none() {
+                return Err("This playback session has ended.".into());
+            }
+            if meta.len() != self.len
+                || meta.modified().map_err(file_error)? != self.modified
+                || identity.as_ref() != Some(&candidate_identity)
+            {
+                return Err("The media file changed. Reload it to continue.".into());
+            }
+            Ok(candidate)
+        })();
+        current.map_err(|message| self.invalidate(message))
     }
 
     async fn pace(&self) {
@@ -521,6 +563,7 @@ pub async fn open_local_playback(
     compatibility: Option<bool>,
     audio_track: Option<usize>,
     preview: Option<bool>,
+    restore_revision: Option<String>,
 ) -> Result<PlaybackSource, String> {
     if window.label() != "main" {
         return Err("Playback is available from the main window.".into());
@@ -538,6 +581,7 @@ pub async fn open_local_playback(
             compatibility.unwrap_or(false),
             audio_track,
             preview.unwrap_or(false),
+            restore_revision.as_deref(),
         )
     })
     .await
@@ -553,6 +597,7 @@ fn register(
     compatibility: bool,
     audio_track: Option<usize>,
     preview: bool,
+    restore_revision: Option<&str>,
 ) -> Result<PlaybackSource, String> {
     let _mutation = crate::local_mutation::lock_path(Path::new(vault_path))?;
     let active = state.active_vault.read();
@@ -563,6 +608,7 @@ fn register(
         caption_path,
         compatibility,
         audio_track,
+        restore_revision,
     )?;
     source.preview_budget = PreviewBudget::new(preview);
     let source = Arc::new(source);
@@ -610,7 +656,15 @@ fn register(
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::select! {
-                _ = source.cancel.cancelled() => break,
+                _ = source.cancel.cancelled() => {
+                    if source.failure.lock().is_some() {
+                        tokio::time::sleep(Duration::from_secs(8)).await;
+                        if let Some(playback) = playback.upgrade() {
+                            playback.remove(&id);
+                        }
+                    }
+                    break;
+                }
                 _ = tokio::time::sleep(Duration::from_secs(5)) => {
                     if source.touched.lock().elapsed() >= SOURCE_IDLE {
                         if let Some(playback) = playback.upgrade() {
@@ -635,10 +689,13 @@ pub async fn check_local_playback(state: State<'_, AppState>, id: String) -> Res
         .playback
         .get(&id)
         .ok_or("This playback session has ended.")?;
-    if let Err(error) = source.current() {
-        state.playback.remove(&id);
-        return Err(error);
-    }
+    let result = tokio::task::spawn_blocking({
+        let source = source.clone();
+        move || source.current().map(|_| ())
+    })
+    .await
+    .map_err(|_| "Could not verify the local media file.")?;
+    result?;
     *source.touched.lock() = tokio::time::Instant::now();
     Ok(())
 }
@@ -677,6 +734,7 @@ struct HttpServer {
     address: SocketAddr,
     playback: Arc<Playback>,
     slots: Arc<Semaphore>,
+    local_reads: Arc<Semaphore>,
 }
 
 type Reply = Response<Body>;
@@ -758,23 +816,23 @@ async fn serve(
     let Some(source) = server.playback.get(&id) else {
         return empty(StatusCode::NOT_FOUND);
     };
-    let Ok(Ok(slot)) =
-        tokio::time::timeout(Duration::from_secs(2), server.slots.acquire_owned()).await
+    let Ok(Ok(check_slot)) = tokio::time::timeout(
+        Duration::from_secs(2),
+        server.local_reads.clone().acquire_owned(),
+    )
+    .await
     else {
         return empty(StatusCode::SERVICE_UNAVAILABLE);
     };
     let check = source.clone();
-    let slot = Arc::new(slot);
-    let pending = slot.clone();
     if !matches!(
         tokio::task::spawn_blocking(move || {
-            let _slot = pending;
+            let _slot = check_slot;
             check.current()
         })
         .await,
-        Ok(Ok(()))
+        Ok(Ok(_))
     ) {
-        server.playback.remove(&id);
         return empty(StatusCode::GONE);
     }
     *source.touched.lock() = tokio::time::Instant::now();
@@ -783,16 +841,18 @@ async fn serve(
         .and_then(|name| name.strip_suffix(".vtt"))
         .and_then(|index| index.parse::<usize>().ok())
     {
+        let Ok(Ok(slot)) = tokio::time::timeout(
+            Duration::from_secs(2),
+            server.local_reads.clone().acquire_owned(),
+        )
+        .await
+        else {
+            return empty(StatusCode::SERVICE_UNAVAILABLE);
+        };
         let text = tokio::task::spawn_blocking(move || {
             let _slot = slot;
             let track = source.embedded.get(index)?;
-            let file = open_regular(&source.vault, &source.relative).ok()?;
-            if source.cancel.is_cancelled()
-                || Handle::from_file(file.try_clone().ok()?).ok()? != source.identity
-            {
-                return None;
-            }
-            let mut file = file;
+            let mut file = source.current().ok()?;
             let text = mp4::text_track(&mut file, track, source.len).ok()?;
             let metadata = file.metadata().ok()?;
             (!source.cancel.is_cancelled()
@@ -855,9 +915,17 @@ async fn serve(
     let body = if method == Method::HEAD {
         Body::empty()
     } else {
+        let Ok(Ok(body_slot)) = tokio::time::timeout(
+            Duration::from_secs(2),
+            source.bodies.clone().acquire_owned(),
+        )
+        .await
+        else {
+            return empty(StatusCode::SERVICE_UNAVAILABLE);
+        };
         Body::from_stream(stream::try_unfold(
-            (source, slot, start),
-            move |(source, slot, offset)| async move {
+            (source, body_slot, server.local_reads, start),
+            move |(source, body_slot, reads, offset)| async move {
                 if offset > end {
                     return Ok::<_, io::Error>(None);
                 }
@@ -869,29 +937,37 @@ async fn serve(
                     _ = source.pace() => {}
                 }
                 source.preview_budget.consume(count as u64)?;
+                let permit = tokio::select! {
+                    biased;
+                    _ = source.cancel.cancelled() => return Err(cancelled()),
+                    result = reads.clone().acquire_owned() => result.map_err(|_| cancelled())?,
+                };
                 let read_source = source.clone();
-                let pending = slot.clone();
                 let bytes = tokio::task::spawn_blocking(move || {
-                    let _slot = pending;
-                    let mut file = read_source.file.lock();
-                    if read_source.cancel.is_cancelled() {
-                        return Err(cancelled());
-                    }
-                    let meta = file.metadata()?;
-                    if meta.len() != read_source.len || meta.modified()? != read_source.modified {
-                        return Err(io::Error::other("Media changed"));
-                    }
+                    let _permit = permit;
+                    let mut file = read_source.current().map_err(io::Error::other)?;
                     file.seek(SeekFrom::Start(offset))?;
                     let mut bytes = vec![0; count];
-                    file.read_exact(&mut bytes)?;
+                    file.read_exact(&mut bytes).map_err(|error| {
+                        io::Error::other(read_source.invalidate(file_error(error)))
+                    })?;
+                    let meta = file.metadata()?;
+                    if meta.len() != read_source.len || meta.modified()? != read_source.modified {
+                        return Err(io::Error::other(read_source.invalidate(
+                            "The media file changed. Reload it to continue.".into(),
+                        )));
+                    }
                     mp4::apply_overlays(&mut bytes, offset, &read_source.track_overlays);
-                    Ok(Bytes::from(bytes))
+                    Ok::<_, io::Error>(Bytes::from(bytes))
                 })
                 .await??;
                 if source.cancel.is_cancelled() {
                     return Err(cancelled());
                 }
-                Ok(Some((bytes, (source, slot, offset + count as u64))))
+                Ok(Some((
+                    bytes,
+                    (source, body_slot, reads, offset + count as u64),
+                )))
             },
         ))
     };
@@ -961,10 +1037,132 @@ mod tests {
         std::fs::rename(&path, path.with_extension("old")).unwrap();
         assert!(original.current().unwrap_err().contains("missing"));
         std::fs::write(&path, b"RIFF test").unwrap();
-        assert!(original.current().unwrap_err().contains("changed"));
+        assert!(original.current().unwrap_err().contains("missing"));
         assert_ne!(
             original.revision,
             Source::open(root, "song.wav", None).unwrap().revision
+        );
+    }
+
+    #[test]
+    fn reopens_a_replaced_revision_without_its_old_track_options() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("clip.mp4");
+        std::fs::write(&path, b"original").unwrap();
+        let directory = root.path().to_str().unwrap();
+        let previous = Source::open(directory, "clip.mp4", None).unwrap();
+        std::fs::rename(&path, path.with_extension("old")).unwrap();
+        std::fs::write(&path, b"replaced").unwrap();
+
+        assert!(previous.current().unwrap_err().contains("changed"));
+        let replacement = Source::open_with_mode(
+            directory,
+            "clip.mp4",
+            Some("deleted.srt"),
+            true,
+            Some(2),
+            Some(&previous.revision),
+        )
+        .unwrap();
+        assert_ne!(previous.revision, replacement.revision);
+        assert!(replacement.captions.is_empty());
+        assert!(replacement.track_overlays.is_empty());
+    }
+
+    fn test_http(playback: Arc<Playback>) -> HttpServer {
+        HttpServer {
+            address: "127.0.0.1:54321".parse().unwrap(),
+            playback,
+            slots: Arc::new(Semaphore::new(MAX_STREAMS)),
+            local_reads: Arc::new(Semaphore::new(MAX_STREAMS)),
+        }
+    }
+
+    async fn test_range(server: &HttpServer, id: &str, range: &str) -> Reply {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, server.address.to_string().parse().unwrap());
+        headers.insert(header::RANGE, range.parse().unwrap());
+        serve(
+            HttpState(server.clone()),
+            RoutePath((id.into(), "media".into())),
+            Method::GET,
+            headers,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn outstanding_ranges_leave_capacity_for_a_seek_and_close_revokes_all_bodies() {
+        use futures_util::StreamExt;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("clip.mp4"), vec![7; 2 * CHUNK]).unwrap();
+        let playback = Arc::new(Playback::default());
+        let source =
+            Arc::new(Source::open(root.path().to_str().unwrap(), "clip.mp4", None).unwrap());
+        playback
+            .sessions
+            .lock()
+            .insert("test".into(), source.clone());
+        let server = test_http(playback.clone());
+        let mut bodies = Vec::new();
+        for _ in 0..MAX_STREAMS {
+            let response = test_range(&server, "test", "bytes=0-").await;
+            assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+            let mut body = response.into_body().into_data_stream();
+            assert_eq!(body.next().await.unwrap().unwrap().len(), CHUNK);
+            bodies.push(body);
+        }
+        let seek = test_range(&server, "test", "bytes=-4").await;
+        assert_eq!(seek.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            axum::body::to_bytes(seek.into_body(), 4).await.unwrap(),
+            &[7; 4][..]
+        );
+        playback.remove("test");
+        assert!(source.identity.lock().is_none());
+        for mut body in bodies {
+            assert!(body.next().await.unwrap().is_err());
+        }
+        assert_eq!(
+            test_range(&server, "test", "bytes=-4").await.status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn permission_loss_terminates_an_in_flight_range() {
+        use futures_util::StreamExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        // Root can read regardless of ordinary Unix mode bits.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("clip.mp4");
+        std::fs::write(&path, vec![7; 2 * CHUNK]).unwrap();
+        let playback = Arc::new(Playback::default());
+        let source =
+            Arc::new(Source::open(root.path().to_str().unwrap(), "clip.mp4", None).unwrap());
+        playback
+            .sessions
+            .lock()
+            .insert("test".into(), source.clone());
+        let server = test_http(playback);
+        let response = test_range(&server, "test", "bytes=0-").await;
+        let mut body = response.into_body().into_data_stream();
+        assert_eq!(body.next().await.unwrap().unwrap().len(), CHUNK);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0)).unwrap();
+        assert!(body.next().await.unwrap().is_err());
+        assert!(source
+            .current()
+            .unwrap_err()
+            .contains("no longer accessible"));
+        assert!(source.identity.lock().is_none());
+        assert_eq!(
+            test_range(&server, "test", "bytes=0-").await.status(),
+            StatusCode::GONE
         );
     }
 

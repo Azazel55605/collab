@@ -126,8 +126,12 @@ file starts from the beginning. Open `tracks.mp4` and exercise the sidecar,
 embedded caption and both tones wherever the runtime exposes the tracks.
 
 The Rust tests exercise a range near the end of a sparse 36.1 GB fixture on
-Unix, revoke an active stream, and cover replacement, missing files, path confinement,
-encrypted source rejection and SubRip conversion. The Chromium UI test with
+Unix. They also cover seeking while old ranges are still open, revoking every
+active body on close, stopping an in-flight read after Unix permissions are
+removed, and discarding the previous revision's track settings after replacement.
+Local reads verify the named file and its revision before using each chunk.
+The remaining coverage includes path confinement, encrypted source rejection,
+and SubRip conversion. The Chromium UI test with
 mocked IPC exercised Files routing, audio/video layouts, native source
 release calls, paused resume, caption selection and keyboard seeking.
 An Arch Linux debug build opened and played the 325 MiB MP4 through the native

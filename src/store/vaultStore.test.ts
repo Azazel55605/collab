@@ -333,6 +333,16 @@ describe('vaultStore Flatpak reopen fallback', () => {
     expect(tauriCommandsMock.unwatchVault).not.toHaveBeenCalled();
   });
 
+  it('clears the startup restore target when explicitly closing a local vault', () => {
+    useVaultStore.setState({
+      vault: { id: 'v', path: '/v', name: 'V', isEncrypted: false, lastOpened: 1 },
+      lastOpenedVaultPath: '/v',
+    });
+    useVaultStore.getState().closeVault();
+    expect(tauriCommandsMock.unwatchVault).toHaveBeenCalledOnce();
+    expect(useVaultStore.getState()).toMatchObject({ vault: null, lastOpenedVaultPath: null });
+  });
+
   it('opens hosted vault metadata through HostedVaultClient without local IPC', async () => {
     const hosted = {
       kind: 'hosted' as const,
