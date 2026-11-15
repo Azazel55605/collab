@@ -4,16 +4,11 @@ import { Paintbrush, PaintBucket, Trash2 } from 'lucide-react';
 
 import type { SheetConditionalFormatDraft } from '../../lib/sheet/conditionalFormatting';
 import type { SheetConditionalFormat, SheetConditionalFormatKind } from '../../types/sheet';
-import {
-  AppDialogBody,
-  AppDialogContent,
-  AppDialogFooter,
-  AppDialogHeader,
-} from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { ColorPicker } from '../ui/color-picker';
-import { Dialog } from '../ui/dialog';
+import { FormDialog, FormField, FormRow, FormSection } from '../ui/form-dialog';
 import { Input } from '../ui/input';
+import { ReviewList } from '../ui/review-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 const KIND_LABELS: Record<SheetConditionalFormatKind, string> = {
@@ -59,6 +54,10 @@ export default function SheetConditionalFormatDialog({
   const [scaleEnd, setScaleEnd] = useState<string>('#dcfce7');
   const [formula, setFormula] = useState('');
 
+  const incomplete =
+    (kind === 'comparison' && !firstValue.trim()) ||
+    (kind === 'formula' && !formula.trim().startsWith('='));
+
   const apply = () => {
     const draft: SheetConditionalFormatDraft = { kind };
     if (kind === 'comparison') {
@@ -83,138 +82,143 @@ export default function SheetConditionalFormatDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <AppDialogContent size="m">
-        <AppDialogHeader
-          icon={<Paintbrush />}
-          title="Conditional formatting"
-          description={<>Format {selectionLabel} when its values match a rule.</>}
-        />
-        <AppDialogBody>
-          <div className="grid gap-3">
-            <Select value={kind} onValueChange={(value) => setKind(value as typeof kind)}>
-              <SelectTrigger className="w-full" aria-label="Conditional format type">
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<Paintbrush />}
+      title="Conditional formatting"
+      description={<>Format {selectionLabel} when its values match a rule.</>}
+      submitLabel={
+        <>
+          <PaintBucket />
+          Add rule
+        </>
+      }
+      submitDisabled={readOnly || incomplete}
+      onSubmit={apply}
+    >
+      <FormField label="Format cells when">
+        <Select value={kind} onValueChange={(value) => setKind(value as typeof kind)}>
+          <SelectTrigger className="w-full" aria-label="Conditional format type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="comparison">Comparison</SelectItem>
+            <SelectItem value="formula">Formula</SelectItem>
+            <SelectItem value="colorScale">Color scale</SelectItem>
+            <SelectItem value="duplicateValues">Duplicate values</SelectItem>
+            <SelectItem value="uniqueValues">Unique values</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      {kind === 'comparison' && (
+        <FormField label="Value is">
+          <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-2">
+            <Select
+              value={operator}
+              onValueChange={(value) => setOperator(value as ComparisonOperator)}
+            >
+              <SelectTrigger className="w-full" aria-label="Comparison operator">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="comparison">Comparison</SelectItem>
-                <SelectItem value="formula">Formula</SelectItem>
-                <SelectItem value="colorScale">Color scale</SelectItem>
-                <SelectItem value="duplicateValues">Duplicate values</SelectItem>
-                <SelectItem value="uniqueValues">Unique values</SelectItem>
+                <SelectItem value="equal">Equal to</SelectItem>
+                <SelectItem value="notEqual">Not equal to</SelectItem>
+                <SelectItem value="greater">Greater than</SelectItem>
+                <SelectItem value="greaterOrEqual">At least</SelectItem>
+                <SelectItem value="less">Less than</SelectItem>
+                <SelectItem value="lessOrEqual">At most</SelectItem>
+                <SelectItem value="between">Between</SelectItem>
+                <SelectItem value="contains">Text contains</SelectItem>
               </SelectContent>
             </Select>
-
-            {kind === 'comparison' && (
-              <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-2">
-                <Select
-                  value={operator}
-                  onValueChange={(value) => setOperator(value as ComparisonOperator)}
-                >
-                  <SelectTrigger aria-label="Comparison operator">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="equal">Equal to</SelectItem>
-                    <SelectItem value="notEqual">Not equal to</SelectItem>
-                    <SelectItem value="greater">Greater than</SelectItem>
-                    <SelectItem value="greaterOrEqual">At least</SelectItem>
-                    <SelectItem value="less">Less than</SelectItem>
-                    <SelectItem value="lessOrEqual">At most</SelectItem>
-                    <SelectItem value="between">Between</SelectItem>
-                    <SelectItem value="contains">Text contains</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  aria-label="Comparison value"
-                  value={firstValue}
-                  onChange={(event) => setFirstValue(event.target.value)}
-                />
-                {operator === 'between' && (
-                  <Input
-                    aria-label="Second comparison value"
-                    value={secondValue}
-                    onChange={(event) => setSecondValue(event.target.value)}
-                  />
-                )}
-              </div>
-            )}
-            {kind === 'formula' && (
+            <Input
+              aria-label="Comparison value"
+              value={firstValue}
+              onChange={(event) => setFirstValue(event.target.value)}
+            />
+            {operator === 'between' && (
               <Input
-                aria-label="Conditional formula"
-                value={formula}
-                placeholder="=A1&gt;0"
-                onChange={(event) => setFormula(event.target.value)}
+                aria-label="Second comparison value"
+                value={secondValue}
+                onChange={(event) => setSecondValue(event.target.value)}
               />
-            )}
-
-            {kind === 'colorScale' ? (
-              <div className="grid grid-cols-2 gap-3">
-                <ColorPicker
-                  label="Low values"
-                  value={scaleStart}
-                  onValueChange={setScaleStart}
-                  className="w-full"
-                />
-                <ColorPicker
-                  label="High values"
-                  value={scaleEnd}
-                  onValueChange={setScaleEnd}
-                  className="w-full"
-                />
-              </div>
-            ) : (
-              <ColorPicker
-                label="Cell fill"
-                value={color}
-                onValueChange={setColor}
-                className="w-full"
-              />
-            )}
-
-            {rules.length > 0 && (
-              <div className="max-h-40 space-y-1 overflow-y-auto border-t border-border/60 pt-3">
-                <div className="mb-1 text-xs font-medium">Worksheet rules</div>
-                {rules.map((rule) => (
-                  <div
-                    key={rule.id}
-                    className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs"
-                  >
-                    <span className="flex-1">
-                      {KIND_LABELS[rule.kind]} · {rule.ranges.length} range
-                      {rule.ranges.length === 1 ? '' : 's'}
-                    </span>
-                    <Button
-                      type="button"
-                      size="icon-xs"
-                      variant="ghost"
-                      disabled={readOnly}
-                      aria-label={`Remove ${KIND_LABELS[rule.kind]} rule`}
-                      onClick={() => onRemove(rule.id)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                ))}
-              </div>
             )}
           </div>
-        </AppDialogBody>
-        <AppDialogFooter>
-          <Button
-            type="button"
-            disabled={
-              readOnly ||
-              (kind === 'comparison' && !firstValue.trim()) ||
-              (kind === 'formula' && !formula.trim().startsWith('='))
-            }
-            onClick={apply}
-          >
-            <PaintBucket />
-            Add rule
-          </Button>
-        </AppDialogFooter>
-      </AppDialogContent>
-    </Dialog>
+        </FormField>
+      )}
+      {kind === 'formula' && (
+        <FormField
+          label="Formula"
+          htmlFor="conditional-formula"
+          hint="True for the cells to format."
+        >
+          <Input
+            id="conditional-formula"
+            aria-label="Conditional formula"
+            value={formula}
+            placeholder="=A1&gt;0"
+            onChange={(event) => setFormula(event.target.value)}
+          />
+        </FormField>
+      )}
+
+      {kind === 'colorScale' ? (
+        <FormRow>
+          <FormField label="Low values">
+            <ColorPicker
+              label="Low values"
+              value={scaleStart}
+              onValueChange={setScaleStart}
+              className="w-full"
+            />
+          </FormField>
+          <FormField label="High values">
+            <ColorPicker
+              label="High values"
+              value={scaleEnd}
+              onValueChange={setScaleEnd}
+              className="w-full"
+            />
+          </FormField>
+        </FormRow>
+      ) : (
+        <FormField label="Cell fill">
+          <ColorPicker
+            label="Cell fill"
+            value={color}
+            onValueChange={setColor}
+            className="w-full"
+          />
+        </FormField>
+      )}
+
+      {rules.length > 0 && (
+        <FormSection title="Rules on this worksheet" className="border-t border-border/50 pt-4">
+          <ReviewList
+            label="Worksheet rules"
+            className="max-h-40"
+            items={rules.map((rule) => ({
+              key: rule.id,
+              title: KIND_LABELS[rule.kind],
+              detail: `${rule.ranges.length} range${rule.ranges.length === 1 ? '' : 's'}`,
+              action: (
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  disabled={readOnly}
+                  aria-label={`Remove ${KIND_LABELS[rule.kind]} rule`}
+                  onClick={() => onRemove(rule.id)}
+                >
+                  <Trash2 />
+                </Button>
+              ),
+            }))}
+          />
+        </FormSection>
+      )}
+    </FormDialog>
   );
 }

@@ -21,15 +21,10 @@ import {
   vaultCan,
   vaultKind,
 } from '../../types/vault';
-import {
-  AppDialogBody,
-  AppDialogContent,
-  AppDialogFooter,
-  AppDialogHeader,
-} from '../ui/app-dialog';
+import { ChoiceCard, ChoiceGroup } from '../ui/app-dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { Dialog } from '../ui/dialog';
+import { FormDialog } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -249,140 +244,108 @@ function PermissionEditorDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <AppDialogContent size="m">
-        <AppDialogHeader
-          icon={<ShieldCheck />}
-          title={<>Permissions — {member.displayName}</>}
-          description={
-            <>
-              Choose how this member&apos;s capabilities are granted. The server enforces the
-              effective capability tokens on every request.
-            </>
-          }
-        />
-        <AppDialogBody>
-          <div className="flex gap-1.5">
-            {(
-              [
-                ['role', 'Role default'],
-                ['template', 'Template'],
-                ['custom', 'Custom'],
-              ] as [EditorMode, string][]
-            ).map(([value, label]) => (
-              <Button
-                key={value}
-                type="button"
-                size="sm"
-                variant={mode === value ? 'default' : 'outline'}
-                className="h-8 flex-1 text-xs"
-                onClick={() => setMode(value)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+    <FormDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      icon={<ShieldCheck />}
+      title={`Permissions — ${member.displayName}`}
+      description="Choose how this member's capabilities are granted. The server checks them on every request."
+      submitLabel="Save permissions"
+      submitDisabled={selfLockoutBlocked || (mode === 'template' && !templateId)}
+      busy={saving}
+      onSubmit={handleSave}
+    >
+      <ChoiceGroup
+        value={mode}
+        onValueChange={(value) => setMode(value as EditorMode)}
+        aria-label="Grant permissions by"
+        className="grid grid-cols-3 gap-2"
+      >
+        <ChoiceCard value="role" title="Role default" />
+        <ChoiceCard value="template" title="Template" />
+        <ChoiceCard value="custom" title="Custom" />
+      </ChoiceGroup>
 
-          {mode === 'role' && (
-            <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
-              Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
-              custom override or template assignment is cleared.
+      {mode === 'role' && (
+        <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
+          Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
+          custom override or template assignment is cleared.
+        </p>
+      )}
+
+      {mode === 'template' && (
+        <div className="space-y-2">
+          {templates === null ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" /> Loading templates…
+            </div>
+          ) : templates.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No permission templates are available.</p>
+          ) : (
+            <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
+              <SelectTrigger className="w-full" aria-label="Template">
+                <SelectValue placeholder="Select a template…" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((template) => (
+                  <SelectItem key={template.id} value={template.id} className="text-sm">
+                    {template.name}
+                    {template.isBuiltin ? ' (built-in)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {selfLockoutBlocked && (
+            <p className="text-xs text-destructive">
+              This template would remove your own management permissions.
             </p>
           )}
+        </div>
+      )}
 
-          {mode === 'template' && (
-            <div className="space-y-2">
-              {templates === null ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 size={14} className="animate-spin" /> Loading templates…
+      {mode === 'custom' && (
+        <ScrollArea className="max-h-72 rounded-md border border-border/50 p-2">
+          <div className="space-y-3">
+            {CAPABILITY_GROUPS.map((group) => (
+              <div key={group.domain}>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {group.domain}
+                </p>
+                <div className="grid grid-cols-2 gap-1">
+                  {group.capabilities.map((capability) => {
+                    const locked =
+                      isSelf &&
+                      MANAGEMENT_CAPABILITIES.includes(
+                        capability.token as (typeof MANAGEMENT_CAPABILITIES)[number],
+                      );
+                    return (
+                      <label
+                        key={capability.token}
+                        className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
+                        title={
+                          locked ? 'You cannot remove your own management permissions.' : undefined
+                        }
+                      >
+                        <Checkbox
+                          checked={selected.has(capability.token)}
+                          disabled={locked}
+                          onCheckedChange={() => toggle(capability.token)}
+                          aria-label={capability.token}
+                        />
+                        <span className={locked ? 'text-muted-foreground' : ''}>
+                          {capability.label}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
-              ) : templates.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No permission templates are available.
-                </p>
-              ) : (
-                <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Select a template…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {templates.map((template) => (
-                      <SelectItem key={template.id} value={template.id} className="text-sm">
-                        {template.name}
-                        {template.isBuiltin ? ' (built-in)' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {selfLockoutBlocked && (
-                <p className="text-xs text-destructive">
-                  This template would remove your own management permissions.
-                </p>
-              )}
-            </div>
-          )}
-
-          {mode === 'custom' && (
-            <ScrollArea className="max-h-72 rounded-md border border-border/50 p-2">
-              <div className="space-y-3">
-                {CAPABILITY_GROUPS.map((group) => (
-                  <div key={group.domain}>
-                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      {group.domain}
-                    </p>
-                    <div className="grid grid-cols-2 gap-1">
-                      {group.capabilities.map((capability) => {
-                        const locked =
-                          isSelf &&
-                          MANAGEMENT_CAPABILITIES.includes(
-                            capability.token as (typeof MANAGEMENT_CAPABILITIES)[number],
-                          );
-                        return (
-                          <label
-                            key={capability.token}
-                            className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
-                            title={
-                              locked
-                                ? 'You cannot remove your own management permissions.'
-                                : undefined
-                            }
-                          >
-                            <Checkbox
-                              checked={selected.has(capability.token)}
-                              disabled={locked}
-                              onCheckedChange={() => toggle(capability.token)}
-                              aria-label={capability.token}
-                            />
-                            <span className={locked ? 'text-muted-foreground' : ''}>
-                              {capability.label}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
               </div>
-            </ScrollArea>
-          )}
-        </AppDialogBody>
-        <AppDialogFooter>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void handleSave()}
-            disabled={saving || selfLockoutBlocked || (mode === 'template' && !templateId)}
-          >
-            {saving && <Loader2 size={13} className="mr-1.5 animate-spin" />}
-            Save permissions
-          </Button>
-        </AppDialogFooter>
-      </AppDialogContent>
-    </Dialog>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+    </FormDialog>
   );
 }
 
