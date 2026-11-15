@@ -71,11 +71,11 @@ probe played with AMD VA-API when preferred via GStreamer's
 These checks cover decoder selection and playback startup. Sustained HDR
 playback and packaged runtime support remain part of native qualification.
 
-Leaving the tab pauses playback and releases the native source. Returning
-or reopening the same unchanged file restores position, speed, volume and
-track selections while the vault stays open. Playback resumes after you
-press Play. Resume data is held in memory for up to 64 recent files and
-cleared when the vault changes or locks.
+Switching away pauses playback. The two most recently viewed media tabs keep
+their player state while they remain open. Closing a tab, leaving the vault
+or evicting an older player releases its native source. Reopening the same
+revision restores position, speed, volume and track selections while the vault
+stays open.
 
 ## Hosted and offline playback
 

@@ -101,6 +101,24 @@ describe('MediaView', () => {
     });
   });
 
+  it('pauses a hidden tab and keeps the same playback session and position when shown again', async () => {
+    vi.mocked(tauriCommands.openLocalPlayback).mockResolvedValueOnce(source());
+    const { rerender } = render(<MediaView relativePath="clip.webm" />);
+    const media = await loadMetadata('video');
+    Object.defineProperty(media, 'paused', { get: () => false });
+    media.currentTime = 42;
+    fireEvent.timeUpdate(media);
+    rerender(<MediaView relativePath="clip.webm" visible={false} />);
+    expect(prototype.pause).toHaveBeenCalledOnce();
+    expect(tauriCommands.closeLocalPlayback).not.toHaveBeenCalled();
+
+    rerender(<MediaView relativePath="clip.webm" />);
+    expect(document.querySelector('video')).toBe(media);
+    expect(media.currentTime).toBe(42);
+    expect(tauriCommands.openLocalPlayback).toHaveBeenCalledOnce();
+    expect(prototype.play).not.toHaveBeenCalled();
+  });
+
   it('keeps a keyboard seek synchronized with playback and resumes on tab reopen', async () => {
     vi.mocked(tauriCommands.openLocalPlayback)
       .mockResolvedValueOnce(source())

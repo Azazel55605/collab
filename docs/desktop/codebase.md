@@ -441,9 +441,11 @@ listener on demand and serves only opaque playback handles. A directory
 capability confines file opens to the active plaintext vault. Range bodies
 read up to 256 KiB at a time, with four concurrent reads globally. An 8 ms
 per-source interval bounds read-ahead throughput while leaving headroom for
-high-bitrate files and seeks. The renderer unloads the decoder when the
-view leaves the tab, keeps bounded revision-scoped resume state, and checks
-the native handle for deletion, replacement or access loss. Native vault
+high-bitrate files and seeks. The AppShell keeps the two most recently viewed
+media tabs mounted independently of the active document subtree. A hidden tab
+pauses its decoder. Closing or evicting the player unloads it, with bounded
+revision-scoped resume state. The renderer checks the native handle for
+deletion, replacement or access loss. Native vault
 close/switch and encryption transitions revoke active streams.
 For an MP4 startup failure, a single retry can overlay embedded subtitle
 track headers in the response. `commands/playback/mp4.rs` exposes supported

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import {
   Download,
@@ -82,7 +82,13 @@ function audioTracks(media: HTMLMediaElement) {
   return (media as HTMLMediaElement & { audioTracks?: AudioTrackList }).audioTracks;
 }
 
-export default function MediaView({ relativePath }: { relativePath: string }) {
+export default function MediaView({
+  relativePath,
+  visible = true,
+}: {
+  relativePath: string;
+  visible?: boolean;
+}) {
   const vault = useVaultStore((state) => state.vault);
   const locked = useVaultStore((state) => state.isVaultLocked);
   const kind = mediaKindForPath(relativePath);
@@ -120,6 +126,7 @@ export default function MediaView({ relativePath }: { relativePath: string }) {
           vault={vault}
           relativePath={relativePath}
           kind={kind}
+          visible={visible}
         />
       ) : (
         <div role="status" className="m-auto px-6 text-center text-sm text-muted-foreground">
@@ -136,10 +143,12 @@ function Player({
   vault,
   relativePath,
   kind,
+  visible,
 }: {
   vault: VaultMeta;
   relativePath: string;
   kind: 'audio' | 'video';
+  visible: boolean;
 }) {
   const vaultPath = vault.path;
   const hosted = vault.kind === 'hosted';
@@ -192,6 +201,20 @@ function Player({
   const restoreWindow = useRef<(() => Promise<void>) | null>(null);
   const fullscreenPending = useRef(false);
   const mounted = useRef(false);
+  const isVisible = useRef(visible);
+
+  useLayoutEffect(() => {
+    isVisible.current = visible;
+    if (visible) return;
+    resumePlaying.current = false;
+    const media = element.current;
+    if (media && !media.paused) media.pause();
+    const restore = restoreWindow.current;
+    if (!restore) return;
+    restoreWindow.current = null;
+    setFullscreen(false);
+    void restore().catch(() => {});
+  }, [visible]);
 
   useEffect(() => {
     mounted.current = true;
@@ -209,7 +232,7 @@ function Player({
   }, [fullscreen]);
 
   async function toggleFullscreen() {
-    if (fullscreenPending.current) return;
+    if (!isVisible.current || fullscreenPending.current) return;
     fullscreenPending.current = true;
     try {
       if (restoreWindow.current) {
@@ -218,7 +241,7 @@ function Player({
         if (mounted.current) setFullscreen(false);
       } else {
         const restore = await tauriCommands.enterMediaFullscreen();
-        if (!mounted.current) {
+        if (!mounted.current || !isVisible.current) {
           await restore();
           return;
         }
@@ -502,7 +525,7 @@ function Player({
     refreshTracks(media);
     if (resumePlaying.current) {
       resumePlaying.current = false;
-      void media.play().catch(() => setActionError('Press Play to resume.'));
+      if (isVisible.current) void media.play().catch(() => setActionError('Press Play to resume.'));
     }
   }
 
@@ -575,7 +598,7 @@ function Player({
 
   function toggle() {
     const media = element.current;
-    if (!media) return;
+    if (!media || !isVisible.current) return;
     if (media.paused) void media.play().catch(() => setActionError('Could not start playback.'));
     else media.pause();
   }
@@ -599,7 +622,11 @@ function Player({
     },
     onProgress: (event: React.SyntheticEvent<HTMLMediaElement>) =>
       updateBuffered(event.currentTarget),
-    onPlay: () => {
+    onPlay: (event: React.SyntheticEvent<HTMLMediaElement>) => {
+      if (!isVisible.current) {
+        event.currentTarget.pause();
+        return;
+      }
       setPlaying(true);
       setActionError('');
     },
@@ -952,7 +979,9 @@ function Player({
               !ambiance && 'bg-black',
             )}
           >
-            {ambiance && source ? <MediaAmbiance media={element} key={source.id} /> : null}
+            {visible && ambiance && source ? (
+              <MediaAmbiance media={element} key={source.id} />
+            ) : null}
             {source ? (
               <video
                 key={source.id}

@@ -24,13 +24,15 @@ import {
 } from 'lucide-react';
 
 import { DragProvider } from '../../contexts/DragContext';
-import { DocumentPane } from '../../lib/documentPaneContext';
+import { DocumentPane, documentVaultIdentity } from '../../lib/documentPaneContext';
 import { mediaKindForPath } from '../../lib/mediaFiles';
 import { useSidebarResize } from '../../lib/useSidebarResize';
 import { useVaultNoteIndex } from '../../lib/useVaultNoteIndex';
 import { cn } from '../../lib/utils';
 import { useEditorStore, useUiStore, useVaultStore } from '../../store';
+import type { OpenTab } from '../../store/editorStore';
 import { hasWorkspaceSidebar } from '../../store/uiStore';
+import type { VaultMeta } from '../../types/vault';
 import {
   CalendarPage,
   CanvasPage,
@@ -97,6 +99,55 @@ class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Er
     }
     return this.props.children;
   }
+}
+
+// Keep the foreground player and one recent paused player. Native playback
+// slots remain available for a library preview or another player surface.
+const RETAINED_MEDIA_TABS = 2;
+
+function MediaTabPanes({
+  vault,
+  openTabs,
+  visiblePath,
+  direction,
+}: {
+  vault: VaultMeta;
+  openTabs: OpenTab[];
+  visiblePath: string | null;
+  direction: 'up' | 'down' | null;
+}) {
+  const [previousPaths, setPreviousPaths] = useState<string[]>([]);
+  const paths = previousPaths.filter(
+    (path) =>
+      path !== visiblePath &&
+      openTabs.some((tab) => tab.type === 'media' && tab.relativePath === path),
+  );
+  if (visiblePath) paths.unshift(visiblePath);
+  paths.length = Math.min(paths.length, RETAINED_MEDIA_TABS);
+  if (
+    paths.length !== previousPaths.length ||
+    paths.some((path, index) => path !== previousPaths[index])
+  ) {
+    setPreviousPaths(paths);
+  }
+  return paths.map((path) => {
+    const visible = path === visiblePath;
+    return (
+      <div
+        key={path}
+        hidden={!visible}
+        inert={!visible}
+        data-workspace-entry={visible ? (direction ?? undefined) : undefined}
+        className="absolute inset-0 min-h-0"
+      >
+        <EditorErrorBoundary>
+          <DocumentPane vault={vault} relativePath={path} type="media">
+            <MediaView relativePath={path} visible={visible} />
+          </DocumentPane>
+        </EditorErrorBoundary>
+      </div>
+    );
+  });
 }
 
 export default function AppShell() {
@@ -318,8 +369,7 @@ export default function AppShell() {
         ) : (
           <ImageView key={activeDocumentKey} relativePath={activeTab.relativePath} />
         );
-      if (activeTab.type === 'media')
-        return <MediaView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
+      if (activeTab.type === 'media') return null;
       if (activeTab.type === 'pdf')
         return <PdfView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'logic')
@@ -433,6 +483,17 @@ export default function AppShell() {
                   </div>
                 </EditorErrorBoundary>
               </div>
+              {vault && !isVaultLocked ? (
+                <MediaTabPanes
+                  key={documentVaultIdentity(vault)}
+                  vault={vault}
+                  openTabs={openTabs}
+                  visiblePath={
+                    showDocumentTabs && activeTab?.type === 'media' ? activeTab.relativePath : null
+                  }
+                  direction={entry.direction}
+                />
+              ) : null}
               {/* Edge drop zones — only visible when a tab is being dragged */}
               {showDocumentTabs && <SplitDropZones />}
             </div>
