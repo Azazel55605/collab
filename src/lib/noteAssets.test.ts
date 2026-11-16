@@ -53,6 +53,20 @@ describe('resolveNoteAssetTarget', () => {
     });
   });
 
+  it('resolves URL-encoded Markdown paths and omits URL suffixes from vault reads', () => {
+    expect(
+      resolveNoteAssetTarget(
+        'Pictures/Transformierte%20Struktur.png?v=1#page',
+        'Notes/demo.md',
+        FILES,
+      ),
+    ).toEqual({ kind: 'vault', value: 'Pictures/Transformierte Struktur.png' });
+    expect(resolveNoteAssetTarget('Pictures/Section%20%231.svg', 'Note.md')).toEqual({
+      kind: 'vault',
+      value: 'Pictures/Section #1.svg',
+    });
+  });
+
   it('treats local image paths as vault-root-relative by default', () => {
     expect(resolveNoteAssetTarget('Folder/example.png', 'Notes/Sub/demo.md')).toEqual({
       kind: 'vault',

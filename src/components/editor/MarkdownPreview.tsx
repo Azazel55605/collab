@@ -35,7 +35,7 @@ import '../../generated/katex.css';
 import { extractInkExportSource } from '../../lib/ink/export';
 import { extractLogicDiagramExportSource } from '../../lib/logicDiagramExport';
 import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
-import { resolveNoteAssetTarget } from '../../lib/noteAssets';
+import { isLikelyImagePath, resolveNoteAssetTarget, waitForNoteImage } from '../../lib/noteAssets';
 import { reconcilePreviewBlocks } from '../../lib/previewBlocks';
 import {
   highlightCommonCode,
@@ -87,6 +87,8 @@ class PreviewErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
 // ─── markdown-it instance ─────────────────────────────────────────────────────
 
+const BARE_NOTE_IMAGE = /!\[([^\]\n]*)\]\\?\(([^()<>\n]+)\)/y;
+
 function buildMd(): MarkdownItInstance {
   const instance: MarkdownItInstance = new MarkdownIt({
     html: true,
@@ -130,6 +132,88 @@ function buildMd(): MarkdownItInstance {
       },
     },
   });
+
+  instance.inline.ruler.before('link', 'collab_wikilink', (state, silent) => {
+    const start = state.pos;
+    if (!state.src.startsWith('[[', start) && !state.src.startsWith('![[', start)) return false;
+    const match = /^(!?)\[\[([^\]|\r\n]+)(?:\|([^\]\r\n]+))?\]\]/.exec(
+      state.src.slice(start, state.posMax),
+    );
+    if (!match) return false;
+    const [, embed, rawPath, alias] = match;
+    const path = rawPath.trim();
+    if (!path || (embed && (!isLikelyImagePath(path) || !instance.validateLink(path))))
+      return false;
+    if (!silent) {
+      if (embed) {
+        const image = state.push('wiki_image', 'img', 0);
+        image.attrSet('src', path);
+        image.attrSet('alt', alias ?? path.split('/').pop() ?? path);
+      } else {
+        const span = state.push('wikilink_open', 'span', 1);
+        span.attrSet('class', 'wikilink');
+        span.attrSet('data-path', path);
+        state.push('text', '', 0).content = alias ?? path;
+        state.push('wikilink_close', 'span', -1);
+      }
+    }
+    state.pos += match[0].length;
+    return true;
+  });
+
+  // The editor also accepts bare vault image paths containing spaces. Recover
+  // those in rendered notes, including when the opening parenthesis was escaped.
+  instance.inline.ruler.after('image', 'collab_bare_note_image', (state, silent) => {
+    if (!state.src.startsWith('![', state.pos)) return false;
+    BARE_NOTE_IMAGE.lastIndex = state.pos;
+    const match = BARE_NOTE_IMAGE.exec(state.src);
+    const end = match ? state.pos + match[0].length : state.pos;
+    if (!match || end > state.posMax) return false;
+    const [, alt, destination] = match;
+    const path = destination.trim();
+    if (
+      !/\s/.test(path) ||
+      !isLikelyImagePath(path) ||
+      resolveNoteAssetTarget(path, '')?.kind !== 'vault'
+    ) {
+      return false;
+    }
+    const href = instance.normalizeLink(path);
+    if (!instance.validateLink(href)) return false;
+    if (!silent) {
+      const image = state.push('note_image', 'img', 0);
+      image.attrSet('src', href);
+      image.attrSet('alt', instance.utils.unescapeAll(alt));
+    }
+    state.pos = end;
+    return true;
+  });
+
+  instance.core.ruler.after('block', 'collab_print_spacing', (state) => {
+    if (!state.env.preserveBlankLines) return;
+    const lines = state.src.split('\n');
+    const tokens: typeof state.tokens = [];
+    let seenBlock = false;
+    for (const token of state.tokens) {
+      if (token.level === 0 && token.map) {
+        // Lists and raw HTML can absorb trailing blank lines in their source
+        // ranges. Count backwards from the next block's first line.
+        const start = token.map[0];
+        if (seenBlock && start > 0 && /^[ \t]*$/.test(lines[start - 1])) {
+          for (let line = start - 2; line >= 0 && /^[ \t]*$/.test(lines[line]); line--) {
+            const spacer = new state.Token('note_print_blank_line', 'div', 0);
+            spacer.block = true;
+            tokens.push(spacer);
+          }
+        }
+        seenBlock = true;
+      }
+      tokens.push(token);
+    }
+    state.tokens = tokens;
+  });
+  instance.renderer.rules.note_print_blank_line = () =>
+    '<div class="note-print-blank-line" aria-hidden="true"><br></div>\n';
 
   instance.use(footnote);
   instance.use(anchor, { permalink: anchor.permalink.headerLink({ safariReaderFix: true }) });
@@ -194,25 +278,18 @@ function preprocessDisplayMathPlots(src: string): {
   plotBlocks: ParsedMathPlots[];
 } {
   const plotBlocks: ParsedMathPlots[] = [];
-  const source = src.replace(/\$\$([\s\S]+?)\$\$/g, (_match: string, mathSource: string) => {
-    if (!/%plot[23]d\b/.test(mathSource)) return `$$${mathSource}$$`;
-    const parsed = parseMathPlots(mathSource);
-    plotBlocks.push(parsed);
-    return `$$${parsed.mathSource || mathSource}$$\n`;
-  });
-  return { source, plotBlocks };
-}
-
-/** Convert [[Path|Label]] → clickable wikilink spans. */
-function preprocessWikilinks(src: string): string {
-  return src.replace(
-    /\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]/g,
-    (_: string, path: string, label: string | undefined) => {
-      const display = label ?? path;
-      const safePath = path.replace(/"/g, '&quot;');
-      return `<span class="wikilink" data-path="${safePath}">${md.utils.escapeHtml(display)}</span>`;
+  const source = src.replace(
+    /\$\$([\s\S]+?)\$\$/g,
+    (match: string, mathSource: string, offset: number) => {
+      if (!/%plot[23]d\b/.test(mathSource)) return match;
+      const parsed = parseMathPlots(mathSource);
+      plotBlocks.push(parsed);
+      const following = src.slice(offset + match.length);
+      const lineBreak = /^[ \t]*(?:\r?\n|$)/.test(following) ? '' : '\n';
+      return `$$${parsed.mathSource || mathSource}$$${lineBreak}`;
     },
   );
+  return { source, plotBlocks };
 }
 
 // ─── DOMPurify config ─────────────────────────────────────────────────────────
@@ -283,21 +360,11 @@ const PURIFY_CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
 
 interface MarkdownPreviewProps {
   content: string;
+  preserveBlankLines?: boolean;
   className?: string;
   onWikilinkClick?: (relativePath: string) => void;
   currentDocumentRelativePath?: string;
   onReady?: () => void;
-}
-
-function waitForImageLoad(image: HTMLImageElement): Promise<void> {
-  if (image.complete && image.naturalWidth > 0) return Promise.resolve();
-  if (typeof image.decode === 'function') {
-    return image.decode().catch(() => undefined);
-  }
-  return new Promise((resolve) => {
-    image.addEventListener('load', () => resolve(), { once: true });
-    image.addEventListener('error', () => resolve(), { once: true });
-  });
 }
 
 function waitForPlotCanvases(root: HTMLElement, expectedCanvases: number): Promise<void> {
@@ -357,6 +424,7 @@ function MathPlotPreviewStack({ parsed }: { parsed: ParsedMathPlots }) {
 
 function PreviewInner({
   content,
+  preserveBlankLines = false,
   className = '',
   onWikilinkClick,
   currentDocumentRelativePath,
@@ -388,8 +456,7 @@ function PreviewInner({
       const body = stripFrontmatter(deferredContent);
       const withMath = preprocessMath(body);
       const withPlots = preprocessDisplayMathPlots(withMath);
-      const withLinks = preprocessWikilinks(withPlots.source);
-      const rendered = md.render(withLinks);
+      const rendered = md.render(withPlots.source, { preserveBlankLines });
       return {
         html: DOMPurify.sanitize(rendered, PURIFY_CONFIG) as unknown as string,
         plotBlocks: withPlots.plotBlocks,
@@ -401,7 +468,7 @@ function PreviewInner({
         plotBlocks: [],
       };
     }
-  }, [deferredContent]);
+  }, [deferredContent, preserveBlankLines]);
 
   const html = renderedPreview.html;
   const plotBlocks = renderedPreview.plotBlocks;
@@ -435,16 +502,17 @@ function PreviewInner({
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'));
 
     for (const image of images) {
+      if (onReady) image.loading = 'eager';
       const rawSrc = imageSources.current.get(image) ?? image.getAttribute('src');
       if (rawSrc) imageSources.current.set(image, rawSrc);
       if (!rawSrc) continue;
       if (!client || !currentDocumentRelativePath) {
-        imagePromises.push(waitForImageLoad(image));
+        imagePromises.push(waitForNoteImage(image));
         continue;
       }
       const target = resolveNoteAssetTarget(rawSrc, currentDocumentRelativePath, fileTree);
       if (!target || target.kind !== 'vault') {
-        imagePromises.push(waitForImageLoad(image));
+        imagePromises.push(waitForNoteImage(image));
         continue;
       }
 
@@ -472,7 +540,7 @@ function PreviewInner({
           if (logicSource) image.dataset.logicSourcePath = logicSource;
           const inkSource = extractInkExportSource(dataUrl);
           if (inkSource) image.dataset.inkSource = JSON.stringify(inkSource);
-          return waitForImageLoad(image);
+          return waitForNoteImage(image);
         })
         .catch(() => {
           if (!image.isConnected || imageJobs.current.get(image)?.promise !== imagePromise) return;

@@ -242,9 +242,11 @@ persists page layout preferences. These do not change Markdown, save handling or
 collaboration ownership.
 
 `NotePrintView` takes an optional current-editor snapshot via `lib/notePdfExport.ts`.
-`components/editor/PaginatedNotePreview.tsx` waits for rendered assets/fonts, then
-`lib/paginateNote.ts` fragments the snapshot into numbered physical sheets. Printing
-uses those prepared sheets and requires an explicit action. Editable live-preview
+`components/editor/PaginatedNotePreview.tsx` uses the shared Markdown renderer
+to resolve vault images after parsing, waits for rendered assets and fonts,
+then uses `lib/paginateNote.ts` to fragment the snapshot into numbered physical
+sheets. Printing uses the prepared sheets after their image copies are ready
+and requires an explicit action. Editable live-preview
 and print typography can produce different page counts. See
 [Markdown pagination](../plans/markdown-pagination.md) for implementation and
 remaining native acceptance.

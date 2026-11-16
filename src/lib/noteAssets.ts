@@ -58,8 +58,13 @@ export function getMarkdownImageTarget(
   currentDocumentRelativePath: string,
   targetRelativePath: string,
 ) {
-  const relativeTarget = getRelativeMarkdownPath(currentDocumentRelativePath, targetRelativePath);
-  return /\s/.test(relativeTarget) ? `<${relativeTarget}>` : relativeTarget;
+  return formatMarkdownImageDestination(
+    getRelativeMarkdownPath(currentDocumentRelativePath, targetRelativePath),
+  );
+}
+
+export function formatMarkdownImageDestination(path: string): string {
+  return /\s/.test(path) && !(path.startsWith('<') && path.endsWith('>')) ? `<${path}>` : path;
 }
 
 export function isLikelyImagePath(path: string): boolean {
@@ -86,29 +91,43 @@ export function resolveNoteAssetTarget(
     return { kind: 'direct', value: unwrapped };
   }
 
-  const [rawPath, suffix = ''] = unwrapped.match(/^([^?#]*)(.*)$/)?.slice(1) ?? [unwrapped, ''];
-  const vaultRelativePath = normalizeRelativePath(rawPath);
+  const rawPath = unwrapped.split(/[?#]/, 1)[0];
+  let decodedPath = rawPath;
+  try {
+    decodedPath = decodeURIComponent(rawPath);
+  } catch {
+    // A literal percent sign can be part of a vault filename.
+  }
   if (fileTree?.length) {
     const noteDir = parentPath(_noteRelativePath);
-    const noteRelativePath = normalizeRelativePath(noteDir ? `${noteDir}/${rawPath}` : rawPath);
-    const candidates = Array.from(new Set([vaultRelativePath, noteRelativePath]));
     const index = vaultTreeIndex(fileTree);
-    const exactVaultMatch = candidates
-      .map((candidate) => index.foldedFiles.get(candidate.toLowerCase()))
-      .filter((file): file is NoteFile => !!file)
-      .sort((a, b) => index.order.get(a)! - index.order.get(b)!)[0];
-    if (exactVaultMatch) {
-      return {
-        kind: 'vault',
-        value: `${exactVaultMatch.relativePath}${suffix}`,
-      };
+    // Preserve existing literal matches and accept percent-encoded Markdown URLs.
+    for (const path of new Set([rawPath, decodedPath])) {
+      const candidates = new Set([
+        normalizeRelativePath(path),
+        normalizeRelativePath(noteDir ? `${noteDir}/${path}` : path),
+      ]);
+      const exactVaultMatch = Array.from(candidates)
+        .map((candidate) => index.foldedFiles.get(candidate.toLowerCase()))
+        .filter((file): file is NoteFile => !!file)
+        .sort((a, b) => index.order.get(a)! - index.order.get(b)!)[0];
+      if (exactVaultMatch) return { kind: 'vault', value: exactVaultMatch.relativePath };
     }
   }
 
-  const relativeToVault = normalizeRelativePath(rawPath);
+  return { kind: 'vault', value: normalizeRelativePath(decodedPath) };
+}
 
-  return {
-    kind: 'vault',
-    value: `${relativeToVault}${suffix}`,
-  };
+export function waitForNoteImage(image: HTMLImageElement): Promise<void> {
+  if (image.complete) return Promise.resolve();
+  if (typeof image.decode === 'function') return image.decode().catch(() => undefined);
+  return new Promise((resolve) => {
+    const done = () => {
+      image.removeEventListener('load', done);
+      image.removeEventListener('error', done);
+      resolve();
+    };
+    image.addEventListener('load', done);
+    image.addEventListener('error', done);
+  });
 }

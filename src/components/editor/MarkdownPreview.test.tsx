@@ -49,6 +49,65 @@ describe('MarkdownPreview', () => {
     expect(container.querySelector('img, script, [onerror]')).toBeNull();
   });
 
+  it('resolves wiki embeds and Markdown and HTML images after parsing, while leaving code and links intact', async () => {
+    useVaultStore.setState({
+      vault: {
+        id: 'image-vault',
+        name: 'Vault',
+        path: '/vault',
+        isEncrypted: false,
+        lastOpened: 0,
+      },
+      fileTree: [],
+    });
+    const svg = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg"/>');
+    vaultClientMocks.readAssetDataUrl.mockResolvedValue(svg);
+    const { container } = render(
+      <MarkdownPreview
+        currentDocumentRelativePath="Note.md"
+        content={[
+          '![[Pictures/Diagram.svg|Wiki diagram]]',
+          '![Markdown diagram](<Pictures/Diagram with spaces.svg>)',
+          '[Reference image]: Pictures/Diagram.svg',
+          '![Reference diagram][Reference image]',
+          '<img src="Pictures/Diagram.svg" alt="HTML diagram" />',
+          String.raw`![Image]\(Semester 2/Digitaltechnik/clock.png) ![diagramm]\(Semester 2/Digitaltechnik/diagramm.png)`,
+          '![Bare vault path](Pictures/Another diagram.svg)',
+          '`![Example]\\(Pictures/Example image.png)`',
+          '[[Pictures/Diagram.svg|Plain link]]',
+          '`![[Pictures/Ignored.svg]]`',
+        ].join('\n\n')}
+      />,
+    );
+    for (const name of [
+      'Wiki diagram',
+      'Markdown diagram',
+      'Reference diagram',
+      'HTML diagram',
+      'Image',
+      'diagramm',
+      'Bare vault path',
+    ]) {
+      const image = await screen.findByRole('img', { name });
+      await waitFor(() => expect(image.getAttribute('src')).toBe(svg));
+    }
+    expect(vaultClientMocks.readAssetDataUrl).toHaveBeenCalledWith(
+      'Pictures/Diagram with spaces.svg',
+    );
+    expect(vaultClientMocks.readAssetDataUrl).toHaveBeenCalledWith(
+      'Semester 2/Digitaltechnik/clock.png',
+    );
+    expect(vaultClientMocks.readAssetDataUrl).toHaveBeenCalledWith(
+      'Semester 2/Digitaltechnik/diagramm.png',
+    );
+    expect(vaultClientMocks.readAssetDataUrl).not.toHaveBeenCalledWith(
+      'Pictures/Example image.png',
+    );
+    expect(vaultClientMocks.readAssetDataUrl).not.toHaveBeenCalledWith('Pictures/Ignored.svg');
+    expect(screen.getByText('![[Pictures/Ignored.svg]]').tagName).toBe('CODE');
+    expect(container.querySelector('.wikilink')?.textContent).toBe('Plain link');
+  });
+
   it('renders display math plot directives as preview widgets', async () => {
     useUiStore.setState({
       webPreviewsEnabled: false,
@@ -56,10 +115,59 @@ describe('MarkdownPreview', () => {
       backgroundWebPreviewPrefetchEnabled: false,
     });
 
-    render(<MarkdownPreview content={'$$\n%plot2d x=-10..10, samples=60\ny=\\sin(x)\n$$'} />);
+    const { container } = render(
+      <MarkdownPreview
+        content={'$$\n%plot2d x=-10..10, samples=60\ny=\\sin(x)\n$$\n\nAfter the plot'}
+        preserveBlankLines
+      />,
+    );
 
     expect(await screen.findByText('2D plot')).toBeTruthy();
     expect(screen.getByText('y = \\sin(x)')).toBeTruthy();
+    expect(screen.getByText('After the plot')).toBeTruthy();
+    expect(container.querySelector('.note-print-blank-line')).toBeNull();
+  });
+
+  it('preserves extra blank lines between print blocks without changing Markdown structure', () => {
+    const content = [
+      'First paragraph',
+      '',
+      'Second paragraph',
+      '',
+      '  ',
+      '# Heading',
+      '',
+      '',
+      '',
+      '- List item',
+      '',
+      '',
+      '```',
+      'code before',
+      '',
+      '',
+      'code after',
+      '```',
+    ].join('\n');
+    const { container, rerender } = render(<MarkdownPreview content={content} />);
+    expect(container.querySelector('.note-print-blank-line')).toBeNull();
+
+    rerender(<MarkdownPreview content={content} preserveBlankLines />);
+    const blocks = Array.from(container.querySelectorAll('.markdown-preview > div > *'));
+    expect(blocks.map((block) => block.localName)).toEqual([
+      'p',
+      'p',
+      'div',
+      'h1',
+      'div',
+      'div',
+      'ul',
+      'div',
+      'pre',
+    ]);
+    expect(container.querySelectorAll('.note-print-blank-line')).toHaveLength(4);
+    expect(container.querySelector('ul')?.children).toHaveLength(1);
+    expect(container.querySelector('pre')?.textContent).toBe('code before\n\n\ncode after\n');
   });
 
   it('renders Mermaid code fences and waits for the diagram', async () => {

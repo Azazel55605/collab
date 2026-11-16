@@ -35,6 +35,7 @@ import {
   EDITOR_TOOLBAR_ACTION_EVENT,
   type EditorToolbarAction,
 } from '../../lib/editorToolbarActions';
+import { formatMarkdownImageDestination } from '../../lib/noteAssets';
 import type { NotePageSettings } from '../../lib/notePageLayout';
 import { requestNotePdfExport } from '../../lib/notePdfExport';
 import { useNotePageStore } from '../../store/notePageStore';
@@ -504,7 +505,8 @@ export function EditorToolbar({
   };
 
   const applyImageDialog = () => {
-    ed()?.insertSnippet(`![${imageAltText.trim()}](${imagePath.trim()})`);
+    const destination = formatMarkdownImageDestination(imagePath.trim());
+    ed()?.insertSnippet(`![${imageAltText.trim()}](${destination})`);
     setImageDialogOpen(false);
     restoreEditorFocus();
   };

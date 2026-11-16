@@ -31,8 +31,18 @@ Oversized wrapped source lines break at word boundaries.
 `PaginatedNotePreview` waits for Markdown assets and fonts, then `paginateNote.ts`
 fragments a rendered snapshot into physical sheets. Paragraphs, code, lists and
 nested blocks can continue across pages. Table headers repeat; oversized atomic
-assets fit a sheet. The print stylesheet prints these same prepared sheets,
-using the selected paper size with zero additional CSS page margins.
+assets fit a sheet. Markdown images, wiki image embeds and HTML images use the
+same vault asset loading path as the Markdown preview. Print becomes available
+after the page copies have loaded their images. The print stylesheet prints these
+same prepared sheets using the selected paper size with zero additional CSS page
+margins.
+
+Consecutive blank lines between top-level Markdown blocks add vertical spacing
+in print preview and PDF. A single blank line uses the usual Markdown spacing.
+
+Rendered notes accept bare vault image paths containing spaces, including paths
+whose opening parenthesis was escaped. The Insert Image dialog wraps new paths
+containing spaces in angle brackets.
 
 Editable page boundaries reflect the current live Markdown styling, including
 syntax exposed at the cursor and the user's editor font. Rendered print pages

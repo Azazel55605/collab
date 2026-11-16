@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { waitForNoteImage } from '../../lib/noteAssets';
 import { notePageGeometry, type NotePageSettings } from '../../lib/notePageLayout';
 import { paginateNote } from '../../lib/paginateNote';
 
@@ -38,7 +39,10 @@ export function PaginatedNotePreview({
         if (cancelled || !sourceRef.current || !pagesRef.current) return;
         try {
           const pages = paginateNote(sourceRef.current, pagesRef.current, settings);
-          onReady?.(pages);
+          const images = Array.from(pagesRef.current.querySelectorAll('img'));
+          void Promise.all(images.map(waitForNoteImage)).then(() => {
+            if (!cancelled) onReady?.(pages);
+          });
         } catch (error) {
           pagesRef.current.replaceChildren();
           setError(`Could not prepare pages: ${String(error)}`);
@@ -63,6 +67,7 @@ export function PaginatedNotePreview({
       >
         <MarkdownPreview
           content={content}
+          preserveBlankLines
           currentDocumentRelativePath={relativePath}
           className="note-print-markdown"
           onReady={markReady}

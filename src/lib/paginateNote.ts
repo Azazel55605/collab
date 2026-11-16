@@ -3,6 +3,14 @@ import { notePageGeometry, type NotePageSettings } from './notePageLayout';
 /** Snapshot rendered assets too: cloneNode alone drops canvas pixel contents. */
 function printableClone(source: HTMLElement) {
   const clone = source.cloneNode(true) as HTMLElement;
+  const images = source.querySelectorAll('img');
+  clone.querySelectorAll('img').forEach((image, index) => {
+    const original = images[index];
+    if (original.naturalWidth && !image.hasAttribute('width') && !image.hasAttribute('height')) {
+      image.width = original.naturalWidth;
+      image.height = original.naturalHeight;
+    }
+  });
   const canvases = source.querySelectorAll('canvas');
   clone.querySelectorAll('canvas').forEach((canvas, index) => {
     const image = document.createElement('img');
@@ -72,7 +80,7 @@ export function paginateNote(source: HTMLElement, target: HTMLElement, settings:
     for (const ancestor of [...ancestors].reverse()) {
       if (
         !ancestor.output.textContent?.trim() &&
-        !ancestor.output.querySelector('img, svg, hr, input')
+        !ancestor.output.querySelector('img, svg, hr, input, .note-print-blank-line')
       ) {
         ancestor.output.remove();
       }
@@ -122,7 +130,8 @@ export function paginateNote(source: HTMLElement, target: HTMLElement, settings:
   // Both measurements use the browser's integer rounding. Comparing against
   // floor(contentHeight) rejects even an empty body for fractional paper sizes.
   const fits = () => body.scrollHeight <= body.clientHeight;
-  const hasContent = () => Boolean(body.textContent?.trim() || body.querySelector('img, svg, hr'));
+  const hasContent = () =>
+    Boolean(body.textContent?.trim() || body.querySelector('img, svg, hr, .note-print-blank-line'));
 
   function appendText(node: Text) {
     let remaining = node.data;
@@ -212,12 +221,16 @@ export function paginateNote(source: HTMLElement, target: HTMLElement, settings:
     const child = children[i];
     if (child instanceof HTMLElement && /^H[1-6]$/.test(child.tagName)) {
       let next = i + 1;
-      while (
-        next < children.length &&
-        children[next].nodeType === Node.TEXT_NODE &&
-        !children[next].textContent?.trim()
-      )
+      while (next < children.length) {
+        const following = children[next];
+        if (
+          !(following.nodeType === Node.TEXT_NODE && !following.textContent?.trim()) &&
+          !(following instanceof HTMLElement && following.matches('.note-print-blank-line'))
+        ) {
+          break;
+        }
         next++;
+      }
       if (next < children.length) {
         const group = document.createElement('div');
         group.style.display = 'contents';

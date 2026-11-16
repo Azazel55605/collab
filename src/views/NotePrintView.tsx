@@ -6,13 +6,11 @@ import { Printer, X } from 'lucide-react';
 import { NotePageControls } from '../components/editor/NotePageControls';
 import { PaginatedNotePreview } from '../components/editor/PaginatedNotePreview';
 import { Button } from '../components/ui/button';
-import { resolveNoteAssetTarget } from '../lib/noteAssets';
 import { notePageGeometry } from '../lib/notePageLayout';
 import { createVaultClient } from '../lib/vaultClient';
 import { getVaultDocumentTitle } from '../lib/vaultLinks';
 import { useNotePageStore } from '../store/notePageStore';
 import { useVaultStore } from '../store/vaultStore';
-import type { NoteFile, VaultMeta } from '../types/vault';
 
 interface NotePrintViewProps {
   contentSnapshot?: string;
@@ -31,78 +29,6 @@ async function waitForPrintableFonts() {
   }
 }
 
-function stripAssetSuffix(relativePath: string) {
-  return relativePath.split(/[?#]/, 1)[0];
-}
-
-function splitMarkdownImageDestination(raw: string) {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith('<')) {
-    const end = trimmed.indexOf('>');
-    if (end > 0) {
-      return {
-        path: trimmed.slice(1, end),
-        suffix: trimmed.slice(end + 1),
-        wrapped: true,
-      };
-    }
-  }
-  const match = trimmed.match(/^(\S+)([\s\S]*)$/);
-  return {
-    path: match?.[1] ?? trimmed,
-    suffix: match?.[2] ?? '',
-    wrapped: false,
-  };
-}
-
-async function inlinePrintableImages(
-  content: string,
-  vault: VaultMeta,
-  currentDocumentRelativePath: string,
-  fileTree: NoteFile[],
-) {
-  const client = createVaultClient(vault);
-  const replacements = new Map<string, string>();
-
-  async function resolveSource(rawSource: string) {
-    if (replacements.has(rawSource)) return replacements.get(rawSource) ?? rawSource;
-    const target = resolveNoteAssetTarget(rawSource, currentDocumentRelativePath, fileTree);
-    if (!target || target.kind !== 'vault') {
-      replacements.set(rawSource, rawSource);
-      return rawSource;
-    }
-    try {
-      const dataUrl = await client.readAssetDataUrl(stripAssetSuffix(target.value));
-      replacements.set(rawSource, dataUrl);
-      return dataUrl;
-    } catch {
-      replacements.set(rawSource, rawSource);
-      return rawSource;
-    }
-  }
-
-  let next = content;
-  const markdownImages = Array.from(content.matchAll(/!\[([^\]]*)\]\(([^)\n]+)\)/g));
-  for (const match of markdownImages) {
-    const [full, alt, rawDestination] = match;
-    const destination = splitMarkdownImageDestination(rawDestination);
-    const dataUrl = await resolveSource(destination.path);
-    const wrappedDestination = destination.wrapped
-      ? `<${dataUrl}>${destination.suffix}`
-      : `${dataUrl}${destination.suffix}`;
-    next = next.replace(full, `![${alt}](${wrappedDestination})`);
-  }
-
-  const htmlImages = Array.from(next.matchAll(/<img\b([^>]*?)\bsrc=(["'])(.*?)\2([^>]*)>/gi));
-  for (const match of htmlImages) {
-    const [full, before, quote, rawSource, after] = match;
-    const dataUrl = await resolveSource(rawSource);
-    next = next.replace(full, `<img${before}src=${quote}${dataUrl}${quote}${after}>`);
-  }
-
-  return next;
-}
-
 export default function NotePrintView({
   relativePath,
   standalone = false,
@@ -110,7 +36,6 @@ export default function NotePrintView({
   contentSnapshot,
 }: NotePrintViewProps) {
   const vault = useVaultStore((state) => state.vault);
-  const fileTree = useVaultStore((state) => state.fileTree);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewReady, setPreviewReady] = useState(false);
@@ -146,16 +71,8 @@ export default function NotePrintView({
       ? createVaultClient(vault).readDocument(relativePath)
       : Promise.resolve({ content: contentSnapshot })
     )
-      .then(async (doc) => {
-        if (cancelled) return;
-        const printableContent = await inlinePrintableImages(
-          doc.content,
-          vault,
-          relativePath,
-          fileTree,
-        );
-        if (cancelled) return;
-        setContent(printableContent);
+      .then((doc) => {
+        if (!cancelled) setContent(doc.content);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -165,7 +82,7 @@ export default function NotePrintView({
     return () => {
       cancelled = true;
     };
-  }, [fileTree, relativePath, vault, contentSnapshot]);
+  }, [relativePath, vault, contentSnapshot]);
 
   const printWhenReady = useCallback(async () => {
     await waitForPrintableFonts();
