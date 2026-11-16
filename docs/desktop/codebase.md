@@ -1759,6 +1759,15 @@ Phase 6 adds structured DDL in `database/schema.rs`, network apply guards in
 IDs. Network DDL uses a dedicated connection. SQLite applies on its pinned file
 with a writer transaction. `components/database/SchemaEditor.tsx` drives preview,
 confirmation and metadata refresh.
+The database sidebar groups live sessions under saved connection profiles in
+a bounded top section. Authentication controls appear for the selected
+disconnected profile. The remaining sidebar space scrolls the SQL Server tree
+in `components/database/ServerObjectExplorer.tsx`.
+Catalog branches load on demand through the existing paged metadata IPC.
+Requests for a different catalog open a bounded, short-lived connection with
+the same login and connection settings as the sidebar's active server.
+The query editor and output use vertically resizable panels. Query failures
+select the Messages tab and preserve the existing result frames.
 The native SQL Server dependency uses the documented bounded-diagnostics patch in
 `vendor/mssql-tds`. See [Database queries](./database-queries.md).
 See [Database workspace](./database-workspace.md) for ownership and native gaps.

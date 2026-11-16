@@ -117,9 +117,14 @@ pub async fn database_metadata(
     connection_id: String,
     binding: Option<SessionBinding>,
     request: MetadataRequest,
+    catalog: Option<String>,
 ) -> Result<MetadataPage, ContractError> {
     authorize(&window)?;
-    database::metadata(&token, &connection_id, binding, request).await
+    if catalog.is_some() {
+        database::metadata_in_catalog(&token, &connection_id, binding, request, catalog).await
+    } else {
+        database::metadata(&token, &connection_id, binding, request).await
+    }
 }
 
 #[tauri::command]

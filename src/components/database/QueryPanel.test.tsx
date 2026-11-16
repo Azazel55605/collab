@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import { ensureQuery, updateQuery, useDatabaseQueries } from '../../lib/database/queryStore';
@@ -145,4 +145,28 @@ it('creates a new script instead of reusing a version from a copied vault with t
   await waitFor(() => expect(createDocument).toHaveBeenCalledWith('query.sql'));
   expect(write).not.toHaveBeenCalled();
   expect(useDatabaseQueries.getState().tabs.panel.dirty).toBe(true);
+});
+
+it('opens the lower Messages pane for a failed query and retains the error while editing', async () => {
+  render(<QueryPanel token="token" binding={binding} />);
+  act(() =>
+    updateQuery(binding.tab_id, (tab) => ({
+      ...tab,
+      error: {
+        code: 'query_failed',
+        server_code: 102,
+        outcome_unknown: false,
+        source: { start_utf16: 0, end_utf16: 6 },
+      },
+    })),
+  );
+  const messages = await screen.findByLabelText('Query messages');
+  expect(within(messages).getByRole('alert').textContent).toContain('Database error 102');
+  expect(screen.getByRole('tab', { name: 'Messages (1)' }).getAttribute('data-state')).toBe(
+    'active',
+  );
+  expect(within(messages).getByRole('button', { name: 'Show source' })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('SQL editor'), { target: { value: 'SELECT 1' } });
+  expect(within(messages).getByRole('alert').textContent).toContain('Database error 102');
+  expect(within(messages).queryByRole('button', { name: 'Show source' })).toBeNull();
 });

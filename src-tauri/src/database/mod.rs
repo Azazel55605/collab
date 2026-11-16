@@ -811,6 +811,32 @@ pub async fn metadata(
     binding: Option<SessionBinding>,
     request: driver::MetadataRequest,
 ) -> Result<driver::MetadataPage, E> {
+    metadata_in_catalog(token, connection_id, binding, request, None).await
+}
+
+pub async fn metadata_in_catalog(
+    token: &str,
+    connection_id: &str,
+    binding: Option<SessionBinding>,
+    request: driver::MetadataRequest,
+    catalog: Option<String>,
+) -> Result<driver::MetadataPage, E> {
+    if let Some(catalog) = catalog.as_ref() {
+        if binding.is_some()
+            || catalog.is_empty()
+            || catalog.len() > 512
+            || catalog.chars().any(char::is_control)
+            || !matches!(
+                request,
+                driver::MetadataRequest::Schemas { .. }
+                    | driver::MetadataRequest::Objects { .. }
+                    | driver::MetadataRequest::Columns { .. }
+                    | driver::MetadataRequest::Indexes { .. }
+            )
+        {
+            return Err(E::InvalidParameter);
+        }
+    }
     if let Some(binding) = binding.as_ref() {
         if binding.connection_id != connection_id {
             return Err(E::WrongBinding);
@@ -840,6 +866,19 @@ pub async fn metadata(
                     connection.secret.clone(),
                     binding.database,
                     tab.live.cancel().child_token(),
+                )),
+            )
+        } else if let Some(database) = catalog {
+            if connection.config.engine != Engine::SqlServer {
+                return Err(E::Unsupported);
+            }
+            (
+                connection.live.clone(),
+                Some((
+                    connection.config.clone(),
+                    connection.secret.clone(),
+                    database,
+                    connection.live.cancel().child_token(),
                 )),
             )
         } else {

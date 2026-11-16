@@ -27,10 +27,17 @@ It is loaded lazily when opened.
    the form after connecting and retained natively only while connections need them.
 4. Select the saved connection, then **Test** or **Connect**. Test closes its socket
    and does not add an active connection. Connecting does not execute a script.
-5. Select an active connection to browse visible databases. **Open session** creates
-   a separate physical session pinned to that database. Browse schemas, tables,
-   views, columns and indexes from its metadata panel. Pages contain at most 100
-   objects; **Next page** replaces the previous page.
+5. The sidebar lists saved and active connections together at the top. Select
+   a disconnected profile to enter its password, or a connected profile to
+   browse its object tree below. The tree scrolls independently. Expand a
+   database, schema and table or view to see the metadata your account can
+   access. Lists load in pages of up to 100 objects. Use **Refresh server
+   objects** after creating or changing objects in SQL. Refresh reloads the
+   pages and expanded branches you are viewing.
+6. Use **New query** beside a database to open a separate physical session
+   pinned to it. Expanding a database in the tree leaves your current query
+   session in place. Use **Browse metadata** in a session for row browsing and
+   table schema editing.
 
 Saved connection selection does not retarget a session tab. Tabs show the original
 connection/database; the header also shows the environment and transaction state.

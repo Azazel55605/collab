@@ -224,6 +224,17 @@ async fn real_disposable_registry_connections_and_metadata() {
     .await
     .unwrap();
     assert!(page.items.iter().any(|i| i.name == "collab_phase0"));
+    let schemas = metadata_in_catalog(
+        &w.token,
+        &a.id,
+        None,
+        MetadataRequest::Schemas { after: 0 },
+        Some("master".into()),
+    )
+    .await
+    .unwrap();
+    assert!(schemas.items.iter().any(|item| item.name == "dbo"));
+    assert!(registry().lock().await.tabs.is_empty());
     let ta = open_tab(&w.token, &a.id, "collab_phase0".into())
         .await
         .unwrap();

@@ -231,7 +231,8 @@
   overflow: hidden;
 }
 
-.app-workspace-sidebar[aria-hidden='true'] {
+/* Menus and dialogs also set aria-hidden on the background. */
+.app-workspace-sidebar[data-state='closed'] {
   width: 0;
   opacity: 0;
   pointer-events: none;

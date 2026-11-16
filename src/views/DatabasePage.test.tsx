@@ -56,6 +56,17 @@ beforeEach(() => {
         remember_password: false,
         certificate_hostname: null,
       },
+      {
+        id: 'saved-b',
+        label: 'Server B',
+        environment: 'Production',
+        host: 'b.example',
+        port: 1433,
+        database: 'master',
+        username: 'reader',
+        remember_password: false,
+        certificate_hostname: null,
+      },
     ],
     connections: [
       {
@@ -116,6 +127,92 @@ describe('database workspace', () => {
     );
   });
 
+  it('browses a different server catalog without replacing or retargeting the query editor', async () => {
+    vi.mocked(tauriCommands.databaseMetadata).mockImplementation(
+      async (_token, _connection, _binding, request) => {
+        const items = {
+          databases: [{ id: 'other', name: 'catalog-b', kind: 'database', detail: '' }],
+          schemas: [{ id: '1', name: 'dbo', kind: 'schema', detail: '' }],
+          objects: [{ id: '5', name: 'Customers', kind: 'USER_TABLE', detail: '' }],
+        };
+        return {
+          items: request.kind in items ? items[request.kind as keyof typeof items] : [],
+          next: null,
+        };
+      },
+    );
+    renderPage();
+    const tab = await screen.findByRole('tab', { name: 'Server A · catalog-a' });
+    fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('button', { name: 'catalog-b' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'dbo' }));
+    expect(await screen.findByRole('button', { name: 'Customers' })).toBeTruthy();
+    expect(screen.getByText('SQL query editor')).toBeTruthy();
+    expect(tab.getAttribute('data-state')).toBe('active');
+    expect(tauriCommands.databaseOpenTab).not.toHaveBeenCalled();
+    expect(tauriCommands.databaseMetadata).toHaveBeenCalledWith(
+      'workspace-a',
+      'a',
+      null,
+      { kind: 'objects', schema_id: 1, after: 0 },
+      'catalog-b',
+    );
+  });
+
+  it('refreshes expanded branches across pages, using fresh cursors and dropping deleted objects', async () => {
+    let refreshed = false;
+    const item = (id: string, name: string, kind = '') => ({ id, name, kind, detail: '' });
+    vi.mocked(tauriCommands.databaseMetadata).mockImplementation(
+      async (_token, _connection, _binding, request) => {
+        switch (request.kind) {
+          case 'databases':
+            return request.after
+              ? { items: [item('catalog-b', 'catalog-b')], next: null }
+              : {
+                  items: [item('catalog-a', 'catalog-a')],
+                  next: refreshed ? 'new-cursor' : 'old-cursor',
+                };
+          case 'schemas':
+            return { items: [item('1', 'dbo')], next: null };
+          case 'objects':
+            return {
+              items: refreshed
+                ? [item('5', 'Customers', 'USER_TABLE')]
+                : [item('5', 'Customers', 'USER_TABLE'), item('6', 'Deleted table')],
+              next: null,
+            };
+          case 'columns':
+            return { items: [item('7', refreshed ? 'New column' : 'Old column')], next: null };
+          default:
+            return { items: [], next: null };
+        }
+      },
+    );
+    renderPage();
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Server A · catalog-a' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more databases' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'catalog-b' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'dbo' }));
+    const table = await screen.findByRole('button', { name: 'Customers' });
+    fireEvent.click(table);
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    expect(await screen.findByText('Old column')).toBeTruthy();
+
+    refreshed = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh server objects' }));
+    expect(table.getAttribute('aria-expanded')).toBe('true');
+    expect(await screen.findByText('New column')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Customers' })).toBe(table);
+    expect(screen.queryByRole('button', { name: 'Deleted table' })).toBeNull();
+    expect(tauriCommands.databaseMetadata).toHaveBeenCalledWith('workspace-a', 'a', null, {
+      kind: 'databases',
+      after: 'new-cursor',
+    });
+  });
+
   it('pins an existing tab across sidebar selection and retires only an explicitly disconnected connection', async () => {
     renderPage();
     fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Server A · catalog-a' }), {
@@ -142,7 +239,7 @@ describe('database workspace', () => {
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: 'Server A · catalog-a' })).toBeNull(),
     );
-    expect(screen.getByRole('button', { name: 'Server B · Browse databases' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Server B' })).toBeTruthy();
   });
   it('does not leak a late response into another profile workspace', async () => {
     let resolve!: (value: DatabaseWorkspace) => void;
@@ -161,7 +258,31 @@ describe('database workspace', () => {
     await act(async () => resolve(old));
     expect(screen.queryByText('OLD SECRET PROFILE')).toBeNull();
   });
+  it('uses one connection row and hides authentication controls after connecting', async () => {
+    const server = workspace.connections.shift()!;
+    workspace.tabs = [];
+    vi.mocked(tauriCommands.databaseConnect).mockImplementationOnce(async () => {
+      workspace.connections.push(server);
+      return server;
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Server A' }));
+    const password = screen.getByLabelText('Password for this connection');
+    fireEvent.change(password, { target: { value: 'fixture-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    const tree = await screen.findByRole('region', { name: 'Server objects' });
+    expect(screen.queryByLabelText('Password for this connection')).toBeNull();
+    const list = screen.getByRole('region', { name: 'Connections' });
+    expect(list.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Server A' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Server A' }));
+    expect(screen.queryByLabelText('Password for this connection')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Manage Server A' })).toBeTruthy();
+  });
+
   it('clears entered passwords and displays a safe TLS error without backend details', async () => {
+    workspace.connections = workspace.connections.filter((connection) => connection.id !== 'a');
+    workspace.tabs = [];
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Server A' }));
     fireEvent.change(screen.getByLabelText('Password for this connection'), {

@@ -35,6 +35,7 @@ import { ConfirmDialog } from '../ui/confirm-dialog';
 import { FormDialog, FormField } from '../ui/form-dialog';
 import { Input } from '../ui/input';
 import { PickerDialog } from '../ui/picker-dialog';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '../ui/resizable';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 import ResultGrid from './ResultGrid';
@@ -163,16 +164,16 @@ export default function QueryPanel({
     }
     setFileAction(null);
   };
+  const stopped = tab?.reason && tab.reason !== 'complete' ? tab.reason : null;
+  const messagesCount =
+    (tab?.messages.length ?? 0) + (tab?.counts.length ?? 0) + Number(!!tab?.error);
+  const showMessages =
+    !running &&
+    (!!tab?.error || !!stopped || (!!status.query_id && !sets.length && messagesCount > 0));
   useEffect(() => {
-    if (
-      tab &&
-      !tab.receiving &&
-      status.query_id &&
-      sets.length === 0 &&
-      (tab.counts.length || tab.messages.length)
-    )
-      setSet('messages');
-  }, [tab, sets.length, status.query_id]);
+    if (running) setSet('0');
+    else if (showMessages) setSet('messages');
+  }, [running, showMessages]);
   if (!tab) return <p className="p-4 text-sm text-muted-foreground">Opening query editor…</p>;
   return (
     <section
@@ -378,134 +379,146 @@ export default function QueryPanel({
             ? 'SQLite statements use semicolons. Result grids are read-only.'
             : 'SQL runs with your account’s permissions. Result grids are read-only. GO separates batches.'}
       </p>
-      <div className="flex min-h-36 shrink-0 flex-col" style={{ height: '32%', maxHeight: 420 }}>
-        <SqlEditor
-          value={tab.sql}
-          engine={engine}
-          readOnly={running}
-          schema={schema}
-          handle={editor}
-          onRun={() => run(true)}
-          onSave={() => {
-            if (!vault || locked) {
-              toast.error('Open an unlocked vault to save SQL scripts.');
-              return;
-            }
-            setPath(script?.path ?? 'query.sql');
-            setFileAction('save');
-          }}
-          onChange={(value) =>
-            updateQuery(binding.tab_id, (t) => ({ ...t, sql: value, dirty: true, error: null }))
-          }
-        />
-      </div>
-      {tab.error && (
-        <div role="alert" className="shrink-0 px-3 py-2 text-sm text-destructive">
-          {databaseQueryError(tab.error.code, engine)}
-          {tab.error.server_code !== null && ` Database error ${tab.error.server_code}.`}
-          {tab.error.outcome_unknown &&
-            ' Outcome unknown. Verify the database before rerunning; no query is replayed automatically.'}
-          {tab.error.source && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                editor.current?.focusRange(
-                  tab.error!.source!.start_utf16,
-                  tab.error!.source!.end_utf16,
-                )
+      <ResizablePanelGroup orientation="vertical" className="min-h-72 flex-1">
+        <ResizablePanel defaultSize="68%" minSize="28%">
+          <div className="flex h-full min-h-0 flex-col">
+            <SqlEditor
+              value={tab.sql}
+              engine={engine}
+              readOnly={running}
+              schema={schema}
+              handle={editor}
+              onRun={() => run(true)}
+              onSave={() => {
+                if (!vault || locked) {
+                  toast.error('Open an unlocked vault to save SQL scripts.');
+                  return;
+                }
+                setPath(script?.path ?? 'query.sql');
+                setFileAction('save');
+              }}
+              onChange={(value) =>
+                updateQuery(binding.tab_id, (t) => ({
+                  ...t,
+                  sql: value,
+                  dirty: true,
+                  error: t.error?.source ? { ...t.error, source: null } : t.error,
+                }))
               }
-            >
-              Show source
-            </Button>
-          )}
-        </div>
-      )}
-      {tab.reason && tab.reason !== 'complete' && (
-        <p role="status" className="shrink-0 px-3 py-2 text-sm text-muted-foreground">
-          Stopped: {tab.reason.replace(/_/g, ' ')}. Results may be partial. Cancellation does not
-          undo committed statements.
-        </p>
-      )}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/50 p-2">
-        <Tabs value={set} onValueChange={setSet}>
-          <TabsList aria-label="Query result sets">
-            {sets.map((id) => (
-              <TabsTrigger key={id} value={id}>
-                Result {Number(id) + 1}
-              </TabsTrigger>
-            ))}
-            <TabsTrigger value="messages">
-              Messages ({tab.messages.length + tab.counts.length})
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        {result && (
-          <>
-            <span className="text-xs text-muted-foreground">
-              {result.rows.length.toLocaleString()} loaded rows
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={running || working}
-              onClick={() =>
-                void job(async () => {
-                  await tauriCommands.databaseQueryExport(
-                    token,
-                    binding,
-                    exportResults(result, false),
-                    false,
-                  );
-                })
-              }
-            >
-              Export loaded CSV
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={running || working}
-              onClick={() =>
-                void job(async () => {
-                  await tauriCommands.databaseQueryExport(
-                    token,
-                    binding,
-                    exportResults(result, true),
-                    true,
-                  );
-                })
-              }
-            >
-              Export typed JSON
-            </Button>
-          </>
-        )}
-      </div>
-      {set === 'messages' ? (
-        <div
-          className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs"
-          aria-label="Query messages"
-        >
-          {tab.messages.map((message, index) => (
-            <pre key={index} className="whitespace-pre-wrap break-all">
-              {message}
-            </pre>
-          ))}
-          {tab.counts.map((count, index) => (
-            <p key={`count:${index}`}>{count} rows affected</p>
-          ))}
-          {tab.messages.length === 0 && tab.counts.length === 0 && (
-            <p className="text-muted-foreground">No server messages.</p>
-          )}
-        </div>
-      ) : result ? (
-        <ResultGrid key={`${status.query_id}:${set}`} result={result} />
-      ) : (
-        <p className="p-4 text-sm text-muted-foreground">
-          Run SQL to display results. No statements run when a script is opened.
-        </p>
-      )}
+            />
+          </div>
+        </ResizablePanel>
+        <ResizableHandle withHandle aria-label="Resize SQL editor and query output" />
+        <ResizablePanel defaultSize="32%" minSize="20%">
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/50 p-2">
+              <Tabs value={set} onValueChange={setSet}>
+                <TabsList aria-label="Query result sets">
+                  {sets.map((id) => (
+                    <TabsTrigger key={id} value={id}>
+                      Result {Number(id) + 1}
+                    </TabsTrigger>
+                  ))}
+                  <TabsTrigger value="messages">Messages ({messagesCount})</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {result && (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    {result.rows.length.toLocaleString()} loaded rows
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={running || working}
+                    onClick={() =>
+                      void job(async () => {
+                        await tauriCommands.databaseQueryExport(
+                          token,
+                          binding,
+                          exportResults(result, false),
+                          false,
+                        );
+                      })
+                    }
+                  >
+                    Export loaded CSV
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={running || working}
+                    onClick={() =>
+                      void job(async () => {
+                        await tauriCommands.databaseQueryExport(
+                          token,
+                          binding,
+                          exportResults(result, true),
+                          true,
+                        );
+                      })
+                    }
+                  >
+                    Export typed JSON
+                  </Button>
+                </>
+              )}
+            </div>
+            {set === 'messages' ? (
+              <div
+                className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs"
+                aria-label="Query messages"
+              >
+                {tab.error && (
+                  <div role="alert" className="pb-2 text-destructive">
+                    {databaseQueryError(tab.error.code, engine)}
+                    {tab.error.server_code !== null && ` Database error ${tab.error.server_code}.`}
+                    {tab.error.outcome_unknown &&
+                      ' Outcome unknown. Verify the database before rerunning; no query is replayed automatically.'}
+                    {tab.error.source && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          editor.current?.focusRange(
+                            tab.error!.source!.start_utf16,
+                            tab.error!.source!.end_utf16,
+                          )
+                        }
+                      >
+                        Show source
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {stopped && (
+                  <p role="status" className="shrink-0 px-3 py-2 text-sm text-muted-foreground">
+                    Stopped: {stopped.replace(/_/g, ' ')}. Results may be partial. Cancellation does
+                    not undo committed statements.
+                  </p>
+                )}
+                {tab.messages.map((message, index) => (
+                  <pre key={index} className="whitespace-pre-wrap break-all">
+                    {message}
+                  </pre>
+                ))}
+                {tab.counts.map((count, index) => (
+                  <p key={`count:${index}`}>{count} rows affected</p>
+                ))}
+                {messagesCount === 0 && !stopped && (
+                  <p className="text-muted-foreground">No server messages.</p>
+                )}
+              </div>
+            ) : result ? (
+              <ResultGrid key={`${status.query_id}:${set}`} result={result} />
+            ) : (
+              <p className="p-4 text-sm text-muted-foreground">
+                Run SQL to display results. No statements run when a script is opened.
+              </p>
+            )}
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
       {tab.edit && tab.edit.visible !== false && (
         <TableEditDialog token={token} binding={binding} draft={tab.edit} />
       )}

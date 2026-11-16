@@ -545,7 +545,15 @@ export const tauriCommands = {
     connectionId: string,
     binding: DatabaseBinding | null,
     request: DatabaseMetadataRequest,
-  ) => invoke<DatabaseMetadataPage>('database_metadata', { token, connectionId, binding, request }),
+    catalog?: string,
+  ) =>
+    invoke<DatabaseMetadataPage>('database_metadata', {
+      token,
+      connectionId,
+      binding,
+      request,
+      catalog,
+    }),
   writeDownloadedBytes: (destinationPath: string, bytes: Uint8Array) => {
     if (bytes.byteLength > 256 * 1024 * 1024)
       return Promise.reject(new Error('Export exceeds its 256 MiB output budget'));

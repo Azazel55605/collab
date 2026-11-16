@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Database, Download, Plug, Plus, Unplug, X } from 'lucide-react';
+import { Database, Download, MoreHorizontal, PanelLeft, Plug, Plus, Unplug, X } from 'lucide-react';
 
 import ConnectionForm from '../components/database/ConnectionForm';
 import MetadataExplorer from '../components/database/MetadataExplorer';
 import QueryPanel from '../components/database/QueryPanel';
 import SchemaEditor from '../components/database/SchemaEditor';
+import ServerObjectExplorer from '../components/database/ServerObjectExplorer';
 import {
   DocumentMoreMenu,
   DocumentTopBar,
@@ -42,11 +43,29 @@ import type { DatabaseConnection, DatabaseWorkspace, SqliteOpenMode } from '../t
 
 const SECTION_HEADING = 'text-[11px] font-semibold tracking-widest text-muted-foreground uppercase';
 
-export default function DatabasePage({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
+export default function DatabasePage({ sidebarOpen }: { sidebarOpen?: boolean }) {
   const owner = useCollabStore((state) => state.myUserId);
-  return <Workspace key={owner} owner={owner} sidebarOpen={sidebarOpen} />;
+  const [standaloneSidebarOpen, setStandaloneSidebarOpen] = useState(true);
+  return (
+    <Workspace
+      key={owner}
+      owner={owner}
+      sidebarOpen={sidebarOpen ?? standaloneSidebarOpen}
+      onToggleSidebar={
+        sidebarOpen === undefined ? () => setStandaloneSidebarOpen((open) => !open) : undefined
+      }
+    />
+  );
 }
-function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean }) {
+function Workspace({
+  owner,
+  sidebarOpen,
+  onToggleSidebar,
+}: {
+  owner: string;
+  sidebarOpen: boolean;
+  onToggleSidebar?: () => void;
+}) {
   const [workspace, setWorkspace] = useState<DatabaseWorkspace | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -136,7 +155,13 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
   const connection = workspace?.connections.find(
     (c) => c.id === (tab?.connection_id ?? connectionId),
   );
+  const profileConnected = workspace?.connections.some((live) => live.saved_id === profile?.id);
   const engine = sqlite ? 'sqlite' : (connection?.engine ?? 'sql_server');
+  const certificateException =
+    engine === 'sql_server' &&
+    workspace?.profiles.find((saved) => saved.id === connection?.saved_id)
+      ?.allow_untrusted_certificate;
+  const objectConnection = engine === 'sql_server' ? connection : undefined;
   const mariaCapabilities = connection?.maria_capabilities;
   const canEditSchema =
     !!tab &&
@@ -149,7 +174,7 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
     if (tab && canEditSchema) setSchemaTarget({ tabId: tab.tab_id, schema, table });
   };
   const connect = (testOnly: boolean) => {
-    if (!workspace || !profile) return;
+    if (!workspace || !profile || profileConnected || busy) return;
     const secret = password || undefined;
     setPassword('');
     void perform(
@@ -171,6 +196,38 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
         }
       },
     );
+  };
+  const removeConnection = (savedId: string) => {
+    if (!workspace || busy) return;
+    void perform(
+      async () => {
+        if (
+          Object.values(useDatabaseQueries.getState().tabs).some(
+            (t) =>
+              workspace.connections.some(
+                (live) => live.saved_id === savedId && live.id === t.binding.connection_id,
+              ) && hasQueryDraft(t),
+          )
+        )
+          throw 'unresolved_session';
+        await tauriCommands.databaseRemove(workspace.token, savedId);
+        return reload();
+      },
+      (state) => {
+        setWorkspace(state);
+        if (selected === savedId) {
+          setSelected('');
+          setPassword('');
+        }
+      },
+    );
+  };
+  const browseConnection = (id: string) => {
+    setConnectionId(id);
+    if (tab?.connection_id !== id) {
+      setActiveTab(null);
+      setMetadata(false);
+    }
   };
   const pickSqlite = (mode: SqliteOpenMode) => {
     if (!workspace || busy) return;
@@ -225,7 +282,9 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
             </div>
           ) : connection ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline">TLS verified</Badge>
+              <Badge variant="outline">
+                {certificateException ? 'TLS unverified' : 'TLS verified'}
+              </Badge>
               {mariaCapabilities && (
                 <Badge
                   variant="secondary"
@@ -245,6 +304,16 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
         }
         meta={
           <>
+            {onToggleSidebar ? (
+              <DocumentTopBarIconButton
+                aria-label={sidebarOpen ? 'Hide database sidebar' : 'Show database sidebar'}
+                title={sidebarOpen ? 'Hide database sidebar' : 'Show database sidebar'}
+                aria-expanded={sidebarOpen}
+                onClick={onToggleSidebar}
+              >
+                <PanelLeft />
+              </DocumentTopBarIconButton>
+            ) : null}
             <DocumentTopBarButton
               variant="default"
               disabled={!workspace || busy}
@@ -300,180 +369,195 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
       <div className="flex min-h-0 flex-1">
         <WorkspaceSidebar
           open={sidebarOpen}
-          frameClassName="[--workspace-sidebar-width:16rem]"
-          className="flex flex-col gap-3 overflow-auto border-r border-border/50 bg-sidebar p-3"
+          frameClassName="[--workspace-sidebar-width:18rem]"
+          className="flex min-h-0 flex-col border-r border-border/50 bg-sidebar"
           aria-label="Database connections and files"
         >
-          <Input
-            aria-label="Search connections"
-            placeholder="Filter connections…"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <div className="flex items-center justify-between">
-            <h2 className={SECTION_HEADING}>SQLite files</h2>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <DocumentTopBarMenuButton
-                  className="h-7 px-2 text-xs"
-                  disabled={!workspace || busy}
-                  aria-label="Open SQLite file"
-                >
-                  Open
-                </DocumentTopBarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => pickSqlite('read_write')}>
-                  Open SQLite…
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => pickSqlite('read_only')}>
-                  Open SQLite read-only…
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => pickSqlite('create')}>
-                  Create SQLite…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          <div className="flex items-center justify-between">
-            <h2 className={SECTION_HEADING}>Connections</h2>
-            <DocumentTopBarIconButton
-              aria-label="New connection"
-              title="New connection"
-              className="size-7"
-              disabled={!workspace || busy}
-              onClick={() => setForm(null)}
-            >
-              <Plus />
-            </DocumentTopBarIconButton>
-          </div>
-          {workspace?.profiles
-            .filter((p) =>
-              `${p.label} ${p.host} ${p.environment}`.toLowerCase().includes(search.toLowerCase()),
-            )
-            .map((p) => (
-              <Button
-                key={p.id}
-                aria-label={p.label}
-                className="h-auto justify-start gap-2.5 py-1.5"
-                variant={selected === p.id ? 'secondary' : 'ghost'}
-                disabled={busy}
-                onClick={() => {
-                  setSelected(p.id);
-                  setPassword('');
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'size-2 shrink-0 rounded-full',
-                    workspace.connections.some((c) => c.saved_id === p.id)
-                      ? 'bg-emerald-500'
-                      : 'border-2 border-muted-foreground/50',
-                  )}
-                />
-                <span className="flex min-w-0 flex-col items-start leading-tight">
-                  <span className="max-w-full truncate">{p.label}</span>
-                  <span className="max-w-full truncate text-[11px] font-normal text-muted-foreground">
-                    {p.environment}
-                  </span>
-                </span>
-              </Button>
-            ))}
-          {workspace?.profiles.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Add a SQL Server or MariaDB connection to get started.
-            </p>
-          )}
-          {profile && (
-            <>
-              <p className="break-all text-xs text-muted-foreground">
-                {profile.host}:{profile.port} · {profile.environment}
-              </p>
-              <Field>
-                <FieldLabel htmlFor="database-connect-password">
-                  Password for this connection
-                </FieldLabel>
+          <section
+            aria-labelledby="database-connections-heading"
+            className="flex max-h-[45%] shrink-0 flex-col border-b border-border/50"
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
+              <h2 id="database-connections-heading" className={SECTION_HEADING}>
+                Connections
+              </h2>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarMenuButton
+                    className="h-7 px-2 text-xs"
+                    disabled={!workspace || busy}
+                    aria-label="Open SQLite file"
+                  >
+                    SQLite
+                  </DocumentTopBarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => pickSqlite('read_write')}>
+                    Open SQLite…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => pickSqlite('read_only')}>
+                    Open SQLite read-only…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => pickSqlite('create')}>
+                    Create SQLite…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="min-h-0 space-y-2 overflow-y-auto px-3 pt-1 pb-3">
+              {(workspace?.profiles.length ?? 0) > 1 ? (
                 <Input
-                  id="database-connect-password"
-                  type="password"
-                  autoComplete="off"
-                  maxLength={4096}
-                  placeholder={profile.remember_password ? 'Use stored password' : 'SQL password'}
-                  value={password}
-                  disabled={busy}
-                  onChange={(event) => setPassword(event.target.value)}
+                  aria-label="Search connections"
+                  placeholder="Filter connections…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
                 />
-              </Field>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" disabled={busy} onClick={() => connect(false)}>
-                  <Plug />
-                  Connect
-                </Button>
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => connect(true)}>
-                  Test
-                </Button>
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => setForm(profile)}>
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    if (workspace)
-                      void perform(
-                        async () => {
-                          if (
-                            Object.values(useDatabaseQueries.getState().tabs).some(
-                              (t) =>
-                                workspace.connections.some(
-                                  (c) =>
-                                    c.saved_id === profile.id && c.id === t.binding.connection_id,
-                                ) && hasQueryDraft(t),
-                            )
-                          )
-                            throw 'unresolved_session';
-                          await tauriCommands.databaseRemove(workspace.token, profile.id);
-                          return reload();
-                        },
-                        (state) => {
-                          setWorkspace(state);
-                          setSelected('');
-                        },
-                      );
-                  }}
-                >
-                  Remove
-                </Button>
-              </div>
-            </>
-          )}
-          {(workspace?.connections.length ?? 0) > 0 && (
-            <h2 className={cn(SECTION_HEADING, 'mt-2')}>Connected</h2>
-          )}
-          {workspace?.connections.map((c) => (
-            <Button
-              key={c.id}
-              variant={connectionId === c.id ? 'secondary' : 'ghost'}
-              className="h-auto justify-start gap-2.5 py-1.5"
-              aria-label={`${c.label} · Browse databases`}
-              disabled={busy}
-              onClick={() => {
-                setConnectionId(c.id);
-                setActiveTab(null);
-              }}
-            >
-              <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-emerald-500" />
-              <span className="flex min-w-0 flex-col items-start leading-tight">
-                <span className="max-w-full truncate">{c.label}</span>
-                <span className="text-[11px] font-normal text-muted-foreground">
-                  Browse databases
-                </span>
-              </span>
-            </Button>
-          ))}
+              ) : null}
+              {workspace?.profiles.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Add a SQL Server or MariaDB connection to get started.
+                </p>
+              ) : null}
+              <ul className="space-y-0.5">
+                {workspace?.profiles
+                  .filter((p) =>
+                    `${p.label} ${p.host} ${p.environment}`
+                      .toLowerCase()
+                      .includes((workspace.profiles.length > 1 ? search : '').toLowerCase()),
+                  )
+                  .map((p) => {
+                    const live = workspace.connections.filter((item) => item.saved_id === p.id);
+                    const active = live.find((item) => item.id === connection?.id) ?? live[0];
+                    const isSelected =
+                      selected === p.id || (!selected && connection?.saved_id === p.id);
+                    return (
+                      <li key={p.id}>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <Button
+                            aria-label={p.label}
+                            aria-describedby={`database-status-${p.id}`}
+                            aria-pressed={isSelected}
+                            className="h-auto min-w-0 flex-1 justify-start gap-2.5 px-2 py-1.5"
+                            variant={isSelected ? 'secondary' : 'ghost'}
+                            disabled={busy}
+                            onClick={() => {
+                              setSelected(p.id);
+                              setPassword('');
+                              if (active) browseConnection(active.id);
+                            }}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                'size-2 shrink-0 rounded-full',
+                                active ? 'bg-emerald-500' : 'border-2 border-muted-foreground/50',
+                              )}
+                            />
+                            <span className="flex min-w-0 flex-col items-start leading-tight">
+                              <span className="max-w-full truncate">{p.label}</span>
+                              <span
+                                id={`database-status-${p.id}`}
+                                className="max-w-full truncate text-[11px] font-normal text-muted-foreground"
+                              >
+                                {active ? 'Connected' : 'Disconnected'} · {p.environment}
+                              </span>
+                            </span>
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                aria-label={`Manage ${p.label}`}
+                                disabled={busy}
+                              >
+                                <MoreHorizontal />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {live.length > 1
+                                ? live.map((item, index) => (
+                                    <DropdownMenuItem
+                                      key={item.id}
+                                      onSelect={() => {
+                                        setSelected(p.id);
+                                        setPassword('');
+                                        browseConnection(item.id);
+                                      }}
+                                    >
+                                      Browse connection {index + 1}
+                                    </DropdownMenuItem>
+                                  ))
+                                : null}
+                              <DropdownMenuItem onSelect={() => setForm(p)}>
+                                Edit connection
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => removeConnection(p.id)}>
+                                Remove connection
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        {selected === p.id && !active ? (
+                          <div className="space-y-2 px-2 py-2">
+                            <p className="break-all text-xs text-muted-foreground">
+                              {p.host}:{p.port}
+                            </p>
+                            <Field>
+                              <FieldLabel htmlFor="database-connect-password">
+                                Password for this connection
+                              </FieldLabel>
+                              <Input
+                                id="database-connect-password"
+                                type="password"
+                                autoComplete="off"
+                                maxLength={4096}
+                                placeholder={
+                                  p.remember_password ? 'Use stored password' : 'SQL password'
+                                }
+                                value={password}
+                                disabled={busy}
+                                onChange={(event) => setPassword(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') connect(false);
+                                }}
+                              />
+                            </Field>
+                            <div className="flex gap-2">
+                              <Button size="sm" disabled={busy} onClick={() => connect(false)}>
+                                <Plug /> Connect
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => connect(true)}
+                              >
+                                Test
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          </section>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {workspace && objectConnection && (sidebarOpen || tab) ? (
+              <ServerObjectExplorer
+                key={objectConnection.id}
+                token={workspace.token}
+                connectionId={objectConnection.id}
+                label={objectConnection.label}
+                revision={schemaRevision}
+                onOpen={open}
+                busy={busy}
+              />
+            ) : null}
+          </div>
         </WorkspaceSidebar>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {busy && (
@@ -548,6 +632,13 @@ function Workspace({ owner, sidebarOpen }: { owner: string; sidebarOpen: boolean
               engine={engine}
               sqlite={sqlite}
             />
+          ) : workspace && objectConnection && sidebarOpen && !tab ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+              <Database className="size-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Open a query from a database in the sidebar.
+              </p>
+            </div>
           ) : workspace && (connection || sqlite) ? (
             <MetadataExplorer
               key={`${sqlite?.binding.connection_id ?? connection?.id}:${tab?.tab_id ?? 'databases'}:${schemaRevision}`}

@@ -42,6 +42,10 @@ session rather than silently changing its pinned database badge.
 ## Results, Browsing And Export
 
 Result-set tabs preserve each set's column metadata and exact typed values.
+The editor starts above a smaller results pane. Drag the divider or focus it
+and use the arrow keys to resize the panes. Failed runs select **Messages**,
+which shows the error number and a source jump when available. The error stays
+visible while you revise the query. Result sets remain available from their tabs.
 Messages and affected-row counts are separate from rows. The grid virtualizes
 rows and columns; click or press Enter/Space on a cell for the read-only inspector.
 NULL, empty text, exact bigint/decimal strings, binary Base64, temporal offsets and

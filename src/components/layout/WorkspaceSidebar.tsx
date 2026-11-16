@@ -17,6 +17,7 @@ export function WorkspaceSidebar({ open, frameClassName, ...asideProps }: Worksp
         'app-workspace-sidebar app-motion-base transition-[width,opacity] motion-reduce:transition-none',
         frameClassName,
       )}
+      data-state={open ? 'open' : 'closed'}
       aria-hidden={!open}
       inert={!open}
     >
