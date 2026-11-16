@@ -11,6 +11,7 @@ fn config() -> SavedConnection {
         database: "master".into(),
         username: "sa".into(),
         certificate_hostname: None,
+        allow_untrusted_certificate: false,
         remember_password: false,
         credential_id: None,
         retired_credentials: vec![],
@@ -19,9 +20,12 @@ fn config() -> SavedConnection {
 #[test]
 fn existing_network_profiles_default_to_sql_server() {
     let mut profile = serde_json::to_value(config()).unwrap();
-    profile.as_object_mut().unwrap().remove("engine");
+    let fields = profile.as_object_mut().unwrap();
+    fields.remove("engine");
+    fields.remove("allow_untrusted_certificate");
     let restored: SavedConnection = serde_json::from_value(profile).unwrap();
     assert_eq!(restored.engine, Engine::SqlServer);
+    assert!(!restored.allow_untrusted_certificate);
 }
 
 #[test]
@@ -156,6 +160,19 @@ async fn real_disposable_registry_connections_and_metadata() {
         .unwrap();
     c.database = "collab_phase0".into();
     let saved = save(root.path(), &w.token, c, None).await.unwrap();
+    if std::env::var("COLLAB_DB_SPIKE_TLS_MODE").as_deref() == Ok("unknown_ca_exception") {
+        assert!(matches!(
+            connect(&w.token, &saved.id, Some(password.clone()), true).await,
+            Err(E::TlsRejected)
+        ));
+        let mut exception = saved;
+        exception.allow_untrusted_certificate = true;
+        let exception = save(root.path(), &w.token, exception, None).await.unwrap();
+        connect(&w.token, &exception.id, Some(password), true)
+            .await
+            .unwrap();
+        return;
+    }
     connect(&w.token, &saved.id, Some(password.clone()), true)
         .await
         .unwrap();
@@ -183,6 +200,12 @@ async fn real_disposable_registry_connections_and_metadata() {
         connect(&w.token, &invalid.id, Some(password.clone()), false).await,
         Err(E::TlsRejected)
     ));
+    let mut exception = invalid;
+    exception.allow_untrusted_certificate = true;
+    let exception = save(root.path(), &w.token, exception, None).await.unwrap();
+    connect(&w.token, &exception.id, Some(password.clone()), true)
+        .await
+        .unwrap();
     let a = connect(&w.token, &saved.id, Some(password.clone()), false)
         .await
         .unwrap();

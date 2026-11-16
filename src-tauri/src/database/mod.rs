@@ -32,6 +32,8 @@ pub struct SavedConnection {
     pub database: String,
     pub username: String,
     pub certificate_hostname: Option<String>,
+    #[serde(default)]
+    pub allow_untrusted_certificate: bool,
     pub remember_password: bool,
     #[serde(default)]
     pub credential_id: Option<String>,
@@ -45,7 +47,9 @@ impl SavedConnection {
     fn validate(&self) -> Result<(), E> {
         match self.engine {
             Engine::SqlServer => {}
-            Engine::MariaDb if self.certificate_hostname.is_none() => {
+            Engine::MariaDb
+                if self.certificate_hostname.is_none() && !self.allow_untrusted_certificate =>
+            {
                 collab_database::Identifier::new(&self.database)?.quoted(Engine::MariaDb)?;
             }
             _ => return Err(E::InvalidParameter),
@@ -374,6 +378,7 @@ pub async fn save(
                 || p.username != config.username
                 || p.database != config.database
                 || p.certificate_hostname != config.certificate_hostname
+                || (!p.allow_untrusted_certificate && config.allow_untrusted_certificate)
         })
     {
         return Err(E::AuthenticationFailed);

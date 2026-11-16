@@ -32,13 +32,22 @@ export default function ConnectionForm({
       database: 'master',
       username: '',
       certificate_hostname: null,
+      allow_untrusted_certificate: false,
       remember_password: false,
     },
   );
+  const skipsVerification = config.allow_untrusted_certificate === true;
+  const enablingException = skipsVerification && !initial?.allow_untrusted_certificate;
   const maria = config.engine === 'maria_db';
   const [password, setPassword] = useState('');
   const update = <K extends keyof DatabaseConnection>(key: K, value: DatabaseConnection[K]) =>
-    setConfig((previous) => ({ ...previous, [key]: value }));
+    setConfig((previous) => ({
+      ...previous,
+      [key]: value,
+      ...((key === 'host' || key === 'port') && previous[key] !== value
+        ? { allow_untrusted_certificate: false }
+        : {}),
+    }));
   const field = (
     key: 'label' | 'environment' | 'host' | 'database' | 'username',
     label: string,
@@ -68,8 +77,8 @@ export default function ConnectionForm({
       title={initial ? 'Edit connection' : 'New database connection'}
       description={
         <>
-          Connections belong to your local profile. TLS encryption and certificate verification are
-          required. {initial && 'Saving changes closes this connection’s current sessions.'}
+          Connections belong to your local profile. Network connections require TLS encryption.{' '}
+          {initial && 'Saving changes closes this connection’s current sessions.'}
         </>
       }
       submitLabel="Save connection"
@@ -103,6 +112,7 @@ export default function ConnectionForm({
               port: engine === 'maria_db' ? 3306 : 1433,
               database: engine === 'maria_db' ? '' : 'master',
               certificate_hostname: null,
+              allow_untrusted_certificate: false,
             }))
           }
         >
@@ -134,16 +144,39 @@ export default function ConnectionForm({
         <FormField
           label="Certificate hostname (optional)"
           htmlFor="db-certificate"
-          hint="Leave blank to verify the hostname above. Use a certificate name only when connecting through an address alias."
+          hint={
+            skipsVerification
+              ? 'Certificate hostname checks are skipped for this connection.'
+              : 'Leave blank to verify the hostname above. Use a certificate name only when connecting through an address alias.'
+          }
         >
           <Input
             id="db-certificate"
             value={config.certificate_hostname ?? ''}
             maxLength={253}
-            disabled={busy}
+            disabled={busy || skipsVerification}
             onChange={(event) => update('certificate_hostname', event.target.value || null)}
           />
         </FormField>
+      )}
+      {!maria && (
+        <label htmlFor="db-tls-exception" className="flex items-start gap-2 text-[13px]">
+          <Checkbox
+            id="db-tls-exception"
+            className="mt-0.5"
+            checked={skipsVerification}
+            disabled={busy}
+            aria-describedby="db-tls-exception-hint"
+            onCheckedChange={(value) => update('allow_untrusted_certificate', value === true)}
+          />
+          <span>
+            Allow untrusted TLS certificates
+            <span id="db-tls-exception-hint" className="block text-xs text-muted-foreground">
+              Traffic stays encrypted, but Collab cannot verify the server’s identity. Only enable
+              this for a server and network you trust.
+            </span>
+          </span>
+        </label>
       )}
       <FormRow>
         {field('database', 'Initial database')}
@@ -153,9 +186,11 @@ export default function ConnectionForm({
         label="SQL password"
         htmlFor="db-password"
         hint={
-          initial?.remember_password
-            ? 'Leave blank to keep the stored password.'
-            : 'For session-only storage, enter your password when connecting.'
+          initial?.remember_password && config.remember_password && enablingException
+            ? 'Re-enter the stored password to enable this certificate exception.'
+            : initial?.remember_password
+              ? 'Leave blank to keep the stored password.'
+              : 'For session-only storage, enter your password when connecting.'
         }
       >
         <Input

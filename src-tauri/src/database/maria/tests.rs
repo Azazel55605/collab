@@ -21,6 +21,7 @@ fn config(port: u16, host: &str, username: &str) -> SavedConnection {
         database: "collab_phase5".into(),
         username: username.into(),
         certificate_hostname: None,
+        allow_untrusted_certificate: false,
         remember_password: false,
         credential_id: None,
         retired_credentials: vec![],

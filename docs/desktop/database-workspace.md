@@ -14,10 +14,14 @@ It is loaded lazily when opened.
 1. Choose **New connection**, select **SQL Server**, and enter a connection/environment label, plain hostname
    or IP, separate TCP port, initial database and SQL username. Named-instance
    discovery and integrated/Entra authentication are not implemented.
-2. TLS encryption and certificate verification are mandatory. The optional
-   certificate hostname handles a deliberate server-address alias. The certificate
-   must chain to system roots. Additional per-connection CAs and trust exceptions
-   remain unsupported; there is no silent certificate bypass.
+2. TLS encryption is required. Collab verifies the certificate against system
+   roots and checks its hostname by default. Set **Certificate hostname** when
+   the address and certificate name differ. If a trusted server presents an
+   untrusted certificate, you can explicitly select **Allow untrusted TLS
+   certificates** for that SQL Server connection. Traffic stays encrypted, but
+   Collab cannot verify the server's identity. Changing the host or port in the
+   form clears the exception. If the password is stored in the OS credential
+   store, re-enter it when enabling the exception.
 3. Save the connection. Use a session-only password or explicitly select the
    operating system credential store. Session-only passwords are cleared from
    the form after connecting and retained natively only while connections need them.

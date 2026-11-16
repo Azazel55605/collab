@@ -17,6 +17,7 @@ export interface DatabaseConnection {
   database: string;
   username: string;
   certificate_hostname: string | null;
+  allow_untrusted_certificate?: boolean;
   remember_password: boolean;
 }
 export interface DatabaseConnected {

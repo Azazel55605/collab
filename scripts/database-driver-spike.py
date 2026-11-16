@@ -122,10 +122,16 @@ def fixture(version, image, work, record, native_adapter=False, native_only=Fals
         if native_adapter:
             # Compilation should be completed before this isolated TLS environment;
             # offline mode prevents the fixture CA from affecting registry downloads.
+            native_command = ['cargo', 'test', '--offline', '-p', 'collab', '--lib',
+                              'database::tests::real_disposable_registry_connections_and_metadata',
+                              '--', '--ignored', '--test-threads=1', '--nocapture']
             try:
-                native_output = run(['cargo', 'test', '--offline', '-p', 'collab',
-                     'database::tests::real_disposable_registry_connections_and_metadata',
-                     '--', '--ignored', '--test-threads=1', '--nocapture'], env=base, timeout=180)
+                native_output = run(native_command, env=base, timeout=180)
+                exception_output = run(native_command, env=dict(
+                    base,
+                    COLLAB_DB_SPIKE_TLS_MODE='unknown_ca_exception',
+                    SSL_CERT_FILE=str(tls/'wrong-ca.pem'),
+                ), timeout=60)
             except subprocess.CalledProcessError as error:
                 # Report only source locations and fixed lifecycle labels. Never
                 # copy raw native/driver diagnostics, SQL values or credentials.
@@ -145,14 +151,14 @@ def fixture(version, image, work, record, native_adapter=False, native_only=Fals
                 for state in re.findall(r'(?:left|right): "?(idle|running|finishing|retired|outcome_unknown|None|Open|Failed|Unknown)"?', error.stdout):
                     print('Native fixture state: ' + state, flush=True)
                 raise
-            if '1 passed; 0 failed' not in native_output:
+            if any('1 passed; 0 failed' not in report for report in (native_output, exception_output)):
                 raise RuntimeError('native registry fixture did not execute its required test')
             metrics_match=re.search(r'COLLAB_DATABASE_PHASE2 (\{[^\n]+\})',native_output)
             metrics=json.loads(metrics_match.group(1)) if metrics_match else {}
             metrics={key:value for key,value in metrics.items() if re.fullmatch(r'[a-z0-9_]+',key) and (value is None or isinstance(value,(int,bool)))}
             record({'edit_fixture_passed': 'COLLAB_DATABASE_PHASE3 passed' in native_output, 'query_metrics':metrics,'kind': 'native_registry', 'fixture_version': version, 'image': digest,
                     'passed': True, 'checks': ['test-connect-closes-socket', 'independent-connections',
-                    'pinned-tabs', 'forged-binding-rejected', 'paged-metadata', 'typed-cursor',
+                    'explicit-unknown-ca-exception', 'pinned-tabs', 'forged-binding-rejected', 'paged-metadata', 'typed-cursor',
                     'columns-and-indexes', 'disconnect-isolation', 'connection-budget', 'profile-cleanup']})
             print(f'{version}: native registry fixture passed', flush=True)
         return reports
@@ -181,7 +187,7 @@ def main():
         subprocess.run(['cargo', 'build', '--locked', '--manifest-path', str(MANIFEST)], check=True)
     if args.native_adapter:
         # Compile outside the fixture's TLS environment and execution deadline.
-        subprocess.run(['cargo', 'test', '--locked', '-p', 'collab', '--no-run'], check=True)
+        subprocess.run(['cargo', 'test', '--locked', '-p', 'collab', '--lib', '--no-run'], check=True)
     reports = []
     def save(complete):
         args.output.parent.mkdir(parents=True, exist_ok=True)

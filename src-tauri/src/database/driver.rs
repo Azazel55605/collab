@@ -68,13 +68,15 @@ impl Live {
         context.connect_retry_count = 0;
         context.connect_timeout = 10;
         context.encryption_options.mode = EncryptionSetting::Required;
-        context.encryption_options.trust_server_certificate = false;
-        context.encryption_options.host_name_in_cert = Some(
-            config
-                .certificate_hostname
-                .clone()
-                .unwrap_or_else(|| config.host.clone()),
-        );
+        context.encryption_options.trust_server_certificate = config.allow_untrusted_certificate;
+        if !config.allow_untrusted_certificate {
+            context.encryption_options.host_name_in_cert = Some(
+                config
+                    .certificate_hostname
+                    .clone()
+                    .unwrap_or_else(|| config.host.clone()),
+            );
+        }
         let provider = TdsConnectionProvider::new();
         let endpoint = format!("tcp:{},{}", config.host, config.port);
         let mut client = tokio::select! {

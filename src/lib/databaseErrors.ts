@@ -28,7 +28,7 @@ const messages: Record<string, string> = {
   authentication_failed:
     'Sign-in failed or the credential store is locked or unavailable. Enter your SQL password, or unlock the system credential store and try again.',
   tls_rejected:
-    'The server certificate could not be verified. Install a trusted certificate and check its hostname. Certificate verification is required.',
+    'The server certificate could not be verified. Check whether the server presents a trusted certificate for the hostname in the connection settings.',
   permission_denied: 'This account does not have permission to access this database or metadata.',
   connection_failed:
     'The connection was lost or could not be opened. Check the server address and network, then disconnect and reconnect explicitly.',
