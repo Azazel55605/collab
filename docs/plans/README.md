@@ -11,6 +11,7 @@ Start with
   - [Phase 0 Contract And Driver Evidence](./database-editor-phase0-contract.md)
   - [Release Validation](../build/database-release-validation.md)
 - [Media Playback And Library](./media-playback-plan.md)
+- [Source Editor](./source-editor-plan.md)
 - [Digital Ink And Annotation](./digital-ink-and-annotation-plan.md)
   - [Phase 0 Contract](./digital-ink-phase0-contract.md)
 - [Electronic Circuit Simulation](./electronic-circuit-simulation-plan.md)
