@@ -1,6 +1,6 @@
 # Source Editor
 
-**Status — Draft for review**
+**Status — Phase 0 prototype verified on Linux**
 
 Open plain-text and source files in ordinary Collab document tabs. Keep the
 Markdown editor’s tab strip, document header, typography, theme, and sidebar
@@ -53,20 +53,22 @@ source text. See the [current file type matrix](../file-types.md).
 
 ### Phase 0 — Contract and prototype
 
-- Confirm the initial language set in CodeMirror with representative fixtures.
-  Measure cold open, typing, switching between files, and long lines in a
-  packaged desktop build. Use those results to set editable size and line
-  limits and a readable fallback with download for oversized files.
-- Define the text fidelity contract. Start with strict UTF-8, keep a UTF-8 BOM
-  when present, and preserve LF, CRLF, and the presence of a final newline.
-  Decide how to handle mixed line endings before enabling saves for them.
-  Invalid UTF-8 or binary-looking input should get a clear message and a
-  download option. Carry encoding and line-ending metadata through reads and
-  writes if the current text adapter loses it.
-- Prototype a source document kind in the shared classifier. Compare a dedicated
-  hosted protocol type with the existing text representation paired with
-  path-based source routing. Audit old manifests, replicas, ZIP file
-  classification and older clients before changing the wire format.
+- [x] Confirm the initial language set in CodeMirror with representative fixtures.
+      Measure cold open, typing, switching between files, and long lines in a
+      packaged desktop build. Use those results to set editable size and line
+      limits and a readable fallback with download for oversized files.
+- [x] Define the text fidelity contract. Start with strict UTF-8, keep a UTF-8 BOM
+      when present, and preserve LF, CRLF, and the presence of a final newline.
+      Decide how to handle mixed line endings before enabling saves for them.
+      Invalid UTF-8 or binary-looking input should get a clear message and a
+      download option. Carry encoding and line-ending metadata through reads and
+      writes if the current text adapter loses it.
+- [x] Prototype a source document kind in the shared classifier. Compare a dedicated
+      hosted protocol type with the existing text representation paired with
+      path-based source routing. Audit old manifests, replicas, ZIP file
+      classification and older clients before changing the wire format.
+
+See the [Phase 0 contract and Linux prototype evidence](./source-editor-phase0-contract.md).
 
 ### Phase 1 — Desktop local files
 

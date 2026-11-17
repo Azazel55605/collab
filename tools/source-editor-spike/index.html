@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Collab Source Editor Prototype</title>
+    <style>
+      #editor {
+        height: min(66vh, 560px);
+      }
+
+      .cm-editor {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="editor"></main>
+    <pre id="report" role="status">Measuring CodeMirror…</pre>
+    <script type="module" src="./probe.mjs"></script>
+  </body>
+</html>
