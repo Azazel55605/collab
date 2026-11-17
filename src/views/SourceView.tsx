@@ -28,9 +28,10 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { useCollabIdentity } from '../lib/collabIdentity';
-import { saveConflictedCopy } from '../lib/conflictedCopy';
+import { saveConflictedCopy, uniqueConflictedPath } from '../lib/conflictedCopy';
 import { useDocumentViewKey } from '../lib/documentPaneContext';
 import {
+  compareDocumentVersions,
   type DocumentSessionController,
   type DocumentSessionSnapshot,
   useDocumentSessionController,
@@ -38,10 +39,12 @@ import {
 import { decodeSourceBuffer, encodeSourceBuffer, sourceLanguageForPath } from '../lib/sourceFiles';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient } from '../lib/vaultClient';
+import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { type NoteEditorViewState, useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
+import { vaultCan } from '../types/vault';
 
 const PLAIN_TEXT_VALUE = 'plain-text';
 
@@ -63,7 +66,13 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
   const [wrap, setWrap] = useState(defaultLanguage === '');
   const [position, setPosition] = useState({ line: 1, column: 1 });
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [fallback, setFallback] = useState<{ reason: string; preview: string | null } | null>(null);
+  const [fallback, setFallback] = useState<{
+    reason: string;
+    preview: string | null;
+    canCreateEditableCopy?: boolean;
+  } | null>(null);
+  const [creatingCopy, setCreatingCopy] = useState(false);
+  const canWrite = vaultCan(vault, 'file.write');
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const title = getDocumentBaseName(relativePath, 'Source file');
 
@@ -71,8 +80,9 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
     serialize: (raw) => raw,
     deserialize: (raw) => raw,
     applyDocument: () => setFallback(null),
+    compareVersions: compareDocumentVersions,
     write: async ({ content, expectedVersion, baseContent }) => {
-      if (!client?.writeSourceFile || !expectedVersion)
+      if (!canWrite || !client?.writeSourceFile || !expectedVersion)
         throw new Error('Reload the source file before saving.');
       const saved = await client.writeSourceFile(relativePath, content, expectedVersion);
       if (saved.conflict) {
@@ -85,7 +95,8 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
           },
         };
       }
-      if (saved.version !== expectedVersion) {
+      if (saved.offlineQueued) return { version: saved.version, offlineQueued: true };
+      if (client.kind === 'local' && saved.version !== expectedVersion) {
         void client.createSnapshot(relativePath, content, userId, userName).catch(() => {});
       }
       return { version: saved.version };
@@ -113,7 +124,12 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
           const reason = result.reason ?? 'Could not open the source file.';
           if (controller.getSnapshot().dirty || controller.getSnapshot().saving)
             setLoadWarning(reason);
-          else setFallback({ reason, preview: result.preview });
+          else
+            setFallback({
+              reason,
+              preview: result.preview,
+              canCreateEditableCopy: result.canCreateEditableCopy,
+            });
           return;
         }
         setFallback(null);
@@ -140,6 +156,18 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
     };
     const restoring = forceReloadPath === relativePath;
     void load(restoring);
+    if (client.kind === 'hosted') {
+      const unlisten = onReplicaMutated(
+        (event) => {
+          if (replicaMutationAffectsPath(event, relativePath)) void load(restoring);
+        },
+        { kinds: ['manifest'] },
+      );
+      return () => {
+        active = false;
+        unlisten();
+      };
+    }
     const unlisten = listen<{ path: string; vaultPath?: string }>(
       'vault:file-modified',
       (event) => {
@@ -158,9 +186,9 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
         () => {},
       );
     };
-  }, [client, controller, forceReloadPath, relativePath, vault?.path]);
+  }, [client, controller, forceReloadPath, relativePath, vault]);
 
-  const readOnly = !!fallback || !client?.writeSourceFile;
+  const readOnly = !!fallback || !client?.writeSourceFile || !canWrite;
   const buffer = useMemo(
     () => (snapshot.currentContent === null ? null : decodeSourceBuffer(snapshot.currentContent)),
     [snapshot.currentContent],
@@ -174,8 +202,13 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
 
   const saveCopy = useCallback(
     async (content: string) => {
-      if (!client || client.kind !== 'local') return;
-      await saveConflictedCopy(client, relativePath, content);
+      if (!client) return;
+      if (client.createSourceFile) {
+        const used = new Set((await client.listFiles()).map((file) => file.relativePath));
+        await client.createSourceFile(uniqueConflictedPath(relativePath, used), content);
+      } else {
+        await saveConflictedCopy(client, relativePath, content);
+      }
       await refreshFileTree();
     },
     [client, refreshFileTree, relativePath],
@@ -209,6 +242,20 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
         await tauriCommands.writeDownloadedBytes(target, await client.readAssetBytes(relativePath));
     } catch (error) {
       toast.error('Could not download source file', { description: String(error) });
+    }
+  };
+
+  const createEditableCopy = async () => {
+    if (!client?.createEditableSourceCopy || creatingCopy) return;
+    setCreatingCopy(true);
+    try {
+      const copy = await client.createEditableSourceCopy(relativePath);
+      await refreshFileTree();
+      useEditorStore.getState().openTab(copy.relativePath, copy.name, 'source');
+    } catch (error) {
+      toast.error('Could not create the editable copy', { description: String(error) });
+    } finally {
+      setCreatingCopy(false);
     }
   };
 
@@ -281,6 +328,7 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
                   Wrap lines
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuItem
+                  disabled={readOnly}
                   onSelect={() => {
                     if (view.current) toggleComment(view.current);
                   }}
@@ -316,7 +364,7 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
             <>
               <DocumentTopBarButton
                 onClick={save}
-                disabled={!snapshot.dirty || snapshot.saving || snapshot.conflicted}
+                disabled={readOnly || !snapshot.dirty || snapshot.saving || snapshot.conflicted}
               >
                 <Save /> Save
               </DocumentTopBarButton>
@@ -346,6 +394,15 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
           <Button className="self-start" variant="outline" onClick={() => void download()}>
             <Download /> Download original
           </Button>
+          {fallback.canCreateEditableCopy && (
+            <Button
+              className="self-start"
+              onClick={() => void createEditableCopy()}
+              disabled={creatingCopy}
+            >
+              {creatingCopy ? 'Creating copy…' : 'Create editable copy'}
+            </Button>
+          )}
           {fallback.preview && (
             <pre className="min-h-0 overflow-auto whitespace-pre-wrap break-all rounded-md border p-3 text-sm">
               {fallback.preview}
@@ -365,9 +422,12 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
                 value={buffer.text}
                 language={language}
                 wrap={wrap}
+                readOnly={readOnly}
                 onReady={onReady}
                 onViewChange={captureView}
-                onChange={(text) => controller.markLocalChange(encodeSourceBuffer(text, buffer))}
+                onChange={(text) => {
+                  if (!readOnly) controller.markLocalChange(encodeSourceBuffer(text, buffer));
+                }}
               />
             </div>
           </div>

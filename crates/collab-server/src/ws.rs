@@ -1056,7 +1056,7 @@ async fn handle_subscribe(
     .await
     .ok()
     .flatten();
-    if document_type.is_none() {
+    if document_type.is_none() || document_type.as_deref() == Some("source") {
         send_error(out_tx, ErrorCode::ResourceNotFound, "Document not found.").await;
         return;
     }

@@ -2370,6 +2370,7 @@ fn entry_kind_for(entry: &collab_protocol::HostedFileEntry) -> WidgetEntryKind {
     use collab_protocol::{HostedDocumentType, HostedFileKind};
     match entry.kind {
         HostedFileKind::Folder => WidgetEntryKind::Folder,
+        HostedFileKind::Document if entry.source => WidgetEntryKind::File,
         HostedFileKind::Document => match entry.document_type {
             Some(HostedDocumentType::Note) => WidgetEntryKind::Note,
             Some(HostedDocumentType::Kanban) => WidgetEntryKind::Board,
@@ -2379,7 +2380,9 @@ fn entry_kind_for(entry: &collab_protocol::HostedFileEntry) -> WidgetEntryKind {
             // Presentations get their own widget icon with the mobile viewer
             // (presentation plan Phase 8); until then they are generic files,
             // which the Kotlin side already renders.
-            Some(HostedDocumentType::Deck) | None => WidgetEntryKind::File,
+            Some(HostedDocumentType::Deck | HostedDocumentType::Source) | None => {
+                WidgetEntryKind::File
+            }
         },
         HostedFileKind::Asset => {
             if entry.name.to_ascii_lowercase().ends_with(".pdf") {
@@ -5183,6 +5186,7 @@ mod tests {
             relative_path: name.into(),
             kind,
             document_type,
+            source: false,
             state,
             current_revision: None,
             trashed_by_display_name: None,

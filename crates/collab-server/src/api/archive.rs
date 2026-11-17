@@ -3,7 +3,7 @@ use collab_archive::{
     plan_import, ArchiveEntryKind, ArchiveEntryMetadata, ArchiveLimits, ArchivePathPolicy,
     ArchivePlanError,
 };
-use collab_documents::{classify_path, DocumentKind};
+use collab_documents::{classify_local_path, DocumentKind};
 use collab_protocol::{HostedDocumentType, HostedFileKind};
 use std::io::{Cursor, Read};
 
@@ -98,7 +98,9 @@ pub(super) fn parse_vault_zip(
         let path = planned.relative_path;
         super::sqlite_asset_media_type(&path, &content, request_id)?;
         let (kind, document_type) = imported_file_kind(&path);
-        if kind == HostedFileKind::Document && String::from_utf8(content.clone()).is_err() {
+        if document_type == Some(HostedDocumentType::Source) {
+            super::validate_source_bytes(&content, false, request_id)?;
+        } else if kind == HostedFileKind::Document && std::str::from_utf8(&content).is_err() {
             return Err(ApiFailure::validation(
                 "Imported text documents must be valid UTF-8.",
                 request_id.to_owned(),
@@ -158,7 +160,8 @@ fn import_entry(
 }
 
 fn imported_file_kind(path: &str) -> (HostedFileKind, Option<HostedDocumentType>) {
-    match classify_path(path) {
+    match classify_local_path(path) {
+        Some(DocumentKind::Source) => (HostedFileKind::Document, Some(HostedDocumentType::Source)),
         Some(DocumentKind::Note) => (HostedFileKind::Document, Some(HostedDocumentType::Note)),
         Some(DocumentKind::Kanban) => (HostedFileKind::Document, Some(HostedDocumentType::Kanban)),
         Some(DocumentKind::Canvas) => (HostedFileKind::Document, Some(HostedDocumentType::Canvas)),
