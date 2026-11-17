@@ -1079,7 +1079,7 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "collab"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "argon2",
  "axum",
@@ -1151,7 +1151,7 @@ dependencies = [
 
 [[package]]
 name = "collab-archive"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "collab-core",
  "collab-vault-domain",
@@ -1161,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "collab-calendar"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "collab-circuit"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -1187,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "collab-core"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "aes-gcm",
  "hex",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "collab-database"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "collab-documents"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "collab-core",
  "quick-xml 0.42.0",
@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "collab-live"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "collab-documents",
  "collab-protocol",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "collab-net-policy"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "thiserror 2.0.21",
  "url",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "collab-protocol"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -1249,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "collab-replica"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "chrono",
  "collab-core",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "collab-server"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "collab-sheet"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "chrono",
  "formualizer-common",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "collab-vault-domain"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "collab-core",
  "collab-documents",

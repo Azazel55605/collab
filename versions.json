@@ -1,7 +1,7 @@
 {
-  "server": "0.9.4",
-  "adminWeb": "0.9.4",
-  "desktop": "0.9.4",
+  "server": "0.9.5",
+  "adminWeb": "0.9.5",
+  "desktop": "0.9.5",
   "mobile": {
     "versionName": "0.8.8",
     "versionCode": 8008
