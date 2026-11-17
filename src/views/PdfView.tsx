@@ -2429,6 +2429,7 @@ export default function PdfView({ relativePath }: Props) {
       );
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isEventInsidePdf(event.target)) return;
       const ctrl = event.ctrlKey || event.metaKey;
       if (ctrl) {
         if (event.key === 'ArrowUp' || event.key === '+' || event.key === '=') {
@@ -3481,6 +3482,7 @@ export default function PdfView({ relativePath }: Props) {
         <div
           ref={viewportRef}
           tabIndex={0}
+          data-document-focus
           className="relative min-h-0 h-full overflow-auto bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.08),transparent_42%),linear-gradient(to_bottom,color-mix(in_oklch,var(--background)_92%,black_8%),var(--background))]"
           onScroll={(event) => {
             if (!sidecarLoaded || pendingScrollRef.current) return;

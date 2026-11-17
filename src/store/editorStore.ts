@@ -94,6 +94,7 @@ interface EditorState {
   sessionVaultPath: string | null;
   openTabs: OpenTab[];
   activeTabPath: string | null;
+  documentFocusRequest: number;
   forceReloadPath: string | null;
   revealEditorPath: string | null;
   pendingSearchJump: PendingSearchJump | null;
@@ -200,6 +201,7 @@ export const useEditorStore = create<EditorState>()(
       sessionVaultPath: null,
       openTabs: [],
       activeTabPath: null,
+      documentFocusRequest: 0,
       forceReloadPath: null,
       revealEditorPath: null,
       pendingSearchJump: null,
@@ -232,9 +234,12 @@ export const useEditorStore = create<EditorState>()(
       openTab: (relativePath, title, type = 'note') => {
         if (isSqlitePath(relativePath) || isMediaSidecarPath(relativePath)) return;
         void runDocumentNavigation(() => {
-          const { openTabs, activeTabPath } = get();
+          const { openTabs, activeTabPath, documentFocusRequest } = get();
           const exists = openTabs.some((tab) => tab.relativePath === relativePath);
-          if (exists && activeTabPath === relativePath) return;
+          if (exists && activeTabPath === relativePath) {
+            set({ documentFocusRequest: documentFocusRequest + 1 });
+            return;
+          }
           const touch = <T>(states: Record<string, T>) =>
             Object.fromEntries([
               ...Object.entries(states).filter(([key]) => viewPath(key) !== relativePath),
@@ -245,6 +250,7 @@ export const useEditorStore = create<EditorState>()(
               ? openTabs
               : [...openTabs, { relativePath, title, isDirty: false, savedHash: null, type }],
             activeTabPath: relativePath,
+            documentFocusRequest: documentFocusRequest + 1,
             noteViewStates: touch(get().noteViewStates),
             sheetViewStates: touch(get().sheetViewStates),
             inkViewStates: touch(get().inkViewStates),
@@ -291,7 +297,12 @@ export const useEditorStore = create<EditorState>()(
       },
 
       setActiveTab: (relativePath) =>
-        runDocumentNavigation(() => set({ activeTabPath: relativePath })),
+        runDocumentNavigation(() =>
+          set((state) => ({
+            activeTabPath: relativePath,
+            documentFocusRequest: state.documentFocusRequest + 1,
+          })),
+        ),
 
       markDirty: (relativePath) => {
         set((state) => {

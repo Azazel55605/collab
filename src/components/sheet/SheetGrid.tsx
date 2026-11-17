@@ -1384,6 +1384,7 @@ export default function SheetGrid({
       onCut={onCutSelection}
       onPaste={onPasteSelection}
       tabIndex={0}
+      data-document-focus
       role="grid"
       aria-rowcount={rows.count}
       aria-colcount={columns.count}

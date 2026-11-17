@@ -165,6 +165,10 @@ Located in `src/views/`. View selection is **two-layered** and resolved in
 shell’s directional workspace entrance. The main pane starts its entrance when
 the deferred view resolves.
 
+Opening or activating a document tab transfers keyboard focus to its pane.
+The shell hands focus to a document's keyboard target, such as the sheet grid or
+PDF viewport, when it mounts and the pane still owns focus.
+
 The activity bar sidebar button and Ctrl/Cmd+Shift+B toggle the active
 workspace’s sidebar. Calendar, Chats, and Databases own their overview, chat
 list, and connections panel. `uiStore.workspaceSidebars` remembers each

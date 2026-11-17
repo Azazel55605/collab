@@ -25,7 +25,9 @@ vi.mock('../../lib/tauri', () => ({
   },
 }));
 
-vi.mock('./Sidebar', () => ({ default: () => <div data-testid="sidebar" /> }));
+vi.mock('./Sidebar', () => ({
+  default: () => <button data-testid="sidebar">Files</button>,
+}));
 vi.mock('./TabBar', () => ({ default: () => <div data-testid="tab-bar" /> }));
 vi.mock('./StatusBar', () => ({ default: () => <div data-testid="status-bar" /> }));
 vi.mock('../grid/SplitDropZones', () => ({ default: () => null }));
@@ -70,7 +72,12 @@ vi.mock('../../views/KanbanPage', () => ({ default: () => <div>kanban</div> }));
 vi.mock('../../views/SettingsPage', () => ({ default: () => <div>settings</div> }));
 vi.mock('../../views/GridView', () => ({ default: () => <div>grid</div> }));
 vi.mock('../../views/ImageView', () => ({ default: () => <div>image</div> }));
-vi.mock('../../views/PdfView', () => ({ default: () => <div>pdf</div> }));
+vi.mock('../../views/PdfView', () => ({
+  default: function MockPdfView() {
+    const loaded = useVaultStore((state) => !state.isLoading);
+    return loaded ? <div tabIndex={0} data-document-focus data-testid="pdf-viewport" /> : null;
+  },
+}));
 vi.mock('../../views/MediaView', () => ({
   default: ({ relativePath, visible }: { relativePath: string; visible: boolean }) => (
     <div data-testid={relativePath} data-visible={visible} />
@@ -211,6 +218,46 @@ describe('AppShell document remounting', () => {
       'unmount:Notes/a.md',
       'mount:Notes/b.md',
     ]);
+  });
+
+  it('moves focus from the sidebar to a loaded document and refocuses it when reopened', async () => {
+    render(<AppShell />, { wrapper: TooltipProvider });
+    await screen.findByTestId('note-view');
+    const sidebar = screen.getByTestId('sidebar');
+    sidebar.focus();
+    act(() => {
+      useVaultStore.setState({ isLoading: true });
+      useEditorStore.getState().openTab('Lecture.pdf', 'Lecture', 'pdf');
+    });
+    await waitFor(() =>
+      expect(document.activeElement?.hasAttribute('data-active-document')).toBe(true),
+    );
+
+    act(() => useVaultStore.setState({ isLoading: false }));
+    const viewport = await screen.findByTestId('pdf-viewport');
+    await waitFor(() => expect(document.activeElement).toBe(viewport));
+
+    sidebar.focus();
+    act(() => useEditorStore.getState().openTab('Lecture.pdf', 'Lecture', 'pdf'));
+    expect(document.activeElement).toBe(viewport);
+  });
+
+  it('leaves focus in the sidebar when the user returns there while a document loads', async () => {
+    render(<AppShell />, { wrapper: TooltipProvider });
+    await screen.findByTestId('note-view');
+    act(() => {
+      useVaultStore.setState({ isLoading: true });
+      useEditorStore.getState().openTab('Lecture.pdf', 'Lecture', 'pdf');
+    });
+    await waitFor(() =>
+      expect(document.activeElement?.hasAttribute('data-active-document')).toBe(true),
+    );
+
+    const sidebar = screen.getByTestId('sidebar');
+    sidebar.focus();
+    act(() => useVaultStore.setState({ isLoading: false }));
+    await screen.findByTestId('pdf-viewport');
+    expect(document.activeElement).toBe(sidebar);
   });
   it('keeps the mounted editor and its DOM across sidebar and appearance updates', async () => {
     render(<AppShell />, { wrapper: TooltipProvider });

@@ -3123,6 +3123,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     <div
       className="flex h-full flex-col overflow-hidden bg-background outline-none"
       tabIndex={-1}
+      data-document-focus
       onKeyDown={onKeyDown}
       onCopy={(event) => onCopyEvent(event, false)}
       onCut={(event) => onCopyEvent(event, true)}

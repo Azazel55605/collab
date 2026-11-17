@@ -1441,11 +1441,12 @@ export default function FileTree() {
                 next * TREE_ROW_HEIGHT - container.clientHeight / 2,
               );
               setViewport((previous) => ({ ...previous, top: container.scrollTop }));
-              requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                if (!container.contains(container.ownerDocument.activeElement)) return;
                 Array.from(container.querySelectorAll<HTMLElement>('[data-tree-path]'))
                   .find((element) => element.dataset.treePath === path)
-                  ?.focus(),
-              );
+                  ?.focus();
+              });
             }
           }}
           className={cn(

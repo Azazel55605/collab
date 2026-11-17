@@ -1166,6 +1166,7 @@ function Player({
           video && !controls.show && 'cursor-none',
         )}
         tabIndex={0}
+        data-document-focus
         role="region"
         aria-label={video ? 'Video player' : 'Audio player'}
         onPointerMove={video ? controls.reveal : undefined}

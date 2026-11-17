@@ -5,6 +5,8 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -146,6 +148,8 @@ function MediaTabPanes({
         key={path}
         hidden={!visible}
         inert={!visible}
+        data-active-document={visible ? '' : undefined}
+        tabIndex={visible ? -1 : undefined}
         data-workspace-entry={visible ? (direction ?? undefined) : undefined}
         className="absolute inset-0 min-h-0"
       >
@@ -164,6 +168,8 @@ export default function AppShell() {
   const isVaultLocked = useVaultStore((state) => state.isVaultLocked);
   const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
   const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const documentFocusRequest = useEditorStore((state) => state.documentFocusRequest);
+  const documentAreaRef = useRef<HTMLDivElement>(null);
   const openTabs = useEditorStore((state) => state.openTabs);
   const closeTab = useEditorStore((state) => state.closeTab);
   const setActiveTab = useEditorStore((state) => state.setActiveTab);
@@ -415,6 +421,56 @@ export default function AppShell() {
   const showSidebar = isSidebarOpen && activeView !== 'media' && !hasWorkspaceSidebar(activeView);
   const showDocumentTabs =
     activeView !== 'grid' && activeView !== 'media' && !hasWorkspaceSidebar(activeView);
+  const showActiveDocument =
+    showDocumentTabs &&
+    !!activeTab &&
+    activeTab.type !== 'graph' &&
+    activeTab.type !== 'settings' &&
+    activeTab.relativePath !== '__canvas__' &&
+    activeTab.relativePath !== '__kanban__' &&
+    !isVaultLocked;
+
+  useLayoutEffect(() => {
+    if (!showActiveDocument) return;
+    const pane = documentAreaRef.current?.querySelector<HTMLElement>('[data-active-document]');
+    if (!pane) return;
+
+    const owner = pane.ownerDocument;
+    const previousFocus = owner.activeElement;
+    if (previousFocus !== pane && pane.contains(previousFocus)) return;
+    const findTarget = () => pane.querySelector<HTMLElement>('[data-document-focus]');
+
+    // Lazy views and document loaders can mount their keyboard surface later.
+    // Transfer focus only while the user is still on the document pane.
+    const observer = new MutationObserver(() => {
+      if (owner.activeElement !== pane) return;
+      findTarget()?.focus({ preventScroll: true });
+    });
+    const disconnect = () => observer.disconnect();
+    const focusPane = () => {
+      (findTarget() ?? pane).focus({ preventScroll: true });
+      if (owner.activeElement === pane) {
+        pane.addEventListener('blur', disconnect, { once: true });
+        observer.observe(pane, { childList: true, subtree: true });
+      }
+    };
+    focusPane();
+    // Command dialogs can still trap focus during the activation commit.
+    const retry = pane.contains(owner.activeElement)
+      ? undefined
+      : requestAnimationFrame(() => {
+          if (owner.activeElement === previousFocus || owner.activeElement === owner.body) {
+            focusPane();
+          }
+        });
+    return () => {
+      if (retry !== undefined) cancelAnimationFrame(retry);
+      pane.removeEventListener('blur', disconnect);
+      observer.disconnect();
+    };
+  }, [activeDocumentKey, activeView, documentFocusRequest, showActiveDocument]);
+
+  const focusMainDocument = showActiveDocument && activeTab?.type !== 'media';
   return (
     <CollabProvider>
       <CalendarSyncCoordinator />
@@ -461,7 +517,7 @@ export default function AppShell() {
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
             {showDocumentTabs && <TabBar />}
             {/* position:relative so the split drop zones are positioned inside the content area */}
-            <div className="relative flex-1 overflow-hidden">
+            <div ref={documentAreaRef} className="relative flex-1 overflow-hidden">
               <div
                 key={workspace}
                 data-slot="workspace-content"
@@ -480,6 +536,8 @@ export default function AppShell() {
                   <div
                     key={`${activeView}:${activeDocumentKey}`}
                     data-slot="main-content"
+                    data-active-document={focusMainDocument ? '' : undefined}
+                    tabIndex={focusMainDocument ? -1 : undefined}
                     className="h-full min-h-0"
                   >
                     <DocumentPane

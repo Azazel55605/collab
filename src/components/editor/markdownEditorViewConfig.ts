@@ -132,15 +132,15 @@ export function createMarkdownEditorState({
   // Commands must respect `readOnly`; the facet alone does not block custom
   // transactions. `editable.of(false)` also drops the
   // contenteditable affordance and caret so a viewer cannot type into the note.
-  const readOnlyExtension = readOnly
+  const editingExtensions = readOnly
     ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
-    : [];
+    : [EditorView.contentAttributes.of({ 'data-document-focus': '' })];
 
   try {
     return EditorState.create({
       doc: content,
       extensions: [
-        ...readOnlyExtension,
+        ...editingExtensions,
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightActiveLine(),
@@ -183,7 +183,7 @@ export function createMarkdownEditorState({
     return EditorState.create({
       doc: content,
       extensions: [
-        ...readOnlyExtension,
+        ...editingExtensions,
         lineNumbers(),
         highlightActiveLine(),
         search({ createPanel: createMarkdownSearchPanel, top: true }),

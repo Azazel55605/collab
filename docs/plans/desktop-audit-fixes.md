@@ -1075,6 +1075,9 @@ Implemented **2026-10-20**, completing **O17–O28**. See
 - [x] **O26/O27/O28:** revision-cached bounded attachment readers, generated watcher
       suppression/pruning, cancellable blocking native work and indexing progress.
 
+- [x] Transfer focus from the file tree to an opened document, including a PDF
+      that finishes loading after its tab activates. Installed desktop acceptance remains open.
+
 ### Validation
 
 The full desktop/scripts run completed: **2,401 passed, seven timing-budget
