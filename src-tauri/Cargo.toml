@@ -22,7 +22,7 @@ libc = "0.2"
 webkit2gtk = { version = "2", features = ["v2_40"] }
 gtk = "0.18"
 # GTK3/WebKitGTK and our gesture adapter must share the glib 0.18 type family.
-glib = "0.18"
+glib = "0.22"
 gtk-sys = "0.18"
 tauri-plugin-drag = "2.1.1"
 # Both Linux keyring backends: kernel keyutils (silent default) and D-Bus Secret
@@ -59,7 +59,7 @@ chrono-tz.workspace = true
 sha2 = "0.11"
 hex = "0.4"
 thiserror = "2"
-parking_lot = "0.12"
+parking_lot = "0.13"
 fuzzy-matcher = "0.3"
 zip = "9"
 argon2 = "0.6"
@@ -67,7 +67,7 @@ rand = "0.10"
 base64 = "0.23"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "query"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
-scraper = "0.27"
+scraper = "0.29"
 url = "2.5"
 tempfile = "3"
 reqwest-websocket = { version = "0.6", default-features = false }
@@ -102,11 +102,11 @@ tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 # JNI 0.22 requires a separate native-entrypoint/lifetime migration.
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 [dev-dependencies]
-httpmock = "0.8"
+httpmock = "0.9"
 
 [[example]]
 name = "media-playback"
