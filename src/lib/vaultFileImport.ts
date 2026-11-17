@@ -8,6 +8,7 @@ import { parseInkDocument } from './ink/document';
 import { isCaptionPath, isLyricsPath, mediaKindForPath } from './mediaFiles';
 import { importWorkbookFile } from './sheet/conversion';
 import { inspectSheetDocumentText } from './sheet/document';
+import { SOURCE_FILE_EXTENSIONS, sourceLanguageForPath } from './sourceFiles';
 import { isSqlitePath, SQLITE_EXTENSIONS } from './sqliteFiles';
 import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
@@ -44,6 +45,7 @@ export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_PDF_EXTENSIONS,
   ...SQLITE_EXTENSIONS,
   ...IMPORT_MARKDOWN_EXTENSIONS,
+  ...SOURCE_FILE_EXTENSIONS,
   ...IMPORT_CANVAS_EXTENSIONS,
   ...IMPORT_KANBAN_EXTENSIONS,
   ...IMPORT_LOGIC_EXTENSIONS,
@@ -62,6 +64,7 @@ export type ImportableCategory =
   | 'caption'
   | 'lyrics'
   | 'markdown'
+  | 'source'
   | 'canvas'
   | 'kanban'
   | 'logic'
@@ -90,6 +93,7 @@ export function importCategoryForName(name: string): ImportableCategory | null {
   if (IMPORT_IMAGE_EXTENSIONS.includes(ext)) return 'image';
   if (IMPORT_PDF_EXTENSIONS.includes(ext)) return 'pdf';
   if (IMPORT_MARKDOWN_EXTENSIONS.includes(ext)) return 'markdown';
+  if (sourceLanguageForPath(name) !== undefined) return 'source';
   if (IMPORT_CANVAS_EXTENSIONS.includes(ext)) return 'canvas';
   if (IMPORT_KANBAN_EXTENSIONS.includes(ext)) return 'kanban';
   if (IMPORT_LOGIC_EXTENSIONS.includes(ext)) return 'logic';
@@ -246,6 +250,9 @@ export async function importExternalFilesIntoVault(
           error: 'Unsupported file type. Choose a supported vault document or attachment.',
         });
         continue;
+      }
+      if (category === 'source' && client.kind !== 'local') {
+        throw new Error('Source file editing is available in local vaults.');
       }
       if (category === 'caption' && client.kind !== 'local') {
         throw new Error('Video caption sidecars can only be imported into local vaults.');

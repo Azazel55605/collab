@@ -7,6 +7,7 @@ import {
   CircuitBoard,
   Database,
   Download,
+  FileCode2,
   FileText,
   FileUp,
   Film,
@@ -50,6 +51,7 @@ import {
 } from '../../lib/mediaFiles';
 import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
+import { SOURCE_FILE_EXTENSIONS, sourceLanguageForPath } from '../../lib/sourceFiles';
 import { isSqlitePath } from '../../lib/sqliteFiles';
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
@@ -117,7 +119,7 @@ type DialogState =
   | { type: 'none' }
   | { type: 'delete'; files: NoteFile[] }
   | { type: 'rename'; file: NoteFile }
-  | { type: 'create-note'; parentPath?: string }
+  | { type: 'create-note' | 'create-source'; parentPath?: string }
   | { type: 'create-canvas'; parentPath?: string }
   | { type: 'create-kanban'; parentPath?: string }
   | { type: 'create-logic'; parentPath?: string }
@@ -393,7 +395,12 @@ export default function FileTree() {
       vault && vault.kind !== 'hosted' && !vault.isEncrypted
         ? [...IMPORTABLE_EXTENSIONS, ...LOCAL_MEDIA_EXTENSIONS]
         : vault?.kind === 'hosted'
-          ? [...IMPORTABLE_EXTENSIONS, ...HOSTED_MEDIA_EXTENSIONS]
+          ? [
+              ...IMPORTABLE_EXTENSIONS.filter(
+                (extension) => !SOURCE_FILE_EXTENSIONS.includes(extension),
+              ),
+              ...HOSTED_MEDIA_EXTENSIONS,
+            ]
           : IMPORTABLE_EXTENSIONS,
     );
     if (selected) await importFiles(selected);
@@ -422,6 +429,14 @@ export default function FileTree() {
       try {
         if (vault.kind === 'hosted' && mediaKind(file.extension.toLowerCase())) {
           if (await createVaultClient(vault).runtime.hostedPlayback?.saveCopy(file.relativePath)) {
+            toast.success(`Downloaded ${file.name}`);
+          }
+          return;
+        }
+        if (vault.kind !== 'hosted' && sourceLanguageForPath(file.relativePath) !== undefined) {
+          const destination = await tauriCommands.showDownloadDialog(file.name);
+          if (destination) {
+            await tauriCommands.saveSourceCopy(vault.path, file.relativePath, destination);
             toast.success(`Downloaded ${file.name}`);
           }
           return;
@@ -757,9 +772,32 @@ export default function FileTree() {
     await moveFilesToTrash(files);
   };
 
+  const openingSourcePrompt = useRef(false);
+  const sourceToOpen = useRef<{ relativePath: string; fileName: string } | null>(null);
+
   const confirmCreate = async (name: string) => {
     if (!vault) return;
-    if (dialog.type === 'create-note') {
+    if (dialog.type === 'create-source') {
+      if (vault.kind === 'hosted') return;
+      const fileName = name.includes('.') ? name : `${name}.txt`;
+      const relativePath = dialog.parentPath ? `${dialog.parentPath}/${fileName}` : fileName;
+      if (
+        fileName.includes('/') ||
+        fileName.includes('\\') ||
+        sourceLanguageForPath(relativePath) === undefined
+      ) {
+        toast.error('Choose a .txt, .json, .py, .c, .h, or .cs filename.');
+        return;
+      }
+      try {
+        await createVaultClient(vault).createDocument(relativePath);
+        sourceToOpen.current = { relativePath, fileName };
+        setDialog({ type: 'none' });
+        await refreshFileTree();
+      } catch (error) {
+        toast.error('Could not create source file', { description: String(error) });
+      }
+    } else if (dialog.type === 'create-note') {
       const { parentPath } = dialog;
       setDialog({ type: 'none' });
       const relativePath = parentPath ? `${parentPath}/${name}.md` : `${name}.md`;
@@ -1140,6 +1178,7 @@ export default function FileTree() {
       <InputDialog
         open={
           dialog.type === 'create-note' ||
+          dialog.type === 'create-source' ||
           dialog.type === 'create-canvas' ||
           dialog.type === 'create-kanban' ||
           dialog.type === 'create-logic' ||
@@ -1149,8 +1188,8 @@ export default function FileTree() {
           dialog.type === 'rename'
         }
         variant={
-          dialog.type === 'create-note'
-            ? 'create-note'
+          dialog.type === 'create-note' || dialog.type === 'create-source'
+            ? dialog.type
             : dialog.type === 'create-canvas'
               ? 'create-canvas'
               : dialog.type === 'create-kanban'
@@ -1167,6 +1206,17 @@ export default function FileTree() {
         }
         initialValue={dialog.type === 'rename' ? dialog.file.name : ''}
         onConfirm={dialog.type === 'rename' ? confirmRename : confirmCreate}
+        onCloseAutoFocus={(event) => {
+          const pending = sourceToOpen.current;
+          if (!pending) return;
+          sourceToOpen.current = null;
+          event.preventDefault();
+          // The originating menu can still restore focus as the prompt closes.
+          requestAnimationFrame(() => {
+            openTab(pending.relativePath, pending.fileName, 'source');
+            setActiveView('editor');
+          });
+        }}
         onCancel={() => setDialog({ type: 'none' })}
       />
       <NewDrawingDialog
@@ -1288,11 +1338,30 @@ export default function FileTree() {
                     Create
                   </TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuContent
+                  align="end"
+                  className="w-52"
+                  onCloseAutoFocus={(event) => {
+                    if (!openingSourcePrompt.current) return;
+                    openingSourcePrompt.current = false;
+                    event.preventDefault();
+                  }}
+                >
                   <DropdownMenuItem onClick={() => handleCreateNote()}>
                     <FileText size={13} />
                     New note
                   </DropdownMenuItem>
+                  {isLocalVault && (
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        openingSourcePrompt.current = true;
+                        setDialog({ type: 'create-source' });
+                      }}
+                    >
+                      <FileText size={13} />
+                      New source file
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => handleCreateCanvas()}>
                     <Layout size={13} />
                     New canvas
@@ -1520,6 +1589,11 @@ export default function FileTree() {
                       collapsed={collapsed}
                       setCollapsed={setCollapsed}
                       onCreateNote={handleCreateNote}
+                      onCreateSource={
+                        isLocalVault
+                          ? (parentPath) => setDialog({ type: 'create-source', parentPath })
+                          : undefined
+                      }
                       onCreateCanvas={handleCreateCanvas}
                       onCreateKanban={handleCreateKanban}
                       onCreateLogic={handleCreateLogic}
@@ -1639,6 +1713,7 @@ interface FileTreeNodeProps {
   collapsed: Set<string>;
   setCollapsed: React.Dispatch<React.SetStateAction<Set<string>>>;
   onCreateNote: (parentPath?: string) => void;
+  onCreateSource?: (parentPath: string) => void;
   onCreateCanvas: (parentPath?: string) => void;
   onCreateKanban: (parentPath?: string) => void;
   onCreateLogic: (parentPath?: string) => void;
@@ -1688,6 +1763,7 @@ const FileTreeNode = memo(function FileTreeNode({
   collapsed,
   setCollapsed,
   onCreateNote,
+  onCreateSource,
   onCreateCanvas,
   onCreateKanban,
   onCreateLogic,
@@ -1739,6 +1815,7 @@ const FileTreeNode = memo(function FileTreeNode({
   const attachmentRefs = taskAttachmentsByPath[node.relativePath] ?? [];
   const isTaskAttached = !node.isFolder && attachmentRefs.length > 0;
   const isImageAsset = isImageFile(node);
+  const openingSourcePrompt = useRef(false);
   const isPdfAsset = isPdfFile(node);
   const isInternalPreview = !node.isFolder && supportsDocumentPreview(node.relativePath);
   const isManagedFolder = isManagedPicturesFolder(node);
@@ -1762,6 +1839,10 @@ const FileTreeNode = memo(function FileTreeNode({
       : state.openTabs.some((tab) => tab.relativePath === node.relativePath && tab.isDirty),
   );
   const getFileIcon = () => {
+    if (!node.isFolder && sourceLanguageForPath(node.relativePath) !== undefined) {
+      return <FileCode2 size={13} className="shrink-0 text-muted-foreground" />;
+    }
+
     if (node.isFolder) {
       return isCollapsed ? (
         <Folder
@@ -2085,12 +2166,29 @@ const FileTreeNode = memo(function FileTreeNode({
         </div>
       </ContextMenuTrigger>
 
-      <ContextMenuContent className="glass-strong border-border/50 text-[12.5px]">
+      <ContextMenuContent
+        className="glass-strong border-border/50 text-[12.5px]"
+        onCloseAutoFocus={(event) => {
+          if (!openingSourcePrompt.current) return;
+          openingSourcePrompt.current = false;
+          event.preventDefault();
+        }}
+      >
         {node.isFolder && (
           <>
             <ContextMenuItem onClick={() => onCreateNote(node.relativePath)}>
               New Note
             </ContextMenuItem>
+            {onCreateSource && (
+              <ContextMenuItem
+                onSelect={() => {
+                  openingSourcePrompt.current = true;
+                  onCreateSource(node.relativePath);
+                }}
+              >
+                New Source File
+              </ContextMenuItem>
+            )}
             <ContextMenuItem onClick={() => onCreateCanvas(node.relativePath)}>
               New Canvas
             </ContextMenuItem>

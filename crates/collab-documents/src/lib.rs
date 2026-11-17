@@ -22,6 +22,7 @@ pub enum DocumentKind {
     Deck,
     Svg,
     PdfSidecar,
+    Source,
 }
 
 impl DocumentKind {
@@ -36,6 +37,7 @@ impl DocumentKind {
             Self::Deck => "deck",
             Self::Svg => "svg",
             Self::PdfSidecar => "pdf-sidecar",
+            Self::Source => "source",
         }
     }
 
@@ -53,6 +55,12 @@ impl DocumentKind {
             _ => None,
         }
     }
+}
+
+/// Local source files enter the document workflow before hosted rollout.
+pub fn classify_local_path(path: &str) -> Option<DocumentKind> {
+    classify_path(path)
+        .or_else(|| source_text::classify_source_path(path).map(|_| DocumentKind::Source))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +174,7 @@ pub fn validate(
     }
 
     match input.kind {
-        DocumentKind::Note => {
+        DocumentKind::Note | DocumentKind::Source => {
             std::str::from_utf8(input.content).map_err(|_| DocumentError::InvalidUtf8 {
                 kind: input.kind.as_str(),
             })?;

@@ -24,6 +24,7 @@ import { documentVaultIdentity } from './documentPaneContext';
 import { mediaKindForPath } from './mediaFiles';
 import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
 import { shareAbortableDocumentRead, shareDocumentRead } from './sharedDocumentResources';
+import type { SourceRead, SourceSave } from './sourceFiles';
 import { type LocalPlaybackSource, tauriCommands } from './tauri';
 import {
   emitReplicaMutated,
@@ -181,6 +182,14 @@ export interface VaultClient {
   updateNoteIndex?(paths: string[]): Promise<NoteIndexDelta>;
   searchPage?(query: string, offset?: number, limit?: number): Promise<SearchPage>;
   readDocument(relativePath: string): Promise<VaultDocument>;
+  readSourceFile?(relativePath: string): Promise<SourceRead>;
+  saveSourceCopy?(relativePath: string, destinationPath: string): Promise<void>;
+  writeSourceFile?(
+    relativePath: string,
+    content: string,
+    expectedHash: string,
+  ): Promise<SourceSave>;
+
   writeDocument(
     relativePath: string,
     content: string,
@@ -2279,6 +2288,18 @@ export class LocalVaultClient implements VaultClient {
   }
   searchPage(query: string, offset = 0, limit = 50) {
     return tauriCommands.searchNotesPage(this.vault.path, query, offset, limit);
+  }
+
+  readSourceFile(relativePath: string) {
+    return tauriCommands.readSourceFile(this.vault.path, relativePath);
+  }
+
+  saveSourceCopy(relativePath: string, destinationPath: string) {
+    return tauriCommands.saveSourceCopy(this.vault.path, relativePath, destinationPath);
+  }
+
+  writeSourceFile(relativePath: string, content: string, expectedHash: string) {
+    return tauriCommands.writeSourceFile(this.vault.path, relativePath, content, expectedHash);
   }
 
   async readDocument(relativePath: string): Promise<VaultDocument> {

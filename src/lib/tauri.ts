@@ -103,6 +103,7 @@ import type {
 } from '../types/vault';
 
 import { installPerformanceDiagnostics, traceIpc } from './performanceDiagnostics';
+import type { SourceRead, SourceSave } from './sourceFiles';
 import type {
   CacheCleanupReport,
   CachedContentStatus,
@@ -851,6 +852,16 @@ export const tauriCommands = {
   listVaultFiles: (vaultPath: string) => invoke<NoteFile[]>('list_vault_files', { vaultPath }),
   readNote: (vaultPath: string, relativePath: string) =>
     invoke<NoteContent>('read_note', { vaultPath, relativePath }),
+  readSourceFile: (vaultPath: string, relativePath: string) =>
+    invoke<SourceRead>('read_source_file', { vaultPath, relativePath }),
+  writeSourceFile: (
+    vaultPath: string,
+    relativePath: string,
+    content: string,
+    expectedHash: string,
+  ) => invoke<SourceSave>('write_source_file', { vaultPath, relativePath, content, expectedHash }),
+  saveSourceCopy: (vaultPath: string, relativePath: string, destinationPath: string) =>
+    invoke<void>('save_source_copy', { vaultPath, relativePath, destinationPath }),
   readNoteAssetDataUrl: (vaultPath: string, relativePath: string) =>
     invoke<string>('read_note_asset_data_url', { vaultPath, relativePath }),
   readImageOverlay: (vaultPath: string, imageRelativePath: string) =>

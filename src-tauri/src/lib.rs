@@ -314,6 +314,9 @@ pub fn run() {
             commands::files::list_vault_files,
             commands::files::list_vault_paths,
             commands::files::read_note,
+            commands::files::source::read_source_file,
+            commands::files::source::write_source_file,
+            commands::files::source::save_source_copy,
             commands::files::read_note_asset_data_url,
             #[cfg(not(mobile))]
             commands::playback::open_local_playback,

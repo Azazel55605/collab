@@ -1,5 +1,17 @@
 //! Filename and byte-fidelity contract for the source editor prototype.
 
+pub const MAX_EDIT_BYTES: usize = 1024 * 1024;
+pub const MAX_EDIT_LINES: usize = 50_000;
+pub const MAX_LINE_BYTES: usize = 16 * 1024;
+
+pub fn editable(bytes: usize, content: &str) -> bool {
+    bytes <= MAX_EDIT_BYTES
+        && content.split('\n').enumerate().all(|(index, line)| {
+            index < MAX_EDIT_LINES
+                && line.strip_suffix('\r').unwrap_or(line).len() <= MAX_LINE_BYTES
+        })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceLanguage {
     PlainText,

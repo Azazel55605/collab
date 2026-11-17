@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   CircuitBoard,
+  FileCode2,
   FileText,
   Film,
   GitFork,
@@ -110,6 +111,7 @@ export default function TabBar() {
   };
 
   const getTabIcon = ({ type, relativePath }: (typeof openTabs)[number]) => {
+    if (type === 'source') return <FileCode2 size={11} className="shrink-0" />;
     if (type === 'canvas') return <Layout size={11} className="shrink-0" />;
     if (type === 'kanban') return <LayoutDashboard size={11} className="shrink-0" />;
     if (type === 'logic') return <CircuitBoard size={11} className="shrink-0" />;

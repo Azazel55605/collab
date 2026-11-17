@@ -18,6 +18,7 @@ Implementation references:
 - [Native Storage And Background Performance](./native-background-performance.md)
 - [Structured Editors, History And Export Performance](./structured-editors-history-export-performance.md)
 - [Previews, PDF, Images And OCR Performance](./previews-pdf-images-ocr-performance.md)
+- [Source Editor](./source-editor.md)
 - [Markdown, Math And Graph Performance](./markdown-math-graph-performance.md)
 - [Desktop Performance, Memory And Bug Audit (2026-10-14)](../audits/desktop-performance-and-bugs-2026-10-14.md)
 - [Circuit Simulation Engine](./circuit-engine.md)

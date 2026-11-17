@@ -135,6 +135,7 @@ export function ConfirmDeleteDialog({
 
 type InputDialogVariant =
   | 'create-note'
+  | 'create-source'
   | 'create-folder'
   | 'rename'
   | 'create-canvas'
@@ -160,6 +161,13 @@ const VARIANT_META: Record<
     title: 'New note',
     label: 'Note name',
     placeholder: 'Untitled',
+    confirm: 'Create',
+  },
+  'create-source': {
+    icon: <FilePlus size={16} />,
+    title: 'New source file',
+    label: 'Filename with extension',
+    placeholder: 'main.py',
     confirm: 'Create',
   },
   'create-folder': {
@@ -232,6 +240,7 @@ interface InputDialogProps {
   variant: InputDialogVariant;
   initialValue?: string;
   onConfirm: (value: string) => void;
+  onCloseAutoFocus?: (event: Event) => void;
   onCancel: () => void;
 }
 
@@ -240,6 +249,7 @@ export function InputDialog({
   variant,
   initialValue = '',
   onConfirm,
+  onCloseAutoFocus,
   onCancel,
 }: InputDialogProps) {
   const meta = VARIANT_META[variant];
@@ -247,6 +257,7 @@ export function InputDialog({
     <PromptDialog
       open={open}
       onOpenChange={(next) => !next && onCancel()}
+      onCloseAutoFocus={onCloseAutoFocus}
       icon={meta.icon}
       title={meta.title}
       label={meta.label}

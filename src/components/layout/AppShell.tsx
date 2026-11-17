@@ -12,6 +12,7 @@ import {
 
 import {
   CircuitBoard,
+  FileCode2,
   FileText,
   Film,
   GitFork,
@@ -54,6 +55,7 @@ import {
   PdfView,
   SettingsPage,
   SheetView,
+  SourceView,
   SvgVectorView,
 } from '../../views/deferredViews';
 import { CollabProvider } from '../collaboration/CollabProvider';
@@ -206,6 +208,7 @@ export default function AppShell() {
   } = useSidebarResize(sidebarWidth, setSidebarWidth);
 
   const getTabIcon = ({ type, relativePath }: (typeof openTabs)[number], size = 16) => {
+    if (type === 'source') return <FileCode2 size={size} className="shrink-0" />;
     if (type === 'canvas') return <Layout size={size} className="shrink-0" />;
     if (type === 'kanban') return <LayoutDashboard size={size} className="shrink-0" />;
     if (type === 'logic') return <CircuitBoard size={size} className="shrink-0" />;
@@ -378,6 +381,8 @@ export default function AppShell() {
     if (activeTab) {
       if (activeTab.type === 'graph') return <GraphPage />;
       if (activeTab.type === 'settings') return <SettingsPage />;
+      if (activeTab.type === 'source')
+        return <SourceView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'image')
         return /\.svg$/i.test(activeTab.relativePath ?? '') ? (
           <SvgVectorView key={activeDocumentKey} relativePath={activeTab.relativePath} />

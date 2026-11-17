@@ -192,6 +192,7 @@ export function FormSection({
 export interface PromptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: (event: Event) => void;
   title: ReactNode;
   description?: ReactNode;
   icon?: ReactNode;
@@ -212,6 +213,7 @@ export interface PromptDialogProps {
 export function PromptDialog({
   open,
   onOpenChange,
+  onCloseAutoFocus,
   title,
   description,
   icon,
@@ -271,6 +273,7 @@ export function PromptDialog({
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       size="s"
       title={title}
       description={description}

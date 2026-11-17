@@ -63,6 +63,20 @@ it('routes SQLite snapshots to binary import and excludes live sidecars', async 
   expect(client.createDocument).not.toHaveBeenCalled();
 });
 
+it('routes source imports through the native byte-preserving path', async () => {
+  const { client, importMock } = makeClient({
+    kind: 'local',
+    importMock: vi.fn(async () => 'Docs/main.PY'),
+  });
+  const result = await importExternalFilesIntoVault(client, ['/tmp/main.PY'], {
+    targetFolder: 'Docs',
+  });
+  expect(result.imported).toEqual(['Docs/main.PY']);
+  expect(importMock).toHaveBeenCalledExactlyOnceWith('/tmp/main.PY', 'Docs');
+  expect(client.createDocument).not.toHaveBeenCalled();
+  expect(importCategoryForName('note.pdf-sidecar.json')).toBeNull();
+});
+
 describe('vaultFileImport categorization', () => {
   it('classifies importable extensions', () => {
     expect(importCategoryForName('photo.PNG')).toBe('image');
