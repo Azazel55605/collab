@@ -134,10 +134,21 @@ function insertIndentUnitAtCursor(view: EditorView) {
 }
 
 function handleCodeTabKey(view: EditorView) {
+  if (view.state.readOnly) return false;
   if (view.state.selection.ranges.some((range) => !range.empty)) {
     return indentMore(view);
   }
   return insertIndentUnitAtCursor(view);
+}
+
+function sourceAccess(readOnly: boolean) {
+  return readOnly
+    ? [
+        EditorState.readOnly.of(true),
+        EditorView.editable.of(false),
+        EditorView.contentAttributes.of({ tabindex: '0' }),
+      ]
+    : [];
 }
 
 export function CodeEditorSurface({
@@ -145,6 +156,7 @@ export function CodeEditorSurface({
   language,
   onChange,
   wrap = false,
+  readOnly = false,
   onReady,
   onViewChange,
 }: {
@@ -152,12 +164,14 @@ export function CodeEditorSurface({
   language: string;
   onChange: (value: string) => void;
   wrap?: boolean;
+  readOnly?: boolean;
   onReady?: (view: EditorView) => void;
   onViewChange?: (view: EditorView) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const callbacks = useRef({ onChange, onReady, onViewChange });
+  const accessCompartment = useRef(new Compartment());
   const wrapCompartment = useRef(new Compartment());
   const themeCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
@@ -185,6 +199,7 @@ export function CodeEditorSurface({
     showColoredIndents,
     wrap,
     documentFocus: !!onReady,
+    readOnly,
   });
 
   callbacks.current = { onChange, onReady, onViewChange };
@@ -202,6 +217,7 @@ export function CodeEditorSurface({
       showColoredIndents,
       wrap,
       documentFocus,
+      readOnly,
     } = initial.current;
     const isDark = theme !== 'light';
 
@@ -226,6 +242,7 @@ export function CodeEditorSurface({
         ),
         asciiArrowLigatures(),
         wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
+        accessCompartment.current.of(sourceAccess(readOnly)),
         documentFocus ? EditorView.contentAttributes.of({ 'data-document-focus': '' }) : [],
         EditorView.domEventHandlers({
           scroll: (_event, view) => callbacks.current.onViewChange?.(view),
@@ -233,6 +250,7 @@ export function CodeEditorSurface({
         EditorView.updateListener.of((update) => {
           if (
             update.docChanged &&
+            !update.state.readOnly &&
             !update.transactions.some((tr) => tr.isUserEvent('input.remote'))
           ) {
             callbacks.current.onChange(update.state.doc.toString());
@@ -322,6 +340,12 @@ export function CodeEditorSurface({
       effects: wrapCompartment.current.reconfigure(wrap ? EditorView.lineWrapping : []),
     });
   }, [wrap]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: accessCompartment.current.reconfigure(sourceAccess(readOnly)),
+    });
+  }, [readOnly]);
 
   return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
 }

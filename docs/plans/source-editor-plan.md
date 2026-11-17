@@ -1,6 +1,6 @@
 # Source Editor
 
-**Status — Phase 1 desktop local editing implemented**
+**Status — Phase 2 hosted source files and replica replay implemented**
 
 Open plain-text and source files in ordinary Collab document tabs. Keep the
 Markdown editor’s tab strip, document header, typography, theme, and sidebar
@@ -87,16 +87,14 @@ See the [Phase 0 contract and Linux prototype evidence](./source-editor-phase0-c
 
 ### Phase 2 — Hosted vaults and replicas
 
-- Apply the agreed classification to hosted creation, upload, ZIP import,
-  revisions, and download. Keep ACLs, quotas, path validation, and the
-  existing revision conflict flow. Validate source encoding and size on the
-  server, and leave syntax validation to the editor.
-- Verify opening, saving, export, and offline replica behavior across restart
-  and reconnect. Handle previously uploaded copies that are stored as assets
-  through a documented migration or an explicit editable-copy action. Preserve
-  existing file IDs, links, history, and permissions for any in-place migration.
-- Keep live co-editing as a separate milestone. Validate merge semantics and
-  text fidelity before enabling it for source files.
+- [x] Classify hosted source creation, desktop uploads, and ZIP imports.
+      Validate UTF-8 and size server-side, enforce existing file permissions
+      and revision checks, and preserve stored bytes on download and export.
+- [x] Keep mixed-version manifests readable. Use an explicit editable-copy
+      action for earlier uploads. Queue offline edits for revision-checked
+      replay and exclude source documents from live co-editing.
+- [ ] Verify installed desktop open, save, read-only access, ZIP round trips,
+      and offline edits across restart and reconnect against an upgraded server.
 
 ### Phase 3 — IDE features, wider file coverage, and release testing
 

@@ -8,7 +8,12 @@ import { parseInkDocument } from './ink/document';
 import { isCaptionPath, isLyricsPath, mediaKindForPath } from './mediaFiles';
 import { importWorkbookFile } from './sheet/conversion';
 import { inspectSheetDocumentText } from './sheet/document';
-import { SOURCE_FILE_EXTENSIONS, sourceLanguageForPath } from './sourceFiles';
+import {
+  decodeSourceUpload,
+  MAX_SOURCE_IMPORT_BYTES,
+  SOURCE_FILE_EXTENSIONS,
+  sourceLanguageForPath,
+} from './sourceFiles';
 import { isSqlitePath, SQLITE_EXTENSIONS } from './sqliteFiles';
 import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
@@ -251,8 +256,19 @@ export async function importExternalFilesIntoVault(
         });
         continue;
       }
-      if (category === 'source' && client.kind !== 'local') {
-        throw new Error('Source file editing is available in local vaults.');
+      if (category === 'source' && client.kind === 'hosted') {
+        if (!client.createSourceFile) throw new Error('This vault cannot create source files.');
+        const payload = await tauriCommands.readFileForUpload(sourcePath);
+        if (payload.contentBase64.length > Math.ceil(MAX_SOURCE_IMPORT_BYTES / 3) * 4) {
+          throw new Error('Source imports are limited to 16 MiB.');
+        }
+        const bytes = Uint8Array.from(atob(payload.contentBase64), (char) => char.charCodeAt(0));
+        const file = await client.createSourceFile(
+          joinVaultPath(options.targetFolder, payload.name),
+          decodeSourceUpload(bytes),
+        );
+        result.imported.push(file.relativePath);
+        continue;
       }
       if (category === 'caption' && client.kind !== 'local') {
         throw new Error('Video caption sidecars can only be imported into local vaults.');

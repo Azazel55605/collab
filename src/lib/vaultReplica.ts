@@ -214,9 +214,10 @@ interface PendingCreatePayload {
   parentId: string | null;
   name: string;
   kind: 'document' | 'folder';
-  documentType: 'note' | 'kanban' | 'canvas' | 'sheet' | null;
+  documentType: 'note' | 'kanban' | 'canvas' | 'sheet' | 'ink' | 'deck' | 'source' | null;
   content: string;
   tempFileId?: string;
+  clientFileId?: string;
 }
 
 interface PendingEditPayload {
@@ -224,6 +225,7 @@ interface PendingEditPayload {
   expectedRevisionSequence: number;
   content: string;
   baseContent?: string;
+  sourceEditor?: boolean;
 }
 
 interface HostedPendingDocument {
@@ -667,6 +669,7 @@ export async function replayPendingOperations(
           kind: payload.kind,
           documentType: payload.documentType,
           content: payload.content,
+          ...(payload.clientFileId ? { clientFileId: payload.clientFileId } : {}),
         };
         const created = await tauriCommands.hostedVaultRequest<{ id: string }>(
           vault.serverUrl,
@@ -682,7 +685,7 @@ export async function replayPendingOperations(
           await tauriCommands.hostedVaultRequest(
             vault.serverUrl,
             'POST',
-            `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}/revisions`,
+            `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}/${payload.sourceEditor ? 'source-revisions' : 'revisions'}`,
             {
               expectedRevisionSequence: payload.expectedRevisionSequence,
               content: payload.content,

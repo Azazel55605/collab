@@ -51,7 +51,7 @@ import {
 } from '../../lib/mediaFiles';
 import { RevisionReader } from '../../lib/revisionReader';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
-import { SOURCE_FILE_EXTENSIONS, sourceLanguageForPath } from '../../lib/sourceFiles';
+import { sourceLanguageForPath } from '../../lib/sourceFiles';
 import { isSqlitePath } from '../../lib/sqliteFiles';
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
@@ -74,6 +74,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { getCardAttachmentPaths, type KanbanBoard, type KanbanCard } from '../../types/kanban';
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
 import type { SheetConversionReport } from '../../types/sheetConversion';
+import { vaultCan } from '../../types/vault';
 import { type FileReference, isVaultReadOnly, type NoteFile } from '../../types/vault';
 import type { PathChangePreview } from '../../types/vault';
 import { supportsVersionHistoryRelativePath } from '../collaboration/history/historyUtils';
@@ -395,12 +396,7 @@ export default function FileTree() {
       vault && vault.kind !== 'hosted' && !vault.isEncrypted
         ? [...IMPORTABLE_EXTENSIONS, ...LOCAL_MEDIA_EXTENSIONS]
         : vault?.kind === 'hosted'
-          ? [
-              ...IMPORTABLE_EXTENSIONS.filter(
-                (extension) => !SOURCE_FILE_EXTENSIONS.includes(extension),
-              ),
-              ...HOSTED_MEDIA_EXTENSIONS,
-            ]
+          ? [...IMPORTABLE_EXTENSIONS, ...HOSTED_MEDIA_EXTENSIONS]
           : IMPORTABLE_EXTENSIONS,
     );
     if (selected) await importFiles(selected);
@@ -433,10 +429,11 @@ export default function FileTree() {
           }
           return;
         }
-        if (vault.kind !== 'hosted' && sourceLanguageForPath(file.relativePath) !== undefined) {
+        if (sourceLanguageForPath(file.relativePath) !== undefined) {
+          const client = createVaultClient(vault);
           const destination = await tauriCommands.showDownloadDialog(file.name);
-          if (destination) {
-            await tauriCommands.saveSourceCopy(vault.path, file.relativePath, destination);
+          if (destination && client.saveSourceCopy) {
+            await client.saveSourceCopy(file.relativePath, destination);
             toast.success(`Downloaded ${file.name}`);
           }
           return;
@@ -655,6 +652,7 @@ export default function FileTree() {
   }, []);
 
   const isLocalVault = !!vault && vault.kind !== 'hosted';
+  const canCreateSource = !!vault && vaultCan(vault, 'file.create');
 
   const handleReveal = useCallback(
     async (file: NoteFile) => {
@@ -690,9 +688,13 @@ export default function FileTree() {
         const client = createVaultClient(vault);
         const source = await client.readDocument(file.relativePath);
         const target = nextAvailableCopyPath(file.relativePath, flattenVaultFiles(fileTree));
-        await client.createDocument(target);
-        const created = await client.readDocument(target);
-        await client.writeDocument(target, source.content, created.version, created.content);
+        if (client.createSourceFile && sourceLanguageForPath(target) !== undefined) {
+          await client.createSourceFile(target, source.content);
+        } else {
+          await client.createDocument(target);
+          const created = await client.readDocument(target);
+          await client.writeDocument(target, source.content, created.version, created.content);
+        }
         await refreshFileTree();
         toast.success(`Duplicated to ${target}`);
       } catch (e) {
@@ -778,7 +780,6 @@ export default function FileTree() {
   const confirmCreate = async (name: string) => {
     if (!vault) return;
     if (dialog.type === 'create-source') {
-      if (vault.kind === 'hosted') return;
       const fileName = name.includes('.') ? name : `${name}.txt`;
       const relativePath = dialog.parentPath ? `${dialog.parentPath}/${fileName}` : fileName;
       if (
@@ -1351,7 +1352,7 @@ export default function FileTree() {
                     <FileText size={13} />
                     New note
                   </DropdownMenuItem>
-                  {isLocalVault && (
+                  {canCreateSource && (
                     <DropdownMenuItem
                       onSelect={() => {
                         openingSourcePrompt.current = true;
@@ -1590,7 +1591,7 @@ export default function FileTree() {
                       setCollapsed={setCollapsed}
                       onCreateNote={handleCreateNote}
                       onCreateSource={
-                        isLocalVault
+                        canCreateSource
                           ? (parentPath) => setDialog({ type: 'create-source', parentPath })
                           : undefined
                       }

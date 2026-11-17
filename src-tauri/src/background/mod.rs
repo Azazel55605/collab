@@ -1211,6 +1211,7 @@ mod tests {
             relative_path: "note.md".to_string(),
             kind: HostedFileKind::Document,
             document_type: None,
+            source: false,
             state: HostedFileState::Active,
             current_revision: Some(HostedFileRevision {
                 id: "revision-1".to_string(),
