@@ -19,7 +19,49 @@ import {
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
 
+import { SourceSearchPanel } from './SourceSearchPanel';
+
 export default function SearchPanel() {
+  const [mode, setMode] = useState<'notes' | 'source'>('notes');
+  const vault = useVaultStore((state) => state.vault);
+  const locked = useVaultStore((state) => state.isVaultLocked);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2 px-2.5 pb-2">
+      <div role="group" aria-label="Search scope" className="flex gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant={mode === 'notes' ? 'secondary' : 'ghost'}
+          aria-pressed={mode === 'notes'}
+          onClick={() => setMode('notes')}
+        >
+          Notes
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={mode === 'source' ? 'secondary' : 'ghost'}
+          aria-pressed={mode === 'source'}
+          onClick={() => setMode('source')}
+        >
+          Source files
+        </Button>
+      </div>
+      {mode === 'notes' ? (
+        <NoteSearchPanel />
+      ) : vault && !locked ? (
+        <SourceSearchPanel key={documentVaultIdentity(vault)} vault={vault} />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Open an unlocked vault to search source files.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function NoteSearchPanel() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const vault = useVaultStore((state) => state.vault);
@@ -85,7 +127,7 @@ export default function SearchPanel() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [query, scope, locked, offset, notes]);
+  }, [query, scope, locked, offset, notes, vault]);
 
   const folderOf = (path: string) => {
     const index = path.lastIndexOf('/');
@@ -96,7 +138,7 @@ export default function SearchPanel() {
     folder === null ? results : results.filter((r) => folderOf(r.relativePath) === folder);
 
   return (
-    <div className="flex h-full flex-col gap-2 px-2.5 pb-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="relative">
         <Search
           size={14}

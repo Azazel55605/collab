@@ -178,7 +178,11 @@ WebView. Hosted source documents have a dedicated stored type and revision
 route. The manifest carries a source marker alongside the compatible note
 document type. Desktop and native background replay use the source revision
 route for queued edits. Source documents stay outside the live session and
-Markdown reference pipelines.
+Markdown reference pipelines. The source editor layers grammar-based folding,
+syntax diagnostics, and a symbol outline over the shared CodeMirror surface.
+`lib/sourceSearch.ts` scans bounded source text through the current vault
+client and reports a file and line to the editor store. SQL scripts opened
+from Files use the source editor and remain available to Databases.
 
 The activity bar sidebar button and Ctrl/Cmd+Shift+B toggle the active
 workspace’s sidebar. Calendar, Chats, and Databases own their overview, chat

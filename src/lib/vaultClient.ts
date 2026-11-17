@@ -26,6 +26,7 @@ import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPrevie
 import { shareAbortableDocumentRead, shareDocumentRead } from './sharedDocumentResources';
 import {
   decodeSourceUpload,
+  isSqlSourcePath,
   MAX_SOURCE_EDIT_BYTES,
   MAX_SOURCE_IMPORT_BYTES,
   readHostedSourceBuffer,
@@ -1169,7 +1170,8 @@ export class HostedVaultClient implements VaultClient {
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
     const size = file.currentRevision?.sizeBytes ?? 0;
-    if (file.kind !== 'document' || !file.source) {
+    const legacySql = file.documentType === 'note' && isSqlSourcePath(relativePath);
+    if (file.kind !== 'document' || (!file.source && !legacySql)) {
       if (file.kind === 'document' && size <= MAX_SOURCE_EDIT_BYTES) {
         // Upgraded clients may have a manifest cached by the older decoder.
         const latest = await this.request<HostedTextDocument>('GET', `/files/${file.id}`).catch(
@@ -1298,7 +1300,10 @@ export class HostedVaultClient implements VaultClient {
     if (!Number.isInteger(expectedSequence) || expectedSequence < 0) {
       throw new Error('Hosted document versions must be revision sequence numbers.');
     }
-    const source = sourceEditor || file.source === true;
+    const source =
+      sourceEditor ||
+      file.source === true ||
+      (file.documentType === 'note' && isSqlSourcePath(relativePath));
     const revisionRoute = source ? 'source-revisions' : 'revisions';
     const payload = {
       targetFileId: file.id,

@@ -57,10 +57,11 @@ impl DocumentKind {
     }
 }
 
-/// Local source files enter the document workflow before hosted rollout.
+/// Classify vault files, including the standalone source editor formats.
 pub fn classify_local_path(path: &str) -> Option<DocumentKind> {
-    classify_path(path)
-        .or_else(|| source_text::classify_source_path(path).map(|_| DocumentKind::Source))
+    source_text::classify_source_path(path)
+        .map(|_| DocumentKind::Source)
+        .or_else(|| classify_path(path))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

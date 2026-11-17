@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { toggleComment } from '@codemirror/commands';
+import { openLintPanel } from '@codemirror/lint';
 import { gotoLine, openSearchPanel } from '@codemirror/search';
 import type { EditorView } from '@codemirror/view';
 import { listen } from '@tauri-apps/api/event';
@@ -10,6 +11,13 @@ import { toast } from 'sonner';
 import { VersionHistoryModal } from '../components/collaboration/history/VersionHistoryModal';
 import { CODE_BLOCK_LANGUAGE_OPTIONS } from '../components/editor/codeBlockUtils';
 import { CodeEditorSurface } from '../components/editor/CodeEditorSurface';
+import {
+  revealSourceRange,
+  sourceEditorTools,
+  supportsSourceDiagnostics,
+  supportsSourceOutline,
+} from '../components/editor/sourceEditorTools';
+import { SourceOutline, useSourceOutline } from '../components/editor/SourceOutline';
 import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentMoreMenu,
@@ -37,6 +45,7 @@ import {
   useDocumentSessionController,
 } from '../lib/documentSessionController';
 import { decodeSourceBuffer, encodeSourceBuffer, sourceLanguageForPath } from '../lib/sourceFiles';
+import { sourceSearchMatch } from '../lib/sourceSearch';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient } from '../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
@@ -66,6 +75,11 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
   const [wrap, setWrap] = useState(defaultLanguage === '');
   const [position, setPosition] = useState({ line: 1, column: 1 });
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const showOutline = outlineOpen && supportsSourceOutline(language);
+  const { symbols, refresh: refreshOutline } = useSourceOutline(view, showOutline);
+  const tools = useMemo(() => sourceEditorTools(language), [language]);
+  const pendingSearchJump = useEditorStore((state) => state.pendingSearchJump);
   const [fallback, setFallback] = useState<{
     reason: string;
     preview: string | null;
@@ -261,6 +275,7 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
 
   const captureView = useCallback(
     (editor: EditorView) => {
+      refreshOutline(editor);
       const { anchor, head } = editor.state.selection.main;
       const line = editor.state.doc.lineAt(head);
       const column = head - line.from + 1;
@@ -276,7 +291,7 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
         scrollLeft: editor.scrollDOM.scrollLeft,
       });
     },
-    [viewKey],
+    [refreshOutline, viewKey],
   );
 
   const onReady = useCallback((editor: EditorView) => {
@@ -299,6 +314,27 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
       },
     });
   }, []);
+
+  const hasBuffer = buffer !== null && !fallback;
+  useEffect(() => {
+    if (pendingSearchJump?.relativePath !== relativePath) return;
+    if (fallback) {
+      useEditorStore.getState().setPendingSearchJump(null);
+      return;
+    }
+    const editor = view.current;
+    if (!hasBuffer || !editor) return;
+    const line =
+      pendingSearchJump.line === undefined
+        ? null
+        : editor.state.doc.line(Math.min(pendingSearchJump.line, editor.state.doc.lines));
+    const match = sourceSearchMatch(pendingSearchJump.query)?.exec(
+      line?.text ?? editor.state.doc.toString(),
+    );
+    const from = (line?.from ?? 0) + (match?.index ?? 0);
+    revealSourceRange(editor, from, from + (match?.[0].length ?? 0));
+    useEditorStore.getState().setPendingSearchJump(null);
+  }, [fallback, hasBuffer, pendingSearchJump, relativePath]);
 
   return (
     <div
@@ -349,6 +385,20 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
                     }}
                   >
                     Save draft as copy
+                  </DropdownMenuItem>
+                )}
+                {supportsSourceOutline(language) && (
+                  <DropdownMenuCheckboxItem checked={outlineOpen} onCheckedChange={setOutlineOpen}>
+                    Show outline
+                  </DropdownMenuCheckboxItem>
+                )}
+                {supportsSourceDiagnostics(language) && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      if (view.current) openLintPanel(view.current);
+                    }}
+                  >
+                    Syntax problems
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
@@ -416,20 +466,33 @@ export default function SourceView({ relativePath }: { relativePath: string }) {
               {loadWarning} Your draft is still open.
             </p>
           )}
-          <div className="relative min-h-0 flex-1">
-            <div className="absolute inset-0">
-              <CodeEditorSurface
-                value={buffer.text}
-                language={language}
-                wrap={wrap}
-                readOnly={readOnly}
-                onReady={onReady}
-                onViewChange={captureView}
-                onChange={(text) => {
-                  if (!readOnly) controller.markLocalChange(encodeSourceBuffer(text, buffer));
+          <div className="flex min-h-0 flex-1">
+            <div className="relative min-w-0 flex-1">
+              <div className="absolute inset-0">
+                <CodeEditorSurface
+                  extensions={tools}
+                  value={buffer.text}
+                  language={language}
+                  wrap={wrap}
+                  readOnly={readOnly}
+                  onReady={onReady}
+                  onViewChange={captureView}
+                  onChange={(text) => {
+                    if (!readOnly) controller.markLocalChange(encodeSourceBuffer(text, buffer));
+                  }}
+                />
+              </div>
+            </div>
+            {showOutline && (
+              <SourceOutline
+                symbols={symbols}
+                editor={view}
+                onClose={() => {
+                  setOutlineOpen(false);
+                  view.current?.focus();
                 }}
               />
-            </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-3 border-t px-3 py-1 text-xs text-muted-foreground">
             <span>

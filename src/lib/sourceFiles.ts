@@ -5,6 +5,25 @@ const sourceLanguages = {
   c: 'c',
   h: 'c',
   cs: 'csharp',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  js: 'javascript',
+  jsx: 'jsx',
+  ts: 'typescript',
+  tsx: 'tsx',
+  html: 'html',
+  css: 'css',
+  xml: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml',
+  toml: 'toml',
+  rs: 'rust',
+  go: 'go',
+  java: 'java',
+  sh: 'bash',
+  sql: 'sql',
 } as const;
 
 export const SOURCE_FILE_EXTENSIONS = Object.keys(sourceLanguages);
@@ -19,6 +38,10 @@ export function sourceLanguageForPath(path: string): string | undefined {
   return extension && Object.prototype.hasOwnProperty.call(sourceLanguages, extension)
     ? sourceLanguages[extension as keyof typeof sourceLanguages]
     : undefined;
+}
+
+export function isSqlSourcePath(path: string): boolean {
+  return sourceLanguageForPath(path) === 'sql';
 }
 
 export function decodeSourceBuffer(raw: string) {

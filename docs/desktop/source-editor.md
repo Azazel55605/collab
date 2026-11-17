@@ -5,9 +5,10 @@ file through **Add files to vault** or drag and drop. You can also copy a file
 into a local vault folder with your system file manager. The file tree and Command
 Bar open it in a regular document tab.
 
-The starter formats are TXT, JSON, Python, C, C headers, and C#. Collab detects
-the language from the filename. The language picker changes highlighting for
-the open tab. The file keeps its original name and extension.
+Collab chooses the language from the filename. For the full list, see the
+[supported file types](../file-types.md). The language picker changes the editor
+mode for the open tab. SQL scripts open here from **Files** and can still be
+loaded, saved, and run from **Databases**.
 
 - **Save** or **Ctrl/Cmd+S** writes your changes. Switching away from a dirty
   tab uses Collab's save-before-navigation check.
@@ -18,6 +19,20 @@ the open tab. The file keeps its original name and extension.
   If a different application changes the file while you are editing, use the
   document status controls to review the change or **Save draft as copy**
   in the source file menu to recover your edits.
+
+Use the gutter to fold blocks when the language grammar exposes a foldable
+region. **Source file actions → Show outline** jumps to parsed declarations
+in supported languages. **Syntax problems** opens the parser diagnostics
+panel where available. These diagnostics report syntax errors while you type
+and leave drafts saveable. Completion uses the same styling as the SQL editor.
+Suggestions and snippets depend on the selected language.
+
+Open **Search → Source files** to search literal text in the current vault.
+Selecting a result opens its file and selects the match on the reported line.
+Each search checks up to 200 source files, 16 MiB of text, and 100 matching
+lines. Only files within the editor limits and available to the current vault
+session are searched. Search results use the normal vault read path and do
+not create a source index on disk.
 
 The editor preserves UTF-8, a UTF-8 BOM, uniform LF or CRLF, and final newlines.
 You can save unfinished code or JSON. Files with mixed line endings, unsupported
