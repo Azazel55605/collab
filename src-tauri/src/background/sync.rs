@@ -508,7 +508,12 @@ async fn replay_operation(
         }
         PendingOpKind::Edit => {
             let target = required_string(&payload, "targetFileId")?;
-            let path = format!("/api/v1/vaults/{}/files/{target}/revisions", vault.id);
+            let route = if payload.get("sourceEditor").and_then(Value::as_bool) == Some(true) {
+                "source-revisions"
+            } else {
+                "revisions"
+            };
+            let path = format!("/api/v1/vaults/{}/files/{target}/{route}", vault.id);
             let body = json!({
                 "expectedRevisionSequence": payload.get("expectedRevisionSequence"),
                 "content": payload.get("content"),

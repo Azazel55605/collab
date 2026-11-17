@@ -24,8 +24,17 @@ import { documentVaultIdentity } from './documentPaneContext';
 import { mediaKindForPath } from './mediaFiles';
 import { cachedRevisionPreview, rememberRevisionPreview } from './revisionPreviewCache';
 import { shareAbortableDocumentRead, shareDocumentRead } from './sharedDocumentResources';
-import type { SourceRead, SourceSave } from './sourceFiles';
+import {
+  decodeSourceUpload,
+  MAX_SOURCE_EDIT_BYTES,
+  MAX_SOURCE_IMPORT_BYTES,
+  readHostedSourceBuffer,
+  sourceLanguageForPath,
+  type SourceRead,
+  type SourceSave,
+} from './sourceFiles';
 import { type LocalPlaybackSource, tauriCommands } from './tauri';
+import { nextAvailableCopyPath } from './vaultDuplicate';
 import {
   emitReplicaMutated,
   enqueuePendingOperation,
@@ -183,6 +192,8 @@ export interface VaultClient {
   searchPage?(query: string, offset?: number, limit?: number): Promise<SearchPage>;
   readDocument(relativePath: string): Promise<VaultDocument>;
   readSourceFile?(relativePath: string): Promise<SourceRead>;
+  createSourceFile?(relativePath: string, content: string): Promise<NoteFile>;
+  createEditableSourceCopy?(relativePath: string): Promise<NoteFile>;
   saveSourceCopy?(relativePath: string, destinationPath: string): Promise<void>;
   writeSourceFile?(
     relativePath: string,
@@ -294,7 +305,7 @@ export const HOSTED_VAULT_CAPABILITIES: VaultClientCapabilities = {
 
 type HostedFileKind = 'folder' | 'document' | 'asset';
 type HostedFileState = 'active' | 'trashed' | 'tombstoned';
-type HostedDocumentType = 'note' | 'kanban' | 'canvas' | 'sheet' | 'ink' | 'deck';
+type HostedDocumentType = 'note' | 'kanban' | 'canvas' | 'sheet' | 'ink' | 'deck' | 'source';
 
 interface HostedRevision {
   id: string;
@@ -312,6 +323,7 @@ interface HostedFileEntry {
   relativePath: string;
   kind: HostedFileKind;
   documentType: HostedDocumentType | null;
+  source?: boolean;
   state: HostedFileState;
   currentRevision: HostedRevision | null;
   createdAt: string;
@@ -1153,7 +1165,115 @@ export class HostedVaultClient implements VaultClient {
     );
   }
 
+  async readSourceFile(relativePath: string): Promise<SourceRead> {
+    const manifest = await this.cachedOrOnlineManifest();
+    const file = this.findByPath(manifest, relativePath);
+    const size = file.currentRevision?.sizeBytes ?? 0;
+    if (file.kind !== 'document' || !file.source) {
+      if (file.kind === 'document' && size <= MAX_SOURCE_EDIT_BYTES) {
+        // Upgraded clients may have a manifest cached by the older decoder.
+        const latest = await this.request<HostedTextDocument>('GET', `/files/${file.id}`).catch(
+          (error) => {
+            if (!isLikelyConnectivityError(error)) throw error;
+            return null;
+          },
+        );
+        if (latest?.file.source) {
+          void this.cacheDocumentForOfflineCopy(file.id, latest.content);
+          return readHostedSourceBuffer(
+            latest.content,
+            String(latest.file.currentRevision?.sequence ?? 0),
+          );
+        }
+      }
+      return {
+        content: null,
+        version: null,
+        preview: null,
+        reason: 'This file uses legacy storage. Create an editable source copy to edit it.',
+        canCreateEditableCopy:
+          file.kind !== 'folder' &&
+          size <= MAX_SOURCE_IMPORT_BYTES &&
+          vaultCan(this.vault, 'file.create'),
+      };
+    }
+    if (size > MAX_SOURCE_EDIT_BYTES) {
+      return {
+        content: null,
+        version: null,
+        preview: null,
+        reason: 'This source file exceeds the 1 MiB editor limit.',
+      };
+    }
+    const document = await this.readDocument(relativePath);
+    return readHostedSourceBuffer(document.content, document.version);
+  }
+
+  async writeSourceFile(
+    relativePath: string,
+    content: string,
+    expectedHash: string,
+  ): Promise<SourceSave> {
+    if (!vaultCan(this.vault, 'file.write'))
+      throw new Error('This vault grants read-only source access.');
+    const valid = readHostedSourceBuffer(content, expectedHash);
+    if (valid.reason) throw new Error(valid.reason);
+    const saved = await this.writeDocument(relativePath, content, expectedHash, undefined, true);
+    if (saved.conflict) {
+      const conflict = readHostedSourceBuffer(
+        saved.conflict.theirContent,
+        saved.conflict.theirVersion ?? '',
+      );
+      if (conflict.content === null || !conflict.version) {
+        throw new Error('The current revision cannot be edited. The local draft is still open.');
+      }
+      return {
+        version: saved.version,
+        conflict: { content: conflict.content, version: conflict.version },
+      };
+    }
+    return { version: saved.version, conflict: null, offlineQueued: saved.offlineQueued };
+  }
+
+  async saveSourceCopy(relativePath: string, destinationPath: string): Promise<void> {
+    const file = this.findByPath(await this.cachedOrOnlineManifest(), relativePath);
+    const bytes =
+      file.kind === 'document'
+        ? new TextEncoder().encode((await this.readDocument(relativePath)).content)
+        : await this.readAssetBytes(relativePath);
+    await tauriCommands.writeDownloadedBytes(destinationPath, bytes);
+  }
+
+  async createEditableSourceCopy(relativePath: string): Promise<NoteFile> {
+    const manifest = await this.cachedOrOnlineManifest();
+    const entry = this.findByPath(manifest, relativePath);
+    if (
+      entry.source ||
+      entry.kind === 'folder' ||
+      (entry.currentRevision?.sizeBytes ?? 0) > MAX_SOURCE_IMPORT_BYTES
+    ) {
+      throw new Error('This file is unavailable for source conversion.');
+    }
+    const content =
+      entry.kind === 'asset'
+        ? decodeSourceUpload(await this.readAssetBytes(relativePath))
+        : (await this.readDocument(relativePath)).content;
+    const destination = nextAvailableCopyPath(relativePath, manifest.files.map(toNoteFile));
+    return this.createSourceFile(destination, content);
+  }
+
+  async createSourceFile(relativePath: string, content: string): Promise<NoteFile> {
+    if (sourceLanguageForPath(relativePath) === undefined) {
+      throw new Error('Choose a supported source filename.');
+    }
+    if (!vaultCan(this.vault, 'file.create'))
+      throw new Error('This vault does not allow file creation.');
+    decodeSourceUpload(new TextEncoder().encode(content));
+    return this.createTextDocument(relativePath, 'source', content);
+  }
+
   async resolveLiveSession(relativePath: string): Promise<LiveSessionTarget | null> {
+    if (sourceLanguageForPath(relativePath) !== undefined) return null;
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
     return {
@@ -1168,6 +1288,7 @@ export class HostedVaultClient implements VaultClient {
     content: string,
     expectedVersion?: string,
     baseContent?: string,
+    sourceEditor = false,
   ): Promise<VaultWriteResult> {
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
@@ -1177,34 +1298,16 @@ export class HostedVaultClient implements VaultClient {
     if (!Number.isInteger(expectedSequence) || expectedSequence < 0) {
       throw new Error('Hosted document versions must be revision sequence numbers.');
     }
+    const source = sourceEditor || file.source === true;
+    const revisionRoute = source ? 'source-revisions' : 'revisions';
     const payload = {
       targetFileId: file.id,
       expectedRevisionSequence: expectedSequence,
       content,
+      ...(source ? { sourceEditor: true } : {}),
       ...(baseContent !== undefined ? { baseContent } : {}),
     };
-    const document = await this.request<HostedTextDocument>('POST', `/files/${file.id}/revisions`, {
-      expectedRevisionSequence: expectedSequence,
-      content,
-    }).catch(async (error) => {
-      // Native hosted errors currently expose the server message, not its code.
-      // Read directly from the server: a cache-first read can return the same
-      // rejected revision and strand conflict resolution in a retry loop.
-      const message = error instanceof Error ? error.message : String(error);
-      if (message === 'The document has changed since the supplied revision.') {
-        const latest = await this.request<HostedTextDocument>('GET', `/files/${file.id}`);
-        return {
-          file: latest.file,
-          content: latest.content,
-          conflict: {
-            relativePath,
-            ourContent: content,
-            theirContent: latest.content,
-            theirVersion: String(latest.file.currentRevision?.sequence ?? 0),
-          },
-        };
-      }
-      if (!isLikelyConnectivityError(error)) throw error;
+    const queueEdit = async () => {
       const nextManifest = this.optimisticManifestForEdit(
         manifest,
         file,
@@ -1230,11 +1333,38 @@ export class HostedVaultClient implements VaultClient {
         content,
         offlineQueued: true,
       };
-    });
-    if ('conflict' in document) {
+    };
+    const document: HostedTextDocument & Pick<VaultWriteResult, 'conflict' | 'offlineQueued'> =
+      source && file.currentRevision?.contentHash === 'offline'
+        ? await queueEdit()
+        : await this.request<HostedTextDocument>('POST', `/files/${file.id}/${revisionRoute}`, {
+            expectedRevisionSequence: expectedSequence,
+            content,
+          }).catch(async (error) => {
+            // Native hosted errors currently expose the server message, not its code.
+            // Read directly from the server: a cache-first read can return the same
+            // rejected revision and strand conflict resolution in a retry loop.
+            const message = error instanceof Error ? error.message : String(error);
+            if (message === 'The document has changed since the supplied revision.') {
+              const latest = await this.request<HostedTextDocument>('GET', `/files/${file.id}`);
+              return {
+                file: latest.file,
+                content: latest.content,
+                conflict: {
+                  relativePath,
+                  ourContent: content,
+                  theirContent: latest.content,
+                  theirVersion: String(latest.file.currentRevision?.sequence ?? 0),
+                },
+              };
+            }
+            if (!isLikelyConnectivityError(error)) throw error;
+            return queueEdit();
+          });
+    if (document.conflict) {
       return { version: String(expectedSequence), conflict: document.conflict };
     }
-    if ('offlineQueued' in document && document.offlineQueued) {
+    if (document.offlineQueued) {
       return {
         version: String(document.file.currentRevision?.sequence ?? expectedSequence + 1),
         offlineQueued: true,
@@ -1256,14 +1386,25 @@ export class HostedVaultClient implements VaultClient {
   }
 
   async createDocument(relativePath: string): Promise<NoteFile> {
+    if (sourceLanguageForPath(relativePath) !== undefined)
+      return this.createSourceFile(relativePath, '');
+    return this.createTextDocument(relativePath, documentTypeForPath(relativePath), '');
+  }
+
+  private async createTextDocument(
+    relativePath: string,
+    documentType: HostedDocumentType,
+    content: string,
+  ): Promise<NoteFile> {
     const manifest = await this.cachedOrOnlineManifest();
     const destination = splitDestination(relativePath);
     const payload = {
       parentId: this.parentId(manifest, destination.parentPath),
       name: destination.name,
       kind: 'document',
-      documentType: documentTypeForPath(relativePath),
-      content: '',
+      documentType,
+      content,
+      ...(documentType === 'source' ? { clientFileId: crypto.randomUUID() } : {}),
     } as const;
     const file = await this.request<HostedFileEntry>('POST', '/files', payload).catch(
       async (error) => {
@@ -1312,25 +1453,27 @@ export class HostedVaultClient implements VaultClient {
       kind: 'document' | 'folder';
       documentType: HostedDocumentType | null;
       content: string;
+      clientFileId?: string;
     },
   ): Promise<HostedFileEntry> {
     const now = new Date().toISOString();
-    const tempFileId = offlineId('file');
+    const tempFileId = payload.clientFileId ?? offlineId('file');
     const entry: HostedFileEntry = {
       id: tempFileId,
       parentId: payload.parentId,
       name: payload.name,
       relativePath,
       kind: payload.kind,
-      documentType: payload.documentType,
+      documentType: payload.documentType === 'source' ? 'note' : payload.documentType,
+      ...(payload.documentType === 'source' ? { source: true } : {}),
       state: 'active',
       currentRevision:
         payload.kind === 'document'
           ? {
               id: offlineId('revision'),
-              sequence: 0,
+              sequence: payload.documentType === 'source' ? 1 : 0,
               contentHash: 'offline',
-              sizeBytes: payload.content.length,
+              sizeBytes: new TextEncoder().encode(payload.content).length,
               createdByDisplayName: null,
               createdAt: now,
             }
@@ -1549,7 +1692,7 @@ export class HostedVaultClient implements VaultClient {
               id: offlineId('revision'),
               sequence,
               contentHash: 'offline',
-              sizeBytes: content.length,
+              sizeBytes: new TextEncoder().encode(content).length,
               createdByDisplayName: null,
               createdAt: now,
             },

@@ -626,128 +626,167 @@ describe('vaultReplica', () => {
     );
   });
 
-  it('replays pending create, edit, and structural operations with temporary file-id mapping', async () => {
-    const operations = [
-      {
-        id: 'op-create',
-        kind: 'create' as const,
-        fileId: 'offline-file-1',
-        relativePath: 'Draft.md',
-        payload: {
+  it.each([
+    {
+      documentType: 'note',
+      path: 'Draft.md',
+      renamed: 'Final.md',
+      revision: 0,
+      content: '# Draft',
+      route: 'revisions',
+      replicaId: 'offline-file-1',
+      hostedId: 'file-123',
+      clientFileId: {},
+    },
+    {
+      documentType: 'source',
+      path: 'Draft.JSON',
+      renamed: 'Final.JSON',
+      revision: 1,
+      content: '\uFEFF{\r\n "draft":',
+      route: 'source-revisions',
+      replicaId: '33333333-3333-4333-8333-333333333333',
+      hostedId: '33333333-3333-4333-8333-333333333333',
+      clientFileId: { clientFileId: '33333333-3333-4333-8333-333333333333' },
+    },
+  ])(
+    'replays pending $documentType operations with the correct file ID',
+    async ({
+      documentType,
+      path,
+      renamed,
+      revision,
+      content,
+      route,
+      replicaId,
+      hostedId,
+      clientFileId,
+    }) => {
+      const operations = [
+        {
+          id: 'op-create',
+          kind: 'create' as const,
+          fileId: replicaId,
+          relativePath: path,
+          payload: {
+            parentId: null,
+            name: path,
+            kind: 'document',
+            documentType,
+            content: '',
+            ...clientFileId,
+            tempFileId: replicaId,
+          },
+          baseManifestSequence: 8,
+          createdAt: '2026-06-18T08:00:00Z',
+          status: 'pending' as const,
+        },
+        {
+          id: 'op-edit',
+          kind: 'edit' as const,
+          fileId: replicaId,
+          relativePath: path,
+          payload: {
+            targetFileId: replicaId,
+            expectedRevisionSequence: revision,
+            content,
+            ...(documentType === 'source' ? { sourceEditor: true } : {}),
+          },
+          baseManifestSequence: 8,
+          createdAt: '2026-06-18T08:00:01Z',
+          status: 'pending' as const,
+        },
+        {
+          id: 'op-rename',
+          kind: 'rename' as const,
+          fileId: replicaId,
+          relativePath: path,
+          payload: {
+            clientOperationId: '11111111-1111-4111-8111-111111111111',
+            baseManifestSequence: 8,
+            operationType: 'rename',
+            targetFileId: replicaId,
+            name: renamed,
+            parentId: null,
+            removeReferences: false,
+          },
+          baseManifestSequence: 8,
+          createdAt: '2026-06-18T08:00:02Z',
+          status: 'pending' as const,
+        },
+      ];
+      const seededManifest = { vaultId: 'hosted-vault', sequence: 12, files: [] };
+      vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue(operations);
+      vi.mocked(tauriCommands.hostedVaultRequest)
+        .mockResolvedValueOnce({ id: hostedId })
+        .mockResolvedValueOnce({ file: { id: hostedId }, content })
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce(seededManifest);
+
+      await replayPendingOperations(hostedVault);
+
+      expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
+        1,
+        'https://collab.example.test',
+        'POST',
+        '/api/v1/vaults/hosted-vault/files',
+        {
           parentId: null,
-          name: 'Draft.md',
+          name: path,
           kind: 'document',
-          documentType: 'note',
+          documentType,
           content: '',
-          tempFileId: 'offline-file-1',
+          ...clientFileId,
         },
-        baseManifestSequence: 8,
-        createdAt: '2026-06-18T08:00:00Z',
-        status: 'pending' as const,
-      },
-      {
-        id: 'op-edit',
-        kind: 'edit' as const,
-        fileId: 'offline-file-1',
-        relativePath: 'Draft.md',
-        payload: {
-          targetFileId: 'offline-file-1',
-          expectedRevisionSequence: 0,
-          content: '# Draft',
-        },
-        baseManifestSequence: 8,
-        createdAt: '2026-06-18T08:00:01Z',
-        status: 'pending' as const,
-      },
-      {
-        id: 'op-rename',
-        kind: 'rename' as const,
-        fileId: 'offline-file-1',
-        relativePath: 'Draft.md',
-        payload: {
+      );
+      expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
+        2,
+        'https://collab.example.test',
+        'POST',
+        `/api/v1/vaults/hosted-vault/files/${hostedId}/${route}`,
+        { expectedRevisionSequence: revision, content },
+      );
+      expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
+        3,
+        'https://collab.example.test',
+        'POST',
+        '/api/v1/vaults/hosted-vault/operations',
+        {
           clientOperationId: '11111111-1111-4111-8111-111111111111',
           baseManifestSequence: 8,
           operationType: 'rename',
-          targetFileId: 'offline-file-1',
-          name: 'Final.md',
+          targetFileId: hostedId,
+          name: renamed,
           parentId: null,
           removeReferences: false,
         },
-        baseManifestSequence: 8,
-        createdAt: '2026-06-18T08:00:02Z',
-        status: 'pending' as const,
-      },
-    ];
-    const seededManifest = { vaultId: 'hosted-vault', sequence: 12, files: [] };
-    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue(operations);
-    vi.mocked(tauriCommands.hostedVaultRequest)
-      .mockResolvedValueOnce({ id: 'file-123' })
-      .mockResolvedValueOnce({ file: { id: 'file-123' }, content: '# Draft' })
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce(seededManifest);
-
-    await replayPendingOperations(hostedVault);
-
-    expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
-      1,
-      'https://collab.example.test',
-      'POST',
-      '/api/v1/vaults/hosted-vault/files',
-      {
-        parentId: null,
-        name: 'Draft.md',
-        kind: 'document',
-        documentType: 'note',
-        content: '',
-      },
-    );
-    expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
-      2,
-      'https://collab.example.test',
-      'POST',
-      '/api/v1/vaults/hosted-vault/files/file-123/revisions',
-      { expectedRevisionSequence: 0, content: '# Draft' },
-    );
-    expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
-      3,
-      'https://collab.example.test',
-      'POST',
-      '/api/v1/vaults/hosted-vault/operations',
-      {
-        clientOperationId: '11111111-1111-4111-8111-111111111111',
-        baseManifestSequence: 8,
-        operationType: 'rename',
-        targetFileId: 'file-123',
-        name: 'Final.md',
-        parentId: null,
-        removeReferences: false,
-      },
-    );
-    expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
-      'https://collab.example.test',
-      'hosted-vault',
-      'op-create',
-    );
-    expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
-      'https://collab.example.test',
-      'hosted-vault',
-      'op-edit',
-    );
-    expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
-      'https://collab.example.test',
-      'hosted-vault',
-      'op-rename',
-    );
-    expect(tauriCommands.replicaSeed).toHaveBeenCalledWith(
-      'https://collab.example.test',
-      'hosted-vault',
-      'Hosted Vault',
-      seededManifest,
-      expect.objectContaining({ manifestSequence: 12, status: 'idle' }),
-      'editor',
-      ['vault.read', 'vault.offlineCopy'],
-    );
-  });
+      );
+      expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
+        'https://collab.example.test',
+        'hosted-vault',
+        'op-create',
+      );
+      expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
+        'https://collab.example.test',
+        'hosted-vault',
+        'op-edit',
+      );
+      expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
+        'https://collab.example.test',
+        'hosted-vault',
+        'op-rename',
+      );
+      expect(tauriCommands.replicaSeed).toHaveBeenCalledWith(
+        'https://collab.example.test',
+        'hosted-vault',
+        'Hosted Vault',
+        seededManifest,
+        expect.objectContaining({ manifestSequence: 12, status: 'idle' }),
+        'editor',
+        ['vault.read', 'vault.offlineCopy'],
+      );
+    },
+  );
 
   it('three-way merges a queued sheet edit against a newer hosted revision', async () => {
     const base = createWorkbookFixture({

@@ -1360,6 +1360,69 @@ describe('HostedVaultClient', () => {
     );
   });
 
+  it('queues exact source bytes and reopens the cached draft after recreating the client', async () => {
+    const path = 'Notes/Draft.JSON';
+    const content = '\uFEFF{\r\n  "draft": "é"\r\n';
+    const entry = {
+      ...hostedDocument,
+      name: 'Draft.JSON',
+      relativePath: path,
+      source: true,
+    };
+    const cached = { ...mockHostedManifest(), files: [rootFolder, entry] };
+    const optimistic = {
+      ...cached,
+      files: [
+        rootFolder,
+        {
+          ...entry,
+          currentRevision: { ...entry.currentRevision, sequence: 4, contentHash: 'offline' },
+        },
+      ],
+    };
+    vi.mocked(tauriCommands.replicaReadManifest)
+      .mockResolvedValueOnce(cached)
+      .mockResolvedValue(optimistic);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValueOnce(
+      new Error('NetworkError when attempting to fetch resource.'),
+    );
+    vi.mocked(tauriCommands.replicaReadCachedDocument).mockResolvedValue(content);
+    const writable = { ...hostedVault, capabilities: [...hostedVault.capabilities!, 'file.write'] };
+
+    await expect(
+      new HostedVaultClient(writable).writeSourceFile(path, content, '3'),
+    ).resolves.toMatchObject({
+      version: '4',
+      offlineQueued: true,
+    });
+    await expect(new HostedVaultClient(writable).readSourceFile(path)).resolves.toMatchObject({
+      content,
+      version: '4',
+    });
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(
+      hostedVault.serverUrl,
+      'POST',
+      '/api/v1/vaults/hosted-vault/files/file-1/source-revisions',
+      { expectedRevisionSequence: 3, content },
+    );
+    expect(tauriCommands.replicaEnqueueOperation).toHaveBeenCalledWith(
+      hostedVault.serverUrl,
+      hostedVault.hostedVaultId,
+      expect.objectContaining({
+        kind: 'edit',
+        payload: {
+          targetFileId: 'file-1',
+          expectedRevisionSequence: 3,
+          content,
+          sourceEditor: true,
+        },
+      }),
+    );
+    await expect(
+      new HostedVaultClient(hostedVault).writeSourceFile(path, content, '4'),
+    ).rejects.toThrow('read-only');
+  });
+
   it('reads hosted snapshots and authenticated assets without exposing access tokens', async () => {
     const snapshot = {
       id: 'snapshot-1',

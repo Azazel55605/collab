@@ -1867,9 +1867,20 @@ pub fn read_file_for_upload(
             .open(source_path, options)
             .map_err(|_| "Could not open the selected upload file.".to_string())?;
         let mut bytes = Vec::new();
-        source
-            .read_to_end(&mut bytes)
-            .map_err(|_| "Could not read the selected upload file.".to_string())?;
+        if collab_documents::source_text::classify_source_path(&name).is_some() {
+            let limit = collab_documents::DEFAULT_PARSER_LIMITS.max_bytes;
+            source
+                .take(limit as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "Could not read the selected source file.".to_string())?;
+            if bytes.len() > limit {
+                return Err("Source imports are limited to 16 MiB.".into());
+            }
+        } else {
+            source
+                .read_to_end(&mut bytes)
+                .map_err(|_| "Could not read the selected upload file.".to_string())?;
+        }
         bytes
     };
     let expected_hash = sha256_bytes(&bytes);

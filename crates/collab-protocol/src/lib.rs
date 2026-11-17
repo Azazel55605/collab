@@ -808,6 +808,7 @@ pub enum HostedDocumentType {
     Sheet,
     Ink,
     Deck,
+    Source,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -827,6 +828,9 @@ pub struct HostedFileEntry {
     pub relative_path: String,
     pub kind: HostedFileKind,
     pub document_type: Option<HostedDocumentType>,
+    /// Source entries project to the legacy Note discriminator on the wire.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub source: bool,
     pub state: HostedFileState,
     pub current_revision: Option<HostedFileRevision>,
     pub trashed_by_display_name: Option<String>,

@@ -2051,6 +2051,7 @@ mod tests {
                     relative_path: format!("{id}.md"),
                     kind: HostedFileKind::Document,
                     document_type: None,
+                    source: false,
                     state: HostedFileState::Active,
                     current_revision: None,
                     trashed_by_display_name: None,

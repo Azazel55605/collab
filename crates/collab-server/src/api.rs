@@ -263,6 +263,7 @@ pub struct PutVaultGrantRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateVaultFileRequest {
     pub parent_id: Option<Uuid>,
+    pub client_file_id: Option<Uuid>,
     pub name: String,
     pub kind: HostedFileKind,
     pub document_type: Option<HostedDocumentType>,
@@ -2593,13 +2594,6 @@ pub async fn create_vault_file(
     .await?;
     let (name, normalized_name) = collab_core::normalize_hosted_name(&payload.name)
         .map_err(|error| ApiFailure::path_invalid(error.to_string(), request_id.clone()))?;
-    validate_file_kind(
-        payload.kind,
-        payload.document_type,
-        &name,
-        &payload.content,
-        &request_id,
-    )?;
     let parent_path =
         validate_parent_folder(&state.database, vault_id, payload.parent_id, &request_id).await?;
     let relative_path = if parent_path.is_empty() {
@@ -2610,6 +2604,21 @@ pub async fn create_vault_file(
     collab_core::normalize_hosted_path(&relative_path)
         .map_err(|error| ApiFailure::path_invalid(error.to_string(), request_id.clone()))?;
 
+    validate_file_kind(
+        payload.kind,
+        payload.document_type,
+        &relative_path,
+        &payload.content,
+        &request_id,
+    )?;
+
+    if payload.client_file_id.is_some() && payload.document_type != Some(HostedDocumentType::Source)
+    {
+        return Err(ApiFailure::validation(
+            "Only source creation accepts a client file ID.",
+            request_id,
+        ));
+    }
     let content = (payload.kind == HostedFileKind::Document).then(|| payload.content.into_bytes());
     if let Some(content) = content.as_deref() {
         let settings = load_effective_runtime_settings(&state.config);
@@ -2632,7 +2641,7 @@ pub async fn create_vault_file(
     } else {
         None
     };
-    let file_id = Uuid::now_v7();
+    let file_id = payload.client_file_id.unwrap_or_else(Uuid::now_v7);
     let revision_id = digest.as_ref().map(|_| Uuid::now_v7());
     let actor_id = user_uuid(&actor.user);
     let mut transaction = state
@@ -2641,6 +2650,41 @@ pub async fn create_vault_file(
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
     lock_active_vault(&mut transaction, vault_id, &request_id).await?;
+    // Keep an offline source file's ID stable across retries and reconnects,
+    // even if the server committed creation before the client received it.
+    if payload.client_file_id.is_some() {
+        let replay: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM hosted_file_entries file
+                JOIN hosted_file_revisions initial
+                  ON initial.file_id = file.id AND initial.sequence = 1
+                WHERE file.id = $1 AND file.vault_id = $2 AND file.created_by = $3
+                  AND file.parent_id IS NOT DISTINCT FROM $4 AND file.normalized_name = $5
+                  AND file.document_type = 'source' AND file.state = 'active'
+                  AND initial.blob_digest = $6
+            )
+            "#,
+        )
+        .bind(file_id)
+        .bind(vault_id)
+        .bind(actor_id)
+        .bind(payload.parent_id)
+        .bind(&normalized_name)
+        .bind(digest.as_deref())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+        if replay {
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| ApiFailure::server(request_id.clone()))?;
+            let file =
+                load_vault_file_entry(&state.database, vault_id, file_id, &request_id).await?;
+            return Ok((StatusCode::OK, Json(DataResponse::new(file))));
+        }
+    }
     let inserted = sqlx::query(
         r#"
         INSERT INTO hosted_file_entries
@@ -3938,6 +3982,31 @@ pub async fn write_text_revision(
     Path((vault_id, file_id)): Path<(Uuid, Uuid)>,
     Json(payload): Json<WriteTextRevisionRequest>,
 ) -> Result<(StatusCode, Json<DataResponse<HostedTextDocument>>), ApiFailure> {
+    write_document_revision(
+        state, request_id, headers, vault_id, file_id, payload, false,
+    )
+    .await
+}
+
+pub async fn write_source_revision(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path((vault_id, file_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<WriteTextRevisionRequest>,
+) -> Result<(StatusCode, Json<DataResponse<HostedTextDocument>>), ApiFailure> {
+    write_document_revision(state, request_id, headers, vault_id, file_id, payload, true).await
+}
+
+async fn write_document_revision(
+    state: AppState,
+    request_id: String,
+    headers: HeaderMap,
+    vault_id: Uuid,
+    file_id: Uuid,
+    payload: WriteTextRevisionRequest,
+    source_writer: bool,
+) -> Result<(StatusCode, Json<DataResponse<HostedTextDocument>>), ApiFailure> {
     let actor = require_any_user(&state, &headers, &request_id).await?;
     let access = require_active_capability(
         &state.database,
@@ -3980,9 +4049,48 @@ pub async fn write_text_revision(
             request_id,
         ));
     }
+    let document_type = current.get::<Option<String>, _>("document_type");
+    let source = document_type.as_deref() == Some("source");
+    if source != source_writer {
+        return Err(ApiFailure::validation(
+            "Use the source editor to write source files.",
+            request_id,
+        ));
+    }
+    if source {
+        validate_source_bytes(incoming_content.as_bytes(), true, &request_id)?;
+    }
     let current_sequence = current.get::<Option<i64>, _>("sequence").unwrap_or(0);
     if check_revision_sequence(payload.expected_revision_sequence, current_sequence).is_err() {
-        return Err(ApiFailure::revision_conflict(request_id));
+        // Replaying a source save after a lost response must be idempotent,
+        // and must never merge or replace a different current revision.
+        let same_source = source
+            && payload.expected_revision_sequence.checked_add(1) == Some(current_sequence)
+            && current.get::<Option<String>, _>("blob_digest").as_deref()
+                == Some(collab_core::sha256_bytes(incoming_content.as_bytes()).as_str());
+        if !same_source {
+            return Err(ApiFailure::revision_conflict(request_id));
+        }
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?;
+        let file = load_vault_file_entry(&state.database, vault_id, file_id, &request_id).await?;
+        if file
+            .current_revision
+            .as_ref()
+            .map(|revision| revision.sequence)
+            != Some(current_sequence)
+        {
+            return Err(ApiFailure::revision_conflict(request_id));
+        }
+        return Ok((
+            StatusCode::OK,
+            Json(DataResponse::new(HostedTextDocument {
+                file,
+                content: incoming_content,
+            })),
+        ));
     }
     let prior_content = match current.get::<Option<String>, _>("blob_digest") {
         Some(prior_digest) => state
@@ -3998,18 +4106,21 @@ pub async fn write_text_revision(
         }
         None => String::new(),
     };
-    let content = match state
-        .hub
-        .merge_external_content(vault_id, file_id, &base_content, incoming_content)
-        .await
-    {
-        crate::ws::ExternalRevisionMerge::Merged(content) => content,
-        crate::ws::ExternalRevisionMerge::Conflict => {
-            return Err(ApiFailure::revision_conflict(request_id));
+    let content = if source {
+        incoming_content
+    } else {
+        match state
+            .hub
+            .merge_external_content(vault_id, file_id, &base_content, incoming_content)
+            .await
+        {
+            crate::ws::ExternalRevisionMerge::Merged(content) => content,
+            crate::ws::ExternalRevisionMerge::Conflict => {
+                return Err(ApiFailure::revision_conflict(request_id));
+            }
         }
     };
     let content_bytes = content.as_bytes();
-    let document_type = current.get::<Option<String>, _>("document_type");
     let file_name = current.get::<String, _>("name");
     let document_kind = collab_documents::classify_path(&file_name).or_else(|| {
         document_type
@@ -4120,19 +4231,21 @@ pub async fn write_text_revision(
         .commit()
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    state
-        .hub
-        .apply_external_revision(
-            vault_id,
-            file_id,
-            content.clone(),
-            MaterializedDocumentMarker {
-                revision_sequence: next_sequence,
-                content_hash: digest,
-            },
-            Some(actor_id),
-        )
-        .await;
+    if !source {
+        state
+            .hub
+            .apply_external_revision(
+                vault_id,
+                file_id,
+                content.clone(),
+                MaterializedDocumentMarker {
+                    revision_sequence: next_sequence,
+                    content_hash: digest,
+                },
+                Some(actor_id),
+            )
+            .await;
+    }
     let file = load_vault_file_entry(&state.database, vault_id, file_id, &request_id).await?;
     Ok((
         StatusCode::CREATED,
@@ -5283,7 +5396,8 @@ pub async fn list_file_references(
         .collect::<HashMap<_, _>>();
     let mut references = Vec::new();
     for file in &manifest.files {
-        if file.kind != HostedFileKind::Document
+        if file.source
+            || file.kind != HostedFileKind::Document
             || file.state != HostedFileState::Active
             || file.id == target.id
             || collab_documents::references::path_matches_or_descends(
@@ -5328,6 +5442,7 @@ pub async fn list_file_references(
                 &target_path,
             )
             .unwrap_or_default(),
+            HostedDocumentType::Source => Vec::new(),
             HostedDocumentType::Deck => collab_documents::references::collect_deck_references(
                 &content,
                 &file.relative_path,
@@ -5828,7 +5943,8 @@ async fn compute_reference_rewrites(
 ) -> Result<Vec<ReferenceRewrite>, ApiFailure> {
     let mut rewrites = Vec::new();
     for file in &manifest.files {
-        if file.kind != HostedFileKind::Document
+        if file.source
+            || file.kind != HostedFileKind::Document
             || file.state != HostedFileState::Active
             || collab_documents::references::path_matches_or_descends(&file.relative_path, old_path)
         {
@@ -5865,6 +5981,7 @@ async fn compute_reference_rewrites(
                 collab_documents::references::rewrite_ink_references(&content, old_path, new_path)
                     .ok()
             }
+            HostedDocumentType::Source => None,
             HostedDocumentType::Deck => {
                 collab_documents::references::rewrite_deck_references(&content, old_path, new_path)
                     .ok()
@@ -11254,6 +11371,7 @@ fn document_type_name(document_type: HostedDocumentType) -> &'static str {
         HostedDocumentType::Sheet => "sheet",
         HostedDocumentType::Ink => "ink",
         HostedDocumentType::Deck => "deck",
+        HostedDocumentType::Source => "source",
     }
 }
 
@@ -11264,6 +11382,7 @@ fn parse_document_type(document_type: Option<String>) -> Option<HostedDocumentTy
         "sheet" => HostedDocumentType::Sheet,
         "ink" => HostedDocumentType::Ink,
         "deck" => HostedDocumentType::Deck,
+        // Source rows retain the legacy Note discriminator in public manifests.
         _ => HostedDocumentType::Note,
     })
 }
@@ -11380,6 +11499,28 @@ fn validate_structural_operation(
             map_vault_domain_error(error, request_id)
         }
     })?;
+    if let Some(change) = &plan.path_change {
+        let invalid_source_path = target.source
+            && collab_documents::source_text::classify_source_path(&change.new_path).is_none();
+        let hides_source_files = target.kind == HostedFileKind::Folder
+            && change
+                .new_path
+                .split('/')
+                .any(|segment| segment.starts_with('.'))
+            && manifest.files.iter().any(|file| {
+                file.source
+                    && collab_documents::references::path_matches_or_descends(
+                        &file.relative_path,
+                        &change.old_path,
+                    )
+            });
+        if invalid_source_path || hides_source_files {
+            return Err(ApiFailure::validation(
+                "Source files must keep a supported source extension and visible path.",
+                request_id.to_owned(),
+            ));
+        }
+    }
     Ok(plan)
 }
 
@@ -11630,6 +11771,33 @@ fn sqlite_asset_media_type(
     }
 }
 
+pub(super) fn validate_source_bytes(
+    bytes: &[u8],
+    for_edit: bool,
+    request_id: &str,
+) -> Result<(), ApiFailure> {
+    use collab_documents::source_text::{decode_source_text, editable, LineEndings};
+
+    if bytes.len() > collab_documents::DEFAULT_PARSER_LIMITS.max_bytes {
+        return Err(ApiFailure::validation(
+            "Source files are limited to 16 MiB.",
+            request_id.to_owned(),
+        ));
+    }
+    let decoded = decode_source_text(bytes)
+        .map_err(|error| ApiFailure::validation(error.to_string(), request_id.to_owned()))?;
+    if for_edit
+        && (decoded.format.line_endings == LineEndings::Unsupported
+            || !editable(bytes.len(), decoded.content))
+    {
+        return Err(ApiFailure::validation(
+            "Source saves require uniform LF or CRLF and must fit the source editor limits.",
+            request_id.to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_file_kind(
     kind: HostedFileKind,
     document_type: Option<HostedDocumentType>,
@@ -11646,6 +11814,25 @@ fn validate_file_kind(
             request_id.to_owned(),
         ));
     }
+    if document_type == Some(HostedDocumentType::Source) {
+        if kind != HostedFileKind::Document
+            || collab_documents::source_text::classify_source_path(name).is_none()
+        {
+            return Err(ApiFailure::validation(
+                "Source files require a supported extension.",
+                request_id.to_owned(),
+            ));
+        }
+        return validate_source_bytes(content.as_bytes(), false, request_id);
+    }
+    if kind == HostedFileKind::Document
+        && collab_documents::source_text::classify_source_path(name).is_some()
+    {
+        return Err(ApiFailure::validation(
+            "Create source files with the source document type.",
+            request_id.to_owned(),
+        ));
+    }
     match kind {
         HostedFileKind::Folder if document_type.is_none() && content.is_empty() => Ok(()),
         HostedFileKind::Document if document_type.is_some() => {
@@ -11659,6 +11846,7 @@ fn validate_file_kind(
                 HostedDocumentType::Sheet => collab_documents::DocumentKind::Sheet,
                 HostedDocumentType::Ink => collab_documents::DocumentKind::Ink,
                 HostedDocumentType::Deck => collab_documents::DocumentKind::Deck,
+                HostedDocumentType::Source => collab_documents::DocumentKind::Source,
             };
             let kind = collab_documents::classify_path(name).unwrap_or(fallback_kind);
             collab_documents::validate(
@@ -12038,6 +12226,7 @@ fn file_entry_from_row(
                 relative_path: names.join("/"),
                 kind: parse_file_kind(row.get::<String, _>("kind").as_str()),
                 document_type: parse_document_type(row.get("document_type")),
+                source: row.get::<Option<String>, _>("document_type").as_deref() == Some("source"),
                 state: parse_file_state(row.get::<String, _>("state").as_str()),
                 current_revision: revision_from_current_row(row),
                 trashed_by_display_name: row.get("trashed_by_display_name"),
@@ -12082,6 +12271,7 @@ fn file_entry_from_single_row(row: &sqlx::postgres::PgRow) -> HostedFileEntry {
         relative_path: row.get("relative_path"),
         kind: parse_file_kind(row.get::<String, _>("kind").as_str()),
         document_type: parse_document_type(row.get("document_type")),
+        source: row.get::<Option<String>, _>("document_type").as_deref() == Some("source"),
         state: parse_file_state(row.get::<String, _>("state").as_str()),
         current_revision: revision_from_current_row(row),
         trashed_by_display_name: row.get("trashed_by_display_name"),
@@ -12439,6 +12629,7 @@ async fn ensure_hosted_note_index(
     for file in manifest.files.iter().filter(|file| {
         file.state == HostedFileState::Active
             && file.kind == HostedFileKind::Document
+            && !file.source
             && file.document_type == Some(HostedDocumentType::Note)
     }) {
         let Some(revision) = file.current_revision.as_ref() else {
@@ -19779,6 +19970,198 @@ mod tests {
 
         assert_eq!(load_backup_last_run(dir.path()), None);
     }
+    #[tokio::test]
+    async fn hosted_source_documents_preserve_bytes_and_legacy_manifest_decoding() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users, hosted_blobs RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let directory = tempfile::tempdir().unwrap();
+        let blobs = Arc::new(FileSystemBlobStorage::new(directory.path()).await.unwrap());
+        let app = build_router(AppState::new(ServerConfig::default(), pool.clone(), blobs));
+        let bootstrap = request(&app, "POST", "/api/v1/auth/bootstrap",
+            json!({"username":"owner", "displayName":"Owner", "password":"correct horse battery staple"}), None, None).await;
+        let (cookie, csrf) = session_cookies(&bootstrap);
+        let vault = request(
+            &app,
+            "POST",
+            "/api/v1/vaults",
+            json!({"name":"Source test"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        let vault = json_body(vault).await;
+        let root = format!("/api/v1/vaults/{}", vault["data"]["id"].as_str().unwrap());
+        let raw = "\u{feff}{\r\n  \"draft\":";
+        let client_file_id = Uuid::now_v7();
+        let creation = json!({
+            "clientFileId": client_file_id, "name": "draft.JSON", "kind": "document",
+            "documentType": "source", "content": raw
+        });
+        let created = request(
+            &app,
+            "POST",
+            &format!("{root}/files"),
+            creation.clone(),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created = json_body(created).await;
+        let id = created["data"]["id"].as_str().unwrap();
+        assert_eq!(created["data"]["documentType"], "note");
+        assert_eq!(created["data"]["source"], true);
+        assert_eq!(id, client_file_id.to_string());
+        let replay = request(
+            &app,
+            "POST",
+            &format!("{root}/files"),
+            creation,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(replay.status(), StatusCode::OK);
+        assert_eq!(json_body(replay).await["data"]["id"], id);
+
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct LegacyEntry {
+            document_type: LegacyKind,
+        }
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        #[serde(rename_all = "lowercase")]
+        enum LegacyKind {
+            Note,
+        }
+
+        let manifest = request(
+            &app,
+            "GET",
+            &format!("{root}/manifest"),
+            json!({}),
+            Some(&cookie),
+            None,
+        )
+        .await;
+        let manifest = json_body(manifest).await;
+        let entry = manifest["data"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == id)
+            .unwrap();
+        assert_eq!(entry["source"], true);
+        assert_eq!(
+            serde_json::from_value::<LegacyEntry>(entry.clone())
+                .unwrap()
+                .document_type,
+            LegacyKind::Note
+        );
+        let endpoint = format!("{root}/files/{id}");
+        let data = request(&app, "GET", &endpoint, json!({}), Some(&cookie), None).await;
+        assert_eq!(json_body(data).await["data"]["content"], raw);
+
+        let edited = "\u{feff}{\r\n  \"unfinished\": true\r\n";
+        let write = |path: String, expected: u64, content: &str| {
+            let body = json!({"expectedRevisionSequence":expected,"content":content});
+            let app = &app;
+            let cookie = &cookie;
+            let csrf = &csrf;
+            async move { request(app, "POST", &path, body, Some(cookie), Some(csrf)).await }
+        };
+        assert_eq!(
+            write(format!("{endpoint}/revisions"), 1, "old editor")
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            write(format!("{endpoint}/source-revisions"), 1, "mixed\r\nline\n")
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            write(format!("{endpoint}/source-revisions"), 1, edited)
+                .await
+                .status(),
+            StatusCode::CREATED
+        );
+        assert_eq!(
+            write(format!("{endpoint}/source-revisions"), 1, edited)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            write(format!("{endpoint}/source-revisions"), 1, "stale draft")
+                .await
+                .status(),
+            StatusCode::CONFLICT
+        );
+
+        let download = request(
+            &app,
+            "GET",
+            &format!("{endpoint}/content"),
+            json!({}),
+            Some(&cookie),
+            None,
+        )
+        .await;
+        assert_eq!(download.status(), StatusCode::OK);
+        assert_eq!(
+            download
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .as_ref(),
+            edited.as_bytes()
+        );
+        let export = request(
+            &app,
+            "GET",
+            &format!("{root}/export"),
+            json!({}),
+            Some(&cookie),
+            None,
+        )
+        .await;
+        assert_eq!(export.status(), StatusCode::OK);
+        let zip = export.into_body().collect().await.unwrap().to_bytes();
+        let imported =
+            parse_vault_zip(&zip, 1024 * 1024, 8 * 1024 * 1024, "source-export").unwrap();
+        let entry = imported
+            .iter()
+            .find(|entry| entry.relative_path == "draft.JSON")
+            .unwrap();
+        assert_eq!(entry.document_type, Some(HostedDocumentType::Source));
+        assert_eq!(entry.content.as_deref(), Some(edited.as_bytes()));
+
+        let legacy = request(&app, "POST", &format!("{root}/uploads"),
+            json!({"name":"legacy.py", "mediaType":"text/plain", "contentBase64":STANDARD.encode(b"print(42)\r\n"), "expectedHash":collab_core::sha256_bytes(b"print(42)\r\n")}), Some(&cookie), Some(&csrf)).await;
+        assert_eq!(legacy.status(), StatusCode::CREATED);
+        let legacy = json_body(legacy).await;
+        assert_eq!(legacy["data"]["kind"], "asset");
+        assert!(legacy["data"]["source"].is_null());
+    }
+
     #[tokio::test]
     async fn hosted_ink_drawings_are_a_first_class_document_type() {
         // Regression: `hosted_document_type` is a PostgreSQL enum, so adding
