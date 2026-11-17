@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { useDocumentStatusStore } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
 
 import SourceView from './SourceView';
@@ -28,6 +29,12 @@ vi.mock('../lib/vaultClient', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] });
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => new DOMRect(),
+  });
+  useEditorStore.getState().setPendingSearchJump(null);
   useVaultStore.setState({
     vault: { id: 'v', name: 'Vault', path: '/vault', lastOpened: 0, isEncrypted: false },
   });
@@ -75,4 +82,26 @@ it('shows a read-only excerpt and preserves access to the original copy', async 
   expect(screen.getByText('first line').tagName).toBe('PRE');
   expect(screen.getByRole('button', { name: 'Download original' })).toBeTruthy();
   expect(container.querySelector('.cm-editor')).toBeNull();
+});
+
+it('opens a source search match on the requested line, including when the tab is already open', async () => {
+  fixture.read.mockResolvedValue({
+    content: '\uFEFFconst Name = 1;\r\nconst nameAgain = Name;\r\n',
+    version: '1',
+    preview: null,
+    reason: null,
+  });
+  const jump = useEditorStore.getState().setPendingSearchJump;
+  jump({ relativePath: 'match.ts', line: 2, query: 'Name' });
+  const { container } = render(<SourceView relativePath="match.ts" />);
+  await screen.findByText('CRLF');
+  const editor = EditorView.findFromDOM(container.querySelector('.cm-editor')!)!;
+  const position = () => editor.state.doc.lineAt(editor.state.selection.main.from).number;
+  expect(position()).toBe(2);
+  act(() => jump({ relativePath: 'match.ts', line: 1, query: 'Name' }));
+  expect(position()).toBe(1);
+  expect(
+    editor.state.sliceDoc(editor.state.selection.main.from, editor.state.selection.main.to),
+  ).toBe('Name');
+  expect(useEditorStore.getState().pendingSearchJump).toBeNull();
 });

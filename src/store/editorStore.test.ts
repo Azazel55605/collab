@@ -39,6 +39,22 @@ describe('editorStore renameTab', () => {
     ]);
   });
 
+  it('routes a renamed SQL script to the source editor and preserves its selection', () => {
+    const store = useEditorStore.getState();
+    store.openTab('Queries/query.sql', 'query', 'note');
+    const selection = { scrollTop: 10, selectionAnchor: 2, selectionHead: 7 };
+    store.setNoteViewState('Queries/query.sql', selection);
+
+    store.renameTab('Queries/query.sql', 'Queries/renamed.SQL', 'renamed');
+
+    const state = useEditorStore.getState();
+    expect(state.openTabs[0]).toMatchObject({
+      relativePath: 'Queries/renamed.SQL',
+      type: 'source',
+    });
+    expect(state.noteViewStates['Queries/renamed.SQL']).toEqual(selection);
+  });
+
   it('moves persisted note editor view state when a note path changes', () => {
     useEditorStore.getState().setNoteViewState('Notes/a.md', {
       scrollTop: 240,

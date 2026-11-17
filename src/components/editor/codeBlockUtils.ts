@@ -28,6 +28,7 @@ const UNSORTED_CODE_BLOCK_LANGUAGE_OPTIONS: CodeBlockLanguageOption[] = [
   { value: 'tsx', label: 'TSX', aliases: ['tsx'] },
   { value: 'json', label: 'JSON', aliases: ['json'] },
   { value: 'html', label: 'HTML', aliases: ['html'] },
+  { value: 'xml', label: 'XML', aliases: ['xml'] },
   { value: 'css', label: 'CSS', aliases: ['css'] },
   { value: 'scss', label: 'SCSS', aliases: ['scss', 'sass'] },
   { value: 'markdown', label: 'Markdown', aliases: ['markdown', 'md'] },

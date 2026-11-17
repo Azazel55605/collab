@@ -3555,7 +3555,7 @@ pub(crate) async fn persist_materialized_document(
     }
     let current = sqlx::query(
         r#"
-        SELECT f.kind::text AS kind, f.state::text AS state,
+        SELECT f.kind::text AS kind, f.state::text AS state, f.name,
                f.document_type::text AS document_type, r.sequence, r.blob_digest
         FROM hosted_file_entries f
         LEFT JOIN hosted_file_revisions r ON r.id = f.current_revision_id
@@ -3573,6 +3573,11 @@ pub(crate) async fn persist_materialized_document(
     };
     if current.get::<String, _>("kind") != "document"
         || current.get::<String, _>("state") != "active"
+        || current.get::<Option<String>, _>("document_type").as_deref() == Some("source")
+        || current
+            .get::<String, _>("name")
+            .to_ascii_lowercase()
+            .ends_with(".sql")
     {
         return Ok(MaterializeDocumentOutcome::Skipped);
     }
@@ -4050,14 +4055,18 @@ async fn write_document_revision(
         ));
     }
     let document_type = current.get::<Option<String>, _>("document_type");
-    let source = document_type.as_deref() == Some("source");
-    if source != source_writer {
+    let stored_source = document_type.as_deref() == Some("source");
+    let legacy_sql = document_type.as_deref() == Some("note")
+        && collab_documents::source_text::classify_source_path(&current.get::<String, _>("name"))
+            == Some(collab_documents::source_text::SourceLanguage::Sql);
+    if (stored_source && !source_writer) || (source_writer && !stored_source && !legacy_sql) {
         return Err(ApiFailure::validation(
             "Use the source editor to write source files.",
             request_id,
         ));
     }
-    if source {
+    let source = stored_source || legacy_sql;
+    if source_writer {
         validate_source_bytes(incoming_content.as_bytes(), true, &request_id)?;
     }
     let current_sequence = current.get::<Option<i64>, _>("sequence").unwrap_or(0);
@@ -5397,6 +5406,7 @@ pub async fn list_file_references(
     let mut references = Vec::new();
     for file in &manifest.files {
         if file.source
+            || collab_documents::source_text::classify_source_path(&file.relative_path).is_some()
             || file.kind != HostedFileKind::Document
             || file.state != HostedFileState::Active
             || file.id == target.id
@@ -5944,6 +5954,7 @@ async fn compute_reference_rewrites(
     let mut rewrites = Vec::new();
     for file in &manifest.files {
         if file.source
+            || collab_documents::source_text::classify_source_path(&file.relative_path).is_some()
             || file.kind != HostedFileKind::Document
             || file.state != HostedFileState::Active
             || collab_documents::references::path_matches_or_descends(&file.relative_path, old_path)
@@ -11826,7 +11837,10 @@ fn validate_file_kind(
         return validate_source_bytes(content.as_bytes(), false, request_id);
     }
     if kind == HostedFileKind::Document
-        && collab_documents::source_text::classify_source_path(name).is_some()
+        && collab_documents::source_text::classify_source_path(name).is_some_and(|language| {
+            language != collab_documents::source_text::SourceLanguage::Sql
+                || document_type != Some(HostedDocumentType::Note)
+        })
     {
         return Err(ApiFailure::validation(
             "Create source files with the source document type.",
@@ -12618,6 +12632,7 @@ async fn ensure_hosted_note_index(
               AND file.state = 'active'
               AND file.kind = 'document'
               AND file.document_type = 'note'
+              AND lower(file.name) NOT LIKE '%.sql'
               AND file.current_revision_id = index_row.revision_id
           )
         "#,
@@ -12630,6 +12645,7 @@ async fn ensure_hosted_note_index(
         file.state == HostedFileState::Active
             && file.kind == HostedFileKind::Document
             && !file.source
+            && !file.name.to_ascii_lowercase().ends_with(".sql")
             && file.document_type == Some(HostedDocumentType::Note)
     }) {
         let Some(revision) = file.current_revision.as_ref() else {
@@ -20160,6 +20176,36 @@ mod tests {
         let legacy = json_body(legacy).await;
         assert_eq!(legacy["data"]["kind"], "asset");
         assert!(legacy["data"]["source"].is_null());
+
+        // SQL scripts created before the expansion retain their file ID and
+        // history when edited from either the Files or Databases workspace.
+        let sql = request(
+            &app, "POST", &format!("{root}/files"),
+            json!({"name": "query.SQL", "kind": "document", "documentType": "note", "content": "SELECT 1"}),
+            Some(&cookie), Some(&csrf),
+        ).await;
+        assert_eq!(sql.status(), StatusCode::CREATED);
+        let sql = json_body(sql).await;
+        let script_id = sql["data"]["id"].as_str().unwrap();
+        let script = format!("{root}/files/{script_id}");
+        let revised_sql = "\u{feff}SELECT 'café'\r\n";
+        assert_eq!(
+            write(format!("{script}/source-revisions"), 1, revised_sql)
+                .await
+                .status(),
+            StatusCode::CREATED
+        );
+        let opened = request(&app, "GET", &script, json!({}), Some(&cookie), None).await;
+        let opened = json_body(opened).await;
+        assert_eq!(opened["data"]["content"], revised_sql);
+        assert_eq!(opened["data"]["file"]["id"], script_id);
+        assert_eq!(opened["data"]["file"]["documentType"], "note");
+        assert_eq!(
+            write(format!("{script}/revisions"), 2, "SELECT 2")
+                .await
+                .status(),
+            StatusCode::CREATED
+        );
     }
 
     #[tokio::test]

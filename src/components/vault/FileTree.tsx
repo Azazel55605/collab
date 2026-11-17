@@ -787,7 +787,9 @@ export default function FileTree() {
         fileName.includes('\\') ||
         sourceLanguageForPath(relativePath) === undefined
       ) {
-        toast.error('Choose a .txt, .json, .py, .c, .h, or .cs filename.');
+        toast.error(
+          'Choose a filename with a supported source extension, such as .txt, .py, or .ts.',
+        );
         return;
       }
       try {

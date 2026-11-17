@@ -1,6 +1,6 @@
 # Source Editor
 
-**Status — Phase 2 hosted source files and replica replay implemented**
+**Status — Phase 3 implemented, packaged desktop testing pending**
 
 Open plain-text and source files in ordinary Collab document tabs. Keep the
 Markdown editor’s tab strip, document header, typography, theme, and sidebar
@@ -98,15 +98,18 @@ See the [Phase 0 contract and Linux prototype evidence](./source-editor-phase0-c
 
 ### Phase 3 — IDE features, wider file coverage, and release testing
 
-- Roll out the expansion set after checking language behavior. Add folding,
-  diagnostics, completion, and outline features incrementally.
-- Add bounded vault-wide source content search as a follow-up to filename
-  search. Use file and line results and respect vault encryption and permissions.
-- Test routing, read-only access, rename and reopen, Unicode, BOM, CRLF,
-  unfinished JSON, large files, conflicts, and import or export round trips.
-  Update the supported file type matrix and desktop user guide alongside
-  implementation. Include packaged Linux, Windows, and macOS tests for
-  shortcuts and performance.
+- [x] Enable the expansion set in Files and preserve the Databases workflow
+      for SQL scripts. Add grammar-backed folding, syntax diagnostics and
+      outlines where supported. Use language completions and snippets when
+      available and suggest words from the current file in C, C++, C#, Java
+      and Rust.
+- [x] Add bounded vault-wide source search with file and line results. Use
+      existing vault reads for locked, encrypted, hosted, and offline access.
+- [x] Cover language loading, source routing, BOM, CRLF, syntax errors,
+      read-only limits, revision conflicts and ZIP round trips in automated
+      checks. Update the file type matrix and desktop guide.
+- [ ] Verify packaged Linux, Windows, and macOS builds, including shortcuts,
+      rename and reopen, search and offline replay, and editing performance.
 
 ## Decisions for review
 

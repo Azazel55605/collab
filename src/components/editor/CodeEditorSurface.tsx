@@ -13,9 +13,16 @@ import {
   indentOnInput,
   indentUnit,
   syntaxHighlighting,
+  syntaxTree,
 } from '@codemirror/language';
 import { searchKeymap } from '@codemirror/search';
-import { Compartment, EditorSelection, EditorState, Transaction } from '@codemirror/state';
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  Transaction,
+} from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
@@ -159,6 +166,7 @@ export function CodeEditorSurface({
   readOnly = false,
   onReady,
   onViewChange,
+  extensions,
 }: {
   value: string;
   language: string;
@@ -167,11 +175,13 @@ export function CodeEditorSurface({
   readOnly?: boolean;
   onReady?: (view: EditorView) => void;
   onViewChange?: (view: EditorView) => void;
+  extensions?: Extension;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const callbacks = useRef({ onChange, onReady, onViewChange });
   const accessCompartment = useRef(new Compartment());
+  const toolsCompartment = useRef(new Compartment());
   const wrapCompartment = useRef(new Compartment());
   const themeCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
@@ -243,6 +253,7 @@ export function CodeEditorSurface({
         asciiArrowLigatures(),
         wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
         accessCompartment.current.of(sourceAccess(readOnly)),
+        toolsCompartment.current.of([]),
         documentFocus ? EditorView.contentAttributes.of({ 'data-document-focus': '' }) : [],
         EditorView.domEventHandlers({
           scroll: (_event, view) => callbacks.current.onViewChange?.(view),
@@ -255,7 +266,11 @@ export function CodeEditorSurface({
           ) {
             callbacks.current.onChange(update.state.doc.toString());
           }
-          if (update.docChanged || update.selectionSet)
+          if (
+            update.docChanged ||
+            update.selectionSet ||
+            syntaxTree(update.startState) !== syntaxTree(update.state)
+          )
             callbacks.current.onViewChange?.(update.view);
         }),
         keymap.of([
@@ -346,6 +361,12 @@ export function CodeEditorSurface({
       effects: accessCompartment.current.reconfigure(sourceAccess(readOnly)),
     });
   }, [readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: toolsCompartment.current.reconfigure(extensions ?? []),
+    });
+  }, [extensions]);
 
   return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
 }

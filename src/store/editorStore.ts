@@ -6,6 +6,7 @@ import { runDocumentNavigation } from '../lib/documentNavigation';
 import { documentSessionRetention } from '../lib/documentSessionRetention';
 import { isMediaSidecarPath } from '../lib/mediaFiles';
 import { isSqlitePath } from '../lib/sqliteFiles';
+import { getVaultDocumentTabType } from '../lib/vaultLinks';
 
 export interface OpenTab {
   relativePath: string;
@@ -85,6 +86,7 @@ export interface DeckViewState {
 export interface PendingSearchJump {
   relativePath: string;
   query: string;
+  line?: number;
 }
 
 export interface PendingSheetJump {
@@ -353,10 +355,19 @@ export const useEditorStore = create<EditorState>()(
 
       renameTab: (oldPath, newPath, newTitle) => {
         documentSessionRetention.clear();
+        const renamedType = getVaultDocumentTabType(newPath);
         set((state) => ({
           openTabs: state.openTabs.map((t) =>
             t.relativePath === oldPath
-              ? { ...t, relativePath: newPath, title: newTitle }
+              ? {
+                  ...t,
+                  relativePath: newPath,
+                  title: newTitle,
+                  type:
+                    t.type === 'source' || (t.type === 'note' && renamedType === 'source')
+                      ? renamedType
+                      : t.type,
+                }
               : t.relativePath.startsWith(`${oldPath}/`)
                 ? { ...t, relativePath: `${newPath}${t.relativePath.slice(oldPath.length)}` }
                 : t,
@@ -443,6 +454,11 @@ export const useEditorStore = create<EditorState>()(
         const restored = { ...current, ...(persisted as Partial<DurableEditorState>) };
         return {
           ...restored,
+          openTabs: restored.openTabs.map((tab) =>
+            tab.type === 'note' && getVaultDocumentTabType(tab.relativePath) === 'source'
+              ? { ...tab, type: 'source' }
+              : tab,
+          ),
           noteViewStates: trimViewStates(restored.noteViewStates, restored.openTabs),
           sheetViewStates: trimViewStates(restored.sheetViewStates, restored.openTabs),
           inkViewStates: trimViewStates(restored.inkViewStates, restored.openTabs),

@@ -1,15 +1,23 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
+import { useEditorStore } from '../../store/editorStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
 
 import SearchPanel from './SearchPanel';
 
-const mocks = vi.hoisted(() => ({ search: vi.fn(), page: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  search: vi.fn(),
+  page: vi.fn(),
+  files: vi.fn(),
+  readSource: vi.fn(),
+}));
 vi.mock('../../lib/vaultClient', () => ({
   createVaultClient: () => ({
     search: mocks.search,
+    listFiles: mocks.files,
+    readSourceFile: mocks.readSource,
     searchPage: mocks.page.getMockImplementation() ? mocks.page : undefined,
   }),
 }));
@@ -99,4 +107,40 @@ it('keeps rendering bounded and reaches later pages, clearing on server switch',
     await vi.advanceTimersByTimeAsync(300);
   });
   expect(mocks.page).toHaveBeenLastCalledWith('needle', 0, 50);
+});
+
+it('opens a source result and removes source excerpts when the vault locks', async () => {
+  vi.useFakeTimers();
+  useVaultStore.setState({
+    vault: { id: 'v', name: 'v', kind: 'local', path: '/vault', isEncrypted: true, lastOpened: 1 },
+    isVaultLocked: false,
+  });
+  mocks.files.mockResolvedValue([
+    {
+      relativePath: 'task.rs',
+      name: 'task.rs',
+      extension: 'rs',
+      isFolder: false,
+      size: 42,
+      modifiedAt: 0,
+    },
+  ]);
+  mocks.readSource.mockResolvedValue({ content: 'first\nneedle text', version: '1' });
+  render(<SearchPanel />);
+  fireEvent.click(screen.getByRole('button', { name: 'Source files' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search source files' }), {
+    target: { value: 'needle' },
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(300));
+  fireEvent.click(screen.getByRole('button', { name: /task.rs.*Line 2/ }));
+  expect(useEditorStore.getState().pendingSearchJump).toEqual({
+    relativePath: 'task.rs',
+    line: 2,
+    query: 'needle',
+  });
+  act(() => useVaultStore.setState({ isVaultLocked: true }));
+  expect(screen.queryByText('needle text')).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Search source files' })).toBeNull();
+  useEditorStore.getState().setPendingSearchJump(null);
+  useVaultStore.setState({ isVaultLocked: false });
 });

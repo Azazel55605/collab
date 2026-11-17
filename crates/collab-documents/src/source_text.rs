@@ -19,6 +19,21 @@ pub enum SourceLanguage {
     Python,
     C,
     CSharp,
+    Cpp,
+    JavaScript,
+    Jsx,
+    TypeScript,
+    Tsx,
+    Html,
+    Css,
+    Xml,
+    Yaml,
+    Toml,
+    Rust,
+    Go,
+    Java,
+    Shell,
+    Sql,
 }
 
 pub fn classify_source_path(path: &str) -> Option<SourceLanguage> {
@@ -26,7 +41,7 @@ pub fn classify_source_path(path: &str) -> Option<SourceLanguage> {
         return None;
     }
     let name = path.rsplit('/').next()?.to_ascii_lowercase();
-    if super::classify_path(&name).is_some() {
+    if !name.ends_with(".sql") && super::classify_path(&name).is_some() {
         return None;
     }
     let (_, extension) = name.rsplit_once('.')?;
@@ -36,6 +51,21 @@ pub fn classify_source_path(path: &str) -> Option<SourceLanguage> {
         "py" => Some(SourceLanguage::Python),
         "c" | "h" => Some(SourceLanguage::C),
         "cs" => Some(SourceLanguage::CSharp),
+        "cpp" | "cc" | "cxx" | "hpp" => Some(SourceLanguage::Cpp),
+        "js" => Some(SourceLanguage::JavaScript),
+        "jsx" => Some(SourceLanguage::Jsx),
+        "ts" => Some(SourceLanguage::TypeScript),
+        "tsx" => Some(SourceLanguage::Tsx),
+        "html" => Some(SourceLanguage::Html),
+        "css" => Some(SourceLanguage::Css),
+        "xml" => Some(SourceLanguage::Xml),
+        "yaml" | "yml" => Some(SourceLanguage::Yaml),
+        "toml" => Some(SourceLanguage::Toml),
+        "rs" => Some(SourceLanguage::Rust),
+        "go" => Some(SourceLanguage::Go),
+        "java" => Some(SourceLanguage::Java),
+        "sh" => Some(SourceLanguage::Shell),
+        "sql" => Some(SourceLanguage::Sql),
         _ => None,
     }
 }
@@ -149,7 +179,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn initial_classifier_excludes_reserved_paths() {
+    fn classifier_recognizes_source_extensions_and_excludes_reserved_paths() {
         for (path, language) in [
             ("README.txt", SourceLanguage::PlainText),
             ("Settings/APP.JSON", SourceLanguage::Json),
@@ -157,6 +187,25 @@ mod tests {
             ("main.c", SourceLanguage::C),
             ("main.H", SourceLanguage::C),
             ("Program.cs", SourceLanguage::CSharp),
+            ("main.cpp", SourceLanguage::Cpp),
+            ("main.cc", SourceLanguage::Cpp),
+            ("main.cxx", SourceLanguage::Cpp),
+            ("main.hpp", SourceLanguage::Cpp),
+            ("app.js", SourceLanguage::JavaScript),
+            ("app.jsx", SourceLanguage::Jsx),
+            ("app.ts", SourceLanguage::TypeScript),
+            ("app.tsx", SourceLanguage::Tsx),
+            ("index.html", SourceLanguage::Html),
+            ("style.css", SourceLanguage::Css),
+            ("feed.xml", SourceLanguage::Xml),
+            ("app.yaml", SourceLanguage::Yaml),
+            ("app.yml", SourceLanguage::Yaml),
+            ("Cargo.toml", SourceLanguage::Toml),
+            ("main.rs", SourceLanguage::Rust),
+            ("main.go", SourceLanguage::Go),
+            ("Main.java", SourceLanguage::Java),
+            ("setup.sh", SourceLanguage::Shell),
+            ("SQL/query.SQL", SourceLanguage::Sql),
         ] {
             assert_eq!(classify_source_path(path), Some(language), "{path}");
         }
@@ -167,7 +216,6 @@ mod tests {
             ".collab/config.json",
             "README",
             "table.csv",
-            "query.sql",
             "drawing.svg",
             "file.exe",
         ] {

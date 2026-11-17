@@ -1048,7 +1048,7 @@ async fn handle_subscribe(
     }
     // The file must be an active document inside this vault.
     let document_type = sqlx::query_scalar::<_, String>(
-        "SELECT document_type::text FROM hosted_file_entries WHERE id = $1 AND vault_id = $2 AND kind = 'document' AND state = 'active'",
+        "SELECT document_type::text FROM hosted_file_entries WHERE id = $1 AND vault_id = $2 AND kind = 'document' AND state = 'active' AND lower(name) NOT LIKE '%.sql'",
     )
     .bind(file_id)
     .bind(vault_id)
