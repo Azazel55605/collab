@@ -27,3 +27,5 @@ export const PdfView = deferredView(() => import('./PdfView'));
 export const SettingsPage = deferredView(() => import('./SettingsPage'));
 export const SheetView = deferredView(() => import('./SheetView'));
 export const SvgVectorView = deferredView(() => import('./SvgVectorView'));
+
+export const SourceView = deferredView(() => import('./SourceView'));

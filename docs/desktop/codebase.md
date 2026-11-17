@@ -169,6 +169,13 @@ Opening or activating a document tab transfers keyboard focus to its pane.
 The shell hands focus to a document's keyboard target, such as the sheet grid or
 PDF viewport, when it mounts and the pane still owns focus.
 
+`views/SourceView.tsx` opens local source files in their own tabs. It shares
+CodeMirror with the Markdown code-block dialog through
+`components/editor/CodeEditorSurface.tsx` and uses the document session
+controller for optimistic saves and external edits. The local source commands
+enforce the source classifier and editor limits before passing content to the
+WebView. Hosted document kinds continue to use their existing classifier.
+
 The activity bar sidebar button and Ctrl/Cmd+Shift+B toggle the active
 workspace’s sidebar. Calendar, Chats, and Databases own their overview, chat
 list, and connections panel. `uiStore.workspaceSidebars` remembers each

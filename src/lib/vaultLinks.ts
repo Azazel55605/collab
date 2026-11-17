@@ -2,13 +2,24 @@ import type { ActiveView } from '../store/uiStore';
 import type { NoteFile } from '../types/vault';
 
 import { isMediaSidecarPath, mediaKindForPath } from './mediaFiles';
+import { sourceLanguageForPath } from './sourceFiles';
 import { vaultTreeIndex } from './vaultTreeIndex';
 
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
 export type VaultDocumentTabType =
-  'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'deck' | 'image' | 'pdf' | 'media';
+  | 'note'
+  | 'canvas'
+  | 'kanban'
+  | 'logic'
+  | 'sheet'
+  | 'ink'
+  | 'deck'
+  | 'image'
+  | 'pdf'
+  | 'media'
+  | 'source';
 
 export interface VaultLinkTarget {
   relativePath: string;
@@ -85,6 +96,7 @@ export function getVaultDocumentTabType(relativePath: string): VaultDocumentTabT
   if (/\.deck$/i.test(relativePath)) return 'deck';
   if (/\.kanban$/i.test(relativePath)) return 'kanban';
   if (/\.canvas$/i.test(relativePath)) return 'canvas';
+  if (sourceLanguageForPath(relativePath) !== undefined) return 'source';
   return 'note';
 }
 

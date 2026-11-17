@@ -221,3 +221,11 @@ describe('spreadsheet documents', () => {
     );
   });
 });
+
+it('routes starter source extensions without changing note and sidecar precedence', () => {
+  for (const extension of ['txt', 'JSON', 'py', 'c', 'h', 'cs']) {
+    expect(getVaultDocumentTabType(`Docs/example.${extension}`)).toBe('source');
+  }
+  expect(getVaultDocumentTabType('Docs/annotations.pdf.json')).toBe('note');
+  expect(getVaultDocumentTabType('Docs/example.md')).toBe('note');
+});

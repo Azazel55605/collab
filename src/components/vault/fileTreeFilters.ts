@@ -1,9 +1,11 @@
 import { CAPTION_EXTENSIONS, mediaKind } from '../../lib/mediaFiles';
+import { sourceLanguageForPath } from '../../lib/sourceFiles';
 import { SQLITE_EXTENSIONS } from '../../lib/sqliteFiles';
 import type { NoteFile } from '../../types/vault';
 
 export type FileTypeFilter =
   | 'note'
+  | 'source'
   | 'canvas'
   | 'kanban'
   | 'sheet'
@@ -20,6 +22,7 @@ export type FileTypeFilter =
 
 export const FILE_TYPE_FILTERS: Array<{ id: FileTypeFilter; label: string }> = [
   { id: 'note', label: 'Notes' },
+  { id: 'source', label: 'Source files' },
   { id: 'canvas', label: 'Canvases' },
   { id: 'kanban', label: 'Kanban boards' },
   { id: 'sheet', label: 'Spreadsheets' },
@@ -35,7 +38,7 @@ export const FILE_TYPE_FILTERS: Array<{ id: FileTypeFilter; label: string }> = [
   { id: 'other', label: 'Other files' },
 ];
 
-const NOTE_FILE_EXTENSIONS = new Set(['md', 'markdown', 'txt']);
+const NOTE_FILE_EXTENSIONS = new Set(['md', 'markdown']);
 const IMAGE_FILE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -48,9 +51,12 @@ const IMAGE_FILE_EXTENSIONS = new Set([
   'avif',
 ]);
 
-export function getFileTypeFilter(node: Pick<NoteFile, 'extension'>): FileTypeFilter {
+export function getFileTypeFilter(
+  node: Pick<NoteFile, 'extension' | 'relativePath'>,
+): FileTypeFilter {
   const extension = node.extension.toLowerCase();
   if (NOTE_FILE_EXTENSIONS.has(extension)) return 'note';
+  if (sourceLanguageForPath(node.relativePath) !== undefined) return 'source';
   if (extension === 'canvas') return 'canvas';
   if (extension === 'kanban') return 'kanban';
   if (extension === 'sheet') return 'sheet';

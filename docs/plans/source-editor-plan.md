@@ -1,6 +1,6 @@
 # Source Editor
 
-**Status — Phase 0 prototype verified on Linux**
+**Status — Phase 1 desktop local editing implemented**
 
 Open plain-text and source files in ordinary Collab document tabs. Keep the
 Markdown editor’s tab strip, document header, typography, theme, and sidebar
@@ -72,18 +72,18 @@ See the [Phase 0 contract and Linux prototype evidence](./source-editor-phase0-c
 
 ### Phase 1 — Desktop local files
 
-- Extract the CodeMirror surface with its theme, indentation preferences, and
-  language loading. Preserve the Markdown code-block dialog and database editor
-  behavior through their existing entry points.
-- Add a source tab and an editor view. Support creating a source file, Add
-  Files, desktop drag and drop, and opening files already in a local vault.
-  Wire up the file tree, Command Bar filename search, links, tab restoration,
-  and document focus.
-- Reuse the document session for saving, read-only access, close handling,
-  history where supported, and external edits. Use the expected hash on saves
-  and retain unsaved text on a conflict. Verify plain and encrypted local
-  vaults. Keep source content out of Markdown-specific backlinks, tags, and
-  graph indexing.
+- [x] Extract the CodeMirror surface with its theme, indentation preferences, and
+      language loading. Preserve the Markdown code-block dialog and database editor
+      behavior through their existing entry points.
+- [x] Add a source tab and an editor view. Support creating a source file, Add
+      Files, desktop drag and drop, and opening files already in a local vault.
+      Wire up the file tree, Command Bar filename search, links, tab restoration,
+      and document focus.
+- [x] Reuse the document session for saving, read-only access, close handling,
+      history where supported, and external edits. Use the expected hash on saves
+      and retain unsaved text on a conflict. Verify plain and encrypted local
+      vaults. Keep source content out of Markdown-specific backlinks, tags, and
+      graph indexing.
 
 ### Phase 2 — Hosted vaults and replicas
 

@@ -21,6 +21,8 @@ use walkdir::WalkDir;
 #[path = "files/sidecars.rs"]
 pub(crate) mod sidecars;
 use sidecars::overlay_relative_path;
+#[path = "files/source.rs"]
+pub(crate) mod source;
 #[cfg(test)]
 use sidecars::{document_preview_cache_relative_path, pdf_sidecar_relative_path};
 
@@ -1059,6 +1061,26 @@ fn rewrite_all_references(
     Ok(())
 }
 
+fn read_document_bytes(path: &Path, relative_path: &str) -> std::io::Result<Vec<u8>> {
+    if collab_documents::source_text::classify_source_path(relative_path).is_some() {
+        let bytes = source::read_edit_bytes(path)?;
+        let overhead = if crypto::is_encrypted_data(&bytes) {
+            32
+        } else {
+            0
+        };
+        if bytes.len() > collab_documents::source_text::MAX_EDIT_BYTES + overhead {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                source::LIMIT_MESSAGE,
+            ));
+        }
+        Ok(bytes)
+    } else {
+        std::fs::read(path)
+    }
+}
+
 fn read_note_from_path(
     full_path: &Path,
     relative_path: &str,
@@ -1067,7 +1089,7 @@ fn read_note_from_path(
     if collab_documents::sqlite_file::matches_path(relative_path) {
         return Err("SQLite snapshots are binary assets.".into());
     }
-    let raw = std::fs::read(full_path)
+    let raw = read_document_bytes(full_path, relative_path)
         .map_err(|e| format!("Failed to read '{}': {}", relative_path, e))?;
 
     let content_bytes = if crypto::is_encrypted_data(&raw) {
@@ -1105,9 +1127,14 @@ pub(super) fn write_note_to_path(
     if collab_documents::sqlite_file::matches_path(relative_path) {
         return Err("SQLite snapshots are binary assets.".into());
     }
+    let is_source = collab_documents::source_text::classify_source_path(relative_path).is_some();
+    if is_source {
+        source::validate_write(&content)?;
+    }
+    let base_content = if is_source { None } else { base_content };
     let _mutation = crate::local_mutation::lock_path(full_path)?;
     let observed_hash = if expected_hash.is_some() {
-        match std::fs::read(full_path) {
+        match read_document_bytes(full_path, relative_path) {
             Ok(bytes) => Some(sha256_bytes(&bytes)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(error.to_string()),
@@ -1221,7 +1248,7 @@ pub(super) fn write_note_to_path(
     // expensive validation/encryption/staging work; never knowingly replace an
     // intervening change or resurrect a file deleted since it was opened.
     if expected_hash.is_some()
-        && std::fs::read(full_path)
+        && read_document_bytes(full_path, relative_path)
             .ok()
             .map(|bytes| sha256_bytes(&bytes))
             != observed_hash
@@ -1269,7 +1296,9 @@ fn create_note_at_path(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let initial_content = if relative_path.to_ascii_lowercase().ends_with(".sql") {
+    let initial_content = if relative_path.to_ascii_lowercase().ends_with(".sql")
+        || collab_documents::source_text::classify_source_path(relative_path).is_some()
+    {
         String::new()
     } else {
         format!("# {}\n\n", name)
@@ -1387,7 +1416,12 @@ fn collect_entries_at(
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
 
-            if !is_allowed_extension(&ext) {
+            if !is_allowed_extension(&ext)
+                && !matches!(
+                    collab_documents::classify_local_path(&relative_path),
+                    Some(collab_documents::DocumentKind::Source)
+                )
+            {
                 continue;
             }
 
@@ -1708,7 +1742,21 @@ pub fn import_asset_into_vault(
     let target_dir = resolve_vault_path(&vault_path, &folder)?;
     std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
     let target_path = unique_target_path(&target_dir, &source_name);
-    let source_bytes = if collab_documents::sqlite_file::matches_path(&source_name) {
+    let source_document =
+        collab_documents::source_text::classify_source_path(&source_name).is_some();
+    let source_bytes = if source_document {
+        let mut bytes = Vec::new();
+        let limit = collab_documents::DEFAULT_PARSER_LIMITS.max_bytes;
+        std::fs::File::open(source)
+            .and_then(|file| file.take(limit as u64 + 1).read_to_end(&mut bytes))
+            .map_err(|error| error.to_string())?;
+        if bytes.len() > limit {
+            return Err("Source imports are limited to 16 MiB. Move larger files into the vault using the file manager.".into());
+        }
+        collab_documents::source_text::decode_source_text(&bytes)
+            .map_err(|error| error.to_string())?;
+        bytes
+    } else if collab_documents::sqlite_file::matches_path(&source_name) {
         read_sqlite_snapshot(source)?
     } else {
         std::fs::read(source).map_err(|e| e.to_string())?
@@ -1720,7 +1768,21 @@ pub fn import_asset_into_vault(
         source_bytes
     };
 
-    std::fs::write(&target_path, bytes_to_write).map_err(|e| e.to_string())?;
+    if source_document {
+        let mut staged =
+            tempfile::NamedTempFile::new_in(&target_dir).map_err(|error| error.to_string())?;
+        std::io::Write::write_all(&mut staged, &bytes_to_write)
+            .map_err(|error| error.to_string())?;
+        staged
+            .as_file()
+            .sync_all()
+            .map_err(|error| error.to_string())?;
+        staged
+            .persist_noclobber(&target_path)
+            .map_err(|error| error.to_string())?;
+    } else {
+        std::fs::write(&target_path, bytes_to_write).map_err(|e| e.to_string())?;
+    }
 
     let relative = target_path
         .strip_prefix(&vault_path)

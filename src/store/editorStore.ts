@@ -14,6 +14,7 @@ export interface OpenTab {
   savedHash: string | null;
   type:
     | 'note'
+    | 'source'
     | 'canvas'
     | 'kanban'
     | 'logic'
@@ -29,6 +30,7 @@ export interface OpenTab {
 
 export interface NoteEditorViewState {
   scrollTop: number;
+  scrollLeft?: number;
   selectionAnchor: number;
   selectionHead: number;
 }
