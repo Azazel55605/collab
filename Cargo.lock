@@ -1099,6 +1099,7 @@ dependencies = [
  "collab-replica",
  "collab-sheet",
  "collab-vault-domain",
+ "dbus",
  "futures-util",
  "fuzzy-matcher",
  "glib",

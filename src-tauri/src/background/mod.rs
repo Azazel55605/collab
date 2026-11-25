@@ -1296,10 +1296,10 @@ mod tests {
             .expect("sync state");
 
         let runtime = Arc::new(HostedSessionRuntime::new());
-        runtime
-            .refresh_token_cache
-            .write()
-            .insert(server.base_url(), "refresh".to_string());
+        runtime.refresh_token_cache.write().insert(
+            server.base_url(),
+            crate::state::SavedRefreshToken::Stored("refresh".to_string()),
+        );
         let coordinator = Arc::new(BackgroundCoordinator::for_test(
             runtime,
             directory.path().to_path_buf(),

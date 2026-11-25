@@ -268,15 +268,15 @@ describe('VaultPicker start screen', () => {
     await waitFor(() => expect(openVault).toHaveBeenCalledWith('/home/me/research'));
   });
 
-  it('shows one banner for a signed-out saved server and offers password-only sign in', async () => {
+  it('offers saved-session restore and password sign-in for a disconnected server', async () => {
     saveKnownServer('https://saved.example.test');
     useServerStore.setState({ connections: {} });
 
     render(<VaultPicker />);
-    expect(screen.getByRole('status').textContent).toContain('saved.example.test is signed out');
+    expect(screen.getByRole('status').textContent).toContain('saved.example.test is disconnected');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to saved.example.test' }));
 
-    expect(await screen.findByText(/session on saved\.example\.test ended/)).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Restore saved session' })).toBeTruthy();
     expect(screen.getByDisplayValue('alice')).toBeTruthy();
     expect(screen.getByLabelText('Password')).toBeTruthy();
     expect(screen.queryByLabelText('Server URL')).toBeNull();

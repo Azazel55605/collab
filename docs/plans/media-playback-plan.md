@@ -134,7 +134,7 @@ before promising large encrypted playback. Do not silently stage plaintext.
 - [x] Add local subtitle timing, vault queues and saved playlists, local MP4
       chapters, capability-gated OS controls and picture-in-picture, short WAV
       waveforms, and an optional 4K HEVC/E-AC-3 verification fixture.
-- [X] Qualify subtitle timing, queue auto-advance, chapter seeks, picture-in-picture,
+- [x] Qualify subtitle timing, queue auto-advance, chapter seeks, picture-in-picture,
       system media controls, waveform generation, and sustained 4K playback in
       installed WebViews.
 

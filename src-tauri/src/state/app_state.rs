@@ -3,9 +3,9 @@ use crate::models::vault::VaultMeta;
 use collab_protocol::ServerUser;
 use notify::RecommendedWatcher;
 use notify_debouncer_mini::Debouncer;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, Weak};
 
 #[derive(Debug, Clone)]
 pub struct ServerSessionState {
@@ -13,24 +13,27 @@ pub struct ServerSessionState {
     pub allow_invalid_certificates: bool,
     pub persist_across_reboots: bool,
     pub access_token: String,
-    /// Held in memory (like `access_token`) so reconnects and the auto-reconnect
-    /// retry loop can rotate the session without re-reading the OS keyring — the
-    /// keyring is otherwise touched once per launch. Never leaves the backend.
+    /// The newest token issued by this server, including a replacement awaiting
+    /// a successful keystore write. Never leaves the backend.
     pub refresh_token: String,
     pub access_expires_at: String,
     pub user: ServerUser,
+}
+
+pub(crate) enum SavedRefreshToken {
+    Stored(String),
+    SignInRequired(&'static str),
 }
 
 pub struct HostedSessionRuntime {
     /// Native server access tokens are intentionally memory-only. Keyed by
     /// normalized server URL so every native caller selects the correct server.
     pub server_sessions: RwLock<HashMap<String, ServerSessionState>>,
-    /// Per-process refresh-token cache. The OS credential store is touched only
-    /// when a server is first restored during this process lifetime.
-    pub refresh_token_cache: RwLock<HashMap<String, String>>,
+    /// Last token read or successfully saved, or a definitive restore failure.
+    pub(crate) refresh_token_cache: RwLock<HashMap<String, SavedRefreshToken>>,
     /// Refresh tokens are single-use, so rotation must be serialized across
     /// foreground commands and headless background jobs.
-    pub server_refresh_lock: tokio::sync::Mutex<()>,
+    server_locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
 }
 
 impl HostedSessionRuntime {
@@ -38,8 +41,23 @@ impl HostedSessionRuntime {
         Self {
             server_sessions: RwLock::new(HashMap::new()),
             refresh_token_cache: RwLock::new(HashMap::new()),
-            server_refresh_lock: tokio::sync::Mutex::new(()),
+            server_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) async fn lock_server(&self, base: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self.server_locks.lock();
+            if let Some(lock) = locks.get(base).and_then(Weak::upgrade) {
+                lock
+            } else {
+                locks.retain(|_, lock| lock.strong_count() > 0);
+                let lock = Arc::new(tokio::sync::Mutex::new(()));
+                locks.insert(base.to_string(), Arc::downgrade(&lock));
+                lock
+            }
+        };
+        lock.lock_owned().await
     }
 }
 

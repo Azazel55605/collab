@@ -361,7 +361,12 @@ export default function App() {
       .getState()
       .restoreAllSessions()
       .then((result) => {
-        if (result === 'failed') {
+        if (result === 'keyring-locked') {
+          toast.info(
+            'Unlock your Linux keyring to resume hosted sync. Collab will retry automatically.',
+            { id: 'hosted-keyring-locked' },
+          );
+        } else if (result === 'failed') {
           toast.error(
             'Could not restore one of your hosted server sessions. Reconnect from Settings → Hosted server.',
             {

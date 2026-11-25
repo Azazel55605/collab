@@ -15,6 +15,8 @@ import { Button } from '../ui/button';
 import { Dialog } from '../ui/dialog';
 import { Input } from '../ui/input';
 
+import { LinuxSessionPersistence } from './LinuxSessionPersistence';
+
 interface ReauthenticateServerDialogProps {
   server: KnownServer | null;
   onOpenChange: (open: boolean) => void;
@@ -27,12 +29,15 @@ export function ReauthenticateServerDialog({
   onReauthenticated,
 }: ReauthenticateServerDialogProps) {
   const reauthenticate = useServerStore((state) => state.reauthenticate);
+  const reconnect = useServerStore((state) => state.reconnect);
   const [password, setPassword] = useState('');
+  const [persistent, setPersistent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (server) {
+      setPersistent(server.persistAcrossReboots);
       setPassword('');
       setError(null);
     }
@@ -47,13 +52,20 @@ export function ReauthenticateServerDialog({
     onOpenChange(open);
   };
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!server || !password) return;
+  const signIn = async (restore: boolean) => {
+    if (!server || busy || (!restore && !password)) return;
     setBusy(true);
     setError(null);
     try {
-      await reauthenticate(server.serverUrl, password);
+      if (restore) {
+        await reconnect(
+          server.serverUrl,
+          server.allowInvalidCertificates,
+          server.persistAcrossReboots,
+        );
+      } else {
+        await reauthenticate(server.serverUrl, password, persistent);
+      }
       toast.success(`Signed in to ${server.serverUrl}`);
       setPassword('');
       onOpenChange(false);
@@ -65,6 +77,11 @@ export function ReauthenticateServerDialog({
     }
   };
 
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void signIn(false);
+  };
+
   const host = server ? serverHostLabel(server.serverUrl) : '';
   return (
     <Dialog open={server != null} onOpenChange={handleOpenChange}>
@@ -73,7 +90,7 @@ export function ReauthenticateServerDialog({
           <AppDialogHeader
             icon={<KeyRound />}
             title="Sign in again"
-            description={`Your session on ${host} ended. Sign in to keep syncing; your offline copies and settings stay as they are.`}
+            description={`Restore your saved session on ${host} or sign in with your password.`}
           />
           <AppDialogBody>
             {server?.username ? (
@@ -95,6 +112,21 @@ export function ReauthenticateServerDialog({
                 className="h-9"
               />
             </label>
+            {server && (
+              <LinuxSessionPersistence
+                checked={persistent}
+                onChange={setPersistent}
+                disabled={busy}
+              />
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void signIn(true)}
+            >
+              Restore saved session
+            </Button>
             {error ? (
               <p role="alert" className="text-xs text-destructive">
                 {error}

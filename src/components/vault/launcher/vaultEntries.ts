@@ -293,6 +293,6 @@ export function serverStatusLabel(server: ServerEntry): string {
     server.offlineCount > 0
       ? ` · ${server.offlineCount} offline cop${server.offlineCount === 1 ? 'y' : 'ies'}`
       : '';
-  if (server.state === 'signed-out') return `Signed out${copies}`;
+  if (server.state === 'signed-out') return `Disconnected${copies}`;
   return `Not saved${copies}`;
 }

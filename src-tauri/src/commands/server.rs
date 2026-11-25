@@ -1,5 +1,5 @@
 use crate::background::BackgroundServerRegistration;
-use crate::state::{AppState, ServerSessionState};
+use crate::state::{AppState, SavedRefreshToken, ServerSessionState};
 use base64::Engine as _;
 use collab_protocol::{NativeSession, ServerUser};
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use crate::hosted_client::{
     validate_hosted_calendar_path, validate_hosted_vault_path, validate_identifier,
     validate_server_url,
 };
-use crate::hosted_session::{fresh_session_for, refresh_session_locked};
+use crate::hosted_session::{fresh_session_for, refresh_session, RefreshMode, NO_SAVED_SESSION};
 use crate::server_token_store::{delete_refresh_token, read_refresh_token, store_refresh_token};
 
 #[cfg(mobile)]
@@ -60,12 +60,19 @@ async fn authenticate_and_install_session(
         .await
         .map_err(server_request_error)?;
     let session = decode_session(response).await?;
-    store_refresh_token(base, &session.refresh_token, persist_across_reboots)?;
-    state
-        .hosted_sessions()
-        .refresh_token_cache
-        .write()
-        .insert(base.to_string(), session.refresh_token.clone());
+    if let Err(reason) = store_refresh_token(base, &session.refresh_token, persist_across_reboots) {
+        // Only this just-issued session belongs to the unsuccessful sign-in.
+        let _ = server_client(allow_invalid_certificates)?
+            .post(format!("{base}/api/v1/auth/native/logout"))
+            .bearer_auth(&session.access_token)
+            .send()
+            .await;
+        return Err(reason);
+    }
+    state.hosted_sessions().refresh_token_cache.write().insert(
+        base.to_string(),
+        SavedRefreshToken::Stored(session.refresh_token.clone()),
+    );
     let profile_id = session.user.id.clone();
     let status = status_from_session(base, allow_invalid_certificates, &session);
     state.hosted_sessions().server_sessions.write().insert(
@@ -105,6 +112,7 @@ pub async fn connect_server(
     persist_across_reboots: bool,
 ) -> Result<ServerConnectionStatus, String> {
     let base = validate_server_url(&server_url)?;
+    let _guard = state.hosted_sessions().lock_server(&base).await;
     authenticate_and_install_session(
         &state,
         &base,
@@ -126,6 +134,7 @@ pub async fn reauthenticate_server(
     persist_across_reboots: bool,
 ) -> Result<ServerConnectionStatus, String> {
     let base = validate_server_url(&server_url)?;
+    let _guard = state.hosted_sessions().lock_server(&base).await;
     let previous = state
         .hosted_sessions()
         .server_sessions
@@ -162,14 +171,21 @@ pub async fn reconnect_server(
     server_url: String,
     allow_invalid_certificates: bool,
     persist_across_reboots: bool,
+    interactive: Option<bool>,
 ) -> Result<ServerConnectionStatus, String> {
     let base = validate_server_url(&server_url)?;
-    let session = refresh_session_locked(
+    let _guard = state.hosted_sessions().lock_server(&base).await;
+    let session = refresh_session(
         state.hosted_sessions(),
         &base,
         allow_invalid_certificates,
         persist_across_reboots,
-        false,
+        // Older mobile clients explicitly exchange a token on reconnect.
+        if interactive.unwrap_or(cfg!(mobile)) {
+            RefreshMode::Interactive
+        } else {
+            RefreshMode::Automatic
+        },
     )
     .await?;
     let profile_id = session.user.id.clone();
@@ -184,8 +200,8 @@ pub async fn reconnect_server(
         .background
         .upsert_server(BackgroundServerRegistration {
             server_url: base,
-            allow_invalid_certificates,
-            persist_across_reboots,
+            allow_invalid_certificates: session.allow_invalid_certificates,
+            persist_across_reboots: session.persist_across_reboots,
             background_sync_enabled: true,
             profile_ids: vec![profile_id],
             updated_at: chrono::Utc::now().to_rfc3339(),
@@ -201,6 +217,7 @@ pub async fn disconnect_server(
     server_url: String,
 ) -> Result<(), String> {
     let base = validate_server_url(&server_url)?;
+    let _guard = state.hosted_sessions().lock_server(&base).await;
     let notification_root = crate::commands::app_config_dir()?;
     for profile_id in
         crate::notifications::profile_ids(&notification_root).map_err(|error| error.to_string())?
@@ -258,11 +275,10 @@ pub async fn disconnect_server(
         }
     }
     delete_refresh_token(&base);
-    state
-        .hosted_sessions()
-        .refresh_token_cache
-        .write()
-        .remove(&base);
+    state.hosted_sessions().refresh_token_cache.write().insert(
+        base.clone(),
+        SavedRefreshToken::SignInRequired(NO_SAVED_SESSION),
+    );
     let _ = state.background.remove_server(&base);
     Ok(())
 }
@@ -272,9 +288,12 @@ pub async fn disconnect_server(
 /// a stale saved server URL (e.g. left over after a disconnect) does not surface
 /// a spurious "could not restore session" error when no credential exists.
 #[tauri::command]
-pub fn server_has_saved_session(server_url: String) -> Result<bool, String> {
+pub fn server_has_saved_session(
+    server_url: String,
+    persist_across_reboots: Option<bool>,
+) -> Result<bool, String> {
     let base = validate_server_url(&server_url)?;
-    Ok(read_refresh_token(&base, true).is_some())
+    Ok(read_refresh_token(&base, persist_across_reboots.unwrap_or(false), false)?.is_some())
 }
 
 /// One status entry per currently connected server (the app may be signed in to

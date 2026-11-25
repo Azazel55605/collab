@@ -118,6 +118,24 @@ describe('SyncCenter connection', () => {
     });
   });
 
+  it.each([
+    ['Unlock your Linux system keyring to continue.', false],
+    ['Could not reach the Collab server.', false],
+    ['The server could not refresh the session (HTTP 503). Try again later.', false],
+    ['No saved server session was found.', true],
+    ['The saved server session has expired or was revoked. Sign in again.', true],
+  ])('offers a password only when sign-in is required (%s)', async (reason, needsPassword) => {
+    localStorage.setItem('collab-hosted-server-url', hostedVault.serverUrl);
+    reconnect.mockRejectedValueOnce(new Error(String(reason)));
+    setState(hostedVault, null);
+    render(<SyncCenter />);
+    fireEvent.click(screen.getByText('Offline'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reconnect' })[0]);
+    const { toast } = await import('sonner');
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Password') !== null).toBe(needsPassword);
+  });
+
   it('treats a connection to a different server as offline', () => {
     setState(hostedVault, { ...connected, serverUrl: 'https://other.example.test' });
     render(<SyncCenter />);

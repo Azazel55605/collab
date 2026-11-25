@@ -2,7 +2,7 @@ use super::{
     BackgroundCoordinator, BackgroundJobProgress, BackgroundJobRequest, BackgroundJobStatus,
 };
 use crate::hosted_client::{decode_hosted_error, server_client, server_request_error};
-use crate::hosted_session::refresh_session_locked;
+use crate::hosted_session::{refresh_session_locked, RefreshMode};
 use crate::state::ServerSessionState;
 use base64::Engine as _;
 use chrono::Utc;
@@ -95,7 +95,7 @@ pub(crate) async fn run_replica_sync(
         server_url,
         registration.allow_invalid_certificates,
         registration.persist_across_reboots,
-        true,
+        RefreshMode::Automatic,
     )
     .await
     .map_err(classify_session_error)?;
@@ -778,7 +778,19 @@ async fn request_bytes(
 }
 
 pub(super) fn classify_session_error(message: String) -> JobExecutionError {
-    if message.to_lowercase().contains("no saved server session") {
+    #[cfg(target_os = "linux")]
+    if message == crate::linux_keyring::LOCKED {
+        return JobExecutionError {
+            status: BackgroundJobStatus::Deferred,
+            category: "credential_store",
+            message,
+            retryable: true,
+        };
+    }
+    if matches!(
+        message.as_str(),
+        crate::hosted_session::NO_SAVED_SESSION | crate::hosted_session::REJECTED_SESSION
+    ) {
         JobExecutionError {
             status: BackgroundJobStatus::AuthenticationRequired,
             category: "authentication",

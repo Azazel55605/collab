@@ -205,6 +205,31 @@ describe('SettingsServerSection', () => {
     expect(screen.getByRole('button', { name: 'Disconnect' })).toBeTruthy();
   });
 
+  it('restores a saved Linux session from the sign-in dialog without entering a password', async () => {
+    localStorage.setItem('collab-hosted-server-url', 'https://collab.example.com');
+    localStorage.setItem('collab-hosted-persist-across-reboots', 'true');
+    vi.mocked(tauriCommands.reconnectServer).mockResolvedValue({
+      connected: true,
+      serverUrl: 'https://collab.example.com',
+      allowInvalidCertificates: false,
+      user: null,
+      accessExpiresAt: '2099-01-01T00:00:00Z',
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
+    render(<SettingsServerSection />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore saved session' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Password')).toBeNull());
+    expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(
+      'https://collab.example.com',
+      false,
+      true,
+      true,
+    );
+    expect(tauriCommands.reauthenticateServer).not.toHaveBeenCalled();
+  });
+
   it('reauthenticates a saved server by asking only for its password', async () => {
     localStorage.setItem(
       'collab-hosted-servers',

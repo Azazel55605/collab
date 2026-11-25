@@ -255,6 +255,16 @@ describe('serverStore', () => {
     expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
   });
 
+  it('uses the saved keyring on a manual reconnect when the caller omits the preference', async () => {
+    localStorage.setItem('collab-hosted-server-url', SERVER_URL);
+    localStorage.setItem('collab-hosted-persist-across-reboots', 'true');
+    vi.mocked(tauriCommands.reconnectServer).mockResolvedValue(connected);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
+
+    await useServerStore.getState().reconnect(SERVER_URL, false);
+    expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(SERVER_URL, false, true, true);
+  });
+
   it('keeps a successful reauthentication when inventory refresh is unavailable', async () => {
     localStorage.setItem('collab-hosted-server-url', SERVER_URL);
     vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue(connected);
@@ -442,7 +452,7 @@ describe('serverStore.restoreAllSessions', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
 
     expect(await useServerStore.getState().restoreAllSessions()).toBe('connected');
-    expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(SERVER_URL, true, false);
+    expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(SERVER_URL, true, false, false);
   });
 
   it('forwards the cross-reboot persistence preference to reconnect', async () => {
@@ -453,7 +463,7 @@ describe('serverStore.restoreAllSessions', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
 
     expect(await useServerStore.getState().restoreAllSessions()).toBe('connected');
-    expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(SERVER_URL, false, true);
+    expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(SERVER_URL, false, true, false);
   });
 
   it('skips without error when a saved URL has no stored credential', async () => {
@@ -482,6 +492,15 @@ describe('serverStore.restoreAllSessions', () => {
     expect(first).toBe('connected');
     expect(second).toBe('connected');
     expect(tauriCommands.reconnectServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a locked desktop keyring so startup can offer unlock without a password dialog', async () => {
+    localStorage.setItem('collab-hosted-server-url', SERVER_URL);
+    vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([]);
+    vi.mocked(tauriCommands.reconnectServer).mockRejectedValue(
+      new Error('Unlock your Linux system keyring to continue.'),
+    );
+    expect(await useServerStore.getState().restoreAllSessions()).toBe('keyring-locked');
   });
 
   it('reports failure when a stored credential exists but the reconnect fails', async () => {
