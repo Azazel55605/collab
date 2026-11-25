@@ -13,6 +13,8 @@ mod desktop_notifications;
 mod drag_staging;
 mod hosted_client;
 mod hosted_session;
+#[cfg(target_os = "linux")]
+mod linux_keyring;
 mod local_mutation;
 mod models;
 mod notifications;

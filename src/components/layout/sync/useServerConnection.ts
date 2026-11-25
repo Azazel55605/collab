@@ -3,7 +3,11 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { type KnownServer, knownServerFor } from '../../../lib/hostedServers';
-import { isServerSessionExpired, useServerStore } from '../../../store/serverStore';
+import {
+  isServerSessionExpired,
+  needsServerSignIn,
+  useServerStore,
+} from '../../../store/serverStore';
 import { useVaultStore } from '../../../store/vaultStore';
 
 export type ConnectionState = 'online' | 'expired' | 'offline';
@@ -45,7 +49,7 @@ export function useServerConnection() {
       toast.success('Server session restored');
     } catch (reason) {
       const known = knownServerFor(serverUrl);
-      if (known) {
+      if (known && needsServerSignIn(reason)) {
         setSignInServer(known);
         toast.error(
           'The saved session could not be restored. Enter your password to sign in again.',

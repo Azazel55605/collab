@@ -1116,19 +1116,33 @@ and history clearing are intentionally hidden because hosted snapshots are immut
 
 ```ts
 // State
-status: ServerConnectionStatus | null
-hostedVaults: HostedVaultSummary[]
+connections: Record<string, ServerConnection> // per-origin status and vault inventory
 isLoading: boolean
 error: string | null
 
 // Actions
-refresh() | connect(serverUrl, username, password) | reconnect(serverUrl)
-disconnect() | loadHostedVaults()
+refreshAll() | restoreAllSessions() | connect(serverUrl, username, password)
+reconnect(serverUrl) | reauthenticate(serverUrl, password) | disconnect(serverUrl)
+loadHostedVaults(serverUrl)
 ```
 
 `ServerConnectionStatus` also reports whether the current session explicitly
 allows untrusted TLS certificates. Verification remains enabled by default and
 the opt-in is reused for every request in that native server session.
+
+Linux stores boot-scoped sign-ins in kernel keyutils. **Keep me signed in across
+reboots** saves the hosted refresh token in Secret Service. Startup, focus,
+background sync and replica access use prompt-free operations. If the desktop
+keyring is locked, Collab retries after it becomes available. **Restore saved
+session** in the sign-in dialog allows an interactive unlock. Only a missing or
+server-rejected session opens the password flow from Sync Center.
+
+Native callers serialize login, restore, rotation and logout per server. The
+live session retains a rotated token if its keystore write fails, and retries
+the write before the next exchange. Linux checks durable storage before spending
+a token and uses keyutils for same-boot recovery if the keyring locks during the
+request. Replica and chat keys require durable storage on creation. Existing
+kernel-only keys migrate on access to an unlocked keyring.
 
 ### `editorStore` (`src/store/editorStore.ts`)
 

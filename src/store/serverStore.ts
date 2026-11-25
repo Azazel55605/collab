@@ -21,7 +21,15 @@ export const SERVER_URL_KEY = 'collab-hosted-server-url';
 const NO_SAVED_SESSION_MESSAGE = 'No saved server session was found.';
 export const SERVER_SESSION_REFRESH_SKEW_MS = 120_000;
 
-export type RestoreSessionResult = 'connected' | 'failed' | 'skipped';
+export function needsServerSignIn(reason: unknown): boolean {
+  const message = String(reason);
+  return (
+    message.includes(NO_SAVED_SESSION_MESSAGE) ||
+    message.includes('The saved server session has expired or was revoked.')
+  );
+}
+
+export type RestoreSessionResult = 'connected' | 'failed' | 'skipped' | 'keyring-locked';
 
 /**
  * Whether a connected session's access token has already expired. A connected
@@ -97,11 +105,16 @@ interface ServerState {
     allowInvalidCertificates?: boolean,
     persistAcrossReboots?: boolean,
   ) => Promise<void>;
-  reauthenticate: (serverUrl: string, password: string) => Promise<void>;
+  reauthenticate: (
+    serverUrl: string,
+    password: string,
+    persistAcrossReboots?: boolean,
+  ) => Promise<void>;
   reconnect: (
     serverUrl: string,
     allowInvalidCertificates?: boolean,
     persistAcrossReboots?: boolean,
+    interactive?: boolean,
   ) => Promise<void>;
   /**
    * Quiet, best-effort reconnect for one server from its stored refresh token.
@@ -219,13 +232,17 @@ export const useServerStore = create<ServerState>()((set, get) => {
                 server.serverUrl,
                 server.allowInvalidCertificates,
                 server.persistAcrossReboots,
+                false,
               );
               return 'connected';
             } catch (error) {
+              if (String(error).includes('Unlock your Linux system keyring'))
+                return 'keyring-locked';
               return String(error).includes(NO_SAVED_SESSION_MESSAGE) ? 'skipped' : 'failed';
             }
           }),
         );
+        if (results.includes('keyring-locked')) return 'keyring-locked';
         if (results.includes('connected')) return 'connected';
         if (results.includes('failed')) return 'failed';
         return 'skipped';
@@ -274,7 +291,7 @@ export const useServerStore = create<ServerState>()((set, get) => {
       }
     },
 
-    reauthenticate: async (serverUrl, password) => {
+    reauthenticate: async (serverUrl, password, persistAcrossReboots) => {
       const known = knownServerFor(serverUrl);
       if (!known) throw new Error('This server is not saved. Add it again to sign in.');
       set({ isLoading: true, error: null });
@@ -284,8 +301,12 @@ export const useServerStore = create<ServerState>()((set, get) => {
           known.username,
           password,
           known.allowInvalidCertificates,
-          known.persistAcrossReboots,
+          persistAcrossReboots ?? known.persistAcrossReboots,
         );
+        upsertKnownServer({
+          ...known,
+          persistAcrossReboots: persistAcrossReboots ?? known.persistAcrossReboots,
+        });
         setConnection(
           status,
           get().connections[status.serverUrl ?? known.serverUrl]?.hostedVaults ?? [],
@@ -306,14 +327,16 @@ export const useServerStore = create<ServerState>()((set, get) => {
     reconnect: async (
       serverUrl,
       allowInvalidCertificates = false,
-      persistAcrossReboots = false,
+      persistAcrossReboots,
+      interactive = true,
     ) => {
       set({ isLoading: true, error: null });
       try {
         const status = await tauriCommands.reconnectServer(
           serverUrl,
           allowInvalidCertificates,
-          persistAcrossReboots,
+          knownServerFor(serverUrl)?.persistAcrossReboots ?? persistAcrossReboots ?? false,
+          interactive,
         );
         setConnection(status, get().connections[status.serverUrl ?? serverUrl]?.hostedVaults ?? []);
         set({ isLoading: false });

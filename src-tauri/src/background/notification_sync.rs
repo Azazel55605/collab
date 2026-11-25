@@ -3,7 +3,7 @@ use super::{
     BackgroundCoordinator, BackgroundJobProgress, BackgroundJobRequest, BackgroundJobStatus,
 };
 use crate::{
-    hosted_session::refresh_session_locked,
+    hosted_session::{refresh_session_locked, RefreshMode},
     notifications::{NotificationEnvelope, NotificationStore},
 };
 use reqwest::Method;
@@ -56,7 +56,7 @@ pub(super) async fn run_notification_sync(
         server_url,
         registration.allow_invalid_certificates,
         registration.persist_across_reboots,
-        true,
+        RefreshMode::Automatic,
     )
     .await
     .map_err(classify_session_error)?;
@@ -156,7 +156,7 @@ pub(crate) async fn register_push_token(
             &registration.server_url,
             registration.allow_invalid_certificates,
             registration.persist_across_reboots,
-            true,
+            RefreshMode::Automatic,
         )
         .await
         {

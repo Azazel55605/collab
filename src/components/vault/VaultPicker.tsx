@@ -790,11 +790,11 @@ function SignedOutBanner({
       <p className="min-w-60 flex-1 text-[13px]">
         {servers.length === 1 ? (
           <>
-            <strong className="font-semibold">{first.host}</strong> is signed out. Its vaults are
+            <strong className="font-semibold">{first.host}</strong> is disconnected. Its vaults are
             hidden.
           </>
         ) : (
-          <>{servers.length} servers are signed out. Their vaults are hidden.</>
+          <>{servers.length} servers are disconnected. Their vaults are hidden.</>
         )}
         {copiesText}
       </p>

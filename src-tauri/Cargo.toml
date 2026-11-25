@@ -28,6 +28,8 @@ tauri-plugin-drag = "2.1.1"
 # Both Linux keyring backends: kernel keyutils (silent default) and D-Bus Secret
 # Service (durable, opt-in). The backend is chosen at runtime in commands/server.rs.
 keyring = { version = "3", features = ["sync-secret-service", "linux-native"] }
+# Background credential access must be able to decline a Secret Service prompt.
+dbus = "0.9"
 
 [dependencies]
 collab-archive = { path = "../crates/collab-archive" }

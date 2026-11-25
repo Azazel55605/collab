@@ -11,6 +11,7 @@ use collab_replica::{
     server_key, CacheCleanupReport, CachedContentStatus, PendingOpStatus, PendingOperation,
     ReplicaIntegrityReport, ReplicaStore, ReplicaSummary, ReplicaSyncState, Tombstone,
 };
+#[cfg(not(target_os = "linux"))]
 use rand::Rng;
 use serde_json::Value;
 use tauri::State;
@@ -34,11 +35,19 @@ pub(super) fn existing(server_url: &str, vault_id: &str) -> Result<ReplicaStore,
     existing_at(&app_config_dir()?, server_url, vault_id)
 }
 
+fn replica_metadata(server_url: &str, vault_id: &str) -> Result<Option<ReplicaStore>, String> {
+    Ok(ReplicaStore::open_existing(
+        &app_config_dir()?,
+        server_url,
+        vault_id,
+    ))
+}
+
 pub(super) fn existing_read(
     server_url: &str,
     vault_id: &str,
 ) -> Result<Option<ReplicaStore>, String> {
-    let Some(store) = ReplicaStore::open_existing(&app_config_dir()?, server_url, vault_id) else {
+    let Some(store) = replica_metadata(server_url, vault_id)? else {
         return Ok(None);
     };
     Ok(match replica_key(server_url, vault_id, false)? {
@@ -58,14 +67,8 @@ fn replica_account(server_url: &str, vault_id: &str) -> String {
 // key orphans every locally cached document/asset/CRDT blob AND any unsynced
 // offline edits (they become undecryptable). It must therefore survive reboots.
 //
-// On Windows/macOS the native OS keystore is already durable, so the generic
-// entry is used. On Linux the key is persisted to the D-Bus Secret Service
-// (durable across reboots) and mirrored to the kernel keyutils keyring (a silent
-// fast path). Reads try keyutils first (silent, same-session) and fall back to
-// the Secret Service, so a key survives a keyutils clear on reboot and any
-// legacy keyutils-only key written by an earlier build is still found. This
-// fixes the failure where a lost keyutils key was silently regenerated, leaving
-// previously-encrypted replica content undecryptable ("Decryption failed …").
+// Linux uses non-interactive Secret Service access for replica and chat keys;
+// linux_keys also recovers and migrates the kernel mirror used by older builds.
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn read_replica_key_encoded(server_url: &str, vault_id: &str) -> Option<String> {
@@ -165,75 +168,13 @@ fn write_replica_key_encoded(
 fn delete_replica_key(_server_url: &str, _vault_id: &str) {}
 
 #[cfg(target_os = "linux")]
-fn replica_keyutils_entry(server_url: &str, vault_id: &str) -> Result<keyring::Entry, String> {
-    let cred = keyring::keyutils::KeyutilsCredential::new_with_target(
-        None,
-        REPLICA_KEYRING_SERVICE,
-        &replica_account(server_url, vault_id),
-    )
-    .map_err(|_| "The session keyring is unavailable.".to_string())?;
-    Ok(keyring::Entry::new_with_credential(Box::new(cred)))
-}
-
+mod linux_keys;
 #[cfg(target_os = "linux")]
-fn replica_secret_service_entry(
-    server_url: &str,
-    vault_id: &str,
-) -> Result<keyring::Entry, String> {
-    let cred = keyring::secret_service::SsCredential::new_with_target(
-        None,
-        REPLICA_KEYRING_SERVICE,
-        &replica_account(server_url, vault_id),
-    )
-    .map_err(|_| "The system keyring (Secret Service) is unavailable.".to_string())?;
-    Ok(keyring::Entry::new_with_credential(Box::new(cred)))
-}
-
+use linux_keys::delete_replica_key;
 #[cfg(target_os = "linux")]
-fn read_replica_key_encoded(server_url: &str, vault_id: &str) -> Option<String> {
-    replica_keyutils_entry(server_url, vault_id)
-        .ok()
-        .and_then(|entry| entry.get_password().ok())
-        .or_else(|| {
-            replica_secret_service_entry(server_url, vault_id)
-                .ok()
-                .and_then(|entry| entry.get_password().ok())
-        })
-}
+pub(crate) use linux_keys::replica_key;
 
-#[cfg(target_os = "linux")]
-fn write_replica_key_encoded(
-    server_url: &str,
-    vault_id: &str,
-    encoded: &str,
-) -> Result<(), String> {
-    // Durable Secret Service first, then mirror to keyutils; succeed if either
-    // persists so a missing/locked Secret Service (e.g. headless) still works via
-    // keyutils and is never worse than before.
-    let ss = replica_secret_service_entry(server_url, vault_id)
-        .and_then(|entry| entry.set_password(encoded).map_err(|e| e.to_string()));
-    let ku = replica_keyutils_entry(server_url, vault_id)
-        .and_then(|entry| entry.set_password(encoded).map_err(|e| e.to_string()));
-    if ss.is_ok() || ku.is_ok() {
-        Ok(())
-    } else {
-        Err(
-            "Could not save the offline replica key in the operating system credential store."
-                .to_string(),
-        )
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn delete_replica_key(server_url: &str, vault_id: &str) {
-    if let Ok(entry) = replica_keyutils_entry(server_url, vault_id) {
-        let _ = entry.delete_credential();
-    }
-    if let Ok(entry) = replica_secret_service_entry(server_url, vault_id) {
-        let _ = entry.delete_credential();
-    }
-}
-
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn replica_key(
     server_url: &str,
     vault_id: &str,
@@ -250,13 +191,17 @@ pub(crate) fn replica_key(
         }
         None => return Ok(None),
     };
+    decode_replica_key(&encoded).map(Some)
+}
+
+fn decode_replica_key(encoded: &str) -> Result<[u8; 32], String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded.as_bytes())
         .map_err(|_| "The saved offline replica key is invalid.".to_string())?;
     let key: [u8; 32] = bytes
         .try_into()
         .map_err(|_| "The saved offline replica key has an invalid length.".to_string())?;
-    Ok(Some(key))
+    Ok(key)
 }
 
 #[tauri::command]
@@ -296,7 +241,7 @@ pub fn replica_read_manifest(
     server_url: String,
     vault_id: String,
 ) -> Result<Option<HostedVaultManifest>, String> {
-    match existing_read(&server_url, &vault_id)? {
+    match replica_metadata(&server_url, &vault_id)? {
         Some(store) => store.read_manifest(),
         None => Ok(None),
     }
@@ -307,7 +252,7 @@ pub fn replica_read_sync_state(
     server_url: String,
     vault_id: String,
 ) -> Result<ReplicaSyncState, String> {
-    match existing_read(&server_url, &vault_id)? {
+    match replica_metadata(&server_url, &vault_id)? {
         Some(store) => store.read_sync_state(),
         None => Ok(ReplicaSyncState::default()),
     }
@@ -390,7 +335,7 @@ pub fn replica_list_tombstones(
     server_url: String,
     vault_id: String,
 ) -> Result<Vec<Tombstone>, String> {
-    match existing_read(&server_url, &vault_id)? {
+    match replica_metadata(&server_url, &vault_id)? {
         Some(store) => store.list_tombstones(),
         None => Ok(Vec::new()),
     }

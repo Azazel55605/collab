@@ -1330,17 +1330,19 @@ export const tauriCommands = {
     serverUrl: string,
     allowInvalidCertificates = false,
     persistAcrossReboots = false,
+    interactive = false,
   ) =>
     invoke<ServerConnectionStatus>('reconnect_server', {
       serverUrl,
       allowInvalidCertificates,
       persistAcrossReboots,
+      interactive,
     }),
   disconnectServer: (serverUrl: string) => invoke<void>('disconnect_server', { serverUrl }),
   /** One status per connected server; empty when no servers are connected. */
   serverConnectionStatuses: () => invoke<ServerConnectionStatus[]>('server_connection_statuses'),
-  serverHasSavedSession: (serverUrl: string) =>
-    invoke<boolean>('server_has_saved_session', { serverUrl }),
+  serverHasSavedSession: (serverUrl: string, persistAcrossReboots = false) =>
+    invoke<boolean>('server_has_saved_session', { serverUrl, persistAcrossReboots }),
   generateDocumentPreview: (relativePath: string, content: string, signal?: AbortSignal) =>
     signal
       ? invokeMedia<string>('generate_document_preview', { relativePath, content }, signal)

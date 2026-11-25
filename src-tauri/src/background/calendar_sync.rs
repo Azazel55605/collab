@@ -2,7 +2,7 @@ use super::sync::{
     classify_session_error, ensure_running, request_json, JobExecutionError, JobExecutionSummary,
 };
 use super::{BackgroundCoordinator, BackgroundJobProgress, BackgroundJobRequest};
-use crate::hosted_session::refresh_session_locked;
+use crate::hosted_session::{refresh_session_locked, RefreshMode};
 use collab_calendar::{
     CalendarDefinition, CalendarLocation, CalendarMutation, CalendarOperation,
     CalendarRemoteChange, CalendarSyncState,
@@ -63,7 +63,7 @@ pub(crate) async fn run_calendar_sync(
         server_url,
         registration.allow_invalid_certificates,
         registration.persist_across_reboots,
-        true,
+        RefreshMode::Automatic,
     )
     .await
     .map_err(classify_session_error)?;

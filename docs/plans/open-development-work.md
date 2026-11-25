@@ -37,6 +37,12 @@ work from being mistaken for an active roadmap item.
 | Digital ink and annotation        | Phase 10 testing                   | Phase 10 code and automated hardening are implemented. Complete the physical platform/input/accessibility/resource matrix and multi-client release soak before sign-off.                                                                                                                                                                                                                                            | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Release Validation](../build/digital-ink-release-validation.md) |
 | Flatpak distribution              | Planned                            | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                                                                                                                                                                                                                          | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                               |
 
+### Linux hosted credential acceptance
+
+- [x] Route automatic restore, token rotation and encrypted replica access through prompt-free Linux credential operations. Manual restore and password sign-in use the saved server’s storage preference.
+- [x] Verify that repeated reads leave a disposable GNOME login keyring locked and that a new daemon and client recover the rotated credential after login.
+- [ ] Verify the packaged desktop app across a Hyprland logout, reboot and screen lock with a remembered hosted account and pending offline edits. Check that unlock resumes sync and explicit logout clears the saved session.
+
 ### Desktop Performance And Correctness Audit
 
 Reviewed separately on **2026-10-14**. The

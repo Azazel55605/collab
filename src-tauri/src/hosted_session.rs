@@ -9,42 +9,70 @@
 //! [`ServerSessionState`] used to construct authenticated requests in Rust.
 
 use crate::hosted_client::{decode_session, server_client, server_request_error};
-use crate::server_token_store::{read_refresh_token, store_refresh_token};
-use crate::state::{HostedSessionRuntime, ServerSessionState};
+use crate::server_token_store::{persist_rotation, prepare_rotation, read_refresh_token};
+use crate::state::{HostedSessionRuntime, SavedRefreshToken, ServerSessionState};
 use chrono::{DateTime, Duration, Utc};
 
 const ACCESS_REFRESH_SKEW_SECONDS: i64 = 120;
 
-/// Resolves the refresh token for `base` while touching the OS keyring at most
-/// once per launch: prefers the in-memory session, then the per-launch cache,
-/// and only then reads the keyring (priming the cache with what it read).
+pub(crate) const NO_SAVED_SESSION: &str = "No saved server session was found.";
+pub(crate) const REJECTED_SESSION: &str =
+    "The saved server session has expired or was revoked. Sign in again.";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefreshMode {
+    Automatic,
+    Interactive,
+}
+
 fn resolve_refresh_token(
     state: &HostedSessionRuntime,
     base: &str,
-    persist_across_reboots: bool,
+    persistent: bool,
+    mode: RefreshMode,
 ) -> Result<String, String> {
-    if let Some(session) = state.server_sessions.read().get(base) {
-        if !session.refresh_token.is_empty() {
-            return Ok(session.refresh_token.clone());
+    match state.refresh_token_cache.read().get(base) {
+        Some(SavedRefreshToken::Stored(token)) => return Ok(token.clone()),
+        Some(SavedRefreshToken::SignInRequired(reason)) if mode == RefreshMode::Automatic => {
+            return Err((*reason).into())
+        }
+        _ => {}
+    }
+    let token = read_refresh_token(base, persistent, mode == RefreshMode::Interactive)?;
+    let mut cache = state.refresh_token_cache.write();
+    match token {
+        Some(token) => {
+            cache.insert(base.into(), SavedRefreshToken::Stored(token.clone()));
+            Ok(token)
+        }
+        None => {
+            cache.insert(
+                base.into(),
+                SavedRefreshToken::SignInRequired(NO_SAVED_SESSION),
+            );
+            Err(NO_SAVED_SESSION.into())
         }
     }
-    if let Some(token) = state.refresh_token_cache.read().get(base) {
-        return Ok(token.clone());
-    }
-    let token = read_refresh_token(base, persist_across_reboots)
-        .ok_or_else(|| "No saved server session was found.".to_string())?;
-    state
-        .refresh_token_cache
-        .write()
-        .insert(base.to_string(), token.clone());
-    Ok(token)
 }
 
-/// Whether a rotated refresh token must be re-written to the keyring. Skipping
-/// an unchanged write avoids a redundant Secret Service access (a potential
-/// unlock prompt on Linux).
-fn should_persist_rotation(previous: &str, next: &str) -> bool {
-    previous != next
+/// A failed write leaves the previous checkpoint in place. The live session
+/// owns the newer, usable token and the next refresh retries the write first.
+fn checkpoint_rotation(
+    state: &HostedSessionRuntime,
+    session: &ServerSessionState,
+    save: impl FnOnce(&str, &str, bool) -> Result<(), String>,
+) -> Result<(), String> {
+    let base = &session.server_url;
+    if matches!(state.refresh_token_cache.read().get(base), Some(SavedRefreshToken::Stored(saved)) if saved == &session.refresh_token)
+    {
+        return Ok(());
+    }
+    save(base, &session.refresh_token, session.persist_across_reboots)?;
+    state.refresh_token_cache.write().insert(
+        base.clone(),
+        SavedRefreshToken::Stored(session.refresh_token.clone()),
+    );
+    Ok(())
 }
 
 pub(crate) fn access_token_needs_refresh(session: &ServerSessionState) -> bool {
@@ -56,47 +84,87 @@ pub(crate) fn access_token_needs_refresh(session: &ServerSessionState) -> bool {
         .unwrap_or(false)
 }
 
-/// Refreshes the session for `base`, serializing rotation across the process so
-/// the server's single-use refresh token is never spent by two concurrent
-/// refreshes. When `only_if_needed` is set, an already-fresh session is returned
-/// without contacting the server.
+/// Background jobs and foreground requests reuse the same session. An explicit
+/// restore can also recover a remotely invalidated, locally still-fresh session.
 pub(crate) async fn refresh_session_locked(
     state: &HostedSessionRuntime,
     base: &str,
     allow_invalid_certificates: bool,
     persist_across_reboots: bool,
-    only_if_needed: bool,
+    mode: RefreshMode,
 ) -> Result<ServerSessionState, String> {
-    let _guard = state.server_refresh_lock.lock().await;
+    let _guard = state.lock_server(base).await;
+    refresh_session(
+        state,
+        base,
+        allow_invalid_certificates,
+        persist_across_reboots,
+        mode,
+    )
+    .await
+}
 
-    if let Some(current) = state.server_sessions.read().get(base).cloned() {
-        if only_if_needed && !access_token_needs_refresh(&current) {
-            return Ok(current);
+/// Caller holds the server's lifecycle lock through any registration changes.
+pub(crate) async fn refresh_session(
+    state: &HostedSessionRuntime,
+    base: &str,
+    allow_invalid_certificates: bool,
+    persist_across_reboots: bool,
+    mode: RefreshMode,
+) -> Result<ServerSessionState, String> {
+    let current = state.server_sessions.read().get(base).cloned();
+    let interactive = mode == RefreshMode::Interactive;
+    let (refresh_token, allow_invalid_certificates, persist_across_reboots) = match current {
+        Some(session) => {
+            if !interactive && !access_token_needs_refresh(&session) {
+                let _ = checkpoint_rotation(state, &session, persist_rotation);
+                return Ok(session);
+            }
+            let ready = prepare_rotation(base, session.persist_across_reboots, interactive)
+                .and_then(|_| checkpoint_rotation(state, &session, persist_rotation));
+            if let Err(reason) = ready {
+                if !interactive
+                    && DateTime::parse_from_rfc3339(&session.access_expires_at)
+                        .is_ok_and(|expires| expires > Utc::now())
+                {
+                    return Ok(session);
+                }
+                return Err(reason);
+            }
+            (
+                session.refresh_token,
+                session.allow_invalid_certificates,
+                session.persist_across_reboots,
+            )
         }
-    }
+        None => {
+            let token = resolve_refresh_token(state, base, persist_across_reboots, mode)?;
+            prepare_rotation(base, persist_across_reboots, interactive)?;
+            (token, allow_invalid_certificates, persist_across_reboots)
+        }
+    };
 
-    // Resolve the refresh token without touching the keyring on the hot path:
-    // prefer the live session, then the per-launch cache, and only read the
-    // keyring (once) when neither is primed. The keyring read primes the cache
-    // immediately, so a refresh that then fails (e.g. the server is down at
-    // startup) does not make the auto-reconnect retry loop re-read the keyring.
-    let refresh_token = resolve_refresh_token(state, base, persist_across_reboots)?;
     let response = server_client(allow_invalid_certificates)?
         .post(format!("{base}/api/v1/auth/refresh"))
         .json(&serde_json::json!({ "refreshToken": refresh_token }))
         .send()
         .await
         .map_err(server_request_error)?;
-    let session = decode_session(response).await?;
-    // Persist the rotated token only when it actually changed, to avoid redundant
-    // Secret Service writes (each a potential unlock prompt on Linux).
-    if should_persist_rotation(&refresh_token, &session.refresh_token) {
-        store_refresh_token(base, &session.refresh_token, persist_across_reboots)?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        state.server_sessions.write().remove(base);
+        state.refresh_token_cache.write().insert(
+            base.into(),
+            SavedRefreshToken::SignInRequired(REJECTED_SESSION),
+        );
+        return Err(REJECTED_SESSION.into());
     }
-    state
-        .refresh_token_cache
-        .write()
-        .insert(base.to_string(), session.refresh_token.clone());
+    if !response.status().is_success() {
+        return Err(format!(
+            "The server could not refresh the session (HTTP {}). Try again later.",
+            response.status().as_u16()
+        ));
+    }
+    let session = decode_session(response).await?;
     let next = ServerSessionState {
         server_url: base.to_string(),
         allow_invalid_certificates,
@@ -109,7 +177,10 @@ pub(crate) async fn refresh_session_locked(
     state
         .server_sessions
         .write()
-        .insert(base.to_string(), next.clone());
+        .insert(base.into(), next.clone());
+    // The server has already consumed the previous token. The replacement is
+    // valid even if the keyring became unavailable during the HTTP request.
+    let _ = checkpoint_rotation(state, &next, persist_rotation);
     Ok(next)
 }
 
@@ -148,45 +219,44 @@ pub(crate) async fn fresh_session_for(
         &session.server_url,
         session.allow_invalid_certificates,
         session.persist_across_reboots,
-        true,
+        RefreshMode::Automatic,
     )
     .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{session_for, should_persist_rotation};
+    use super::*;
+
+    use collab_protocol::{ServerUser, ServerUserRole, ServerUserStatus};
+
+    fn session(url: &str, user: &str) -> ServerSessionState {
+        ServerSessionState {
+            server_url: url.to_string(),
+            allow_invalid_certificates: false,
+            persist_across_reboots: false,
+            access_token: format!("{user}-access"),
+            refresh_token: format!("{user}-refresh"),
+            access_expires_at: "2099-01-01T00:00:00Z".to_string(),
+            user: ServerUser {
+                id: user.to_string(),
+                username: user.to_string(),
+                display_name: user.to_string(),
+                role: ServerUserRole::Member,
+                status: ServerUserStatus::Active,
+                created_at: String::new(),
+                last_login_at: None,
+                active_sessions: 1,
+                is_primary_admin: false,
+                has_avatar: false,
+                avatar_updated_at: None,
+                preferences: serde_json::Value::Null,
+            },
+        }
+    }
 
     #[test]
     fn multiple_server_sessions_resolve_independently_by_url() {
-        use crate::state::{HostedSessionRuntime, ServerSessionState};
-        use collab_protocol::{ServerUser, ServerUserRole, ServerUserStatus};
-
-        fn session(url: &str, user: &str) -> ServerSessionState {
-            ServerSessionState {
-                server_url: url.to_string(),
-                allow_invalid_certificates: false,
-                persist_across_reboots: false,
-                access_token: format!("{user}-access"),
-                refresh_token: format!("{user}-refresh"),
-                access_expires_at: "2099-01-01T00:00:00Z".to_string(),
-                user: ServerUser {
-                    id: user.to_string(),
-                    username: user.to_string(),
-                    display_name: user.to_string(),
-                    role: ServerUserRole::Member,
-                    status: ServerUserStatus::Active,
-                    created_at: String::new(),
-                    last_login_at: None,
-                    active_sessions: 1,
-                    is_primary_admin: false,
-                    has_avatar: false,
-                    avatar_updated_at: None,
-                    preferences: serde_json::Value::Null,
-                },
-            }
-        }
-
         let state = HostedSessionRuntime::new();
         state.server_sessions.write().insert(
             "https://a.example.com".to_string(),
@@ -227,10 +297,84 @@ mod tests {
     }
 
     #[test]
-    fn rotated_refresh_token_is_persisted_only_when_it_changes() {
-        // A server that returns the same refresh token on refresh must not
-        // trigger a redundant keyring write (which can prompt on Linux).
-        assert!(!should_persist_rotation("same-token", "same-token"));
-        assert!(should_persist_rotation("old-token", "new-token"));
+    fn failed_checkpoint_retries_the_replacement_without_rewriting_a_saved_token() {
+        let state = HostedSessionRuntime::new();
+        let next = session("https://a.example.com", "alice");
+        state.refresh_token_cache.write().insert(
+            next.server_url.clone(),
+            SavedRefreshToken::Stored("spent".into()),
+        );
+        assert!(checkpoint_rotation(&state, &next, |_, _, _| Err("locked".into())).is_err());
+        checkpoint_rotation(&state, &next, |_, token, _| {
+            assert_eq!(token, "alice-refresh");
+            Ok(())
+        })
+        .unwrap();
+        checkpoint_rotation(&state, &next, |_, _, _| panic!("already checkpointed")).unwrap();
+    }
+
+    #[tokio::test]
+    async fn retry_after_outage_uses_the_saved_token_and_stops_on_definitive_rejection() {
+        use httpmock::prelude::*;
+        let server = MockServer::start_async().await;
+        let base = server.base_url();
+        let state = HostedSessionRuntime::new();
+        state
+            .refresh_token_cache
+            .write()
+            .insert(base.clone(), SavedRefreshToken::Stored("fixture".into()));
+        let attempt =
+            || refresh_session_locked(&state, &base, false, false, RefreshMode::Automatic);
+        let outage = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/v1/auth/refresh");
+                then.status(503);
+            })
+            .await;
+        assert!(attempt().await.unwrap_err().contains("503"));
+        outage.delete_async().await;
+        let rejected = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/api/v1/auth/refresh")
+                    .json_body(serde_json::json!({"refreshToken": "fixture"}));
+                then.status(401);
+            })
+            .await;
+        assert_eq!(attempt().await.unwrap_err(), REJECTED_SESSION);
+        assert_eq!(attempt().await.unwrap_err(), REJECTED_SESSION);
+        rejected.assert_calls_async(1).await;
+    }
+
+    #[tokio::test]
+    async fn simultaneous_automatic_restores_share_one_exchange() {
+        use collab_protocol::{DataResponse, NativeSession};
+        use httpmock::prelude::*;
+        let server = MockServer::start_async().await;
+        let base = server.base_url();
+        let state = HostedSessionRuntime::new();
+        let next = session(&base, "alice");
+        state.refresh_token_cache.write().insert(
+            base.clone(),
+            SavedRefreshToken::Stored(next.refresh_token.clone()),
+        );
+        let refresh = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/v1/auth/refresh");
+                then.status(200)
+                    .json_body_obj(&DataResponse::new(NativeSession {
+                        user: next.user.clone(),
+                        access_token: next.access_token.clone(),
+                        refresh_token: next.refresh_token.clone(),
+                        access_expires_at: next.access_expires_at.clone(),
+                        refresh_expires_at: next.access_expires_at.clone(),
+                    }));
+            })
+            .await;
+        let attempt =
+            || refresh_session_locked(&state, &base, false, false, RefreshMode::Automatic);
+        let (first, second) = tokio::join!(attempt(), attempt());
+        assert_eq!(first.unwrap().access_token, second.unwrap().access_token);
+        refresh.assert_calls_async(1).await;
     }
 }

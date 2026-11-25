@@ -15,7 +15,7 @@ const KEYRING_SERVICE: &str = "collab-server";
 fn keyutils_entry(server_url: &str) -> Result<keyring::Entry, String> {
     let cred =
         keyring::keyutils::KeyutilsCredential::new_with_target(None, KEYRING_SERVICE, server_url)
-            .map_err(|_| "The session keyring is unavailable.".to_string())?;
+            .map_err(|_| "The Linux kernel keyring is unavailable. Select “Keep me signed in across reboots” to use your desktop keyring.".to_string())?;
     Ok(keyring::Entry::new_with_credential(Box::new(cred)))
 }
 
@@ -39,7 +39,7 @@ pub fn store_refresh_token(
     if persist_across_reboots {
         secret_service_entry(server_url)?
             .set_password(refresh_token)
-            .map_err(|_| "Could not save the server session.".to_string())?;
+            .map_err(|_| "Could not save the server session in Secret Service. Unlock your desktop keyring and try again.".to_string())?;
         // Deleting from keyutils is silent, so clear any stale silent-store copy.
         if let Ok(entry) = keyutils_entry(server_url) {
             let _ = entry.delete_credential();
@@ -47,7 +47,7 @@ pub fn store_refresh_token(
     } else {
         keyutils_entry(server_url)?
             .set_password(refresh_token)
-            .map_err(|_| "Could not save the server session.".to_string())?;
+            .map_err(|_| "Could not save the server session in the Linux kernel keyring. Select “Keep me signed in across reboots” to use your desktop keyring.".to_string())?;
         // Intentionally do NOT touch the Secret Service on this default path:
         // reading or deleting from a locked collection could trigger the unlock
         // prompt this silent path exists to avoid. A stale Secret Service token
@@ -57,20 +57,82 @@ pub fn store_refresh_token(
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-pub fn read_refresh_token(server_url: &str, persist_across_reboots: bool) -> Option<String> {
-    let keyutils_token = keyutils_entry(server_url)
-        .ok()
-        .and_then(|entry| entry.get_password().ok());
-    if keyutils_token.is_some() || !persist_across_reboots {
-        return keyutils_token;
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+pub(crate) fn read_entry(entry: keyring::Entry) -> Result<Option<String>, String> {
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("Could not read the operating system credential store. Unlock your keyring and try again.".into()),
     }
-    // Secret Service is durable but can prompt to unlock the desktop keyring, so
-    // only read it when the saved server preference explicitly asked for
-    // cross-reboot persistence.
-    secret_service_entry(server_url)
-        .ok()
-        .and_then(|entry| entry.get_password().ok())
+}
+
+#[cfg(target_os = "linux")]
+pub fn read_refresh_token(
+    server_url: &str,
+    persist_across_reboots: bool,
+    interactive: bool,
+) -> Result<Option<String>, String> {
+    let silent = keyutils_entry(server_url).and_then(read_entry);
+    if !persist_across_reboots || matches!(&silent, Ok(Some(_))) {
+        // This also recovers a newer same-boot token from versions which could
+        // accidentally switch a durable session to keyutils during reconnect.
+        return silent;
+    }
+    durable_entry(server_url, interactive)?.read()
+}
+
+#[cfg(target_os = "linux")]
+fn durable_entry(
+    server_url: &str,
+    interactive: bool,
+) -> Result<crate::linux_keyring::UnlockedCredential<'_>, String> {
+    use crate::linux_keyring::{UnlockedCredential, LOCKED};
+    match UnlockedCredential::open(KEYRING_SERVICE, server_url) {
+        Err(reason) if reason == LOCKED && interactive => {
+            // Explicit restore may unlock the matching item. Check the collection
+            // again even if a locked provider concealed the item's attributes.
+            read_entry(secret_service_entry(server_url)?)?;
+            UnlockedCredential::open(KEYRING_SERVICE, server_url)
+        }
+        result => result,
+    }
+}
+
+/// Check the destination before spending a single-use token. A relock during
+/// the request is still possible and is handled when saving the response.
+pub(crate) fn prepare_rotation(
+    _server_url: &str,
+    _persistent: bool,
+    _interactive: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if _persistent {
+        durable_entry(_server_url, _interactive)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn persist_rotation(
+    server_url: &str,
+    token: &str,
+    persistent: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if persistent {
+        let saved = crate::linux_keyring::UnlockedCredential::open(KEYRING_SERVICE, server_url)
+            .and_then(|credential| credential.write(token));
+        if let Ok(entry) = keyutils_entry(server_url) {
+            if saved.is_ok() {
+                let _ = entry.delete_credential();
+            } else {
+                // A lock or service failure between exchange and persistence:
+                // retain the replacement across a same-boot process restart.
+                let _ = entry.set_password(token);
+            }
+        }
+        return saved;
+    }
+    store_refresh_token(server_url, token, persistent)
 }
 
 #[cfg(target_os = "linux")]
@@ -103,10 +165,12 @@ pub fn store_refresh_token(
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-pub fn read_refresh_token(server_url: &str, _persist_across_reboots: bool) -> Option<String> {
-    native_entry(server_url)
-        .ok()
-        .and_then(|entry| entry.get_password().ok())
+pub fn read_refresh_token(
+    server_url: &str,
+    _persist_across_reboots: bool,
+    _interactive: bool,
+) -> Result<Option<String>, String> {
+    read_entry(native_entry(server_url)?)
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -139,10 +203,12 @@ pub fn store_refresh_token(
 }
 
 #[cfg(target_os = "android")]
-pub fn read_refresh_token(server_url: &str, _persist_across_reboots: bool) -> Option<String> {
+pub fn read_refresh_token(
+    server_url: &str,
+    _persist_across_reboots: bool,
+    _interactive: bool,
+) -> Result<Option<String>, String> {
     crate::android_jni::call_static_string(TOKEN_STORE_CLASS, "readRefreshToken", &[server_url])
-        .ok()
-        .flatten()
 }
 
 #[cfg(target_os = "android")]
@@ -164,8 +230,12 @@ pub fn store_refresh_token(
 }
 
 #[cfg(target_os = "ios")]
-pub fn read_refresh_token(_server_url: &str, _persist_across_reboots: bool) -> Option<String> {
-    None
+pub fn read_refresh_token(
+    _server_url: &str,
+    _persist_across_reboots: bool,
+    _interactive: bool,
+) -> Result<Option<String>, String> {
+    Ok(None)
 }
 
 #[cfg(target_os = "ios")]
